@@ -4,6 +4,7 @@ import type { ArtifactKind, Tab } from '../../types'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
+import { budgetSection } from './budget'
 import { blockBar, elapsed, fit } from './fit'
 import { needsSection } from './needs'
 import { openStep } from './openstep'
@@ -177,7 +178,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   if (ctx.cols >= WIDE) {
     const width = Math.floor((ctx.cols - COLUMN_GAP) / 2)
     const half = { ...ctx, cols: width }
-    const left = keep([nowSection(half, $), tasksSection(half, $)])
+    const left = keep([nowSection(half, $), tasksSection(half, $), budgetSection(half, $)])
     const right = keep([agentsSection(half, $), latestSection(half, $)])
     const needs = needsSection(ctx, $)
     const notes = ctx.t.notes.length
@@ -205,6 +206,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     nowSection(ctx, $),
     tasksSection(ctx, $),
     agentsSection(ctx, $),
+    budgetSection(ctx, $),
     latestSection(ctx, $),
     notesSection(ctx, $),
     artifactsSection(ctx, $),

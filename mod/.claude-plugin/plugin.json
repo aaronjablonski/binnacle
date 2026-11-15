@@ -22,6 +22,12 @@
       "description": "Raise a native notification when Claude has waited on you for 20 seconds (waits), also when a turn fails (all), or never (off).",
       "options": ["off", "waits", "all"],
       "default": "waits"
+    },
+    "showCost": {
+      "type": "boolean",
+      "title": "Show cost",
+      "description": "Show the session's dollar cost in the Budget section.",
+      "default": false
     }
   }
 }

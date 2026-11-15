@@ -7,6 +7,7 @@ import { artifactsView } from './artifacts'
 import { detailView } from './detail'
 import { rule } from './fit'
 import { overviewView } from './overview'
+import { budgetTick } from './budget'
 import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { C } from './style'
@@ -28,7 +29,7 @@ export const TABS: { tab: Tab; label: string; hotkey: string }[] = [
  * it. `$` is its own argument because the engine's scan refuses `$` held in an
  * object.
  */
-export type ViewCtx = { e: RenderInput; t: Timeline; u: UiState; cols: number; now: number }
+export type ViewCtx = { e: RenderInput; t: Timeline; u: UiState; cols: number; now: number; showCost?: boolean }
 export type View = (ctx: ViewCtx, $: EngineInterface) => RenderElement
 
 const NARROW = 56
@@ -42,7 +43,7 @@ function paneArgs(isFocused: boolean): PaneOpenArgs {
   return args
 }
 
-export function registerShell(on: On, _options: { autoOpen?: boolean }): void {
+export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: boolean }): void {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
@@ -83,7 +84,7 @@ export function registerShell(on: On, _options: { autoOpen?: boolean }): void {
             })}
           </Box>
           <Text color={C.rule}>{rule(cols)}</Text>
-          {body($, e, { t, u, cols, now })}
+          {body($, e, { t, u, cols, now, showCost: options.showCost === true })}
         </Box>
       )
     } catch (err) {
@@ -93,7 +94,7 @@ export function registerShell(on: On, _options: { autoOpen?: boolean }): void {
   })
 }
 
-type Drawn = { t: Timeline; u: UiState; cols: number; now: number }
+type Drawn = { t: Timeline; u: UiState; cols: number; now: number; showCost: boolean }
 
 // A view that throws must not leave the pane blank: one dim line says why (E5).
 // Each view is called by name: the engine's scan follows `$` only into
@@ -182,6 +183,7 @@ let ticker: Timer | undefined
 
 async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise<void> {
   await needsTick($, notify)
+  await budgetTick($)
   try {
     const t = await readTimeline($)
     // `main` is a row of its own and stays 'running' for the whole session.

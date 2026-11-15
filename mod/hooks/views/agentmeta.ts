@@ -1,4 +1,5 @@
 import type { AgentRow, Step } from '../../types'
+import { usageText } from './budget'
 import { elapsed } from './fit'
 import type { ViewCtx } from './shell'
 
@@ -26,12 +27,14 @@ export function mainSince({ t }: ViewCtx): number | undefined {
 }
 
 /** `unit` follows the step count: ' steps' in the list, '' in the tree. */
-export function metaOf(ctx: ViewCtx, agent: AgentRow, unit = ' steps'): string {
+export function metaOf(ctx: ViewCtx, agent: AgentRow, unit = ' steps', usage = false): string {
   const steps = `${agent.stepCount}${unit}`
+  const extra = usage ? usageText(agent) : ''
+  const head = extra !== '' ? `${extra} · ` : ''
   if (agent.id === 'main') {
     const since = mainSince(ctx)
-    return since === undefined ? steps : `${elapsed(since, ctx.now)} · ${steps}`
+    return `${head}${since === undefined ? steps : `${elapsed(since, ctx.now)} · ${steps}`}`
   }
   const end = agent.status === 'running' ? ctx.now : (agent.endedAt ?? ctx.now)
-  return `${elapsed(agent.startedAt, end)} · ${steps}`
+  return `${head}${elapsed(agent.startedAt, end)} · ${steps}`
 }

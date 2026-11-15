@@ -1,229 +1,202 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow } from '../../types'
-import { agentTree, branchCounts, hasProblemIn, problems, runningOnlyTree, treeLines } from '../model/select'
-import type { TreeLine, TreeNode } from '../model/select'
-import { debug, errText, leaveDetail, updateUi } from '../state'
-import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, metaOf } from './agentmeta'
-import { fit } from './fit'
-import { flushRight, glyphText, sectionHeader, viewAgent } from './parts'
+import { agentTree, hasProblemIn, runningOnlyTree } from '../model/select'
+import type { TreeNode } from '../model/select'
+import { debug, errText, updateUi } from '../state'
+import { EMPTY, RUN_GLYPH, agentOpened, agentRow, tokensOf } from './agentmeta'
+import type { Jump } from './agentmeta'
+import { at, elapsed, fit, placed, wrapWords } from './fit'
+import type { Seg } from './fit'
+import { blank, row, runText, section } from './parts'
+import type { Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, glyphColor } from './style'
+import { C, COL, GRID } from './style'
+import { tokenText } from './budget'
 
-const MAX_DEPTH = 6
-const BRANCH = 3
-// Under a fold glyph or its blank: the glyph and one space.
-const FOLD_COLUMNS = 2
+/** What the tree draws, in order: a node's row, or the `+ n done` line that stands for its finished children. */
+type Item =
+  | { kind: 'node'; node: TreeNode; depth: 0 | 1 | 2; guide: string; folded: boolean; problem: boolean }
+  | { kind: 'done'; key: string; n: number; depth: 0 | 1 | 2; guide: string }
 
-/** The prefix as drawn: past 6 levels it becomes `<depth>› ` so it cannot eat the row. */
-function prefixOf(line: TreeLine): string {
-  const depth = line.prefix.length / BRANCH
-  if (depth > MAX_DEPTH) return `${depth}› `
-  return line.prefix
+const clampDepth = (d: number): 0 | 1 | 2 => (d <= 0 ? 0 : d === 1 ? 1 : 2)
+
+/** The agents in a subtree, the node itself included when it is one (main and runs not counted). */
+function agentsIn(node: TreeNode): AgentRow[] {
+  const out: AgentRow[] = []
+  const walk = (n: TreeNode) => {
+    if (n.kind === 'agent' && n.agent !== undefined && n.agent.id !== 'main') out.push(n.agent)
+    n.children.forEach(walk)
+  }
+  walk(node)
+  return out
 }
 
 /**
- * Type and description cut to `room`. The meta is the first thing to go: it is
- * drawn only when the whole name fits beside it. Then the description is cut,
- * then the type.
+ * A finished branch that folds into `+ n done`: every agent in it is done, none
+ * has a problem, and the opened row is not in it. A run with no agent yet never folds.
  */
-function agentName(agent: AgentRow, meta: string, room: number): { name: string; meta: string } {
-  const full = `${agent.type} · ${agent.description}`
-  if (full.length + 1 + meta.length <= room) return { name: full, meta }
-  if (full.length <= room) return { name: full, meta: '' }
-  const descRoom = room - agent.type.length - 3
-  if (descRoom >= 1) return { name: `${agent.type} · ${fit(agent.description, descRoom)}`, meta: '' }
-  return { name: fit(agent.type, room), meta: '' }
+function isSettled(node: TreeNode, ids: Set<string>, open: string | undefined): boolean {
+  if (node.kind === 'agent' && node.agent?.id === 'main') return false
+  const agents = agentsIn(node)
+  if (agents.length === 0) return false
+  if (agents.some(a => a.status !== 'done' || a.id === open)) return false
+  return !hasProblemIn(node, ids) && node.key !== open
 }
 
-// The `!` mark and the space before the name.
-const BANG = 2
-const branchText = (node: TreeNode): string => {
-  const { agents, running } = branchCounts(node)
-  return `${agents} agents · ${running} running`
+/** The tree as items. Only the `run:` keys in `folded` fold a node; a branch of finished agents becomes one `+ n done` line. */
+function itemsOf(root: TreeNode, folded: string[], ids: Set<string>, open: string | undefined): Item[] {
+  const out: Item[] = []
+  const walk = (node: TreeNode, actual: number, guide: string, cont: string) => {
+    const depth = clampDepth(actual)
+    const isFolded = node.kind === 'run' && folded.includes(node.key)
+    const own = node.kind === 'agent' && node.agent !== undefined && ids.has(node.agent.id)
+    out.push({ kind: 'node', node, depth, guide, folded: isFolded, problem: own || (isFolded && hasProblemIn(node, ids)) })
+    if (isFolded) return
+    const shown = node.children.filter(c => !isSettled(c, ids, open))
+    const hidden = node.children.filter(c => isSettled(c, ids, open))
+    const hiddenAgents = hidden.reduce((n, c) => n + agentsIn(c).length, 0)
+    shown.forEach((c, i) => {
+      const last = i === shown.length - 1 && hiddenAgents === 0
+      const branch = last ? '└' : '├'
+      const childGuide = actual + 1 >= 2 ? `${cont} ${branch}` : branch
+      walk(c, actual + 1, childGuide, last ? ' ' : '│')
+    })
+    if (hiddenAgents > 0) {
+      const childDepth = clampDepth(actual + 1)
+      out.push({ kind: 'done', key: node.key, n: hiddenAgents, depth: childDepth, guide: actual + 1 >= 2 ? `${cont} └` : '└' })
+    }
+  }
+  walk(root, 0, '', ' ')
+  return out
 }
 
-function runLabel(line: TreeLine): string {
-  const { run } = line.node
-  return `⚙ ${run ? run.name : line.key}`
-}
-
-function runMeta(line: TreeLine): string {
-  const { done, children } = line.node
-  return `workflow · ${done ?? 0}/${children.length} done`
-}
-
-function nodeButton(ctx: ViewCtx, line: TreeLine, room: number, bang: boolean, $: EngineInterface): RenderElement {
-  const { Text, Button } = $.ui.resolve(ctx.e)
-  const { node, key } = line
-  const agent = node.agent
-  if (node.kind === 'run' || !agent) {
-    return (
-      <Button
-        key={`node-${key}`}
-        plain
-        onPress={() =>
-          updateUi($, u => ({
-            ...u,
-            folded: u.folded.includes(key) ? u.folded.filter(k => k !== key) : [...u.folded, key],
-          }))
-        }
-      >
-        {bang ? (
-          <Text key="bang" color={C.error}>
-            !
-          </Text>
-        ) : null}
-        {bang ? <Text key="bang-gap"> </Text> : null}
-        {sectionHeader(runLabel(line), line.folded ? branchText(node) : runMeta(line), bang ? Math.max(0, room - BANG) : room, ctx.e, $)}
-      </Button>
-    )
-  }
-  const isMain = agent.id === 'main'
-  const glyph = isMain ? MAIN_GLYPH : AGENT_GLYPH[agent.status]
-  const bangW = bang ? BANG : 0
-  const inner = room - 2 - bangW
-  const folded = line.folded && node.children.length > 0
-  const meta = folded ? branchText(node) : metaOf(ctx, agent, '', agent.tokensIn !== undefined || agent.tokensOut !== undefined)
-  const parts = isMain ? { name: fit('main', inner), meta: fit(meta, Math.max(0, inner - 5)) } : agentName(agent, meta, inner)
-  const lines: RenderElement[] = [
-    glyphText(glyph, isMain ? undefined : glyphColor(agent.status), ctx.e, $, 'glyph'),
-  ]
-  if (bang) {
-    lines.push(<Text key="bang-gap"> </Text>)
-    lines.push(
-      <Text key="bang" color={C.error}>
-        !
-      </Text>,
-    )
-  }
-  lines.push(
-    <Text key="head" bold={isMain}>
-      {` ${fit(parts.name, Math.max(0, room - glyph.length - 1 - bangW))}`}
-    </Text>,
-  )
-  const used = glyph.length + bangW + 1 + parts.name.length
-  if (parts.meta !== '' && used + parts.meta.length + 1 <= room) {
-    lines.push(
-      <Text key="meta" dimColor>
-        {flushRight(used, parts.meta, room)}
-      </Text>,
-    )
-  }
-  // The type file has no per-element focus for a render hook, so the dim
-  // `doing` line sits under every running subagent instead of the focused one.
-  if (!isMain && agent.status === 'running' && agent.doing !== '') {
-    lines.push(
-      <Text key="doing" dimColor>
-        {`\n${fit(`└ ${agent.doing}`, room)}`}
-      </Text>,
-    )
-  }
+/** `+ n done` at the child depth, its guide in `subtle` (the mock's `│ └`). */
+function doneLine(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'done' }>): RenderElement {
+  const { Text } = $.ui.resolve(ctx.e)
+  const indent = 2 * it.depth
+  const segs: (Run & Seg)[] = [
+    { ...at(COL.glyph, fit(it.guide, indent)), color: C.subtle },
+    { ...at(COL.glyph + indent, '+'), dim: true },
+    { ...at(COL.name + indent, fit(`${it.n} done`, Math.max(0, ctx.cols - COL.name - indent))), dim: true },
+  ].filter(s => s.text !== '')
   return (
-    <Button
-      key={`node-${key}`}
-      plain
-      onPress={() => updateUi($, u => ({ ...leaveDetail(u), tab: 'timeline', filter: { kind: 'agent', id: agent.id } }))}
-    >
-      {lines}
-    </Button>
+    <Text key={`done-${it.key}`} wrap="truncate-end">
+      {placed(segs, 0).flatMap((p, i) => [p.gap, runText(p.seg, ctx.e, $, `done-${it.key}-${i}`)])}
+    </Text>
   )
 }
 
-function treeRow(ctx: ViewCtx, line: TreeLine, ids: Set<string>, $: EngineInterface): RenderElement {
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
-  const prefix = prefixOf(line)
-  const room = Math.max(0, ctx.cols - prefix.length - FOLD_COLUMNS)
-  const hasKids = line.node.children.length > 0
-  const key = line.key
-  const items: RenderElement[] = []
-  if (prefix !== '') {
-    items.push(
-      <Text key="prefix" dimColor>
-        {prefix}
-      </Text>,
-    )
+/** A run's tokens: the sum over its agents, `–` when none reported. */
+function runTokens(node: TreeNode): string {
+  let sum: number | undefined
+  for (const a of agentsIn(node)) {
+    const n = tokensOf(a)
+    if (n !== undefined) sum = (sum ?? 0) + n
   }
-  if (hasKids) {
-    items.push(
-      <Button
-        key={`fold-${key}`}
-        plain
-        onPress={() =>
-          updateUi($, u => ({
-            ...u,
-            folded: u.folded.includes(key) ? u.folded.filter(k => k !== key) : [...u.folded, key],
-          }))
-        }
-      >
-        <Text key="glyph" color={C.accent}>
-          {line.folded ? '▸' : '▾'}
-        </Text>
-      </Button>,
-    )
-    items.push(<Text key="gap"> </Text>)
-  } else {
-    items.push(<Text key="gap">{'  '}</Text>)
-  }
-  // A node shows the mark for itself, and for anything under it that a fold hides.
-  const { node } = line
-  const ownProblem = node.kind === 'agent' && node.agent !== undefined && ids.has(node.agent.id)
-  const bang = ownProblem || (line.folded && hasProblemIn(node, ids))
-  items.push(nodeButton(ctx, line, room, bang, $))
-  const agent = node.agent
-  const row = (
-    <Box key={`row-${key}`} flexDirection="row">
-      {items}
-    </Box>
-  )
-  if (node.kind !== 'agent' || !agent || agent.id === 'main') return row
-  return (
-    <Box key={`tree-${key}`} flexDirection="column">
-      {row}
-      <Box flexDirection="row">
-        <Text>{' '.repeat(Math.min(prefix.length + FOLD_COLUMNS, Math.max(0, ctx.cols - 4)))}</Text>
-        <Button key={`view-${agent.id}`} label="View" plain dimColor onPress={() => viewAgent($, agent.id)} />
-      </Box>
-    </Box>
-  )
+  return sum === undefined ? '–' : tokenText(sum)
 }
 
-/** The Agents tab in Tree mode: a count line, then main with every agent and run under it. */
-export function treeView(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+function runTime(ctx: ViewCtx, node: TreeNode): string {
+  const run = node.run
+  if (run === undefined) return ''
+  const agents = agentsIn(node)
+  if (agents.some(a => a.status === 'running')) return elapsed(run.startedAt, ctx.now)
+  const end = agents.reduce((m, a) => Math.max(m, a.endedAt ?? a.startedAt), run.startedAt)
+  return elapsed(run.startedAt, end)
+}
+
+function runRow(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'node' }>): RenderElement {
+  const { node } = it
+  const key = node.key
+  const label = node.run?.name ?? key
+  const name: Run[] = [{ text: label }]
+  if (it.folded) name.push({ text: ` · ${agentsIn(node).length} agents`, dim: true })
+  return row(ctx, $, {
+    key: `node-${key}`,
+    glyph: RUN_GLYPH,
+    name,
+    metric: runTokens(node),
+    time: runTime(ctx, node),
+    depth: it.depth,
+    ...(it.guide !== '' ? { guide: it.guide } : {}),
+    ...(it.problem ? { flag: 'problem' as const } : {}),
+    onPress: () =>
+      updateUi($, u => ({
+        ...u,
+        folded: u.folded.includes(key) ? u.folded.filter(k => k !== key) : [...u.folded, key],
+      })),
+  })
+}
+
+/**
+ * The tree under the shared head: `┌ AGENTS` and main with every agent and run
+ * under it. Guides are `subtle` at columns 2 and 4, names sit at 4, 6 and 8,
+ * tokens and time on the same two columns as the list. A node with a problem,
+ * and a folded run that holds one, carry `!`. Finished branches fold to
+ * `+ n done`; a press on a run folds it, a press on an agent opens it.
+ * `ids` are the agents with a problem; `targets` are the rows `n`/`p` visit.
+ */
+export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>): { el: RenderElement; targets: Jump[] } {
+  const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, u, cols } = ctx
   try {
     const full = agentTree(t)
     const root = u.runningOnly ? runningOnlyTree(full) : full
-    const lines = treeLines(root, u.folded)
-    const ids = new Set(problems(t, ctx.now, u.dismissed).map(p => p.agent))
-    let count = 0
-    let running = 0
-    for (const a of Object.values(t.agents)) {
-      if (a.id === 'main') continue
-      count += 1
-      if (a.status === 'running') running += 1
+    const items = itemsOf(root, u.folded, ids, u.agentOpen)
+    const targets: Jump[] = []
+    const rows: RenderElement[] = []
+    items.forEach((it, i) => {
+      if (it.kind === 'done') {
+        rows.push(doneLine(ctx, $, it))
+        return
+      }
+      const { node } = it
+      if (it.problem) targets.push({ key: `node-${node.key}`, open: node.key })
+      const agent = node.agent
+      if (node.kind === 'run' || agent === undefined) {
+        rows.push(runRow(ctx, $, it))
+        return
+      }
+      const line = agentRow(ctx, $, agent, {
+        key: `node-${node.key}`,
+        depth: it.depth,
+        ...(it.guide !== '' ? { guide: it.guide } : {}),
+        ...(it.problem ? { flag: 'problem' as const } : {}),
+      })
+      const detail = agentOpened(ctx, $, agent)
+      if (detail === null) {
+        rows.push(line)
+        return
+      }
+      rows.push(
+        <Box key={`blk-${node.key}`} flexDirection="column">
+          {i === 0 ? null : blank(ctx, $, `pre-${node.key}`)}
+          {line}
+          {detail}
+          {i === items.length - 1 ? null : blank(ctx, $, `post-${node.key}`)}
+        </Box>,
+      )
+    })
+    const lonely = full.children.length === 0
+    const idle = !lonely && root.children.length === 0
+    const note = lonely ? EMPTY : idle ? 'Nothing is running.' : ''
+    return {
+      el: (
+        <Box key="tree" flexDirection="column">
+          {section(ctx, $, 'AGENTS', 'tokens', 'time')}
+          {rows}
+          {note !== ''
+            ? wrapWords(note, Math.max(1, cols - GRID.margin), 4).map((l, i) => (
+                <Text key={`empty-${i}`} dimColor wrap="truncate-end">{`${' '.repeat(GRID.margin)}${l}`}</Text>
+              ))
+            : null}
+        </Box>
+      ),
+      targets,
     }
-    return (
-      <Box flexDirection="column">
-        {sectionHeader('AGENTS', `${count} agents · ${running} running`, cols, ctx.e, $)}
-        <Button
-          key="running-only"
-          label={`${u.runningOnly ? '✔ ' : ''}running only`}
-          plain
-          dimColor={!u.runningOnly}
-          onPress={() => updateUi($, cur => ({ ...cur, runningOnly: !cur.runningOnly }))}
-        />
-        {lines.map(l => treeRow(ctx, l, ids, $))}
-        {lines.length <= 1 ? (
-          <Text key="empty" dimColor>
-            {EMPTY}
-          </Text>
-        ) : null}
-      </Box>
-    )
   } catch (err) {
     debug($, `tree view failed: ${errText(err)}`)
-    return <Text dimColor>{fit(`Agents tree: ${errText(err)}`, cols)}</Text>
+    return { el: <Text dimColor>{fit(`Agents tree: ${errText(err)}`, cols)}</Text>, targets: [] }
   }
 }

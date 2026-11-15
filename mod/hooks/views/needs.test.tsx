@@ -5,6 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, Step, Timeline, TurnRow, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
+import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const BAND_SURFACES = ['terminal', 'desktop', 'mobile'] as const
@@ -123,25 +124,133 @@ test('an ask under 20 s draws no NEEDS YOU and no band alert; at 20 s it does', 
   }
 })
 
-test('NEEDS YOU is the first section, with the label, agent and age', async ($, on) => {
-  world(on, {
-    ...asked(30),
-    now: { focus: 'Wiring the limiter', at: NOW },
-    agents: { main, a1: sub('a1') },
-    steps: [step('s1', 'Bash rm -rf build', { asking: NOW - 30_000, agent: 'a1' })],
-  })
+// An ask first, then a repeated failure: two things need the person.
+const waiting = (): Timeline => ({
+  ...empty,
+  seq: 3,
+  now: { focus: 'Wiring the limiter', at: NOW - 20_000 },
+  steps: [
+    step('s1', 'Bash rm -rf build', { asking: NOW - 30_000 }),
+    step('s2', 'Bash npm test', { status: 'error', endedAt: NOW - 100_000, startedAt: NOW - 105_000 }),
+    step('s3', 'Bash npm test', { status: 'error', endedAt: NOW - 90_000, startedAt: NOW - 95_000 }),
+  ],
+  agents: { main },
+})
+
+const FOCUSED = (columns: number) => ({ ...PANE(columns), props: { ...PANE(columns).props, isFocused: true } })
+
+const rowsOf = async (ui: { drawn: () => Promise<unknown> }): Promise<string[]> => screen(await ui.drawn())
+
+test('NEEDS YOU comes right after the headline: the label in warning with why and waiting heads, the first row opened', async ($, on) => {
+  world(on, waiting())
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE(62), surface })
-    const all = await texts(ui)
-    const at = (s: string): number => all.findIndex(x => x.includes(s))
-    expect(at('NEEDS YOU')).toBeGreaterThanOrEqual(0)
-    expect(at('NEEDS YOU')).toBeLessThan(at('NOW'))
-    expect(at('Bash rm -rf build')).toBeGreaterThan(at('NEEDS YOU'))
-    expect(all.some(x => x.includes('Explore · asked 30s ago'))).toBe(true)
-    const glyph = (await ui.findAll({ type: 'Text' })).find(f => f.text === '!')
-    expect((glyph?.props as { color?: string }).color).toBe('error')
+    const rows = await rowsOf(ui)
+    const head = rows.findIndex(r => r.includes('NEEDS YOU'))
+    expect(head).toBe(rows.findIndex(r => r.startsWith('▍')) + 2)
+    expect(colOf(rows[head], '┌')).toBe(0)
+    expect(colOf(rows[head], 'NEEDS YOU')).toBe(2)
+    expect(colOf(rows[head], 'why')).toBe(38)
+    expect(colOf(rows[head], 'waiting')).toBe(50)
+    const found = await ui.findAll({ type: 'Text' })
+    const color = (t: string): string | undefined => (found.find(f => f.text === t)?.props as { color?: string } | undefined)?.color
+    expect(color('┌')).toBe('warning')
+    expect(color('NEEDS YOU')).toBe('warning')
+    // The first row: ? at 2, tool at 4, the command at 10, why at 38, waiting at 50, bold.
+    const first = rows[head + 1]!
+    expect(colOf(first, '?')).toBe(2)
+    expect(colOf(first, 'Bash')).toBe(4)
+    expect(colOf(first, 'rm -rf build')).toBe(10)
+    expect(colOf(first, 'asking')).toBe(38)
+    expect(colOf(first, '30s')).toBe(50)
+    expect((found.find(f => f.text === 'rm -rf build')?.props as { bold?: boolean }).bold).toBe(true)
+    // Opened: asks at 6, its value at 14, the agent, then the three actions from 6.
+    expect(colOf(rows[head + 2], 'asks')).toBe(6)
+    expect(colOf(rows[head + 2], 'to run Bash rm -rf build')).toBe(14)
+    expect(colOf(rows[head + 3], 'agent')).toBe(6)
+    const actions = rows[head + 4]!
+    expect(colOf(actions, 'g: chat')).toBe(6)
+    expect(colOf(actions, 'x: dismiss')).toBe(16)
+    expect(colOf(actions, 'n: next')).toBe(29)
+    expect(rows[head + 5]).toBe('')
+    // The second row is not opened.
+    const second = rows[head + 6]!
+    expect(colOf(second, '✖')).toBe(2)
+    expect(colOf(second, 'npm test')).toBe(10)
+    expect(colOf(second, 'failed 2×')).toBe(38)
+    expect(colOf(second, '1m')).toBe(50)
+    expect((found.find(f => f.text === 'npm test')?.props as { bold?: boolean }).bold).not.toBe(true)
+    expect((await ui.find({ key: 'open-asking:s1' }))?.props).toMatchObject({ autoFocus: true })
     await ui.unmount()
   }
+})
+
+test('n opens the next item and p the previous; the opened row is bold and shows its why line', async ($, on) => {
+  world(on, waiting())
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...FOCUSED(62), surface })
+    await ui.press({ key: 'need-next' })
+    const rows = await rowsOf(ui)
+    const head = rows.findIndex(r => r.includes('NEEDS YOU'))
+    expect(colOf(rows[head + 1], 'rm -rf build')).toBe(10)
+    expect(rows.some(r => colOf(r, 'why') === 6 && r.includes('Bash npm test failed ×2'))).toBe(true)
+    expect(rows.filter(r => colOf(r, 'asks') === 6)).toEqual([])
+    const found = await ui.findAll({ type: 'Text' })
+    expect((found.find(f => f.text === 'npm test')?.props as { bold?: boolean }).bold).toBe(true)
+    // The footer's p moves back (and wraps the other way).
+    await ui.press({ key: 'hint-prev' })
+    expect((await rowsOf(ui)).some(r => r.includes('asks'))).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('g: chat reaches $.ui.scroll on a press only', async ($, on) => {
+  world(on, waiting())
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  expect(toasts.length).toBe(0)
+  // The mounted kit has nothing beneath $.ui.scroll (find.test.tsx drives the call): the toast shows the press reached it.
+  await ui.press({ key: 'chat-asking:s1' })
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toContain('Not shown in chat')
+  await ui.unmount()
+})
+
+test('the footer is at most 3 entries, drawn only while the pane has the focus', async ($, on) => {
+  world(on, waiting())
+  const plain = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  expect((await rowsOf(plain)).some(r => r.includes('esc prompt'))).toBe(false)
+  await plain.unmount()
+  const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
+  const rows = await rowsOf(ui)
+  const foot = rows[rows.length - 1]!
+  expect(foot.trim().split(/ {3,}/).length <= 3).toBe(true)
+  expect(foot).toContain('p: prev')
+  expect(foot).toContain('b: budget')
+  expect(foot).toContain('esc prompt')
+  expect(colOf(foot, 'p: prev')).toBe(2)
+  await ui.unmount()
+})
+
+test('a stalled agent is a ▲ in warning named by its description, and g opens its transcript', async ($, on) => {
+  world(on, {
+    ...empty,
+    agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
+  })
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  const rows = await rowsOf(ui)
+  const row = rows.find(r => r.includes('find callers'))!
+  expect(colOf(row, '▲')).toBe(2)
+  expect(colOf(row, 'find callers')).toBe(4)
+  expect(colOf(row, 'stalled')).toBe(38)
+  const glyph = (await ui.findAll({ type: 'Text' })).find(f => f.text === '▲')
+  expect((glyph?.props as { color?: string }).color).toBe('warning')
+  expect(await ui.find({ key: 'chat-stalled:a1' })).toBeDefined()
+  await ui.unmount()
 })
 
 test('pressing an asking row opens its step; pressing an agent-only problem filters the Timeline', async ($, on) => {
@@ -160,7 +269,7 @@ test('pressing an asking row opens its step; pressing an agent-only problem filt
     await ui.press({ key: row!.key! })
     let u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
-    expect(u.detail?.stepId).toBe('s1')
+    expect(u.stepOpen).toBe('s1')
     await ui.unmount()
     stored.delete('ui')
     const again = await $.ui.mount({ ...PANE(62), surface })

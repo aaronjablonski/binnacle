@@ -3,34 +3,10 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow } from '../../types'
 import { agentGroups } from '../model/select'
 import { debug, errText, updateUi } from '../state'
-import { elapsed, fit, splitRow } from './fit'
+import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, WORKFLOW_TYPE, metaOf } from './agentmeta'
+import { fit, splitRow } from './fit'
+import { treeView } from './tree'
 import type { ViewCtx } from './shell'
-
-const AGENT_GLYPH: Record<AgentRow['status'], string> = { running: '▶', done: '✔', error: '✖' }
-// `main` stays 'running' for the whole session, so it gets no status glyph.
-const MAIN_GLYPH = '•'
-const WORKFLOW_TYPE = 'workflow-subagent'
-const EMPTY = 'No agents yet. Subagents and workflow agents appear here while they run.'
-
-/** When main began: its first step, since the `main` row itself carries no start. */
-function mainSince({ t }: ViewCtx): number | undefined {
-  let first: number | undefined
-  for (const s of t.steps) {
-    if (s.agent !== 'main') continue
-    if (first === undefined || s.startedAt < first) first = s.startedAt
-  }
-  return first
-}
-
-function metaOf(ctx: ViewCtx, agent: AgentRow): string {
-  const steps = `${agent.stepCount} steps`
-  if (agent.id === 'main') {
-    const since = mainSince(ctx)
-    return since === undefined ? steps : `${elapsed(since, ctx.now)} · ${steps}`
-  }
-  const end = agent.status === 'running' ? ctx.now : (agent.endedAt ?? ctx.now)
-  return `${elapsed(agent.startedAt, end)} · ${steps}`
-}
 
 /**
  * One agent as one Button: a main line, then the dim `doing` line. The second
@@ -98,7 +74,7 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       return (
         <Box flexDirection="column" rowGap={1}>
           {mode}
-          <Text dimColor>Coming in the next task.</Text>
+          {treeView(ctx, $)}
         </Box>
       )
     }

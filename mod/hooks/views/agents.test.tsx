@@ -229,14 +229,6 @@ test('pressing Tree writes ui.agentsMode = tree', async ($, on) => {
   }
 })
 
-test('Tree says it is coming in the next task', async ($, on) => {
-  seed(on, empty, { ...AGENTS_UI, agentsMode: 'tree' })
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    expect((await texts(ui)).join('\n')).toContain('Coming in the next task.')
-    await ui.unmount()
-  }
-})
 
 test('the mode buttons are labelled without their hotkeys', async ($, on) => {
   seed(on, empty, AGENTS_UI)

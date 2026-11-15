@@ -41,7 +41,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; opened: Reco
   return { stored, opened }
 }
 
-const run = ($: { command: { run: (a: never) => Promise<{ text: string }> } }, args: string) =>
+const run = ($: { command: { run: (a: never) => Promise<{ text?: string }> } }, args: string) =>
   $.command.run({ command: 'mc', args } as never)
 
 const FORMS: [string, string, string][] = [

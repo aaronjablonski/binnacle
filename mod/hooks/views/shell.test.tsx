@@ -101,7 +101,7 @@ test('/mc close and /mc keep work', async ($, on) => {
   const kept = await run($, 'keep')
 
   expect(closed.text).toBe('Mission Control closed.')
-  expect(kept.text).toBe('Nothing to pin yet.')
+  expect(kept.text).toBe('Nothing to keep yet.')
   expect(opened.length).toBe(0)
 })
 

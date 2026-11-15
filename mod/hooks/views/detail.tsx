@@ -11,13 +11,25 @@ import { glyphLine, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
 import { glyphColor } from './style'
 
-async function togglePin($: EngineInterface, s: Step): Promise<void> {
-  if (s.pin === undefined) await apply($, { kind: 'pin', id: s.id, note: '' })
-  else await apply($, { kind: 'unpin', id: s.id })
+/** What the toast says when a step is kept. */
+export const KEPT_TOAST = 'Kept: never trimmed, exported in full'
+
+/**
+ * `k`: keeps the step (no note) or lets it go. A keep toasts what it means;
+ * the reducer's events keep their old names (`pin`, `unpin`). Presses only.
+ */
+export async function toggleKeep($: EngineInterface, s: Step): Promise<void> {
+  if (s.pin === undefined) {
+    await apply($, { kind: 'pin', id: s.id, note: '' })
+    $.ui.toast(KEPT_TOAST)
+  } else {
+    await apply($, { kind: 'unpin', id: s.id })
+    $.ui.toast('Unkept.')
+  }
 }
 
 // Presses only: the draft is filled, never submitted.
-async function quoteInPrompt($: EngineInterface, text: string): Promise<void> {
+export async function quoteInPrompt($: EngineInterface, text: string): Promise<void> {
   try {
     const got = await $.prompt.fill({ text, mode: 'insert' })
     if (!got.isFilled) $.ui.toast('Not quoted: the prompt is busy.')
@@ -27,7 +39,7 @@ async function quoteInPrompt($: EngineInterface, text: string): Promise<void> {
   }
 }
 
-async function copyResult($: EngineInterface, text: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']): Promise<void> {
+export async function copyResult($: EngineInterface, text: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']): Promise<void> {
   try {
     const got = await $.ui.copy({ text, surface })
     $.ui.toast(got.isCopied ? 'Copied.' : `Not copied: ${got.reason}`)
@@ -51,7 +63,7 @@ function codeOf(body: StepBody) {
   return { input: inputCut, change, result }
 }
 
-/** The step detail: Back, Pin and Copy, the header, then Input, Change and Result. */
+/** The full step (the second press on a step): Back, Keep and Copy, the header, then Input, Change and Result. */
 export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text, Button, Code } = $.ui.resolve(ctx.e)
   const { t, u, cols, now } = ctx
@@ -76,15 +88,15 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       )
     }
 
-    const isPinned = s.pin !== undefined
+    const isKept = s.pin !== undefined
     const buttons = (
       <Box key="buttons" flexDirection="row" flexWrap="wrap" columnGap={1}>
         {back}
         <Button
-          key="detail-pin"
-          label={isPinned ? 'Unpin (p)' : 'Pin (p)'}
-          hotkey="p"
-          onPress={() => togglePin($, s)}
+          key="detail-keep"
+          label={isKept ? 'Unkeep (k)' : 'Keep (k)'}
+          hotkey="k"
+          onPress={() => toggleKeep($, s)}
         />
         <Button key="detail-chat" label="Show in chat" onPress={() => showInChat($, s.id)} />
         {body !== undefined ? (
@@ -103,7 +115,12 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           />
         ) : null}
         {body !== undefined ? (
-          <Button key="detail-quote" label="Quote in prompt" onPress={() => quoteInPrompt($, quoteOf(s, body))} />
+          <Button
+            key="detail-quote"
+            label="Quote in prompt (q)"
+            hotkey="q"
+            onPress={() => quoteInPrompt($, quoteOf(s, body))}
+          />
         ) : null}
       </Box>
     )
@@ -113,7 +130,7 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       [s.agent === 'main' ? 'main' : (t.agents[s.agent]?.type ?? s.agent), clock(s.startedAt, true), elapsed(s.startedAt, end), s.status],
       cols,
     )
-    const pinLine = isPinned ? fit(s.pin === '' ? '★ pinned' : `★ ${s.pin}`, cols) : ''
+    const pinLine = isKept ? fit(s.pin === '' ? '★ kept' : `★ ${s.pin}`, cols) : ''
     const header = (
       <Box key="header" flexDirection="column">
         {sectionHeader('STEP', s.status, cols, ctx.e, $)}

@@ -8,7 +8,7 @@ import { journalOf, journalRoot, readBody } from '../journal'
 /**
  * `/mc export`: writes the digest to `<journal root>/<journal id>/export-<stamp>.md`
  * and copies it. Runs only inside a command the person ran. Bodies are read
- * for pinned steps alone. Never throws.
+ * for kept steps alone: they are the only steps exported in full. Never throws.
  */
 export async function exportDigest($: EngineInterface): Promise<{ text: string }> {
   try {

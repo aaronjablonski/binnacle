@@ -8,7 +8,7 @@ import { openInEditor } from './editor'
 import { digestParts, exportDigest } from './handoff'
 import type { DigestParts } from './handoff'
 import { paneState } from './needs'
-import { openStepInline } from './openstep'
+import { openStep, openStepInline } from './openstep'
 import { openPage } from './pagenav'
 import { blank, footer, inst, more, opened, page, richDeck, row, section } from './parts'
 import type { Action, Detail, Hint, InstSpec, Run } from './parts'
@@ -493,7 +493,7 @@ export function artifactPage(ctx: ViewCtx, $: EngineInterface, id: string): Rend
       { col: DECK.value, runs: [{ text: who, dim: true }] },
       { col: DECK.aside, runs: [{ text: clock(a.updatedAt), dim: true }] },
     ],
-    ...(stepId !== undefined ? { onPress: () => openPage($, 'step', stepId) } : {}),
+    ...(stepId !== undefined ? { onPress: () => openStep($, stepId) } : {}),
   })
   fields.push({ key: 'artifact-handoff', label: 'HANDOFF', value: `goes into the digest as ${a.kind === 'document' ? 'a file path' : 'a link'}` })
   const actions: Action[] = []

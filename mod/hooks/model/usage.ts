@@ -1,6 +1,6 @@
 import type { Budget, BudgetWindow, UiState } from '../../types'
 import { cut, oneLine } from './label'
-import { MAX_DISMISSED, MAX_NOTIFIED, MAX_QUERY, MAX_TOASTED, MAX_WINDOW_NAME, MAX_WINDOWS } from './limits'
+import { MAX_DISMISSED, MAX_HITS, MAX_NOTIFIED, MAX_QUERY, MAX_TOASTED, MAX_WINDOW_NAME, MAX_WINDOWS } from './limits'
 
 // What the engine reports about cost and quota, read into the contract's
 // shapes. Pure and defensive: the capture hooks and the fixture reader both
@@ -90,8 +90,13 @@ export function boundUi(u: UiState): UiState {
   const rawQuery: unknown = u.query
   const query = typeof rawQuery !== 'string' ? '' : rawQuery.length > MAX_QUERY ? rawQuery.slice(0, MAX_QUERY) : rawQuery
   const runningOnly = u.runningOnly === true
-  const same = dismissed === u.dismissed && notified === u.notified && toasted === u.toasted &&
+  const rawHits: unknown = u.hits
+  const hits = !Array.isArray(rawHits) ? undefined : rawHits.length > MAX_HITS ? rawHits.slice(0, MAX_HITS) : (rawHits as string[])
+  const same = hits === u.hits && dismissed === u.dismissed && notified === u.notified && toasted === u.toasted &&
     query === u.query && runningOnly === u.runningOnly
   if (same) return u
-  return { ...u, dismissed, notified, toasted, query, runningOnly }
+  const next = { ...u, dismissed, notified, toasted, query, runningOnly }
+  if (hits === undefined) delete next.hits
+  else next.hits = hits
+  return next
 }

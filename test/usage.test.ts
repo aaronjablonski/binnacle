@@ -173,4 +173,14 @@ describe('boundUi', () => {
     const u = { ...base, dismissed: ['a'], query: 'x', run: 'r1' }
     expect(boundUi(u)).toBe(u)
   })
+  it('cuts the deep-search hits to 200, keeps a short list, and drops a bad value', () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `s${i}`)
+    const cut = boundUi({ ...base, hits: ids })
+    expect(cut.hits).toHaveLength(200)
+    expect(cut.hits?.[0]).toBe('s0')
+    const ok = { ...base, hits: ['a'] }
+    expect(boundUi(ok)).toBe(ok)
+    const bad = boundUi({ ...base, hits: 'nope' as unknown as string[] })
+    expect('hits' in bad).toBe(false)
+  })
 })

@@ -289,3 +289,30 @@ test('the header is a STEP section header, the glyph in its status colour and th
     }
   }
 })
+
+test('Show in chat is on every surface, calls nothing on mount, and reaches $.ui.scroll on press', async ($, on) => {
+  world(on, tl(step('s1', 'Edit a.ts')), DETAIL(bodyOf()))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  for (const surface of SURFACES) {
+    toasts.length = 0
+    const ui = await mount($, surface)
+    expect((await ui.find({ key: 'detail-chat' }))?.text).toContain('Show in chat')
+    expect(toasts.length).toBe(0)
+    // The mounted kit has nothing beneath $.ui.scroll (find.test.tsx drives the call): the toast shows the press reached it.
+    await ui.press({ key: 'detail-chat' })
+    expect(toasts.length).toBe(1)
+    expect(toasts[0]).toContain('Not shown in chat')
+    await ui.unmount()
+  }
+})
+
+test('Show in chat is there with no body kept too', async ($, on) => {
+  world(on, tl(step('s1', 'Edit a.ts')), DETAIL())
+  const ui = await mount($, 'terminal')
+  expect(await ui.find({ key: 'detail-chat' })).toBeDefined()
+  await ui.unmount()
+})

@@ -1,13 +1,14 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { Step, StepFilter, Timeline, TurnRow } from '../../types'
-import { stepGroups } from '../model/select'
+import { findSteps, stepGroups } from '../model/select'
 import { windowRows } from '../model/window'
 import { apply, debug, errText, readTimeline, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { clock, elapsed, fit, splitRow } from './fit'
 import { openStep } from './openstep'
-import { flushRight, glyphText } from './parts'
+import { deepSearch, setQuery, showInChat } from './find'
+import { flushRight, glyphText, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
 import { C, glyphColor } from './style'
 
@@ -21,6 +22,10 @@ type Group = { turn?: TurnRow; steps: Step[] }
 type Item =
   | { kind: 'turn'; id: string; group: Group; isNewest: boolean; isOpen: boolean; height: number }
   | { kind: 'step'; step: Step; height: number }
+
+// What the row needs of the find: a hit marks `in result`, and while a query is
+// active each row carries a Show in chat line under it.
+type Find = { active: boolean; hits: ReadonlySet<string> }
 
 const groupId = (g: Group): string => g.turn?.id ?? 'none'
 
@@ -45,14 +50,16 @@ function turnLayout(g: Group, isOpen: boolean, cols: number) {
   return { mark, ...splitRow(`${mark} ${title}`, time, cols) }
 }
 
-function stepLayout(t: Timeline, s: Step, cols: number, now: number) {
+function stepLayout(t: Timeline, s: Step, cols: number, now: number, find: Find) {
   const glyph = STEP_GLYPH[s.status]
   const star = s.pin !== undefined ? '★ ' : ''
   const end = s.status === 'running' ? now : (s.endedAt ?? s.startedAt)
-  const right = [s.agent !== 'main' ? agentName(t, s.agent) : '', elapsed(s.startedAt, end)].filter(x => x !== '').join(' · ')
+  const right = [s.agent !== 'main' ? agentName(t, s.agent) : '', elapsed(s.startedAt, end), find.hits.has(s.id) ? 'in result' : '']
+    .filter(x => x !== '')
+    .join(' · ')
   const head = splitRow(`${INDENT}${glyph} ${star}${s.label}`, right, cols)
   const note = s.pin !== undefined && s.pin !== '' ? fit(`${INDENT}└ ${s.pin}`, cols) : ''
-  const height = 1 + (head.stacked ? 1 : 0) + (note !== '' ? 1 : 0)
+  const height = 1 + (head.stacked ? 1 : 0) + (note !== '' ? 1 : 0) + (find.active ? 1 : 0)
   return { head, note, height }
 }
 
@@ -148,10 +155,10 @@ ${fit(`${INDENT}└ ${countLine(t, item.group)}`, cols)}`}
   )
 }
 
-function stepRow(ctx: ViewCtx, s: Step, $: EngineInterface): RenderElement {
-  const { Text, Button } = $.ui.resolve(ctx.e)
+function stepRow(ctx: ViewCtx, s: Step, $: EngineInterface, find: Find): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { t, cols, now } = ctx
-  const lay = stepLayout(t, s, cols, now)
+  const lay = stepLayout(t, s, cols, now, find)
   const glyph = STEP_GLYPH[s.status]
   const parts: RenderElement[] = [
     <Text key="indent">{INDENT}</Text>,
@@ -181,10 +188,23 @@ ${lay.note}`}
       </Text>,
     )
   }
-  return (
+  const row = (
     <Button key={`step-${s.id}`} plain onPress={() => openStep($, s.id)}>
       {parts}
     </Button>
+  )
+  if (!find.active) return row
+  return (
+    <Box key={`row-${s.id}`} flexDirection="column">
+      {row}
+      <Button
+        key={`chat-${s.id}`}
+        plain
+        dimColor
+        label={fit(`${INDENT}${INDENT}↗ Show in chat`, cols)}
+        onPress={() => showInChat($, s.id)}
+      />
+    </Box>
   )
 }
 
@@ -196,7 +216,7 @@ function scrollOf(ctx: ViewCtx): { offset: number; bodyRows: number } {
 
 /** The Timeline tab: filters, then the turns newest first, each a heading over its steps. */
 export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { Box, Text, Button, Input } = $.ui.resolve(ctx.e)
   const { t, u, cols } = ctx
   try {
     if (t.steps.length === 0) return <Text dimColor>No steps yet.</Text>
@@ -205,38 +225,52 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const pinned = t.steps.filter(s => s.pin !== undefined).length
     const errors = t.steps.filter(s => s.status === 'error').length
     const f = u.filter
+    // The active chip is a Text in the accent, bold; the others are dim labels.
+    const chip = (key: string, label: string, on: boolean, filter: StepFilter): RenderElement =>
+      on ? (
+        <Button key={key} plain onPress={() => setFilter($, requestId, filter)}>
+          <Text color={C.accent} bold>
+            {label}
+          </Text>
+        </Button>
+      ) : (
+        <Button key={key} label={label} plain dimColor onPress={() => setFilter($, requestId, filter)} />
+      )
     const filters = (
       <Box key="filters" flexDirection="row" flexWrap="wrap" columnGap={1}>
-        <Button key="filter-all" label="All" plain dimColor={f.kind !== 'all'} onPress={() => setFilter($, requestId, { kind: 'all' })} />
-        <Button
-          key="filter-pinned"
-          label={`★ Pinned ${pinned}`}
-          plain
-          dimColor={f.kind !== 'pinned'}
-          onPress={() => setFilter($, requestId, { kind: 'pinned' })}
-        />
-        <Button
-          key="filter-errors"
-          label={`✖ Errors ${errors}`}
-          plain
-          dimColor={f.kind !== 'errors'}
-          onPress={() => setFilter($, requestId, { kind: 'errors' })}
-        />
-        {f.kind === 'agent' ? (
-          <Button
-            key="filter-agent"
-            label={fit(`${agentName(t, f.id)} ✕`, cols)}
-            plain
-            onPress={() => setFilter($, requestId, { kind: 'all' })}
-          />
-        ) : null}
+        {chip('filter-all', 'All', f.kind === 'all', { kind: 'all' })}
+        {chip('filter-pinned', `★ Pinned ${pinned}`, f.kind === 'pinned', { kind: 'pinned' })}
+        {chip('filter-errors', `✖ Errors ${errors}`, f.kind === 'errors', { kind: 'errors' })}
+        {f.kind === 'agent' ? chip('filter-agent', fit(`${agentName(t, f.id)} ✕`, cols), true, { kind: 'all' }) : null}
       </Box>
     )
+    const search = (
+      <Input
+        key="timeline-find"
+        placeholder="find a step"
+        value={u.query}
+        submitLabel="deep search"
+        onInput={(value: string) => void setQuery($, value)}
+        onSubmit={(value: string) => deepSearch($, value)}
+      />
+    )
 
-    const groups = stepGroups(t, f)
+    // The query narrows the steps (tool, label, agent, pin note); the hits of a
+    // deep search stay in even when only their result matched.
+    const q = u.query.trim()
+    const find: Find = { active: q !== '', hits: new Set(q === '' ? [] : (u.hits ?? [])) }
+    let shown = t
+    if (find.active) {
+      const keep = new Set(findSteps(t, q).map(s => s.id))
+      for (const id of find.hits) keep.add(id)
+      shown = { ...t, steps: t.steps.filter(s => keep.has(s.id)) }
+    }
+
+    const groups = stepGroups(shown, f)
     if (groups.length === 0) {
       return (
         <Box flexDirection="column" rowGap={1}>
+          {search}
           {filters}
           <Text dimColor>No steps match.</Text>
         </Box>
@@ -253,7 +287,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const height = 1 + (lay.stacked ? 1 : 0) + (isOpen ? 0 : 1)
       items.push({ kind: 'turn', id, group: g, isNewest, isOpen, height })
       if (!isOpen) return
-      for (const s of g.steps) items.push({ kind: 'step', step: s, height: stepLayout(t, s, cols, ctx.now).height })
+      for (const s of g.steps) items.push({ kind: 'step', step: s, height: stepLayout(t, s, cols, ctx.now, find).height })
     })
     const total = items.reduce((sum, it) => sum + it.height, 0)
     const { offset, bodyRows } = scrollOf(ctx)
@@ -275,12 +309,16 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         bottom += it.height
         continue
       }
-      drawn.push(it.kind === 'turn' ? turnRow(ctx, it, $) : stepRow(ctx, it.step, $))
+      drawn.push(it.kind === 'turn' ? turnRow(ctx, it, $) : stepRow(ctx, it.step, $, find))
     }
 
     return (
       <Box flexDirection="column" rowGap={1}>
+        {search}
         {filters}
+        {find.active
+          ? sectionHeader('MATCHES', `${groups.reduce((n, g) => n + g.steps.length, 0)} of ${t.steps.length} steps`, cols, ctx.e, $)
+          : null}
         <Box flexDirection="column">
           {top > 0 ? <Box key="space-top" height={top} /> : null}
           {drawn}

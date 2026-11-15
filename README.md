@@ -71,9 +71,9 @@ All of these work in the middle of a turn. These are the only commands.
 Keep marks a step you do not want to lose. Press `k` on an opened step, or
 run `/mc keep <note>` for the newest step of the main conversation. The step
 shows a `★`, appears under the Kept filter on the Steps tab and in KEPT on
-Now, is never trimmed from the timeline, and is the only kind of step exported
-in full: the digest carries its whole input and result. Press `k` again to
-unkeep it.
+Now, is never trimmed from the timeline, and goes into the export with its stored
+input and result (up to 20,000 characters each). Press `k` again to unkeep
+it.
 
 ## Slim mode
 

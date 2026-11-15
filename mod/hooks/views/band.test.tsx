@@ -7,10 +7,10 @@ import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { colOf, screen } from './screen.testkit'
 
-// AbovePrompt is raised on terminal, desktop and mobile only.
-const SURFACES = ['terminal', 'desktop', 'mobile'] as const
+// AbovePrompt is raised on terminal, desktop and mobile only; the desktop draws an Svg (svgwire.test.tsx), so these tests use mobile for the text form.
+const SURFACES = ['terminal', 'mobile'] as const
 // The surfaces with no Raster draw the Neo text form of the band.
-const TEXT = ['desktop', 'mobile'] as const
+const TEXT = ['mobile'] as const
 const NOW = 1_000_000
 
 // What the state holds: seed() registers the answer once; a test may change it between mounts with reseed().
@@ -159,25 +159,25 @@ test('the three rows begin at 86 columns and not before; below, the band is one 
 // LOOK TEST (edited for Rich): the text form's dials; the rich meters are tested below.
 test('text form: at 98 and 86 the dials drop from the right and nothing is wider than the band', async ($, on) => {
   seed(on, { ...BUSY, budget: { contextPct: 9, windows: [{ name: 'five_hour', pct: 18 }, { name: 'seven_day', pct: 22 }], at: NOW } })
-  const at110 = (await bandRows($, 110, 'desktop'))[0]!
+  const at110 = (await bandRows($, 110, 'mobile'))[0]!
   expect([colOf(at110, 'CTX'), colOf(at110, '5H'), colOf(at110, '7D')]).toEqual([74, 86, 98])
-  const at98 = (await bandRows($, 98, 'desktop'))[0]!
+  const at98 = (await bandRows($, 98, 'mobile'))[0]!
   expect(at98.length).toBe(98)
   expect(colOf(at98, 'CTX')).toBe(74)
   expect(colOf(at98, '7D')).toBe(-1)
-  const at86 = (await bandRows($, 86, 'desktop'))[0]!
+  const at86 = (await bandRows($, 86, 'mobile'))[0]!
   expect(at86.length).toBe(86)
   expect(colOf(at86, '5H')).toBe(-1)
   expect(colOf(at86, '7D')).toBe(-1)
   for (const cols of [110, 100, 98, 92, 86]) {
-    for (const row of await bandRows($, cols, 'desktop')) expect([cols, row.length]).toEqual([cols, cols])
+    for (const row of await bandRows($, cols, 'mobile')) expect([cols, row.length]).toEqual([cols, cols])
   }
 })
 
 // LOOK TEST (edited for Rich): the bracket is the text form's.
 test('text form: the bracket takes the accent on its corners and subtle on the rail between', async ($, on) => {
   seed(on, BUSY)
-  const found = await textsAt($, 110, 'desktop')
+  const found = await textsAt($, 110, 'mobile')
   const colourOf = (glyph: string): (string | undefined)[] => found.filter(f => f.text?.startsWith(glyph)).map(f => f.props.color)
   expect(colourOf('┏')).toEqual(['suggestion'])
   expect(colourOf('┃')).toEqual(['subtle', 'subtle'])
@@ -189,7 +189,7 @@ test('text form: the bracket takes the accent on its corners and subtle on the r
 // LOOK TEST (edited for Rich): hull glyphs are the text form's crew.
 test('text form: the crew follows the lead, then the subagents in the order they started, one hull per role', async ($, on) => {
   seed(on, { ...BUSY, agents: { main: { ...empty.agents.main! }, a1: agent('a1', 'Plan'), a2: agent('a2', 'general-purpose'), a3: agent('a3', 'code-reviewer') } })
-  const rows = await bandRows($, 110, 'desktop')
+  const rows = await bandRows($, 110, 'mobile')
   // the lead ◈, Plan is a lead hull too, general-purpose builds ▣, the reviewer checks ◬
   expect(rows[1]).toContain('◈  ◈  ▣  ◬')
 })
@@ -197,7 +197,7 @@ test('text form: the crew follows the lead, then the subagents in the order they
 // LOOK TEST (edited for Rich): hull glyphs are the text form's crew.
 test('text form: pods come from problems(): an ask is the waiting ? beside the lead, a stalled agent z, a failed one !', async ($, on) => {
   seed(on, MIXED)
-  const rows = await bandRows($, 110, 'desktop')
+  const rows = await bandRows($, 110, 'mobile')
   // by start: the stalled builder, the failed reviewer, the finished scout, the live scout
   expect(rows[2]).toContain('◈? ▣z △! ●  ◉')
 })
@@ -214,7 +214,7 @@ test('text form: waiting: the bracket and pill turn warning, ASKS shows the firs
     expect(colOf(rows[2], 'CREW')).toBe(2)
     expect(colOf(rows[2], '/mc')).toBe(98)
   }
-  const found = await textsAt($, 110, 'desktop')
+  const found = await textsAt($, 110, 'mobile')
   expect(found.find(f => f.text === ' WAITING ')?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText' })
   const rails = found.filter(f => /^[┏┓┃┗┛]/.test(f.text ?? ''))
   expect(rails.length).toBe(6)
@@ -224,7 +224,7 @@ test('text form: waiting: the bracket and pill turn warning, ASKS shows the firs
 // LOOK TEST (edited for Rich): the tallies are the text form's.
 test('text form: waiting with a stalled and a failed agent: the crew row tallies live, stalled, failed and done', async ($, on) => {
   seed(on, MIXED)
-  const row = (await bandRows($, 110, 'desktop'))[2]!
+  const row = (await bandRows($, 110, 'mobile'))[2]!
   expect([colOf(row, '1 live'), colOf(row, '1 stalled'), colOf(row, '1 failed'), colOf(row, '1 done')]).toEqual([50, 62, 74, 86])
 })
 
@@ -240,7 +240,7 @@ test('pane open: one row at any width, the bracket folded to its two rails', asy
       expect([rows[0]!.length, rows[0]![0], rows[0]![cols - 1]]).toEqual([cols, '┃', '┃'])
     }
   }
-  const row = (await bandRows($, 110, 'desktop'))[0]!
+  const row = (await bandRows($, 110, 'mobile'))[0]!
   expect(row).toContain(`WORKING   ${FOCUS}`)
   expect(row).toContain('◈◉◉   2/4   CTX ◔ 9%   /mc ┃')
   // the terminal: hulls, the count, CTX with eight cells of beads and 9%
@@ -268,17 +268,17 @@ test('compact waiting: the pill, "n need you" bold in warning, the ask, the tigh
 // LOOK TEST (edited for Rich): the drop order is the text form's here, and the terminal's beads follow it in the next test.
 test('text form: compact drops the CTX dial, then /mc, then cuts the focus at a word', async ($, on) => {
   seed(on, BUSY, { paneOpen: true })
-  const dialAt = (await bandRows($, 80, 'desktop'))[0]!
+  const dialAt = (await bandRows($, 80, 'mobile'))[0]!
   expect(dialAt).toContain('CTX ◔ 9%   /mc ┃')
-  const noDial = (await bandRows($, 66, 'desktop'))[0]!
+  const noDial = (await bandRows($, 66, 'mobile'))[0]!
   expect(noDial).not.toContain('CTX')
   expect(noDial.endsWith('2/4   /mc ┃')).toBe(true)
   expect(noDial).toContain(FOCUS)
-  const noMc = (await bandRows($, 62, 'desktop'))[0]!
+  const noMc = (await bandRows($, 62, 'mobile'))[0]!
   expect(noMc).not.toContain('/mc')
   expect(noMc).toContain(FOCUS)
   expect(noMc.endsWith('2/4 ┃')).toBe(true)
-  const cut = (await bandRows($, 40, 'desktop'))[0]!
+  const cut = (await bandRows($, 40, 'mobile'))[0]!
   // the crew and the count keep their place: the focus takes what is left
   expect(cut).toContain('Grouping…')
   expect(cut).not.toContain('Grouping timeline')
@@ -489,7 +489,7 @@ test('a long run is labelled long run in every form, never looping', async ($, o
     expect(all).not.toContain('looping')
   }
   // the text form's second row names the kind in its own column; the terminal's first row is the ask
-  expect((await bandRows($, 110, 'desktop'))[1]!.lastIndexOf('long run')).toBe(50)
+  expect((await bandRows($, 110, 'mobile'))[1]!.lastIndexOf('long run')).toBe(50)
   reseed(LONG_AGENT, { paneOpen: true })
   expect((await bandRows($, 100))[0]).toContain('long run')
 })

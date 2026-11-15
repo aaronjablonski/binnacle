@@ -409,6 +409,8 @@ test('pressing a kept row opens its step; pressing CREW, TASKS or STEPS opens th
     expect(kept.stepOpen).toBe('s2')
     expect(kept.detail).toBeUndefined()
     await ui.unmount()
+    // The desktop's deck is an Svg: its rows are not Buttons (the tab bar opens the tabs).
+    if (surface === 'desktop') continue
     for (const [key, tab] of [['deck-tasks', 'tasks'], ['deck-crew', 'agents'], ['deck-steps', 'timeline']] as const) {
       stored.delete('ui')
       const again = await mount($, surface)

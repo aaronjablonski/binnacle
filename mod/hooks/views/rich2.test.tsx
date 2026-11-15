@@ -317,6 +317,31 @@ test('the rich Now, the amber frame, slim and the budget view draw (the engine r
 
 // ---------- the strip ----------
 
+test('rich NEEDS YOU grows with the height: 6 and a more line on a short pane and at 24, more at 36, all 12 at 50', async ($, on) => {
+  const ids = Array.from({ length: 12 }, (_, i) => `w${i + 1}`)
+  const t = busy({
+    agents: { main, ...Object.fromEntries(ids.map(id => [id, agent(id, 'general-purpose', `agent ${id}`)])) },
+    steps: ids.map((id, i) => step(`p${i + 1}`, i + 1, `Bash job${i + 1}`, 'running', { tool: 'Bash', agent: id, startedAt: NOW - 400_000, asking: NOW - (200 - i) * 1000 })),
+  })
+  world(on, t)
+  const at = async (bodyRows: number): Promise<{ n: number; more: boolean }> => {
+    const ui = await mount($, 62, bodyRows)
+    const listed = new Set((await keys(ui)).flatMap(k => /asking:(p\d+)$/.exec(k)?.[1] ?? []))
+    const rows = screen(await ui.drawn())
+    await ui.unmount()
+    // NEEDS YOU's own more line counts what it left out (LATEST below has a more line of its own).
+    return { n: listed.size, more: rows.some(r => r.trim().startsWith(`+ ${12 - listed.size} more`)) }
+  }
+  const tiny = await at(14)
+  expect(tiny).toEqual({ n: 6, more: true })
+  const short = await at(24)
+  const mid = await at(36)
+  // The rich frame above takes most of 24 rows: NEEDS YOU keeps its 6 there, and grows by 36.
+  expect(short.n).toBeGreaterThanOrEqual(6)
+  expect(mid.n).toBeGreaterThan(short.n)
+  expect(await at(50)).toEqual({ n: 12, more: false })
+})
+
 test('rich strip: compartments from 96 columns, each with its own lintel and sill; NEEDS YOU takes the second place', async ($, on) => {
   world(on, waitingT())
   for (const [cols, want] of [[100, ['now', 'needs']], [130, ['now', 'needs', 'agents']], [190, ['now', 'needs', 'agents', 'latest', 'budget']]] as const) {

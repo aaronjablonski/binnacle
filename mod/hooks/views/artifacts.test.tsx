@@ -45,7 +45,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
 
 const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).stored
 
-const PANE = (columns: number, isFocused = false) =>
+const PANE = (columns: number, isFocused = false, bodyRows = 40) =>
   ({
     plugin: 'mission-control',
     component: 'Pane',
@@ -55,7 +55,7 @@ const PANE = (columns: number, isFocused = false) =>
       isFocused,
       bodyColumns: columns,
       placement: 'dock',
-      scroll: { offset: 0, bodyRows: 40 },
+      scroll: { offset: 0, bodyRows },
       view: {},
     },
   }) as const
@@ -84,8 +84,8 @@ const ART_UI: UiState = {
   dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 
-async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, isFocused = false) {
-  return $.ui.mount({ ...PANE(columns, isFocused), surface })
+async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, isFocused = false, bodyRows = 40) {
+  return $.ui.mount({ ...PANE(columns, isFocused, bodyRows), surface })
 }
 
 type Mounted = Awaited<ReturnType<typeof mount>>
@@ -272,17 +272,29 @@ test('a step no longer in the timeline leaves only c: no o and no g', async ($, 
 })
 
 // LOOK TEST (rewritten for Rich): a changed file's glyph is ▪ (was ·); its name keeps column 4.
-test('FILES CHANGED shows the newest 3 and a more line', async ($, on) => {
-  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed: ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts'] }), ART_UI)
+// BEHAVIOUR CHANGE (binding rule 2): FILES CHANGED was capped at 3; it now grows with the pane's height, never below 3.
+test('FILES CHANGED grows with the height: the newest 3 and a more line on a short pane, more at 24 and 36, every file at 50', async ($, on) => {
+  const changed = ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts', 'j.ts', 'k.ts', 'l.ts']
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed }), ART_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))
-    expect(at).toBeGreaterThan(-1)
-    expect(rows.slice(at + 1, at + 4).map(r => r.slice(2, 3))).toEqual(['▪', '▪', '▪'])
-    expect(rows.slice(at + 1, at + 4).map(r => r.slice(4, 36).trimEnd())).toEqual(['…/d.ts', 'c.ts', '…/b.ts'])
-    expect(rows[at + 4]).toBe('  + 1 more')
-    await ui.unmount()
+    const filesAt = async (bodyRows: number): Promise<{ names: string[]; more: string | undefined }> => {
+      const ui = await mount($, surface, 62, false, bodyRows)
+      const rows = await drawnRows(ui)
+      await ui.unmount()
+      const at = rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))
+      expect(at).toBeGreaterThan(-1)
+      const list = rows.slice(at + 1)
+      return { names: list.filter(r => r.slice(2, 3) === '▪').map(r => r.slice(4, 36).trimEnd()), more: list.find(r => r.startsWith('  + ')) }
+    }
+    const tiny = await filesAt(10)
+    expect(tiny.names).toEqual(['l.ts', 'k.ts', 'j.ts'])
+    expect(tiny.more).toBe('  + 9 more')
+    const short = await filesAt(24)
+    const mid = await filesAt(36)
+    expect(short.names.length).toBeGreaterThan(3)
+    expect(mid.names.length).toBeGreaterThanOrEqual(short.names.length)
+    const tall = await filesAt(50)
+    expect([tall.names.length, tall.more]).toEqual([12, undefined])
   }
 })
 
@@ -425,13 +437,23 @@ test('a long path is cut from the left in the link line and fits 32 columns', as
   }
 })
 
-test('more than 6 artifacts show 6 rows and a more line', async ($, on) => {
-  const many = [1, 2, 3, 4, 5, 6, 7, 8].map(n => art('link', `L${n}`, { ref: `r${n}`, updatedAt: NOW - n * 1000 }))
+// BEHAVIOUR CHANGE (binding rule 2): ARTIFACTS was capped at 6; it now grows with the pane's height, never below 6.
+test('ARTIFACTS grows with the height: 6 rows and a more line on a short pane, more at 24 and 36, all 24 at 50', async ($, on) => {
+  const many = Array.from({ length: 24 }, (_, i) => art('link', `L${i + 1}`, { ref: `r${i + 1}`, updatedAt: NOW - (i + 1) * 1000 }))
   seed(on, tl(many), { ...ART_UI, artifactOpen: '' })
-  const ui = await mount($, 'terminal')
-  expect(await artButtons(ui)).toHaveLength(6)
-  expect((await drawnRows(ui)).some(r => r === '  + 2 more')).toBe(true)
-  await ui.unmount()
+  const at = async (bodyRows: number): Promise<{ n: number; more: boolean }> => {
+    const ui = await mount($, 'terminal', 62, false, bodyRows)
+    const n = (await artButtons(ui)).length
+    const more = (await drawnRows(ui)).some(r => /^ {2}\+ \d+ more$/.test(r))
+    await ui.unmount()
+    return { n, more }
+  }
+  expect(await at(10)).toEqual({ n: 6, more: true })
+  const short = await at(24)
+  const mid = await at(36)
+  expect(short.n).toBeGreaterThan(6)
+  expect(mid.n).toBeGreaterThan(short.n)
+  expect(await at(50)).toEqual({ n: 24, more: false })
 })
 
 test('empty state', async ($, on) => {

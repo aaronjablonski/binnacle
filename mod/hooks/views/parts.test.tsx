@@ -6,7 +6,7 @@ import type { UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { meter, pillRun, pips, spark } from './fit'
-import { barCell, blank, deck, fitHints, footer, more, opened, pill, readout, row, section, sparkCell, stackCell } from './parts'
+import { barCell, blank, deck, fitHints, footer, heightOf, more, opened, pill, readout, row, section, sparkCell, stackCell } from './parts'
 import type { DeckRow } from './parts'
 import type { ReadoutCell } from './parts'
 import { colOf, screen } from './screen.testkit'
@@ -569,4 +569,24 @@ test('row: the waiting and stalled flags draw ? and z in the gutter, in the warn
     expect((await ui.find({ type: 'Text', text: /^z $/ }))?.props).toMatchObject({ color: 'warning' })
     await ui.unmount()
   }
+})
+
+test('heightOf: the rows a built deck, a section and a blank take, as the screen lays them out', async ($, on) => {
+  const got: { measured: number; laid: number }[] = []
+  draws(on, (ctx, $) => {
+    const els = [
+      deck(ctx, $, [
+        { key: 'r1', label: 'ONE', cells: [{ col: DECK.gauge, runs: [{ text: 'a' }] }] },
+        { key: 'r2', label: 'TWO', cells: [{ col: DECK.gauge, runs: [{ text: 'b' }] }] },
+      ]),
+      section(ctx, $, 'LIST', 'tokens', 'time'),
+      blank(ctx, $, 'gap'),
+      row(ctx, $, { key: 'x', glyph: '▸', name: 'a row' }),
+    ]
+    for (const el of els) got.push({ measured: heightOf(el), laid: screen(el).length })
+    return null
+  })
+  await rows($, 'terminal')
+  expect(got.length).toBe(4)
+  for (const g of got) expect(g.measured).toBe(g.laid)
 })

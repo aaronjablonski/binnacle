@@ -473,25 +473,55 @@ function manySteps(n: number): Timeline {
   return { ...empty, turns: [turn('t1', 'big job', NOW - 60_000)], steps }
 }
 
-test('a turn shows 5 rows and "+ n more in this turn"; pressing it shows them all', async ($, on) => {
-  const stored = world(on, manySteps(8), TL_UI)
+// BEHAVIOUR CHANGE (binding rule 2): a turn was capped at 5 rows; it now grows with the pane's height, never below 5.
+test('a turn grows with the height: 5 rows and "+ n more in this turn" on a short pane, more at 24 and 36, every step at 50; pressing it shows them all', async ($, on) => {
+  const stored = world(on, manySteps(30), TL_UI)
   for (const surface of SURFACES) {
-    put(stored, manySteps(8), TL_UI)
-    const ui = await mount($, surface)
-    const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.includes('more in this turn'))
-    expect(rows[at]).toBe('  + 3 more in this turn')
-    expect(rows.filter(r => r.includes('Edit')).length).toBe(5)
-    expect(await ui.find({ key: 'step-m7' })).toBeDefined()
+    const at = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
+      put(stored, manySteps(30), TL_UI)
+      const ui = await mount($, surface, 62, bodyRows)
+      const rows = await drawnRows(ui)
+      await ui.unmount()
+      return { n: rows.filter(r => r.includes('Edit')).length, more: rows.find(r => r.includes('more in this turn')) }
+    }
+    const tiny = await at(10)
+    expect(tiny).toEqual({ n: 5, more: '  + 25 more in this turn' })
+    const short = await at(24)
+    const mid = await at(36)
+    expect(short.n).toBeGreaterThan(5)
+    expect(mid.n).toBeGreaterThan(short.n)
+    expect(await at(50)).toEqual({ n: 30, more: undefined })
+    put(stored, manySteps(30), TL_UI)
+    const ui = await mount($, surface, 62, 10)
+    expect(await ui.find({ key: 'step-m29' })).toBeDefined()
     expect(await ui.find({ key: 'step-m2' })).toBeUndefined()
     await ui.press({ key: 'more-t1' })
     expect((stored.get('ui') as UiState).openTurns).toEqual(['all:t1'])
     await ui.unmount()
-    const all = await mount($, surface)
-    expect(await all.find({ key: 'step-m0' })).toBeDefined()
+    const all = await mount($, surface, 62, 10)
+    // Unfolded: the next step after the five shows (the 10-row window draws only the rows near it).
+    expect(await all.find({ key: 'step-m24' })).toBeDefined()
     expect((await drawnRows(all)).some(r => r.includes('more in this turn'))).toBe(false)
     await all.unmount()
   }
+})
+
+// BEHAVIOUR CHANGE (binding rule 2): EARLIER TURNS was capped at 6; it now grows with the pane's height, never below 6.
+test('EARLIER TURNS grows with the height: 6 and "+ n more turns" on a short pane, every turn at 50', async ($, on) => {
+  const turns = Array.from({ length: 15 }, (_, i) => turn(`t${i}`, `job ${i}`, NOW - (20 - i) * 60_000))
+  const steps = turns.map((x, i) => step(`s${i}`, i + 1, `Read f${i}.ts`, 'done', { turnId: x.id, tool: 'Read' }))
+  const stored = world(on, { ...empty, turns, steps }, TL_UI)
+  const at = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
+    put(stored, { ...empty, turns, steps }, TL_UI)
+    const ui = await mount($, 'vscode', 62, bodyRows)
+    const n = (await ui.findAll({ type: 'Button' })).filter(b => /^turn-/.test(b.key ?? '')).length
+    const rows = await drawnRows(ui)
+    await ui.unmount()
+    return { n, more: rows.find(r => r.includes('more turns')) }
+  }
+  expect(await at(12)).toEqual({ n: 6, more: '  + 8 more turns' })
+  expect((await at(30)).n).toBeGreaterThan(6)
+  expect(await at(50)).toEqual({ n: 14, more: undefined })
 })
 
 test('2,000 steps in an expanded turn draw fewer than 200 Buttons', async ($, on) => {

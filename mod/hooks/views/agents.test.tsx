@@ -48,7 +48,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
 const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).stored
 
 
-const PANE = (columns: number, focused = false) =>
+const PANE = (columns: number, focused = false, bodyRows = 40) =>
   ({
     plugin: 'mission-control',
     component: 'Pane',
@@ -58,7 +58,7 @@ const PANE = (columns: number, focused = false) =>
       isFocused: focused,
       bodyColumns: columns,
       placement: 'dock',
-      scroll: { offset: 0, bodyRows: 40 },
+      scroll: { offset: 0, bodyRows },
       view: {},
     },
   }) as const
@@ -100,8 +100,8 @@ const agent = (
 
 const main: AgentRow = { ...empty.agents.main! }
 
-async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, focused = false) {
-  return $.ui.mount({ ...PANE(columns, focused), surface })
+async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, focused = false, bodyRows = 40) {
+  return $.ui.mount({ ...PANE(columns, focused, bodyRows), surface })
 }
 
 const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> => {
@@ -383,24 +383,35 @@ const manyDone = (n: number): Timeline =>
     },
   })
 
-test('more than 6 rows: six, then + n more done', async ($, on) => {
+// BEHAVIOUR CHANGE (binding rule 2): the list was capped at 6; it now grows with the pane's height, never below 6.
+test('the list grows with the height: six and + n more done on a short pane, more at 24 and 36, every agent at 50', async ($, on) => {
   seed(on, manyDone(8), AGENTS_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const all = await rows(ui)
-    const buttons = (await ui.findAll({ type: 'Button' })).filter(b => /^agent-(main|d\d)$/.test(b.key ?? ''))
-    expect(buttons.length).toBe(6)
-    const line = rowWith(all, 'more done')
-    expect(line.trim()).toBe('+ 3 more done')
-    expect(colOf(line, '+')).toBe(2)
-    expect(colOf(line, '3 more done')).toBe(4)
-    await ui.unmount()
+    const shownAt = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
+      const ui = await mount($, surface, 62, false, bodyRows)
+      const all = await rows(ui)
+      const n = (await ui.findAll({ type: 'Button' })).filter(b => /^agent-(main|d\d)$/.test(b.key ?? '')).length
+      await ui.unmount()
+      return { n, more: all.find(r => r.includes('more done')) }
+    }
+    const tiny = await shownAt(12)
+    expect(tiny.n).toBe(6)
+    expect(tiny.more?.trim()).toBe('+ 3 more done')
+    expect([colOf(tiny.more, '+'), colOf(tiny.more, '3 more done')]).toEqual([2, 4])
+    const short = await shownAt(24)
+    const mid = await shownAt(36)
+    expect(short.n).toBeGreaterThanOrEqual(6)
+    expect(mid.n).toBeGreaterThanOrEqual(short.n)
+    const tall = await shownAt(50)
+    expect([tall.n, tall.more]).toEqual([9, undefined])
+    expect(mid.n + short.n).toBeGreaterThan(12)
   }
 })
 
+// BEHAVIOUR CHANGE (binding rule 2): on a short pane, where the list is held to its old 6.
 test('the opened row always shows, even past the sixth', async ($, on) => {
   seed(on, manyDone(8), { ...AGENTS_UI, agentOpen: 'd7' })
-  const ui = await mount($, 'terminal')
+  const ui = await mount($, 'terminal', 62, false, 12)
   expect(await ui.find({ key: 'agent-d7' })).toBeDefined()
   expect((await ui.findAll({ type: 'Button' })).filter(b => /^agent-(main|d\d)$/.test(b.key ?? '')).length).toBe(6)
   await ui.unmount()

@@ -7,12 +7,12 @@ import { findSteps, stepGroups } from '../model/select'
 import { windowRows } from '../model/window'
 import { apply, debug, errText, readTimeline, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
-import { at, clock, elapsed, fit, levels, line, promptTitle, shortPaths, typeShort, wordFit } from './fit'
+import { at, clock, elapsed, fit, growLists, levels, line, listSplit, promptTitle, shortPaths, typeShort, wordFit } from './fit'
 import { deepSearch, FIND_KEY, focusFind, setQuery, showInChat, stepTarget } from './find'
 import { isOnScreen } from './onscreen'
 import { copyResult, quoteInPrompt, toggleKeep } from './detail'
 import { bodyOfOpen, openStep, openStepInline } from './openstep'
-import { blank, footer, inst, opened, pill, row, section } from './parts'
+import { blank, footer, heightOf, inst, opened, pill, row, section } from './parts'
 import type { Action, Detail, Hint, InstSpec, Run } from './parts'
 import { bars } from './raster'
 import type { ViewCtx } from './shell'
@@ -540,7 +540,8 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         }),
       )
       const every = u.openTurns.includes(allOf(id))
-      const visible = every ? g.steps : g.steps.filter((s, i) => i < TURN_ROWS || s.id === u.stepOpen)
+      const cap = turnCap.get(id) ?? TURN_ROWS
+      const visible = every ? g.steps : g.steps.filter((s, i) => i < cap || s.id === u.stepOpen)
       for (const s of visible) addStep(s, sectionAt)
       const hidden = g.steps.length - visible.length
       if (hidden > 0) addMore(`more-${id}`, hidden, 'more in this turn', () => toggleMark($, allOf(id)))
@@ -549,6 +550,15 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const [newest, ...older] = groups as [Group, ...Group[]]
     const isOpenGroup = (g: Group): boolean =>
       u.openTurns.includes(groupId(g)) || g.steps.some(s => s.id === u.stepOpen)
+    // Binding rule 2: the open turns and EARLIER TURNS share the rows the deck and the footer leave, each at least as long as before.
+    const openGroups = [newest, ...older.filter(isOpenGroup)]
+    const earlierCount = older.filter(g => !isOpenGroup(g)).length
+    const grown = growLists((ctx.bodyRows ?? scrollOf(ctx).bodyRows) - heightOf([findRow, showRow, mapRow]) - 1 - heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2, [
+      ...openGroups.map(g => ({ key: groupId(g), count: g.steps.length, least: TURN_ROWS })),
+      { key: 'earlier', count: earlierCount, least: EARLIER_ROWS },
+    ])
+    const turnCap = new Map(openGroups.map(g => [groupId(g), listSplit(g.steps.length, grown.get(groupId(g)) ?? 0).shown]))
+    const earlierCap = listSplit(earlierCount, grown.get('earlier') ?? 0).shown
     addTurn(newest, true)
     for (const g of older.filter(isOpenGroup)) addTurn(g, false)
     const earlier = older.filter(g => !isOpenGroup(g))
@@ -556,7 +566,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       gap()
       add('sec-earlier', 1, () => section(ctx, $, 'EARLIER TURNS', find.active ? 'hits' : 'steps', 'at'))
       const every = u.openTurns.includes(ALL_EARLIER)
-      for (const g of every ? earlier : earlier.slice(0, EARLIER_ROWS)) {
+      for (const g of every ? earlier : earlier.slice(0, earlierCap)) {
         const id = groupId(g)
         const ids = g.steps.map(s => s.id)
         add(`turn-${id}`, 1, () =>
@@ -570,8 +580,8 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           }),
         )
       }
-      if (!every && earlier.length > EARLIER_ROWS) {
-        addMore('more-earlier', earlier.length - EARLIER_ROWS, 'more turns', () => toggleMark($, ALL_EARLIER))
+      if (!every && earlier.length > earlierCap) {
+        addMore('more-earlier', earlier.length - earlierCap, 'more turns', () => toggleMark($, ALL_EARLIER))
       }
     }
     while (items.length > 0 && items[items.length - 1]?.isBlank === true) items.pop()

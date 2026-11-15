@@ -39,7 +39,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   return { stored, clock }
 }
 
-const PANE = (columns: number, placement: 'dock' | 'inline' = 'dock') =>
+const PANE = (columns: number, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) =>
   ({
     plugin: 'mission-control',
     component: 'Pane',
@@ -49,7 +49,7 @@ const PANE = (columns: number, placement: 'dock' | 'inline' = 'dock') =>
       isFocused: false,
       bodyColumns: columns,
       placement,
-      scroll: { offset: 0, bodyRows: 40 },
+      scroll: { offset: 0, bodyRows },
       view: {},
     },
   }) as const
@@ -118,14 +118,14 @@ test('no budget yet: no BUDGET section and no one-line summary', async ($, on) =
   }
 })
 
-const focused = (columns: number, placement: 'dock' | 'inline' = 'dock') => ({
-  ...PANE(columns, placement),
-  props: { ...PANE(columns, placement).props, isFocused: true },
+const focused = (columns: number, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) => ({
+  ...PANE(columns, placement, bodyRows),
+  props: { ...PANE(columns, placement, bodyRows).props, isFocused: true },
 })
 
 // The budget view is one press away: the CTX label, or `b` from the footer.
-async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns: number, placement: 'dock' | 'inline' = 'dock') {
-  const m = await $.ui.mount({ ...focused(columns, placement), surface })
+async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns: number, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) {
+  const m = await $.ui.mount({ ...focused(columns, placement, bodyRows), surface })
   await m.press({ key: 'hint-budget' })
   return m
 }
@@ -222,6 +222,25 @@ test('Enter on an agent row of the budget view opens its page; b returns to the 
   expect((stored.get('ui') as UiState).page).toBeUndefined()
   expect(backTo()).toEqual(['budget-agent-a1'])
   await m.unmount()
+})
+
+// BEHAVIOUR CHANGE (binding rule 2): the AGENTS share was capped at 6; it now grows with the pane's height, never below 6.
+test('the budget view AGENTS share grows with the height: 6 and a more line on a short pane, every agent at 80', async ($, on) => {
+  const ids = Array.from({ length: 12 }, (_, i) => `a${i + 1}`)
+  world(on, withBudget(budget(), { agents: { main, ...Object.fromEntries(ids.map((id, i) => [id, agent(id, { tokensIn: 1000 * (i + 1), tokensOut: 0 })])) } }))
+  for (const surface of ['terminal', 'vscode'] as const) {
+    const at = async (bodyRows: number): Promise<{ n: number; more: boolean }> => {
+      const m = await openBudget($, surface, 62, 'dock', bodyRows)
+      const n = new Set((await m.findAll({})).flatMap(f => /^budget-agent-(main|a\d+)/.exec(f.key ?? '')?.[1] ?? [])).size
+      const more = screen(await m.drawn()).some(r => r.includes('more agents'))
+      // The budget view stays open across mounts until b closes it.
+      await m.press({ key: 'hint-back' })
+      await m.unmount()
+      return { n, more }
+    }
+    expect(await at(16)).toEqual({ n: 6, more: true })
+    expect(await at(80)).toEqual({ n: 12, more: false })
+  }
 })
 
 // LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.

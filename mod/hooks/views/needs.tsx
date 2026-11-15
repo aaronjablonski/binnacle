@@ -6,7 +6,7 @@ import type { RunLimits } from '../model/meter'
 import { dismissKey, problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, fit, pillRun, promptTitle, shortPaths, wordFit } from './fit'
+import { elapsed, fit, growLists, listSplit, pillRun, promptTitle, shortPaths, wordFit } from './fit'
 import { lintelSpec, sillSpec } from './richkit'
 import { showInChat } from './find'
 import { argOf, laid } from './lay'
@@ -327,14 +327,23 @@ function bracket(ctx: ViewCtx, $: EngineInterface, pieces: Piece[]): RenderEleme
  * line, an `agent` line and `g: chat  x: dismiss  n: next`; the first row
  * takes the pane's focus. Null when nothing waits.
  */
-export function needsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  return ctx.look === 'rich' ? needsFrame(ctx, $) : needsBracket(ctx, $)
+export function needsSection(ctx: ViewCtx, $: EngineInterface, cap = MAX_LIST): RenderElement | null {
+  return ctx.look === 'rich' ? needsFrame(ctx, $, cap) : needsBracket(ctx, $, cap)
 }
 
-/** The rows the rich NEEDS YOU frame takes for `count` things waiting: lintel, the opened item (4), the others, a `+ n more` row, sill. */
-export function needsFrameRows(count: number): number {
+/**
+ * Binding rule 2 for NEEDS YOU: how many things waiting it lists in `room`
+ * rows (what the rest of Now leaves it), never fewer than MAX_LIST.
+ */
+export function needsCap(ctx: ViewCtx, room: number): number {
+  const count = needsYou(ctx.t, ctx.u, ctx.now).length
+  return Math.max(Math.min(count, MAX_LIST), listSplit(count, growLists(room, [{ key: 'needs', count, least: MAX_LIST }]).get('needs') ?? 0).shown)
+}
+
+/** The rows the rich NEEDS YOU frame takes for `count` things waiting, `cap` listed: lintel, the opened item (4), the others, a `+ n more` row, sill. */
+export function needsFrameRows(count: number, cap = MAX_LIST): number {
   if (count <= 0) return 0
-  const shown = Math.min(count, MAX_LIST)
+  const shown = Math.min(count, cap)
   return 2 + 4 + (shown - 1) + (count > shown ? 1 : 0)
 }
 
@@ -352,12 +361,12 @@ function askerOf(t: Timeline, p: Problem, now: number) {
  * asks and `g: chat  x: dismiss  n: next`; the others one row each with the
  * kind (`LONG RUN`, `STALLED`) in the label column. Keys are the text form's.
  */
-function needsFrame(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+function needsFrame(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElement | null {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { t, u, now, cols } = ctx
   const list = needsYou(t, u, now)
   if (list.length === 0) return null
-  const shown = list.slice(0, MAX_LIST)
+  const shown = list.slice(0, cap)
   const at = openedNeed(shown.length)
   const oldest = Math.min(...list.map(p => p.since))
   const nameEnd = cols >= 50 ? DECK.value - 2 : cols
@@ -451,12 +460,12 @@ function needsFrame(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
 /** The word beside the opened item's name: its kind in lower case (`permission`, `long run`). */
 const kindWord = (p: Problem): string => kindLabel(p).toLowerCase()
 
-function needsBracket(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+function needsBracket(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElement | null {
   const { Button, Box } = $.ui.resolve(ctx.e)
   const { t, u, now, cols } = ctx
   const list = needsYou(t, u, now)
   if (list.length === 0) return null
-  const shown = list.slice(0, MAX_LIST)
+  const shown = list.slice(0, cap)
   const at = openedNeed(shown.length)
   const tc = tableCols(cols)
   const nameEnd = Math.min(tc.nameEnd, cols - 2)

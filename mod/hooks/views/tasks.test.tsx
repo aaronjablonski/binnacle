@@ -45,7 +45,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
 
 const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).stored
 
-const PANE = (columns: number, isFocused = false) =>
+const PANE = (columns: number, isFocused = false, bodyRows = 40) =>
   ({
     plugin: 'mission-control',
     component: 'Pane',
@@ -55,7 +55,7 @@ const PANE = (columns: number, isFocused = false) =>
       isFocused,
       bodyColumns: columns,
       placement: 'dock',
-      scroll: { offset: 0, bodyRows: 40 },
+      scroll: { offset: 0, bodyRows },
       view: {},
     },
   }) as const
@@ -87,8 +87,8 @@ const agent = (
 
 const main: AgentRow = { ...empty.agents.main! }
 
-async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, isFocused = false) {
-  return $.ui.mount({ ...PANE(columns, isFocused), surface })
+async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, isFocused = false, bodyRows = 40) {
+  return $.ui.mount({ ...PANE(columns, isFocused, bodyRows), surface })
 }
 
 const drawnRows = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> => screen(await ui.drawn())
@@ -173,29 +173,59 @@ test('over 22 tasks the TASKS gauge is a 22-cell ▮▯ bar', async ($, on) => {
 })
 
 // LOOK TEST (edited for Neo): the active block now holds its tethered agents, and the glyphs are ▫ and ▪.
-test('sections run ACTIVE, QUEUED, DONE and are capped at 1, 5 and 3 with a more line', async ($, on) => {
-  seed(on, BUSY, TASKS_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
+// BEHAVIOUR CHANGE (binding rule 2): QUEUED and DONE were capped at 5 and 3; they now grow with the pane's height, never below those caps.
+test('sections run ACTIVE, QUEUED, DONE; QUEUED and DONE grow with the height: their old caps on a short pane, more at 24 and 36, every task at 50', async ($, on) => {
+  // 12 queued and 9 done: more than a 24-row pane holds, all of them in 50.
+  const LONG: Timeline = {
+    ...BUSY,
+    tasks: [
+      ...BUSY.tasks,
+      ...[8, 9, 10, 11, 12].map(n => task(`q${n}`, `Queued ${n}`, 'pending')),
+      ...[6, 7, 8, 9].map(n => task(`d${n}`, `Old ${n}`, 'completed', { updatedAt: NOW - 2_000_000 - n })),
+    ],
+  }
+  seed(on, LONG, TASKS_UI)
+  const shownAt = async (surface: (typeof SURFACES)[number], bodyRows: number) => {
+    const ui = await mount($, surface, 62, false, bodyRows)
     const rows = await drawnRows(ui)
-    const order = ['┌ ACTIVE', '┌ QUEUED', '┌ DONE'].map(h => rows.findIndex(r => r.startsWith(h)))
-    const [a, q, d] = order as [number, number, number]
+    await ui.unmount()
+    const [a, q, d] = ['┌ ACTIVE', '┌ QUEUED', '┌ DONE'].map(h => rows.findIndex(r => r.startsWith(h))) as [number, number, number]
     expect(a).toBeGreaterThan(-1)
     expect(q).toBeGreaterThan(a)
     expect(d).toBeGreaterThan(q)
     const between = (from: number, to: number): string[] => rows.slice(from + 1, to).filter(r => r.trim() !== '')
     expect(between(a, q).length).toBe(3)
     const queued = between(q, d)
-    expect(queued.length).toBe(6)
-    expect(queued.slice(0, 5).map(r => r.slice(2, 3))).toEqual(['▫', '▫', '▫', '▫', '▫'])
-    expect(queued[5]).toBe('  + 2 more')
     const done = rows.slice(d + 1).filter(r => r.trim() !== '')
-    expect(done.filter(r => r.startsWith('  ▪')).map(r => r.slice(4, 21).trimEnd())).toEqual(['Read the plan', 'Read the spec', 'Read the handover'])
-    expect(done).toContain('  + 2 more')
     // no blank row twice in a row anywhere
     // (On the terminal the testkit draws the lintel and sill Rasters as blank rows, so only the text form is held to this.)
     if (surface !== 'terminal') for (let i = 1; i < rows.length; i++) expect(rows[i] === '' && rows[i - 1] === '').toBe(false)
-    await ui.unmount()
+    return {
+      queued: queued.filter(r => r.startsWith('  ▫')).length,
+      queuedMore: queued.find(r => r.startsWith('  + ')),
+      done: done.filter(r => r.startsWith('  ▪')).map(r => r.slice(4, 21).trimEnd()),
+      doneMore: done.find(r => r.startsWith('  + ')),
+      rows: rows.length,
+    }
+  }
+  for (const surface of SURFACES) {
+    // A pane shorter than the lists keeps the old caps exactly: 5 queued and 3 done, each with its more line.
+    const tiny = await shownAt(surface, 16)
+    expect([tiny.queued, tiny.queuedMore]).toEqual([5, '  + 7 more'])
+    expect([tiny.done, tiny.doneMore]).toEqual([['Read the plan', 'Read the spec', 'Read the handover'], '  + 6 more'])
+    // 24 rows: at least the caps, the spare rows dealt, both still with a more line.
+    const short = await shownAt(surface, 24)
+    expect(short.queued).toBeGreaterThanOrEqual(5)
+    expect(short.done.slice(0, 3)).toEqual(['Read the plan', 'Read the spec', 'Read the handover'])
+    expect(short.queuedMore !== undefined && short.doneMore !== undefined).toBe(true)
+    // 36 rows: room for more, and the pane is filled no further than its height.
+    const mid = await shownAt(surface, 36)
+    expect(mid.queued + mid.done.length).toBeGreaterThan(short.queued + short.done.length)
+    expect(mid.queued).toBeGreaterThanOrEqual(short.queued)
+    expect(mid.done.length).toBeGreaterThanOrEqual(short.done.length)
+    // 50 rows: every task, and no more line.
+    const tall = await shownAt(surface, 50)
+    expect([tall.queued, tall.queuedMore, tall.done.length, tall.doneMore]).toEqual([12, undefined, 9, undefined])
   }
 })
 
@@ -291,34 +321,36 @@ test('the page of a task no agent worked on says so', async ($, on) => {
   await ui.unmount()
 })
 
+// BEHAVIOUR CHANGE (binding rule 2): `d` shows where the height rule leaves done tasks out, so this runs at 24 rows.
 test('d unfolds every done task and folds them again', async ($, on) => {
   const stored = seed(on, BUSY, TASKS_UI)
   // The mounted pane does not redraw under a mocked state: each press is read from a fresh mount.
   const doneRows = async (): Promise<{ n: number; hint: string }> => {
-    const ui = await mount($, 'terminal', 62, true)
+    const ui = await mount($, 'terminal', 62, true, 24)
     const rows = await drawnRows(ui)
     await ui.unmount()
     return { n: rows.filter(r => r.startsWith('  ▪')).length, hint: rowWith(rows, 'e: export').trim() }
   }
   expect(await doneRows()).toEqual({ n: 3, hint: '↵ open   d: all done   e: export' })
-  const first = await mount($, 'terminal', 62, true)
+  const first = await mount($, 'terminal', 62, true, 24)
   await first.press({ key: 'hint-d' })
   await first.unmount()
   expect((stored.get('ui') as UiState).doneAll).toBe(true)
   expect(await doneRows()).toEqual({ n: 5, hint: '↵ open   d: newest 3   e: export' })
-  const second = await mount($, 'terminal', 62, true)
+  const second = await mount($, 'terminal', 62, true, 24)
   await second.press({ key: 'hint-d' })
   await second.unmount()
   expect((stored.get('ui') as UiState).doneAll).toBeUndefined()
   expect((await doneRows()).n).toBe(3)
 })
 
+// BEHAVIOUR CHANGE (binding rule 2): at 24 rows, where DONE is held to its old cap and `d` shows.
 test('the footer shows at most 3 hints, only while focused: ↵ open, d all done, e export', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
-  const quiet = await mount($, 'terminal', 62, false)
+  const quiet = await mount($, 'terminal', 62, false, 24)
   expect((await drawnRows(quiet)).some(r => r.includes('e: export'))).toBe(false)
   await quiet.unmount()
-  const ui = await mount($, 'terminal', 62, true)
+  const ui = await mount($, 'terminal', 62, true, 24)
   const hint = rowWith(await drawnRows(ui), 'e: export')
   expect(hint.trim()).toBe('↵ open   d: all done   e: export')
   expect(colOf(hint, '↵')).toBe(2)
@@ -422,11 +454,12 @@ test('no row longer than the pane on any surface at 62, 40 and 32', async ($, on
   }
 })
 
+// BEHAVIOUR CHANGE (binding rule 2): at 24 rows, where `d` shows.
 test('focused, every row of Tasks, footer included, fits 32 and 40 columns', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
   for (const columns of [32, 40]) {
     for (const surface of SURFACES) {
-      const ui = await mount($, surface, columns, true)
+      const ui = await mount($, surface, columns, true, 24)
       const rows = await drawnRows(ui)
       expect(rows.some(r => r.includes('d: '))).toBe(true)
       for (const r of rows) expect(r.length <= columns).toBe(true)

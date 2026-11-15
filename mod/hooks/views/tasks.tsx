@@ -5,11 +5,11 @@ import { median, taskMeter } from '../model/meter'
 import type { TaskMeterRow } from '../model/meter'
 import { debug, errText, updateUi } from '../state'
 import { STEP_GLYPH, openAgentPage, signalFlag } from './agentmeta'
-import { buckets, clock, elapsed, levels, pips, spark, typeShort, wrapFull, wrapWords } from './fit'
+import { buckets, clock, elapsed, growLists, levels, listSplit, pips, spark, typeShort, wrapFull, wrapWords } from './fit'
 import { exportDigest } from './handoff'
 import { podFor, waitStates } from './needs'
 import { openPage } from './pagenav'
-import { blank, footer, more, opened, page, richDeck, row, section } from './parts'
+import { blank, footer, heightOf, more, page, richDeck, row, section } from './parts'
 import type { Action, Detail, Hint, InstSpec, PageBlock, RichRow, Run } from './parts'
 import { bars } from './raster'
 import type { Ink } from './raster'
@@ -298,9 +298,20 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       blocks.push(lines)
     }
 
+    // Binding rule 2: QUEUED and DONE share the rows the deck, ACTIVE and the footer leave, never fewer than their old caps.
+    const unfolded = u.doneAll === true
+    const fixed =
+      heightOf(deckEl) + heightOf(captionEl) + blocks.reduce((n, b) => n + 1 + heightOf(b), 0) + heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2
+    const grown = growLists((ctx.bodyRows ?? 40) - fixed - 1, [
+      { key: 'queued', count: queued.length, least: QUEUED_CAP },
+      { key: 'done', count: done.length, least: unfolded ? UNFOLDED_CAP : DONE_CAP },
+    ])
+    const queuedSplit = listSplit(queued.length, grown.get('queued') ?? 0)
+    const doneSplit = listSplit(done.length, grown.get('done') ?? 0)
+
     if (queued.length > 0) {
       const lines: RenderElement[] = [section(ctx, $, 'QUEUED')]
-      for (const x of queued.slice(0, QUEUED_CAP)) {
+      for (const x of queued.slice(0, queuedSplit.shown)) {
         const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
         const owner = ownerType !== undefined ? typeShort(ownerType) : undefined
         lines.push(
@@ -313,15 +324,13 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           }),
         )
       }
-      if (queued.length > QUEUED_CAP) lines.push(more(ctx, $, queued.length - QUEUED_CAP))
+      if (queuedSplit.more > 0) lines.push(more(ctx, $, queuedSplit.more))
       blocks.push(lines)
     }
 
-    const unfolded = u.doneAll === true
     if (done.length > 0) {
-      const cap = unfolded ? UNFOLDED_CAP : DONE_CAP
       const lines: RenderElement[] = [section(ctx, $, 'DONE', 'tokens', 'time')]
-      for (const x of done.slice(0, cap)) {
+      for (const x of done.slice(0, doneSplit.shown)) {
         const m = byTask.get(keyOf(x))
         const used = m !== undefined ? tok(m.tokens) : ''
         const took = spentMs(m)
@@ -337,13 +346,14 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           }),
         )
       }
-      if (done.length > cap) lines.push(more(ctx, $, done.length - cap))
+      if (doneSplit.more > 0) lines.push(more(ctx, $, doneSplit.more))
       blocks.push(lines)
     }
 
     const hints: Hint[] = []
     if (active.length > 0 || queued.length > 0 || done.length > 0) hints.push({ text: '↵ open' })
-    if (done.length > DONE_CAP) {
+    // `d` lists every done task where the height rule shows only some (and folds them again).
+    if (unfolded || doneSplit.more > 0) {
       hints.push({
         hotkey: 'd',
         label: unfolded ? 'newest 3' : 'all done',

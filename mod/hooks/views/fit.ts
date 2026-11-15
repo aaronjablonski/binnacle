@@ -96,3 +96,23 @@ export function headerParts(label: string, meta: string, columns: number): { lab
   if (left >= 2) return { label: head, rule: ` ${rule(left - 1)}`, meta: '' }
   return { label: head, rule: '', meta: '' }
 }
+
+/** `text` broken at spaces into lines of at most `columns`; a word wider than a line is cut with '…'. */
+export function wrap(text: string, columns: number): string[] {
+  if (columns <= 0) return []
+  const lines: string[] = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    if (word === '') continue
+    if (line === '') {
+      line = fit(word, columns)
+    } else if (line.length + 1 + word.length <= columns) {
+      line = `${line} ${word}`
+    } else {
+      lines.push(line)
+      line = fit(word, columns)
+    }
+  }
+  if (line !== '') lines.push(line)
+  return lines
+}

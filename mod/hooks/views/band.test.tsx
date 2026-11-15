@@ -123,3 +123,41 @@ test('the row is cut to bodyColumns', async ($, on) => {
   expect(row.length > 0).toBe(true)
   await ui.unmount()
 })
+
+test('narrow: tasks, agents and a focus together stay within 24, with and without a focus', async ($, on) => {
+  const base: Timeline = {
+    ...empty,
+    tasks: [task('1', 'completed'), task('2', 'completed'), task('3', 'in_progress'), task('4', 'pending')],
+    agents: { main: { ...empty.agents.main! }, a1: agent('a1'), a2: agent('a2') },
+  }
+  seed(on, { ...base, now: { focus: 'A focus that is much too long for a narrow band to hold', at: NOW } })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND({ bodyColumns: 24 }), surface })
+    const row = (await ui.find({ type: 'Text' }))?.text ?? ''
+    expect(row.length <= 24).toBe(true)
+    expect(row).toContain('/mc')
+    expect(row).not.toContain('agents')
+    await ui.unmount()
+  }
+})
+
+test('narrow: with no focus the row is still within 24, and a tiny width drops tasks then the hint', async ($, on) => {
+  seed(on, {
+    ...empty,
+    tasks: [task('1', 'completed'), task('2', 'pending')],
+    agents: { main: { ...empty.agents.main! }, a1: agent('a1'), a2: agent('a2') },
+  })
+  for (const [cols, expected] of [
+    [24, '▣ 1/2 tasks │ /mc'],
+    [14, '/mc'],
+    [2, '/…'],
+  ] as const) {
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...BAND({ bodyColumns: cols }), surface })
+      const row = (await ui.find({ type: 'Text' }))?.text ?? ''
+      expect(row.length <= cols).toBe(true)
+      expect(row).toBe(expected)
+      await ui.unmount()
+    }
+  }
+})

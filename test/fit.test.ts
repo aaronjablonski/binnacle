@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { bar, blockBar, elapsed, fit, fitLeft, headerParts, rule } from '../mod/hooks/views/fit'
+import { bar, blockBar, elapsed, fit, fitLeft, headerParts, rule, wrap } from '../mod/hooks/views/fit'
 
 test('fit cuts with an ellipsis and never exceeds the columns', () => {
   expect(fit('abcdef', 4)).toBe('abc…')
@@ -59,4 +59,17 @@ test('headerParts sum to the columns, dropping the meta first and then the rule'
   expect(sum(tight)).toBe(8)
   expect(headerParts('ARTIFACTS', '', 9)).toEqual({ label: 'ARTIFACTS', rule: '', meta: '' })
   expect(headerParts('A LONG LABEL', '', 5).label).toBe('A LO…')
+})
+
+test('wrap breaks at spaces into lines of at most the columns', () => {
+  expect(wrap('the quick brown fox', 9)).toEqual(['the quick', 'brown fox'])
+  expect(wrap('one two', 20)).toEqual(['one two'])
+  expect(wrap('', 10)).toEqual([])
+  expect(wrap('abc', 0)).toEqual([])
+})
+
+test('wrap cuts a word wider than a line and keeps every line within the columns', () => {
+  expect(wrap('see supercalifragilistic now', 8)).toEqual(['see', 'superca…', 'now'])
+  const text = 'Code edits are not listed here; they are steps in the Timeline (4 files changed).'
+  for (const columns of [1, 5, 24, 62]) for (const line of wrap(text, columns)) expect(line.length <= columns).toBe(true)
 })

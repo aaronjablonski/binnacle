@@ -33,6 +33,16 @@ export async function readTimeline($: EngineInterface): Promise<Timeline> {
 
 const isEmpty = (t: Timeline): boolean => JSON.stringify(t) === JSON.stringify(empty)
 
+/** The pane's own state: tab, filter, detail. */
+export async function readUi($: EngineInterface): Promise<UiState> {
+  return read($, ui)
+}
+
+/** Changes the pane's state from a press handler or another event; never from ui.render. */
+export async function updateUi($: EngineInterface, fn: (u: UiState) => UiState): Promise<void> {
+  await update($, ui, fn)
+}
+
 /** True when the state holds a timeline with anything in it. */
 export async function hasTimeline($: EngineInterface): Promise<boolean> {
   return !isEmpty(await read($, timeline))

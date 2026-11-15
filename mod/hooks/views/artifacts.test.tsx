@@ -102,6 +102,7 @@ const FOUR = tl(
   { steps: [step('s1', 1, 'Write docs/plan.md'), step('s9', 9, 'Publish the page')] },
 )
 
+// LOOK TEST (edited for Neo): the result glyph is ✦ (◆ is now a hull).
 test('rows are newest first: glyph at 2, title at 4, the kind at 38 and the age at 50', async ($, on) => {
   seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
   for (const surface of SURFACES) {
@@ -112,7 +113,7 @@ test('rows are newest first: glyph at 2, title at 4, the kind at 38 and the age 
     expect([colOf(page, '↗'), colOf(page, 'Rate limit design'), colOf(page, 'page'), colOf(page, '9m')]).toEqual([2, 4, 38, 50])
     const doc = rowWith(rows, 'docs/plan.md')
     expect([colOf(doc, '▤'), doc.slice(38, 41), colOf(doc, '12m')]).toEqual([2, 'doc', 50])
-    expect(colOf(rowWith(rows, 'Review findings'), '◆')).toBe(2)
+    expect(colOf(rowWith(rows, 'Review findings'), '✦')).toBe(2)
     expect(colOf(rowWith(rows, 'PR #41'), '⎇')).toBe(2)
     const head = rowWith(rows, '┌ ARTIFACTS')
     expect([colOf(head, 'kind'), colOf(head, 'age')]).toEqual([38, 50])
@@ -125,7 +126,7 @@ test('kinds keep their colours: page and link in the accent, document merged, re
   const ui = await mount($, 'terminal')
   const found = await ui.findAll({ type: 'Text' })
   const color = (glyph: string): string | undefined => (found.find(f => f.text === glyph)?.props as { color?: string }).color
-  expect([color('↗'), color('▤'), color('◆'), color('⎇')]).toEqual(['suggestion', 'merged', 'success', 'suggestion'])
+  expect([color('↗'), color('▤'), color('✦'), color('⎇')]).toEqual(['suggestion', 'merged', 'success', 'suggestion'])
   await ui.unmount()
 })
 
@@ -284,7 +285,8 @@ test('FILES CHANGED shows the newest 3 and a more line', async ($, on) => {
   }
 })
 
-test('HANDOFF: Export digest with its note, and a press exports', async ($, on) => {
+// LOOK TEST (rewritten for Neo): HANDOFF is no longer a bottom section; it is the top row of the deck.
+test('the HANDOFF row of the deck: Export digest at 14, journal at 38, brackets on 0 and 61; a press exports', async ($, on) => {
   seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
   mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
   const writes: string[] = []
@@ -300,19 +302,55 @@ test('HANDOFF: Export digest with its note, and a press exports', async ($, on) 
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.startsWith('┌ HANDOFF'))
+    const at = rows.findIndex(r => r.includes('HANDOFF'))
     expect(at).toBeGreaterThan(-1)
-    const head = rows[at] ?? ''
-    expect(colOf(head, 'to')).toBe(38)
-    const ex = rows[at + 1] ?? ''
-    expect([colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal')]).toEqual([2, 4, 38])
-    expect(rows[at + 2]).toBe('    kept ★ steps go in with full input and result')
+    const ex = rows[at] ?? ''
+    expect(ex.startsWith('┏ HANDOFF')).toBe(true)
+    expect([colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal')]).toEqual([14, 16, 38])
+    expect(ex.length).toBe(62)
+    expect(ex.endsWith('┓')).toBe(true)
+    expect(rows.some(r => r.startsWith('┌ HANDOFF'))).toBe(false)
     writes.length = 0
     await ui.press({ key: 'handoff-export' })
     expect(writes.length).toBe(1)
     expect(writes[0]).toMatch(/\/sess1\/export-.*\.md$/)
     await ui.unmount()
   }
+})
+
+// LOOK TEST (new for Neo): the KEPT row and the deck's place at the top.
+test('the KEPT row counts the kept steps; the deck comes first, then ARTIFACTS, then FILES CHANGED', async ($, on) => {
+  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps: [kept, step('s2', 2, 'Write b.md')], changed: ['a.ts'] }), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const at = rows.findIndex(r => r.includes('HANDOFF'))
+    const k = rows[at + 1] ?? ''
+    expect(k.startsWith('┗ KEPT')).toBe(true)
+    expect([colOf(k, '★'), colOf(k, '1 step goes in full'), colOf(k, 'the rest in brief')]).toEqual([14, 16, 38])
+    expect(k.length).toBe(62)
+    expect(k.endsWith('┛')).toBe(true)
+    expect(rows[at + 2]).toBe('')
+    expect(rows[at + 3]?.startsWith('┌ ARTIFACTS')).toBe(true)
+    expect(rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))).toBeGreaterThan(at + 3)
+    await ui.unmount()
+  }
+})
+
+test('KEPT with no kept steps says so', async ($, on) => {
+  seed(on, tl([art('link', 'PR', { ref: 'x' })]), ART_UI)
+  const none = await mount($, 'terminal')
+  expect(rowWith(await drawnRows(none), 'KEPT')).toContain('none kept yet')
+  await none.unmount()
+})
+
+test('KEPT with several kept steps uses the plural', async ($, on) => {
+  const two = tl([art('link', 'PR', { ref: 'x' })], { steps: [{ ...step('s1', 1, 'a'), pin: '' }, { ...step('s2', 2, 'b'), pin: 'x' }] })
+  seed(on, two, ART_UI)
+  const ui = await mount($, 'terminal')
+  expect(rowWith(await drawnRows(ui), 'KEPT')).toContain('2 steps go in full')
+  await ui.unmount()
 })
 
 test('e exports from the footer, which shows 3 entries and only while focused', async ($, on) => {

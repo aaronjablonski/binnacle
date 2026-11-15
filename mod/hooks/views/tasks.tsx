@@ -2,12 +2,12 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, TaskItem, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
-import { buckets10, elapsed, spark10, typeShort, wrapWords } from './fit'
+import { buckets, elapsed, pips, spark, typeShort, wrapWords } from './fit'
 import { exportDigest } from './handoff'
-import { barCell, blank, footer, more, opened, readout, row, section } from './parts'
-import type { Detail, Hint, ReadoutCell, Run } from './parts'
+import { blank, deck, footer, more, opened, row, section } from './parts'
+import type { Detail, Hint } from './parts'
 import type { ViewCtx } from './shell'
-import { C, statusColor } from './style'
+import { DECK, GLYPHS, podOf, statusColor } from './style'
 
 const EMPTY = 'No tasks yet. They appear when Claude writes a task list.'
 // Rows each section shows before its `+ n more` line.
@@ -16,6 +16,8 @@ const QUEUED_CAP = 5
 const DONE_CAP = 3
 // `d` unfolds the done tasks; a very long list still stops here.
 const UNFOLDED_CAP = 20
+// Agents tethered under the active task before the more line.
+const TETHERED_AGENTS = 4
 const OPENED_AGENTS = 3
 
 /** A task's identity in the pane: its owner and id (ids repeat across agents). */
@@ -40,11 +42,18 @@ function startOf(t: Timeline, now: number): number {
   return times.length > 0 ? Math.min(...times) : now
 }
 
-/** A bar in the dim colour: the queue is not live work. */
-const dimBar = (value: number, total: number): Run[] =>
-  barCell(value, total).map(r => (r.color === C.live ? { text: r.text, dim: true } : r))
+/** Tokens as `72k` or `1.2M`; empty when the agent has none yet. */
+function tokensOf(a: AgentRow): string {
+  const n = (a.tokensIn ?? 0) + (a.tokensOut ?? 0)
+  if (n <= 0) return ''
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`
+  return `${(n / 1_000_000).toFixed(1)}M`
+}
 
-/** The Tasks tab: readouts on one scale, then ACTIVE, QUEUED and DONE. */
+const [PIP_DONE, PIP_NOW, PIP_QUEUED] = GLYPHS.pip
+
+/** The Tasks tab: the TASKS and PACE deck, then ACTIVE (agents tethered under the task), QUEUED and DONE. */
 export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, u, cols, now } = ctx
@@ -64,18 +73,38 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const done = t.tasks.filter(x => x.status === 'completed').sort(byNewest)
     const start = startOf(t, now)
 
-    // ELAPSED is last: it is the first cell a narrow pane gives up, then QUEUED, then ACTIVE.
-    const cells: ReadoutCell[] = [
-      { label: 'DONE', value: [{ text: String(done.length), bold: true }, { text: `/${total}`, dim: true }], gfx: barCell(done.length, total) },
-      { label: 'ACTIVE', value: String(active.length), gfx: barCell(active.length, total), drop: 3 },
-      { label: 'QUEUED', value: String(queued.length), gfx: dimBar(queued.length, total), drop: 2 },
-      {
-        label: 'ELAPSED',
-        value: elapsed(start, now),
-        gfx: [{ text: spark10(buckets10(done.map(x => x.updatedAt), start, now)), dim: true }],
-        drop: 1,
-      },
-    ]
+    const activeCount = active.length > 0 ? 1 : 0
+    const doneTimes = done.map(x => x.updatedAt)
+    const deckEl = deck(
+      ctx,
+      $,
+      [
+        {
+          label: 'TASKS',
+          cells: [
+            { col: DECK.gauge, runs: pips(done.length, total, 22, activeCount), narrow: pips(done.length, total, 10, activeCount), whole: true },
+            { col: DECK.value, runs: [{ text: String(done.length), bold: true }, { text: `/${total}`, dim: true }] },
+            { col: DECK.aside, runs: [{ text: elapsed(start, now), dim: true }] },
+          ],
+        },
+        {
+          label: 'PACE',
+          cells: [
+            {
+              col: DECK.gauge,
+              runs: spark(buckets(doneTimes, start, now, 22), 22),
+              narrow: spark(buckets(doneTimes, start, now, 10), 10),
+              whole: true,
+            },
+            ...(done.length > 0
+              ? [{ col: DECK.value, runs: [{ text: elapsed(0, Math.round(Math.max(0, now - start) / done.length)), bold: true }, { text: ' each', dim: true }] }]
+              : []),
+            { col: DECK.aside, runs: [{ text: String(queued.length), bold: true }, { text: ' queued', dim: true }] },
+          ],
+        },
+      ],
+      { key: 'tasks-deck' },
+    )
 
     const toggleOpen = (key: string) => (): Promise<void> =>
       updateUi($, s => {
@@ -98,7 +127,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         lines.push(
           row(ctx, $, {
             key: `task-${key}`,
-            glyph: '▸',
+            glyph: PIP_NOW,
             glyphColor: statusColor(x.status),
             name: x.activeForm ?? x.subject,
             bold: true,
@@ -107,6 +136,25 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
             onPress: toggleOpen(key),
           }),
         )
+        const shown = agents.slice(0, TETHERED_AGENTS)
+        const hidden = agents.length - shown.length
+        shown.forEach((a, i) => {
+          const pod = podOf(a, now)
+          const tok = tokensOf(a)
+          lines.push(
+            row(ctx, $, {
+              key: `task-agent-${a.id}`,
+              glyph: pod.hull.text,
+              ...(pod.hull.color !== undefined ? { glyphColor: pod.hull.color } : {}),
+              name: a.description,
+              depth: 1,
+              tether: { last: i === shown.length - 1 && hidden === 0 },
+              ...(tok !== '' ? { metric: tok } : {}),
+              time: elapsed(a.startedAt, now),
+            }),
+          )
+        })
+        if (hidden > 0) lines.push(more(ctx, $, hidden, 'more agents', 1))
         if (open) {
           const details: Detail[] =
             agents.length === 0
@@ -128,7 +176,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
         const owner = ownerType !== undefined ? typeShort(ownerType) : undefined
         lines.push(
-          row(ctx, $, { key: `task-${keyOf(x)}`, glyph: '○', name: x.subject, ...(owner !== undefined ? { metric: owner } : {}) }),
+          row(ctx, $, { key: `task-${keyOf(x)}`, glyph: PIP_QUEUED, name: x.subject, ...(owner !== undefined ? { metric: owner } : {}) }),
         )
       }
       if (queued.length > QUEUED_CAP) lines.push(more(ctx, $, queued.length - QUEUED_CAP))
@@ -140,7 +188,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const cap = unfolded ? UNFOLDED_CAP : DONE_CAP
       const lines: RenderElement[] = [section(ctx, $, 'DONE', undefined, 'ago')]
       for (const x of done.slice(0, cap)) {
-        lines.push(row(ctx, $, { key: `task-${keyOf(x)}`, glyph: '✓', name: x.subject, dim: true, time: elapsed(x.updatedAt, now) }))
+        lines.push(row(ctx, $, { key: `task-${keyOf(x)}`, glyph: PIP_DONE, name: x.subject, dim: true, time: elapsed(x.updatedAt, now) }))
       }
       if (done.length > cap) lines.push(more(ctx, $, done.length - cap))
       blocks.push(lines)
@@ -166,8 +214,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     hints.push({ hotkey: 'e', label: 'export', key: 'hint-e', onPress: async () => void (await exportDigest($)) })
 
     const out: RenderElement[] = []
-    const head = readout(ctx, $, cells)
-    if (head !== null) out.push(head)
+    if (deckEl !== null) out.push(deckEl)
     for (const lines of blocks) {
       if (out.length > 0) out.push(blank(ctx, $, `gap-${out.length}`))
       out.push(...lines)

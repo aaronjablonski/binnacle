@@ -210,8 +210,8 @@ test('a filter that matches nothing says so', async ($, on) => {
 
 type Mounted = Awaited<ReturnType<typeof mount>>
 type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
-const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string } =>
-  (f?.props ?? {}) as { color?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string }
+const propsOf = (f: Found | undefined): { color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string } =>
+  (f?.props ?? {}) as { color?: string; backgroundColor?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string }
 
 function pinned(): Timeline {
   const t = twoTurns()
@@ -362,36 +362,55 @@ const fileFor = (id: string, text: string, extra: Record<string, unknown> = {}):
 const TAB_ROWS = 3
 const drawnRows = async (ui: { drawn: () => Promise<unknown> }): Promise<string[]> => screen(await ui.drawn()).slice(TAB_ROWS)
 
-test('at 62: find row, chips on cells, the turn section and its rows sit on the grid', async ($, on) => {
+// LOOK TEST (rewritten for Neo): replaces "at 62: find row, chips on cells, the turn section and its rows sit on the grid".
+test('at 62: the FIND and SHOW deck, then the turn section and its rows sit on the grid', async ($, on) => {
   world(on, twoTurns(), TL_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 62)
     const rows = await drawnRows(ui)
-    // Row 1: f: Find at 2, the step count at 38 and the errors at 50.
-    expect(colOf(rows[0], 'f: Find')).toBe(2)
+    // FIND (top bracket): label 2, f: type to search at 14, the step count at 38, the errors at 50, the rail on 61.
+    expect(rows[0]?.startsWith('┏ FIND')).toBe(true)
+    expect(colOf(rows[0], 'f: type to search')).toBe(14)
     expect(colOf(rows[0], '4 steps')).toBe(38)
     expect(colOf(rows[0], '✖ 1 error')).toBe(50)
-    expect(rows[1]).toBe('')
-    // Chips: one cell each; Kept and In view are hidden at zero.
-    expect(colOf(rows[2], 'All 4')).toBe(2)
-    expect(colOf(rows[2], 'Errors 1')).toBe(14)
-    expect(rows[2]).not.toContain('Kept')
-    expect(rows[2]).not.toContain('In view')
-    expect(rows[3]).toBe('')
-    expect(rows[4]?.startsWith('┌ ')).toBe(true)
-    expect(colOf(rows[4], '“add rate limiting”')).toBe(2)
-    expect(colOf(rows[4], 'agent')).toBe(38)
-    expect(colOf(rows[4], 'time')).toBe(50)
+    expect(rows[0]?.length).toBe(62)
+    expect(rows[0]?.endsWith('┓')).toBe(true)
+    // SHOW (bottom bracket): the chips on cells 14, 26 and 38; the chosen one, All, is a pill (one space each side).
+    expect(rows[1]?.startsWith('┗ SHOW')).toBe(true)
+    expect(colOf(rows[1], ' All 4 ')).toBe(14)
+    expect(colOf(rows[1], 'Errors 1')).toBe(26)
+    expect(rows[1]).not.toContain('Kept')
+    expect(rows[1]).not.toContain('In view')
+    expect(rows[1]?.length).toBe(62)
+    expect(rows[1]?.endsWith('┛')).toBe(true)
+    expect(rows[2]).toBe('')
+    expect(rows[3]?.startsWith('┌ ')).toBe(true)
+    expect(colOf(rows[3], '“add rate limiting”')).toBe(2)
+    expect(colOf(rows[3], 'agent')).toBe(38)
+    expect(colOf(rows[3], 'time')).toBe(50)
     // s4 (newest): glyph 2, tool 4, name 10, metric 38, time 50.
-    expect(colOf(rows[5], '✖')).toBe(2)
-    expect(colOf(rows[5], 'Bash')).toBe(4)
-    expect(colOf(rows[5], 'npm test')).toBe(10)
-    expect(colOf(rows[5], 'main')).toBe(38)
-    expect(colOf(rows[5], '1s')).toBe(50)
-    expect(colOf(rows[6], 'rateLimit.ts')).toBe(10)
+    expect(colOf(rows[4], '✖')).toBe(2)
+    expect(colOf(rows[4], 'Bash')).toBe(4)
+    expect(colOf(rows[4], 'npm test')).toBe(10)
+    expect(colOf(rows[4], 'main')).toBe(38)
+    expect(colOf(rows[4], '1s')).toBe(50)
+    expect(colOf(rows[5], 'rateLimit.ts')).toBe(10)
     for (const r of rows) expect(r.length <= 62).toBe(true)
     await ui.unmount()
   }
+})
+
+test('the chosen chip is a pill: backgroundColor in the accent, inverseText, bold; the others are plain dim text', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, filter: { kind: 'errors' } })
+  const ui = await mount($, 'terminal')
+  const found = await ui.findAll({ type: 'Text' })
+  const pillProps = propsOf(found.find(x => x.text === ' Errors 1 '))
+  expect(pillProps.backgroundColor).toBe('suggestion')
+  expect(pillProps.color).toBe('inverseText')
+  expect(pillProps.bold).toBe(true)
+  expect(propsOf(found.find(x => x.text === 'All')).dimColor).toBe(true)
+  expect(propsOf(found.find(x => x.text === 'All')).backgroundColor).toBeUndefined()
+  await ui.unmount()
 })
 
 test('EARLIER TURNS lists each older turn on one row: steps at 38, start time at 50', async ($, on) => {
@@ -473,13 +492,14 @@ test('2,000 steps in an expanded turn draw fewer than 200 Buttons', async ($, on
   }
 })
 
+// LOOK TEST (edited for Neo): the chips are now on cells 14, 26, 38 of the SHOW row.
 test('the Kept chip counts kept steps (was Pinned) on the second cell; Errors moves to the third', async ($, on) => {
   const kept: Timeline = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's3' ? { ...s, pin: 'the limiter' } : s)) }
   const stored = world(on, kept, TL_UI)
   const ui = await mount($, 'terminal')
   const rows = await drawnRows(ui)
-  expect(colOf(rows[2], 'Kept 1')).toBe(14)
-  expect(colOf(rows[2], 'Errors 1')).toBe(26)
+  expect(colOf(rows[1], 'Kept 1')).toBe(26)
+  expect(colOf(rows[1], 'Errors 1')).toBe(38)
   expect(rows.join('\n')).not.toContain('Pinned')
   await ui.press({ key: 'filter-pinned' })
   expect((stored.get('ui') as UiState).filter).toEqual({ kind: 'pinned' })
@@ -514,18 +534,12 @@ test('the Errors filter shows only error steps; a chip at zero is hidden unless 
   await open.unmount()
 })
 
-test('the active chip is accent and bold; the others are dim; an error count is in error', async ($, on) => {
-  const stored = world(on, twoTurns(), { ...TL_UI, filter: { kind: 'errors' } })
-  const ui = await mount($, 'terminal')
-  const found = await ui.findAll({ type: 'Text' })
-  const active = propsOf(found.find(x => x.text === 'Errors 1'))
-  expect(active.color).toBe('suggestion')
-  expect(active.bold).toBe(true)
-  expect(propsOf(found.find(x => x.text === 'All')).dimColor).toBe(true)
-  await ui.unmount()
-  put(stored, twoTurns(), TL_UI)
+// LOOK TEST (rewritten for Neo): replaces "the active chip is accent and bold; the others are dim" (the chosen chip is now a pill).
+test('an idle chip is dim with its error count in error; the chosen All is the pill', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
   const idle = await mount($, 'terminal')
   const texts_ = await idle.findAll({ type: 'Text' })
+  expect(propsOf(texts_.find(x => x.text === ' All 4 ')).backgroundColor).toBe('suggestion')
   expect(propsOf(texts_.find(x => x.text === 'Errors')).dimColor).toBe(true)
   expect(propsOf(texts_.find(x => x.text === '1' && propsOf(x).color === 'error')).color).toBe('error')
   await idle.unmount()
@@ -551,7 +565,7 @@ test('a query underlines its hits in the step names', async ($, on) => {
   const hit = (await ui.findAll({ type: 'Text' })).find(f => f.text === 'rateLimit')
   expect((hit?.props as { underline?: boolean } | undefined)?.underline).toBe(true)
   const rows = await drawnRows(ui)
-  expect(colOf(rows[0], '/')).toBe(2)
+  expect(colOf(rows[0], '/')).toBe(14)
   expect(colOf(rows[0], '1 hit')).toBe(38)
   expect(colOf(rows[0], 'of 4')).toBe(50)
   await ui.unmount()
@@ -819,14 +833,14 @@ test('a step whose row is in view has ◂ in the gutter and counts in the In vie
     let rows = await drawnRows(ui)
     expect(colOf(rows.find(r => r.includes('rateLimit.ts')), '◂')).toBe(0)
     expect(rows.find(r => r.includes('npm test'))?.startsWith('◂')).toBe(false)
-    expect(colOf(rows[2], 'In view 1')).toBe(26)
+    expect(colOf(rows[1], 'In view 1')).toBe(38)
     expect(rows.join('\n')).not.toContain('on screen')
 
     await row.redraw(toolRow('s3', 'Edit', null))
     await clock?.advance(1000)
     rows = await drawnRows(ui)
     expect(rows.find(r => r.includes('rateLimit.ts'))?.startsWith('◂')).toBe(false)
-    expect(rows[2]).not.toContain('In view')
+    expect(rows[1]).not.toContain('In view')
     await ui.unmount()
 
     // The mark is per surface: what one surface shows says nothing of another's.
@@ -891,12 +905,14 @@ for (const cols of [62, 50, 40, 32]) {
   })
 }
 
+// LOOK TEST (edited for Neo): at 40 the SHOW row keeps two cells (14 and 26).
 test('at 40 columns the time sits at the last cell and the chips stay on cells', async ($, on) => {
   world(on, twoTurns(), TL_UI)
   const ui = await mount($, 'terminal', 40)
   const rows = await drawnRows(ui)
-  expect(colOf(rows[2], 'All 4')).toBe(2)
-  expect(colOf(rows[2], 'Errors 1')).toBe(14)
+  expect(colOf(rows[1], ' All 4 ')).toBe(14)
+  expect(colOf(rows[1], 'Errors 1')).toBe(26)
+  expect(rows[1]?.length).toBe(40)
   const row = rows.find(r => r.includes('npm test'))
   expect(colOf(row, '1s')).toBe(26)
   expect(row).not.toContain('main')
@@ -907,7 +923,7 @@ test('at 32 columns only the cells that fit are drawn, and the open filter is ke
   const kept = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's3' ? { ...s, pin: '' } : s)) }
   world(on, kept, { ...TL_UI, filter: { kind: 'errors' } })
   const ui = await mount($, 'terminal', 32)
-  const chips = (await drawnRows(ui))[2] ?? ''
+  const chips = (await drawnRows(ui))[1] ?? ''
   expect(chips).toContain('Errors 1')
   expect(chips).not.toContain('In view')
   expect(chips.length <= 32).toBe(true)

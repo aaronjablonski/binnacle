@@ -4,7 +4,6 @@ import type { On } from 'claude-code'
 
 import type { AgentRow, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
-import { bar10 } from './fit'
 import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -112,48 +111,59 @@ const BUSY: Timeline = {
   ],
   agents: {
     main,
-    x1: { ...agent('x1', 'Explore', 'find callers', 'Grep stepRow'), taskId: 'a1' },
-    x2: { ...agent('x2', 'general-purpose', 'write tests', 'Edit a.ts'), taskId: 'a1' },
+    x1: { ...agent('x1', 'Explore', 'find callers', 'Grep stepRow'), taskId: 'a1', tokensIn: 70_000, tokensOut: 2_000 },
+    x2: { ...agent('x2', 'general-purpose', 'write tests', 'Edit a.ts'), taskId: 'a1', tokensIn: 88_000 },
   },
 }
 
 const rowWith = (rows: string[], text: string): string => rows.find(r => r.includes(text)) ?? ''
 
-test('readouts DONE, ACTIVE, QUEUED and ELAPSED sit on cells 2, 14, 26 and 38', async ($, on) => {
+// LOOK TEST (rewritten for Neo): replaces "readouts DONE, ACTIVE, QUEUED and ELAPSED sit on cells 2, 14, 26 and 38".
+test('the TASKS and PACE deck: rails on 0 and 61, label at 2, gauge at 14, value at 38, aside at 50', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
-    const labels = rowWith(rows, 'DONE  ')
-    expect([colOf(labels, 'DONE'), colOf(labels, 'ACTIVE'), colOf(labels, 'QUEUED'), colOf(labels, 'ELAPSED')]).toEqual([2, 14, 26, 38])
-    const at = rows.indexOf(labels)
-    const values = rows[at + 1] ?? ''
-    expect(values.slice(2, 14).trimEnd()).toBe('5/13')
-    expect(values.slice(14, 26).trimEnd()).toBe('1')
-    expect(values.slice(26, 38).trimEnd()).toBe('7')
-    expect(values.slice(38).trimEnd()).toBe('1h00')
+    const tasks = rowWith(rows, 'TASKS')
+    const pace = rowWith(rows, 'PACE')
+    expect(tasks.startsWith('┏ ')).toBe(true)
+    expect(pace.startsWith('┗ ')).toBe(true)
+    expect(tasks.length).toBe(62)
+    expect(tasks.endsWith('┓')).toBe(true)
+    expect(pace.endsWith('┛')).toBe(true)
+    expect([colOf(tasks, 'TASKS'), colOf(tasks, '▪'), colOf(tasks, '5/13'), colOf(tasks, '1h00')]).toEqual([2, 14, 38, 50])
+    expect([colOf(pace, 'PACE'), colOf(pace, '12m each'), colOf(pace, '7 queued')]).toEqual([2, 38, 50])
+    expect(pace.slice(14, 36)).toMatch(/^[▁▂▃▄▅▆▇█]{22}$/)
+    // the deck is the first block: tab content starts with it, one blank row, then ACTIVE
+    expect(rows.indexOf(pace) - rows.indexOf(tasks)).toBe(1)
+    expect(rows[rows.indexOf(pace) + 1]).toBe('')
     await ui.unmount()
   }
 })
 
-test('every diagram is 10 wide and the three bars share one scale, the task total', async ($, on) => {
+// LOOK TEST (rewritten for Neo): replaces "every diagram is 10 wide and the three bars share one scale".
+test('the TASKS gauge is one pip per task: ▪ done, ▸ current, ▫ queued', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.includes('ACTIVE') && r.includes('DONE'))
-    const gfx = rows[at + 2] ?? ''
-    const cells = [2, 14, 26, 38].map(c => gfx.slice(c, c + 10))
-    for (const c of cells) expect(c.length).toBe(10)
-    const fill = (c: string): number => [...c].filter(ch => ch === '━').length
-    expect(fill(cells[0] ?? '')).toBe(bar10(5, 13).fill.length)
-    expect(fill(cells[1] ?? '')).toBe(bar10(1, 13).fill.length)
-    expect(fill(cells[2] ?? '')).toBe(bar10(7, 13).fill.length)
-    expect(gfx.slice(12, 14)).toBe('  ')
-    await ui.unmount()
-  }
+  const ui = await mount($, 'terminal')
+  const row = rowWith(await drawnRows(ui), 'TASKS')
+  expect(row.slice(14, 27)).toBe('▪▪▪▪▪▸▫▫▫▫▫▫▫')
+  await ui.unmount()
 })
 
+test('over 22 tasks the TASKS gauge is a 22-cell ▮▯ bar', async ($, on) => {
+  const many: Timeline = {
+    ...BUSY,
+    tasks: [...BUSY.tasks, ...Array.from({ length: 12 }, (_, i) => task(`z${i}`, `Extra ${i}`, 'pending'))],
+  }
+  seed(on, many, TASKS_UI)
+  const wide = await mount($, 'terminal')
+  const bar = rowWith(await drawnRows(wide), 'TASKS').slice(14, 36)
+  expect(bar).toHaveLength(22)
+  expect(bar).toMatch(/^▮+▯+$/)
+  await wide.unmount()
+})
+
+// LOOK TEST (edited for Neo): the active block now holds its tethered agents, and the glyphs are ▫ and ▪.
 test('sections run ACTIVE, QUEUED, DONE and are capped at 1, 5 and 3 with a more line', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
   for (const surface of SURFACES) {
@@ -165,13 +175,13 @@ test('sections run ACTIVE, QUEUED, DONE and are capped at 1, 5 and 3 with a more
     expect(q).toBeGreaterThan(a)
     expect(d).toBeGreaterThan(q)
     const between = (from: number, to: number): string[] => rows.slice(from + 1, to).filter(r => r.trim() !== '')
-    expect(between(a, q).length).toBe(1)
+    expect(between(a, q).length).toBe(3)
     const queued = between(q, d)
     expect(queued.length).toBe(6)
-    expect(queued.slice(0, 5).map(r => r.slice(2, 3))).toEqual(['○', '○', '○', '○', '○'])
+    expect(queued.slice(0, 5).map(r => r.slice(2, 3))).toEqual(['▫', '▫', '▫', '▫', '▫'])
     expect(queued[5]).toBe('  + 2 more')
     const done = rows.slice(d + 1).filter(r => r.trim() !== '')
-    expect(done.filter(r => r.startsWith('  ✓')).map(r => r.slice(4, 21).trimEnd())).toEqual(['Read the plan', 'Read the spec', 'Read the handover'])
+    expect(done.filter(r => r.startsWith('  ▪')).map(r => r.slice(4, 21).trimEnd())).toEqual(['Read the plan', 'Read the spec', 'Read the handover'])
     expect(done).toContain('  + 2 more')
     // no blank row twice in a row anywhere
     for (let i = 1; i < rows.length; i++) expect(rows[i] === '' && rows[i - 1] === '').toBe(false)
@@ -187,7 +197,7 @@ test('rows put glyph at 2, name at 4, the metric at 38 and the time at 50 at 62 
     const active = rowWith(rows, 'Grouping timeline steps')
     expect([colOf(active, '▸'), colOf(active, 'Grouping'), colOf(active, '2 live'), colOf(active, '3m')]).toEqual([2, 4, 38, 50])
     const done = rowWith(rows, 'Read the plan')
-    expect([colOf(done, '✓'), colOf(done, 'Read the plan'), colOf(done, '10m')]).toEqual([2, 4, 50])
+    expect([colOf(done, '▪'), colOf(done, 'Read the plan'), colOf(done, '10m')]).toEqual([2, 4, 50])
     const heads = rowWith(rows, '┌ ACTIVE')
     expect([colOf(heads, 'agents'), colOf(heads, 'time')]).toEqual([38, 50])
     await ui.unmount()
@@ -201,30 +211,69 @@ test('the active row is bold in the accent, pending is dim, done is dim througho
   const withText = (text: string) => found.find(f => f.text === text)
   expect((withText('▸')?.props as { color?: string }).color).toBe('suggestion')
   expect((withText('Grouping timeline steps')?.props as { bold?: boolean }).bold).toBe(true)
-  expect((withText('○')?.props as { dimColor?: boolean }).dimColor).toBe(true)
-  expect((withText('✓')?.props as { dimColor?: boolean }).dimColor).toBe(true)
+  expect((withText('▫')?.props as { dimColor?: boolean }).dimColor).toBe(true)
+  expect((withText('▪')?.props as { dimColor?: boolean }).dimColor).toBe(true)
   expect((withText('Read the plan')?.props as { dimColor?: boolean }).dimColor).toBe(true)
   await ui.unmount()
 })
 
-test('pressing the active row opens its agents, one line each; pressing again closes it', async ($, on) => {
+// LOOK TEST (rewritten for Neo): replaces "pressing the active row opens its agents": the agents are now tethered under the active task.
+test('the active task has its agents tethered under it: ├╌ and ╰╌, hull at 4, name at 6, tokens at 38, time at 50', async ($, on) => {
+  seed(on, BUSY, TASKS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const first = rowWith(rows, 'find callers')
+    const second = rowWith(rows, 'write tests')
+    expect([colOf(first, '├╌'), colOf(first, '◉'), colOf(first, 'find callers'), colOf(first, '72k'), colOf(first, '1m')]).toEqual([2, 4, 6, 38, 50])
+    expect([colOf(second, '╰╌'), colOf(second, '▣'), colOf(second, 'write tests'), colOf(second, '88k'), colOf(second, '1m')]).toEqual([2, 4, 6, 38, 50])
+    // both sit directly under the active row
+    const at = rows.findIndex(r => r.includes('Grouping timeline steps'))
+    expect([rows[at + 1], rows[at + 2]]).toEqual([first, second])
+    await ui.unmount()
+  }
+})
+
+test('the tethered agents have the hull colour of their pod; a fifth agent folds into a more line', async ($, on) => {
+  const crowd: Timeline = {
+    ...BUSY,
+    agents: {
+      ...BUSY.agents,
+      ...Object.fromEntries(
+        [3, 4, 5, 6].map(n => [`x${n}`, { ...agent(`x${n}`, 'general-purpose', `job ${n}`, 'Edit b.ts'), taskId: 'a1' }]),
+      ),
+    },
+  }
+  seed(on, crowd, TASKS_UI)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  expect(rows.filter(r => /^ {2}[├╰]╌/.test(r)).length).toBe(4)
+  expect(rows.filter(r => r.startsWith('  ├╌')).length).toBe(4)
+  expect(rows.some(r => r.startsWith('  ╰╌'))).toBe(false)
+  expect(rows.some(r => r.includes('2 more agents'))).toBe(true)
+  const found = await ui.findAll({ type: 'Text' })
+  expect((found.find(f => f.text === '◉')?.props as { color?: string }).color).toBe('suggestion')
+  await ui.unmount()
+})
+
+test('pressing the active row opens its agents with type and doing; pressing again closes it', async ($, on) => {
   const stored = seed(on, BUSY, TASKS_UI)
   const ui = await mount($, 'terminal')
-  expect((await drawnRows(ui)).some(r => r.includes('find callers'))).toBe(false)
+  expect((await drawnRows(ui)).some(r => r.includes('Explore · find callers'))).toBe(false)
   await ui.press({ key: 'task-main:a1' })
   await ui.unmount()
   expect((stored.get('ui') as UiState).taskOpen).toBe('main:a1')
   const again = await mount($, 'terminal')
   const rows = await drawnRows(again)
-  const first = rowWith(rows, 'find callers')
+  const first = rowWith(rows, 'Explore · find callers')
   expect([colOf(first, 'agent'), colOf(first, 'Explore · find callers')]).toEqual([6, 14])
-  expect(colOf(rowWith(rows, 'write tests'), 'general-purpose · write tests')).toBe(14)
+  expect(colOf(rowWith(rows, 'general-purpose · write tests'), 'general-purpose · write tests')).toBe(14)
   expect(first).toContain('Grep stepRow')
   await again.press({ key: 'task-main:a1' })
   await again.unmount()
   expect((stored.get('ui') as UiState).taskOpen).toBeUndefined()
   const closed = await mount($, 'terminal')
-  expect((await drawnRows(closed)).some(r => r.includes('find callers'))).toBe(false)
+  expect((await drawnRows(closed)).some(r => r.includes('Explore · find callers'))).toBe(false)
   await closed.unmount()
 })
 
@@ -242,7 +291,7 @@ test('d unfolds every done task and folds them again', async ($, on) => {
     const ui = await mount($, 'terminal', 62, true)
     const rows = await drawnRows(ui)
     await ui.unmount()
-    return { n: rows.filter(r => r.startsWith('  ✓')).length, hint: rowWith(rows, 'e: export').trim() }
+    return { n: rows.filter(r => r.startsWith('  ▪')).length, hint: rowWith(rows, 'e: export').trim() }
   }
   expect(await doneRows()).toEqual({ n: 3, hint: '↵ open   d: all done   e: export' })
   const first = await mount($, 'terminal', 62, true)
@@ -289,12 +338,17 @@ test('e exports the digest from the Tasks tab', async ($, on) => {
   await ui.unmount()
 })
 
-test('at 40 columns: 3 readout cells, the time on the last cell (26), no metric; nothing past 40', async ($, on) => {
+// LOOK TEST (rewritten for Neo): at 40 the deck drops the aside and the value; the gauge stays.
+test('at 40 columns: the deck keeps label and gauge only; the time on the last cell (26), no metric; nothing past 40', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
   const ui = await mount($, 'terminal', 40)
   const rows = await drawnRows(ui)
-  const labels = rowWith(rows, 'DONE  ')
-  expect([colOf(labels, 'DONE'), colOf(labels, 'ACTIVE'), colOf(labels, 'QUEUED'), colOf(labels, 'ELAPSED')]).toEqual([2, 14, 26, -1])
+  const tasks = rowWith(rows, 'TASKS')
+  expect(tasks.length).toBe(40)
+  expect(tasks.endsWith('┓')).toBe(true)
+  expect(tasks).not.toContain('5/13')
+  expect(tasks).not.toContain('1h00')
+  expect(rowWith(rows, 'PACE')).not.toContain('queued')
   const active = rowWith(rows, 'Grouping')
   expect(colOf(active, '3m')).toBe(26)
   expect(active).not.toContain('live')
@@ -302,7 +356,8 @@ test('at 40 columns: 3 readout cells, the time on the last cell (26), no metric;
   await ui.unmount()
 })
 
-test('at 32 columns: 2 readout cells, name only rows; nothing past 32, no row ends inside a word', async ($, on) => {
+// LOOK TEST (rewritten for Neo): at 32 the trace narrows to 10 cells; the 14 pips still fit.
+test('at 32 columns: the deck keeps its pips and a 10-cell trace, name only rows; nothing past 32, no row ends inside a word', async ($, on) => {
   seed(
     on,
     { ...BUSY, tasks: [...BUSY.tasks, task('long', 'A task name that is far longer than a narrow pane can hold', 'pending')] },
@@ -310,12 +365,14 @@ test('at 32 columns: 2 readout cells, name only rows; nothing past 32, no row en
   )
   const ui = await mount($, 'terminal', 32)
   const rows = await drawnRows(ui)
-  const labels = rowWith(rows, 'DONE  ')
-  expect([colOf(labels, 'DONE'), colOf(labels, 'ACTIVE'), colOf(labels, 'QUEUED')]).toEqual([2, 14, -1])
+  const tasks = rowWith(rows, 'TASKS')
+  expect(tasks.length).toBe(32)
+  expect(tasks.slice(14, 28)).toBe('▪▪▪▪▪▸▫▫▫▫▫▫▫▫')
+  expect(rowWith(rows, 'PACE').slice(14, 24)).toMatch(/^[▁▂▃▄▅▆▇█]{10}$/)
   for (const r of rows) expect(r.length <= 32).toBe(true)
   expect(rowWith(rows, 'Grouping').trimEnd()).toBe('  ▸ Grouping timeline steps')
   // A cut name ends with a space-free word and an ellipsis: `…` follows a whole word.
-  const cut = rows.filter(r => r.startsWith('  ○') && r.endsWith('…'))
+  const cut = rows.filter(r => r.startsWith('  ▫') && r.endsWith('…'))
   for (const r of cut) expect(/\S…$/.test(r)).toBe(true)
   await ui.unmount()
 })
@@ -332,7 +389,7 @@ test('a task owned by an agent is listed flat with the agent type as its metric'
   )
   const ui = await mount($, 'terminal')
   const r = rowWith(await drawnRows(ui), 'Cover burst')
-  expect([colOf(r, '○'), colOf(r, 'Cover burst'), colOf(r, 'general')]).toEqual([2, 4, 38])
+  expect([colOf(r, '▫'), colOf(r, 'Cover burst'), colOf(r, 'general')]).toEqual([2, 4, 38])
   expect(r).not.toContain('general-')
   await ui.unmount()
 })

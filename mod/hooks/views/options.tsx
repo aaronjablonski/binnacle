@@ -59,6 +59,7 @@ const ACCENTS: Record<string, { hue: Hue; key: string }> = {
  * `accent` is drawn as coming until the manifest declares it.
  */
 const FIELDS: readonly Field[] = [
+  { field: 'look', label: 'Look', section: 'LOOK', applies: 'now', kind: 'choice', choices: ['rich', 'text'] },
   { field: 'accent', label: 'Accent', section: 'LOOK', applies: 'now', kind: 'choice', choices: Object.keys(ACCENTS) },
   { field: 'notify', label: 'Notify', section: 'SIGNALS', applies: 'now', kind: 'choice', choices: ['off', 'waits', 'done', 'all'] },
   { field: 'doneSound', label: 'Done sound', section: 'SIGNALS', applies: 'now', kind: 'boolean' },
@@ -96,6 +97,16 @@ const written = new Map<string, ConfigValue>()
 export function configureOptions(options: PluginOptions): void {
   given = options
   written.clear()
+}
+
+/**
+ * The `look` option as it stands now: what a press on the Look row just
+ * wrote, else the module's option. The pane and the band read it on every
+ * draw, so a change applies at once, before any reload.
+ */
+export function lookOption(): string | undefined {
+  const v = valueOf('look')
+  return typeof v === 'string' ? v : undefined
 }
 
 /** The value drawn for `field`: what a press just wrote, else the module's option. */
@@ -402,7 +413,8 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
     const fields = shown.filter(f => f.section === name)
     const rows: RenderElement[] = []
     if (name === 'LOOK') {
-      rows.push(infoRow(ctx, $, 'opt-look', 'Look', ctx.look ?? 'text', 'this surface'))
+      // Without the option declared, the row only says what this surface draws.
+      if (!('look' in given)) rows.push(infoRow(ctx, $, 'opt-look', 'Look', ctx.look ?? 'text', 'this surface'))
       if (!('accent' in given)) rows.push(infoRow(ctx, $, 'opt-accent', 'Accent', 'iris', 'coming'))
     }
     for (const f of fields) {

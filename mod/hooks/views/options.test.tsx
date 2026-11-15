@@ -199,3 +199,37 @@ test('the PREVIEW is a Raster on the terminal and text on the desktop', async ($
   expect(rows.some(r => r.includes('PREVIEW'))).toBe(true)
   await desk.unmount()
 })
+
+// ---------- the look option (I7: the way out of the rich form) ----------
+
+test("look: 'text' draws the pane on the terminal with no Raster: Now, a tab and a page", { options: { look: 'text' } }, async ($, on) => {
+  const { stored } = world(on, initialUi)
+  for (const u of [initialUi, { ...initialUi, tab: 'tasks' } as UiState, OPTIONS_UI]) {
+    stored.set('ui', u)
+    const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+    expect(await ui.find({ type: 'Raster' })).toBe(undefined)
+    expect(screen(await ui.drawn()).join('\n')).not.toMatch(/failed/)
+    await ui.unmount()
+  }
+})
+
+test('the Look row is a choice of rich and text; text is written on its press and the pane draws text at once', async ($, on) => {
+  const { stored, sets } = world(on, OPTIONS_UI)
+  const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).not.toBe(undefined)
+  const row = screen(await ui.drawn()).find(r => r.includes('Look'))
+  expect(row).toContain('rich')
+  await ui.press({ key: 'opt-look' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: 'look' })
+  await ui.unmount()
+  const opened = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  expect(await opened.find({ type: 'Button', key: 'opt-pick-look-rich' })).not.toBe(undefined)
+  await opened.press({ key: 'opt-pick-look-text' })
+  expect(sets).toEqual([{ key: 'mission-control.look', value: 'text' }])
+  await opened.unmount()
+  // Applied now: the next draw, without a reload, has no Raster.
+  stored.set('ui', initialUi)
+  const after = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  expect(await after.find({ type: 'Raster' })).toBe(undefined)
+  await after.unmount()
+})

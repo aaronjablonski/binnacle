@@ -15,6 +15,7 @@ import { beads, bars, Grid, drawSprite, SPRITE } from './raster'
 import type { Hue } from './raster'
 import { leaveStrip } from './shell'
 import { bandSvgOf, lookFor } from './svgview'
+import { lookOption } from './options'
 import type { ViewCtx } from './shell'
 import { C, cellCol, podOf, rateColor } from './style'
 import type { Pod, PodState, Run } from './style'
@@ -610,7 +611,8 @@ export function registerBand(on: On, options: { look?: string } = {}): void {
       const cols = e.props.bodyColumns
       // The look comes from the surface's element table, once per draw; the Rasters here are all still, so none is ever blitted.
       begin(BAND_SITE)
-      const look = lookFor($.ui.resolve(e), e.surface, options)
+      const chosen = lookOption() ?? options.look
+      const look = lookFor($.ui.resolve(e), e.surface, chosen !== undefined ? { look: chosen } : {})
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE }
       // The desktop app draws the band as one Svg; /mc strip keeps its own rows.
       if (!isStrip) {

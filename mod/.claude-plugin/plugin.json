@@ -16,6 +16,13 @@
       "description": "Add the Mission Control update tool and one system-prompt section so Claude keeps the panel current.",
       "default": true
     },
+    "look": {
+      "type": "string",
+      "title": "Look",
+      "description": "How the pane and band are drawn: rich (pictures where the terminal can draw them) or text (letters and box lines only, for a terminal whose glyphs render badly, or a screen reader). Applies at once.",
+      "options": ["rich", "text"],
+      "default": "rich"
+    },
     "notify": {
       "type": "string",
       "title": "Notifications",

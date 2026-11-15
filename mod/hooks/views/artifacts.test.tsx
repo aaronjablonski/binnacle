@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 
 import type { ArtifactRow, Step, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
+import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -42,14 +43,14 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
 
 const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).stored
 
-const PANE = (columns: number) =>
+const PANE = (columns: number, isFocused = false) =>
   ({
     plugin: 'mission-control',
     component: 'Pane',
     requestId: 'mission-control',
     props: {
       title: 'Mission Control',
-      isFocused: false,
+      isFocused,
       bodyColumns: columns,
       placement: 'dock',
       scroll: { offset: 0, bodyRows: 40 },
@@ -81,63 +82,105 @@ const ART_UI: UiState = {
   dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 
-async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62) {
-  return $.ui.mount({ ...PANE(columns), surface })
+async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, isFocused = false) {
+  return $.ui.mount({ ...PANE(columns, isFocused), surface })
 }
 
-const textOf = async (ui: Awaited<ReturnType<typeof mount>>, key: string): Promise<string> =>
-  (await ui.find({ key }))?.text ?? ''
+type Mounted = Awaited<ReturnType<typeof mount>>
+const drawnRows = async (ui: Mounted): Promise<string[]> => screen(await ui.drawn())
+const rowWith = (rows: string[], text: string): string => rows.find(r => r.includes(text)) ?? ''
+const artButtons = async (ui: Mounted): Promise<string[]> =>
+  (await ui.findAll({ type: 'Button' })).map(b => String(b.key)).filter(k => k.startsWith('art-'))
 
-test('lists a page, a document, a result and a link with their glyphs', async ($, on) => {
+const FOUR = tl(
+  [
+    art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', stepId: 's9', updatedAt: NOW - 540_000 }),
+    art('document', 'docs/plan.md', { ref: 'docs/plan.md', summary: 'Implementation plan', stepId: 's1', updatedAt: NOW - 720_000 }),
+    art('result', 'Review findings', { summary: 'from workflow review', updatedAt: NOW - 240_000 }),
+    art('link', 'PR #41', { ref: 'github.com/x/pull/41', updatedAt: NOW - 1000 }),
+  ],
+  { steps: [step('s1', 1, 'Write docs/plan.md'), step('s9', 9, 'Publish the page')] },
+)
+
+test('rows are newest first: glyph at 2, title at 4, the kind at 38 and the age at 50', async ($, on) => {
+  seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    expect(await artButtons(ui)).toEqual(['art-link:PR #41', 'art-result:Review findings', 'art-page:Rate limit design', 'art-document:docs/plan.md'])
+    const rows = await drawnRows(ui)
+    const page = rowWith(rows, 'Rate limit design')
+    expect([colOf(page, '↗'), colOf(page, 'Rate limit design'), colOf(page, 'page'), colOf(page, '9m')]).toEqual([2, 4, 38, 50])
+    const doc = rowWith(rows, 'docs/plan.md')
+    expect([colOf(doc, '▤'), doc.slice(38, 41), colOf(doc, '12m')]).toEqual([2, 'doc', 50])
+    expect(colOf(rowWith(rows, 'Review findings'), '◆')).toBe(2)
+    expect(colOf(rowWith(rows, 'PR #41'), '⎇')).toBe(2)
+    const head = rowWith(rows, '┌ ARTIFACTS')
+    expect([colOf(head, 'kind'), colOf(head, 'age')]).toEqual([38, 50])
+    await ui.unmount()
+  }
+})
+
+test('kinds keep their colours: page and link in the accent, document merged, result success', async ($, on) => {
+  seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
+  const ui = await mount($, 'terminal')
+  const found = await ui.findAll({ type: 'Text' })
+  const color = (glyph: string): string | undefined => (found.find(f => f.text === glyph)?.props as { color?: string }).color
+  expect([color('↗'), color('▤'), color('◆'), color('⎇')]).toEqual(['suggestion', 'merged', 'success', 'suggestion'])
+  await ui.unmount()
+})
+
+test('a document written three times shows doc ×3 as its kind', async ($, on) => {
+  seed(on, tl([art('document', 'a.md', { ref: 'a.md', count: 3 })]), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const r = rowWith(await drawnRows(ui), 'a.md')
+    expect(colOf(r, 'doc ×3')).toBe(38)
+    await ui.unmount()
+  }
+})
+
+test('the newest artifact is open by default: link and from at 6 and 14, then o: step  c: copy link  g: chat', async ($, on) => {
   seed(
     on,
-    tl(
-      [
-        art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', updatedAt: NOW - 540_000 }),
-        art('document', 'docs/plan.md', {
-          ref: 'docs/plan.md',
-          summary: 'Implementation plan',
-          stepId: 's1',
-          updatedAt: NOW - 720_000,
-        }),
-        art('result', 'Review findings', { summary: 'from workflow review', updatedAt: NOW - 240_000 }),
-        art('link', 'PR #41', { ref: 'github.com/x/pull/41', updatedAt: NOW - 1000 }),
-      ],
-      { steps: [step('s1', 1, 'Write docs/plan.md')] },
-    ),
+    tl([art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', stepId: 's9' })], { steps: [step('s9', 9, 'Publish')] }),
     ART_UI,
   )
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    const page = await textOf(ui, 'art-page:Rate limit design')
-    expect(page).toContain('↗')
-    expect(page).toContain('Rate limit design')
-    expect(page).toContain('page · 9m')
-    expect(page).toContain('claude.ai/artifact/x')
-    const doc = await textOf(ui, 'art-document:docs/plan.md')
-    expect(doc).toContain('▤')
-    expect(doc).toContain('document · 12m')
-    expect(doc).toContain('Implementation plan')
-    expect(await textOf(ui, 'art-result:Review findings')).toContain('◆')
-    expect(await textOf(ui, 'art-link:PR #41')).toContain('⎇')
-    const keys = (await ui.findAll({ type: 'Button' }))
-      .map(b => String(b.key))
-      .filter(k => k.startsWith('art-'))
-    expect(keys).toEqual(['art-link:PR #41', 'art-result:Review findings', 'art-page:Rate limit design', 'art-document:docs/plan.md'])
+    const rows = await drawnRows(ui)
+    const link = rowWith(rows, 'claude.ai/artifact/x')
+    expect([colOf(link, 'link'), colOf(link, 'claude.ai/artifact/x')]).toEqual([6, 14])
+    const from = rowWith(rows, 'from')
+    expect(colOf(from, 'main · step 9 · ')).toBe(14)
+    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat')
+    expect(colOf(rowWith(rows, 'o: step'), 'o: step')).toBe(6)
     await ui.unmount()
   }
 })
 
-test('a document written three times shows ×3', async ($, on) => {
-  seed(on, tl([art('document', 'a.md', { ref: 'a.md', count: 3 })]), ART_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    expect(await textOf(ui, 'art-document:a.md')).toContain('a.md · ×3')
+test('pressing another row opens it and closes the first; pressing the open row closes it', async ($, on) => {
+  const stored = seed(on, FOUR, ART_UI)
+  const openOf = async (): Promise<string[]> => {
+    const ui = await mount($, 'terminal')
+    const rows = await drawnRows(ui)
     await ui.unmount()
+    return ['claude.ai/artifact/x', 'github.com/x/pull/41', 'Implementation plan'].filter(x => rows.some(r => r.includes(x)))
   }
+  // newest (the link) is open to start with
+  expect(await openOf()).toEqual(['github.com/x/pull/41'])
+  const a = await mount($, 'terminal')
+  await a.press({ key: 'art-page:Rate limit design' })
+  await a.unmount()
+  expect((stored.get('ui') as UiState).artifactOpen).toBe('page:Rate limit design')
+  expect(await openOf()).toEqual(['claude.ai/artifact/x'])
+  const b = await mount($, 'terminal')
+  await b.press({ key: 'art-page:Rate limit design' })
+  await b.unmount()
+  expect((stored.get('ui') as UiState).artifactOpen).toBe('')
+  expect(await openOf()).toEqual([])
 })
 
-test('pressing a document opens the step that wrote it', async ($, on) => {
+test('o opens the step that wrote the artifact', async ($, on) => {
   const stored = seed(
     on,
     tl([art('document', 'a.md', { ref: 'a.md', stepId: 's1' })], { steps: [step('s1', 1, 'Write a.md')] }),
@@ -145,17 +188,35 @@ test('pressing a document opens the step that wrote it', async ($, on) => {
   )
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    await ui.press({ key: 'art-document:a.md' })
+    await ui.press({ key: 'act-o-document:a.md' })
     const u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
-    expect(u.detail?.stepId).toBe('s1')
+    // The step opens on the Steps tab: in place (stepOpen), or as the full step (detail).
+    expect(u.stepOpen ?? u.detail?.stepId).toBe('s1')
     await ui.unmount()
     stored.set('ui', ART_UI)
   }
 })
 
-test('pressing a link with no step copies its ref', async ($, on) => {
-  seed(on, tl([art('link', 'PR #41', { ref: 'github.com/x/pull/41' }), art('result', 'Findings')]), ART_UI)
+// A press runs the plugin's own $.ui.scroll; the mounted kit has nothing beneath
+// it that answers, so the refusal toast is what shows the press reached it.
+test('g reaches ui.scroll on a press only', async ($, on) => {
+  seed(on, tl([art('document', 'a.md', { ref: 'a.md', stepId: 's1' })], { steps: [step('s1', 1, 'Write a.md')] }), ART_UI)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  const ui = await mount($, 'terminal')
+  expect(toasts).toEqual([])
+  await ui.press({ key: 'act-g-document:a.md' })
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toContain('Not shown in chat')
+  await ui.unmount()
+})
+
+test('c copies the link, or the title when there is no ref, and says when it failed', async ($, on) => {
+  seed(on, tl([art('link', 'PR #41', { ref: 'github.com/x/pull/41' })]), ART_UI)
   const copies: { text: string; surface: string }[] = []
   const toasts: string[] = []
   let isCopied = true
@@ -173,71 +234,138 @@ test('pressing a link with no step copies its ref', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     isCopied = true
-    await ui.press({ key: 'art-link:PR #41' })
+    await ui.press({ key: 'act-c-link:PR #41' })
     expect(copies[copies.length - 1]).toEqual({ text: 'github.com/x/pull/41', surface })
     expect(toasts[toasts.length - 1]).toBe('Copied.')
-    await ui.press({ key: 'art-result:Findings' })
-    expect(copies[copies.length - 1]?.text).toBe('Findings')
     isCopied = false
-    await ui.press({ key: 'art-link:PR #41' })
+    await ui.press({ key: 'act-c-link:PR #41' })
     expect(toasts[toasts.length - 1]).toBe('Not copied: no-clipboard')
     await ui.unmount()
   }
 })
 
-test('a step no longer in the timeline falls back to copying', async ($, on) => {
-  const stored = seed(on, tl([art('document', 'a.md', { ref: 'a.md', stepId: 'gone' })]), ART_UI)
+test('c copies the title when the artifact has no ref', async ($, on) => {
+  seed(on, tl([art('result', 'Findings')]), ART_UI)
   const copies: string[] = []
   on('ui.copy', (_, e) => {
     copies.push((e as unknown as { text: string }).text)
     return { value: { isCopied: true as const } }
   })
   on('ui.toast', () => ({ value: undefined }))
+  const bare = await mount($, 'terminal')
+  expect(rowWith(await drawnRows(bare), 'c: copy').trim()).toBe('c: copy')
+  await bare.press({ key: 'act-c-result:Findings' })
+  expect(copies).toEqual(['Findings'])
+  await bare.unmount()
+})
+
+test('a step no longer in the timeline leaves only c: no o and no g', async ($, on) => {
+  seed(on, tl([art('document', 'a.md', { ref: 'a.md', stepId: 'gone' })]), ART_UI)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  expect(rowWith(rows, 'c: copy link').trim()).toBe('c: copy link')
+  expect(rows.some(r => r.includes('o: step') || r.includes('g: chat'))).toBe(false)
+  expect(rowWith(rows, 'from')).not.toContain('step')
+  await ui.unmount()
+})
+
+test('FILES CHANGED shows the newest 3 and a more line', async ($, on) => {
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed: ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts'] }), ART_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    await ui.press({ key: 'art-document:a.md' })
-    expect(copies[copies.length - 1]).toBe('a.md')
-    expect((stored.get('ui') as UiState).tab).toBe('artifacts')
+    const rows = await drawnRows(ui)
+    const at = rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))
+    expect(at).toBeGreaterThan(-1)
+    expect(rows.slice(at + 1, at + 4).map(r => r.slice(2, 3))).toEqual(['·', '·', '·'])
+    expect(rows.slice(at + 1, at + 4).map(r => r.slice(4).trimEnd())).toEqual(['…/d.ts', 'c.ts', '…/b.ts'])
+    expect(rows[at + 4]).toBe('  + 1 more')
     await ui.unmount()
   }
 })
 
-test('the footer counts changed files', async ($, on) => {
-  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] }), ART_UI)
+test('HANDOFF: Export digest with its note, and a press exports', async ($, on) => {
+  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
+  mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+  const writes: string[] = []
+  on('fs.read', () => {
+    throw new Error('ENOENT')
+  })
+  on('fs.write', (_, e) => {
+    writes.push(e.path.split(String.fromCharCode(92)).join('/'))
+    return { value: undefined }
+  })
+  on('ui.copy', () => ({ value: { isCopied: true as const } }))
+  on('ui.toast', () => ({ value: undefined }))
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    const all = (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '').join('\n')
-    const flat = all.replace(/\s+/g, ' ')
-    expect(all).toContain('page')
-    expect(all).toContain('link')
-    expect(flat).toContain('Code edits are not listed here; they are steps in the Timeline (4 files changed).')
+    const rows = await drawnRows(ui)
+    const at = rows.findIndex(r => r.startsWith('┌ HANDOFF'))
+    expect(at).toBeGreaterThan(-1)
+    const head = rows[at] ?? ''
+    expect(colOf(head, 'to')).toBe(38)
+    const ex = rows[at + 1] ?? ''
+    expect([colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal')]).toEqual([2, 4, 38])
+    expect(rows[at + 2]).toBe('    kept ★ steps go in with full input and result')
+    writes.length = 0
+    await ui.press({ key: 'handoff-export' })
+    expect(writes.length).toBe(1)
+    expect(writes[0]).toMatch(/\/sess1\/export-.*\.md$/)
     await ui.unmount()
   }
 })
 
-test('a long path is cut from the left and fits 32 columns', async ($, on) => {
+test('e exports from the footer, which shows 3 entries and only while focused', async ($, on) => {
+  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
+  mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+  const writes: string[] = []
+  on('fs.read', () => {
+    throw new Error('ENOENT')
+  })
+  on('fs.write', (_, e) => {
+    writes.push(e.path)
+    return { value: undefined }
+  })
+  on('ui.copy', () => ({ value: { isCopied: true as const } }))
+  on('ui.toast', () => ({ value: undefined }))
+  const quiet = await mount($, 'terminal', 62, false)
+  expect((await drawnRows(quiet)).some(r => r.includes('e: export'))).toBe(false)
+  await quiet.unmount()
+  const ui = await mount($, 'terminal', 62, true)
+  expect(rowWith(await drawnRows(ui), 'e: export').trim()).toBe('↵ open   e: export   esc prompt')
+  await ui.press({ key: 'hint-e' })
+  expect(writes.length).toBe(1)
+  await ui.unmount()
+})
+
+test('a long path is cut from the left in the link line and fits 32 columns', async ($, on) => {
   const ref = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
   seed(on, tl([art('document', ref, { ref, count: 2 })]), ART_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 32)
-    const lines = (await textOf(ui, `art-document:${ref}`)).split('\n')
-    expect(lines.length).toBe(2)
-    for (const line of lines) expect(line.length <= 32).toBe(true)
-    expect(lines[1]).toContain('…')
-    expect(lines[1]).toContain('limiter.ts')
-    expect(lines[1]).toContain('· ×2')
+    const rows = await drawnRows(ui)
+    const link = rowWith(rows, 'link')
+    expect(link.length <= 32).toBe(true)
+    expect(link).toContain('…')
+    expect(link.endsWith('limiter.ts')).toBe(true)
     await ui.unmount()
   }
+})
+
+test('more than 6 artifacts show 6 rows and a more line', async ($, on) => {
+  const many = [1, 2, 3, 4, 5, 6, 7, 8].map(n => art('link', `L${n}`, { ref: `r${n}`, updatedAt: NOW - n * 1000 }))
+  seed(on, tl(many), { ...ART_UI, artifactOpen: '' })
+  const ui = await mount($, 'terminal')
+  expect(await artButtons(ui)).toHaveLength(6)
+  expect((await drawnRows(ui)).some(r => r === '  + 2 more')).toBe(true)
+  await ui.unmount()
 })
 
 test('empty state', async ($, on) => {
   seed(on, empty, ART_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    const all = (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '').join('\n')
-    expect(all.replace(/\s+/g, ' ')).toContain(
-      'No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.',
-    )
+    const all = (await drawnRows(ui)).join(' ').replace(/\s+/g, ' ')
+    expect(all).toContain('No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.')
     expect(await ui.find({ key: 'tab-artifacts' })).toBeDefined()
     await ui.unmount()
   }
@@ -250,24 +378,22 @@ test('keys are the artifact id: rewriting one document keeps the keys of both th
     art('document', 'b.md', { id: 'doc:b.md', ref: 'b.md', stepId: 's1', updatedAt: NOW - 90_000, ...extra })
   const steps = [step('s1', 1, 'Write a.md and b.md'), step('s7', 7, 'Write a.md')]
   const stored = seed(on, tl([a(), b()], { steps }), ART_UI)
-  const keysOf = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =>
-    (await ui.findAll({ type: 'Button' })).map(x => String(x.key)).filter(k => k.startsWith('art-')).sort()
   for (const surface of SURFACES) {
     stored.set('timeline', tl([a(), b()], { steps }))
     const before = await mount($, surface)
-    const keysBefore = await keysOf(before)
+    const keysBefore = (await artButtons(before)).sort()
     await before.unmount()
     // The reducer rewrote a.md in step s7: the count and the stepId move, the id does not.
     stored.set('timeline', tl([a({ stepId: 's7', count: 2, updatedAt: NOW - 1000 }), b()], { steps }))
     const after = await mount($, surface)
-    const keysAfter = await keysOf(after)
+    const keysAfter = (await artButtons(after)).sort()
     await after.unmount()
     expect(keysBefore).toEqual(['art-doc:a.md', 'art-doc:b.md'])
     expect(keysAfter).toEqual(keysBefore)
   }
 })
 
-test('narrow: every line of every Text within 32', async ($, on) => {
+test('no row longer than the pane on any surface at 62, 40 and 32, full and empty', async ($, on) => {
   const long = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
   const full = tl(
     [
@@ -276,17 +402,17 @@ test('narrow: every line of every Text within 32', async ($, on) => {
       art('result', 'Review findings', { summary: 'from workflow review' }),
       art('link', 'PR #41', { ref: 'github.com/x/pull/41' }),
     ],
-    { steps: [step('s1', 1, 'Publish')], changed: ['a.ts', 'b.ts'] },
+    { steps: [step('s1', 1, 'Publish')], changed: ['a.ts', 'b.ts', 'src/very/long/folder/structure/for/the/rate/limiter.ts', 'd.ts', 'e.ts'] },
   )
-  const stored = seed(on, full, ART_UI)
+  const stored = seed(on, full, { ...ART_UI, artifactOpen: 'document:' + long })
   for (const timeline of [full, empty]) {
     stored.set('timeline', timeline)
     for (const surface of SURFACES) {
-      const ui = await mount($, surface, 32)
-      const found = await ui.findAll({ type: 'Text' })
-      expect(found.length >= 1).toBe(true)
-      for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
-      await ui.unmount()
+      for (const columns of [62, 40, 32]) {
+        const ui = await mount($, surface, columns, true)
+        for (const r of await drawnRows(ui)) expect([surface, columns, r, r.length <= columns]).toEqual([surface, columns, r, true])
+        await ui.unmount()
+      }
     }
   }
 })

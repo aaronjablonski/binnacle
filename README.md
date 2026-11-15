@@ -6,37 +6,82 @@ beside the chat. The transcript itself stays as it is. It needs Claude Code
 
 ## What it shows
 
-A pane next to the transcript, with five tabs, and a one-line band above the
-prompt.
+A pane next to the transcript with five tabs, and a one-line band above the
+prompt. The pane draws on a character grid: the tab bar, the readouts and the
+table columns line up from column 2, with a metric at column 38 and a time at
+column 50 when the pane is 62 columns wide.
 
 | Tab | Shows |
 | --- | --- |
-| Overview | What Claude is on now and what is next, tasks, running agents, the latest steps, notes and artifacts. |
-| Tasks | The task list, with the agents working on each task. |
-| Agents | Main and every subagent or workflow agent, as a list or a tree, with what each is doing now. |
-| Timeline | Every step of the session, filterable. Open a step to see its input, result and any code change. Pin a step to keep it. |
-| Artifacts | Pages Claude published, documents it wrote, results it reported and links, newest first. |
+| Now | What Claude is on and what is next. NEEDS YOU first when anything waits on you, then readouts (tasks, agents, steps, context, the 5-hour or 7-day limit), the live agents, the latest step and newest error, kept steps and notes. |
+| Tasks | Readouts for done, active, queued and elapsed on one scale. ACTIVE (one task, which opens to the agents working on it), QUEUED (up to 5) and DONE (the newest 3). |
+| Agents | Main and every subagent or workflow agent, as a list or a tree, with tokens and time, and the workflow runs. |
+| Steps | Every step of the session, filterable and searchable. A step opens in place; a second press opens the full step with its input, result and any code change. |
+| Artifacts | Pages Claude published, documents it wrote, results it reported and links, newest first, with the newest opened. Then FILES CHANGED and HANDOFF. |
+
+The band shows `▍ done/total`, the focus, the live agents, the errors, the
+context and the 5-hour or 7-day limit, with `/mc` at the right edge. When
+something waits on you, `▲ n need you` leads it. When every task is done it is
+one dim row. A narrow band drops the budget first, then the words `live` and
+`error`, then `/mc`, and only then cuts the focus at a word.
 
 ## Commands
 
-All of these work in the middle of a turn.
+All of these work in the middle of a turn. These are the only commands.
 
 | Command | Does |
 | --- | --- |
 | `/mc` | Opens the pane. |
-| `/mc close` | Closes it. |
-| `/mc pin [note]` | Pins the newest step, with an optional note. |
-| `/mc 1` to `/mc 5` | Opens the pane on that tab. |
+| `/mc 1` to `/mc 5` | Opens the pane on that tab: 1 Now, 2 Tasks, 3 Agents, 4 Steps, 5 Artifacts. |
+| `/mc keep <note>` | Keeps the newest step of the main conversation, with the note. |
 | `/mc export` | Writes the digest to the journal and copies it. |
+| `/mc close` | Closes the pane. |
+| `/mc slim` | Switches between the slim pane (28 columns) and the full one (62). |
 
 ## Keys
 
 - Ctrl+X Tab focuses the pane. The default chord can be remapped with the
   `abovePrompt:focus` action in `~/.claude/keybindings.json`.
-- With the pane focused: 1 to 5 switch tabs, Tab moves between rows, Enter
-  opens a row, Esc returns to the prompt, and Ctrl+X X closes the pane.
+- With the pane focused: Tab moves between rows, Enter opens a row, Esc
+  returns to the prompt, and Ctrl+X X closes the pane.
+- Hotkeys, while the pane is focused:
+
+| Key | Does |
+| --- | --- |
+| `1` to `5` | Switch tabs. |
+| `n` / `p` | Next or previous error, search hit or problem. |
+| `f` | Find in the steps. |
+| `g` | Show the opened step, agent or artifact in the chat. |
+| `k` | Keep the opened step (or unkeep it). |
+| `c` | Copy the opened step as Markdown, or copy an artifact's link. |
+| `q` | Quote the full step. |
+| `l` / `t` / `r` | Agents: list, tree, running only. |
+| `s` / `v` | An opened agent's steps, or its transcript. |
+| `d` | Tasks: all done tasks. |
+| `e` | Export the digest. |
+| `o` | An opened artifact: open the step that wrote it. |
+| `x` | Dismiss a NEEDS YOU item. |
+
+- The footer shows at most 3 hints and only while the pane is focused.
 - Hotkeys work in the terminal and the desktop app, not in VS Code. Every
   button has a label that works without its key.
+
+## Keep
+
+Keep marks a step you do not want to lose. Press `k` on an opened step, or
+run `/mc keep <note>` for the newest step of the main conversation. The step
+shows a `★`, appears under the Kept filter on the Steps tab and in KEPT on
+Now, is never trimmed from the timeline, and is the only kind of step exported
+in full: the digest carries its whole input and result. Press `k` again to
+unkeep it.
+
+## Slim mode
+
+Under 32 columns the pane is slim: no tab bar, one stacked summary. From top
+to bottom it shows the focus, NEEDS YOU, tasks, agents, budget and the latest
+step and kept step. Each label opens that tab's list; `/mc 1` to `/mc 5` still
+work. `/mc slim` asks for a 28-column pane and, run again, restores 62. A pane
+you resize yourself keeps the width you give it, and the layout follows it.
 
 ## Options
 
@@ -47,6 +92,8 @@ from the config menu:
 | --- | --- | --- |
 | `guide` | `true` | Give Claude the update tool and one system-prompt section so it keeps the panel current. |
 | `autoOpen` | `false` | Open the pane when a session starts. In a narrow terminal the pane waits for more room. |
+| `notify` | `waits` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn fails (`all`), or never (`off`). |
+| `showCost` | `false` | Show the session's dollar cost in the budget view. |
 
 For a one-off headless run, pass them with `--settings`:
 

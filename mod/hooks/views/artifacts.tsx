@@ -1,18 +1,25 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { ArtifactKind, ArtifactRow } from '../../types'
-import { debug, errText } from '../state'
-import { elapsed, fit, fitLeft, splitRow, wrap } from './fit'
+import type { ArtifactKind, ArtifactRow, Timeline } from '../../types'
+import { debug, errText, updateUi } from '../state'
+import { clock, elapsed, fitLeft, shortPaths, wordFit, wrapWords } from './fit'
+import { showInChat } from './find'
+import { exportDigest } from './handoff'
+import { fitHints } from './hints'
 import { openStep } from './openstep'
-import { flushRight, sectionHeader } from './parts'
+import { blank, footer, more, opened, row, section } from './parts'
+import type { Action, Detail, Hint, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C } from './style'
+import { C, COL } from './style'
 
 const GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', result: '◆', link: '⎇' }
-const COLOR: Record<ArtifactKind, string> = { page: C.accent, document: C.doc, result: C.accent, link: C.accent }
-const KINDS: ArtifactKind[] = ['page', 'document', 'result', 'link']
+const COLOR: Record<ArtifactKind, string> = { page: C.accent, document: C.doc, result: C.result, link: C.accent }
+const KIND: Record<ArtifactKind, string> = { page: 'page', document: 'doc', result: 'result', link: 'link' }
 const EMPTY = 'No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.'
-const INDENT = '  '
+const NOTE = 'kept ★ steps go in with full input and result'
+// Rows each list shows before its `+ n more` line.
+const ARTIFACT_CAP = 6
+const FILES_CAP = 3
 
 type Surface = Parameters<EngineInterface['ui']['copy']>[0]['surface']
 
@@ -26,104 +33,122 @@ async function copyText($: EngineInterface, text: string, surface: Surface): Pro
   }
 }
 
-/** The dim second line: the summary, else the ref cut from the left, then `· ×n` when written more than once. */
-function detailLine(a: ArtifactRow, cols: number): string {
-  const suffix = a.count > 1 ? `×${a.count}` : ''
-  const joiner = suffix !== '' ? ' · ' : ''
-  const room = Math.max(0, cols - INDENT.length - joiner.length - suffix.length)
-  let base = ''
-  if (a.summary !== undefined && a.summary !== '') base = fit(a.summary, room)
-  else if (a.ref !== undefined && a.ref !== '') base = fitLeft(a.ref, room)
-  if (base === '') return suffix !== '' ? `${INDENT}${suffix}` : ''
-  return `${INDENT}${base}${joiner}${suffix}`
+/** The opened row's lines: the link, what it is about, and who wrote it and when. */
+function detailsOf(t: Timeline, a: ArtifactRow, cols: number, stepSeq: number | undefined): Detail[] {
+  const room = Math.max(0, cols - COL.detailValue)
+  const out: Detail[] = []
+  if (a.ref !== undefined && a.ref !== '') {
+    // A path keeps its end (the file name); a link or page keeps its start.
+    out.push({ key: 'link', value: a.kind === 'document' ? fitLeft(a.ref, room) : a.ref })
+  }
+  if (a.summary !== undefined && a.summary !== '') out.push({ key: 'about', value: a.summary })
+  const who = a.agent === 'main' ? 'main' : (t.agents[a.agent]?.type ?? a.agent)
+  const step = stepSeq !== undefined ? ` · step ${stepSeq}` : ''
+  out.push({ key: 'from', value: [{ text: `${who}${step} · ${clock(a.updatedAt)}`, dim: true }] satisfies Run[] })
+  return out
 }
 
-/**
- * One artifact as one Button: glyph, bold title and a dim `<kind> · <elapsed>`
- * flush right; then the dim second line, a `Text` child that begins with a
- * newline (C7). The key is the row's own id: identity, never the position, and
- * not the step id, which moves each time the artifact is written again (C8).
- */
-function artifactRow(ctx: ViewCtx, a: ArtifactRow, key: string, hasStep: boolean, $: EngineInterface): RenderElement {
-  const { Text, Button } = $.ui.resolve(ctx.e)
-  const { cols, now } = ctx
-  const glyph = GLYPH[a.kind]
-  const meta = `${a.kind} · ${elapsed(a.updatedAt, now)}`
-  const head = splitRow(`${glyph} ${a.title}`, meta, cols)
-  const room = Math.max(0, head.left.length - glyph.length - 1)
-  const lines: RenderElement[] = [
-    <Text key="glyph" color={COLOR[a.kind]}>
-      {glyph}
-    </Text>,
-    <Text key="title" bold>
-      {` ${fit(a.title, room)}`}
-    </Text>,
-  ]
-  if (head.right !== '' && !head.stacked) {
-    lines.push(
-      <Text key="meta" dimColor>
-        {flushRight(head.left.length, head.right, cols)}
-      </Text>,
-    )
-  }
-  if (head.stacked) {
-    lines.push(
-      <Text key="meta" dimColor>{`
-${fit(`${INDENT}${head.right}`, cols)}`}</Text>,
-    )
-  }
-  const second = detailLine(a, cols)
-  if (second !== '') {
-    lines.push(
-      <Text key="detail" dimColor>{`
-${second}`}</Text>,
-    )
-  }
-  const stepId = a.stepId
-  return (
-    <Button
-      key={key}
-      plain
-      onPress={press => {
-        if (hasStep && stepId !== undefined) return openStep($, stepId)
-        return copyText($, a.ref ?? a.title, press.surface)
-      }}
-    >
-      {lines}
-    </Button>
-  )
-}
-
-/** The Artifacts tab: newest first, a legend, and a note that code edits live in the Timeline. */
+/** The Artifacts tab: ARTIFACTS (the newest opened), FILES CHANGED and HANDOFF. */
 export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
-  const { t, cols, e } = ctx
+  const { t, u, cols, e } = ctx
   try {
-    if (t.artifacts.length === 0) return <Text dimColor>{wrap(EMPTY, cols).join('\n')}</Text>
     const rows = [...t.artifacts].sort((a, b) => b.updatedAt - a.updatedAt)
-    const stepIds = new Set(t.steps.map(s => s.id))
-    const n = t.changed.length
-    return (
-      <Box flexDirection="column" rowGap={1}>
-        <Box flexDirection="column">
-          {sectionHeader('ARTIFACTS', String(rows.length), cols, e, $)}
-          {rows.map(a => artifactRow(ctx, a, `art-${a.id}`, a.stepId !== undefined && stepIds.has(a.stepId), $))}
-        </Box>
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          {KINDS.map(k => (
-            <Text key={`legend-${k}`}>
-              <Text color={COLOR[k]}>{GLYPH[k]}</Text>
-              <Text dimColor>{` ${k}`}</Text>
-            </Text>
-          ))}
-        </Box>
-        <Text dimColor>
-          {wrap(`Code edits are not listed here; they are steps in the Timeline (${n} ${n === 1 ? 'file' : 'files'} changed).`, cols).join('\n')}
-        </Text>
-      </Box>
-    )
+    const stepSeq = new Map(t.steps.map(s => [s.id, s.seq]))
+    const newest = rows[0]?.id
+    // Absent, the newest is open; '' means the person closed it.
+    const openId = u.artifactOpen ?? newest
+    const blocks: RenderElement[][] = []
+
+    const list: RenderElement[] = [section(ctx, $, 'ARTIFACTS', 'kind', 'age')]
+    if (rows.length === 0) {
+      wrapWords(EMPTY, Math.max(1, cols - COL.glyph), 5).forEach((l, i) => {
+        list.push(
+          <Text key={`empty-${i}`} dimColor wrap="truncate-end">{`  ${l}`}</Text>,
+        )
+      })
+    }
+    rows.slice(0, ARTIFACT_CAP).forEach((a, i) => {
+      const seq = a.stepId !== undefined ? stepSeq.get(a.stepId) : undefined
+      const isOpen = a.id === openId
+      if (isOpen && i > 0) list.push(blank(ctx, $, `above-${a.id}`))
+      list.push(
+        row(ctx, $, {
+          key: `art-${a.id}`,
+          glyph: GLYPH[a.kind],
+          glyphColor: COLOR[a.kind],
+          name: a.title,
+          bold: isOpen,
+          metric: a.count > 1 ? `${KIND[a.kind]} ×${a.count}` : KIND[a.kind],
+          time: elapsed(a.updatedAt, ctx.now),
+          onPress: () =>
+            updateUi($, s => ({ ...s, artifactOpen: (s.artifactOpen ?? newest) === a.id ? '' : a.id })),
+        }),
+      )
+      if (!isOpen) return
+      const stepId = a.stepId
+      const actions: Action[] = []
+      if (stepId !== undefined && seq !== undefined) {
+        actions.push({ hotkey: 'o', label: 'step', key: `act-o-${a.id}`, onPress: () => openStep($, stepId) })
+      }
+      const hasRef = a.ref !== undefined && a.ref !== ''
+      actions.push({
+        hotkey: 'c',
+        label: hasRef ? 'copy link' : 'copy',
+        key: `act-c-${a.id}`,
+        onPress: () => copyText($, a.ref ?? a.title, e.surface),
+      })
+      if (stepId !== undefined && seq !== undefined) {
+        actions.push({ hotkey: 'g', label: 'chat', key: `act-g-${a.id}`, onPress: () => showInChat($, stepId) })
+      }
+      list.push(opened(ctx, $, detailsOf(t, a, cols, seq), actions))
+      if (i < Math.min(rows.length, ARTIFACT_CAP) - 1 || rows.length > ARTIFACT_CAP) list.push(blank(ctx, $, `below-${a.id}`))
+    })
+    if (rows.length > ARTIFACT_CAP) list.push(more(ctx, $, rows.length - ARTIFACT_CAP))
+    blocks.push(list)
+
+    if (t.changed.length > 0) {
+      const files: RenderElement[] = [section(ctx, $, 'FILES CHANGED')]
+      // `changed` is oldest first: the newest edits lead.
+      const newestFirst = [...t.changed].reverse()
+      newestFirst.slice(0, FILES_CAP).forEach((p, i) => {
+        files.push(row(ctx, $, { key: `file-${i}`, glyph: '·', name: shortPaths(p) }))
+      })
+      if (newestFirst.length > FILES_CAP) files.push(more(ctx, $, newestFirst.length - FILES_CAP))
+      blocks.push(files)
+    }
+
+    blocks.push([
+      section(ctx, $, 'HANDOFF', 'to'),
+      row(ctx, $, {
+        key: 'handoff-export',
+        glyph: '↥',
+        glyphColor: C.accent,
+        name: 'Export digest',
+        metric: 'journal',
+        onPress: async () => void (await exportDigest($)),
+      }),
+      <Text key="handoff-note" dimColor wrap="truncate-end">{`    ${wordFit(NOTE, Math.max(1, cols - 4))}`}</Text>,
+    ])
+
+    const hints: Hint[] = [
+      { text: '↵ open' },
+      { hotkey: 'e', label: 'export', key: 'hint-e', onPress: async () => void (await exportDigest($)) },
+      { text: 'esc prompt' },
+    ]
+    const out: RenderElement[] = []
+    for (const lines of blocks) {
+      if (out.length > 0) out.push(blank(ctx, $, `gap-${out.length}`))
+      out.push(...lines)
+    }
+    const foot = footer(ctx, $, fitHints(hints, cols))
+    if (foot !== null) {
+      out.push(blank(ctx, $, 'gap-footer'))
+      out.push(foot)
+    }
+    return <Box flexDirection="column">{out}</Box>
   } catch (err) {
     debug($, `artifacts view failed: ${errText(err)}`)
-    return <Text dimColor>{fit(`Artifacts: ${errText(err)}`, cols)}</Text>
+    return <Text dimColor>{`Artifacts: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
   }
 }

@@ -214,7 +214,7 @@ test('at bodyColumns 32 and 40 nothing in NEEDS YOU is wider than the body', asy
   }
 })
 
-test('the band leads with "! n need you" in error, and still fits at 24 columns', async ($, on) => {
+test('the band leads with "▲ n need you" in bold warning, and still fits at 24 columns', async ($, on) => {
   world(on, {
     ...asked(30),
     tasks: [{ id: '1', subject: 'x', status: 'in_progress', owner: 'main', updatedAt: NOW }],
@@ -223,14 +223,14 @@ test('the band leads with "! n need you" in error, and still fits at 24 columns'
   for (const surface of BAND_SURFACES) {
     const ui = await $.ui.mount({ ...BAND(80), surface })
     const row = (await ui.find({ type: 'Text' }))?.text
-    expect(row?.startsWith('! 1 need you │ ▣ 0/1 tasks')).toBe(true)
-    const bang = (await ui.findAll({ type: 'Text' })).find(f => f.text === '!')
-    expect((bang?.props as { color?: string }).color).toBe('error')
+    expect(row?.startsWith('▲ 1 need you   ▍ 0/1   x')).toBe(true)
+    const lead = (await ui.findAll({ type: 'Text' })).find(f => f.text === '▲ 1 need you')
+    expect(lead?.props).toMatchObject({ bold: true, color: 'warning' })
     await ui.unmount()
     const narrow = await $.ui.mount({ ...BAND(24), surface })
     const small = (await narrow.find({ type: 'Text' }))?.text ?? ''
     expect(small.length <= 24).toBe(true)
-    expect(small.startsWith('! 1 need you')).toBe(true)
+    expect(small.startsWith('▲ 1 need you')).toBe(true)
     await narrow.unmount()
   }
 })

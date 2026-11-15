@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -70,7 +70,7 @@ const wf = (id: string, index: number, description: string, status: AgentRow['st
 })
 const UI: UiState = {
   tab: 'agents', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], run: 'r1',
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false, run: 'r1',
 }
 const run: Run = { runId: 'r1', name: 'review-changes', parent: 'main', startedAt: NOW - 90_000 }
 const main: AgentRow = { ...empty.agents.main! }
@@ -206,13 +206,13 @@ test('a huge run falls back to one Button per agent opening its newest step', as
   }
 })
 
-test('narrow: every Text line fits 24', async ($, on) => {
+test('narrow: every Text line fits 32', async ($, on) => {
   seed(on, board(25), UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = await ui.findAll({ type: 'Text' })
     expect(found.length > 8).toBe(true)
-    for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+    for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     // a strip is a row: its blocks plus the +n marker must fit too
     const blocks = found.filter(f => f.text === '■').length
     const marker = found.filter(f => /^\+\d+ ?$/.test(f.text ?? '')).length

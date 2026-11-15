@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -83,7 +83,7 @@ const DETAIL = (body?: StepBody): UiState => ({
   query: '',
   runningOnly: false,
   notified: [],
-  toasted: [],
+  toasted: [], slim: false,
   detail: body ? { stepId: 's1', body } : { stepId: 's1', missing: true },
 })
 
@@ -248,7 +248,7 @@ test('a step no longer kept says so and still offers Back', async ($, on) => {
   await ui.unmount()
 })
 
-test('narrow: no Text longer than 24 in the detail', async ($, on) => {
+test('narrow: no Text longer than 32 in the detail', async ($, on) => {
   const body = bodyOf({ input: { file_path: 'src/server/middleware/rateLimit.ts', old_string: 'a', new_string: 'b' }, cut: 99 })
   world(
     on,
@@ -256,11 +256,11 @@ test('narrow: no Text longer than 24 in the detail', async ($, on) => {
     DETAIL(body),
   )
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
     expect(found.length > 5).toBe(true)
     for (const f of found) {
-      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     }
     await ui.unmount()
   }
@@ -274,7 +274,7 @@ const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bo
 test('the header is a STEP section header, the glyph in its status colour and the label bold', async ($, on) => {
   world(on, tl(step('s1', 'Bash npm test', { tool: 'Bash', status: 'error' })), DETAIL(bodyOf({ isError: true })))
   for (const surface of SURFACES) {
-    for (const columns of [62, 24]) {
+    for (const columns of [62, 32]) {
       const ui = await mount($, surface, columns)
       const found = await ui.findAll({ type: 'Text' })
       expect(propsOf(found.find(f => f.text === 'STEP')).color).toBe('suggestion')

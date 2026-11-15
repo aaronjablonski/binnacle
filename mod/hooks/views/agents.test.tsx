@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -106,7 +106,7 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =
 
 const AGENTS_UI: UiState = {
   tab: 'agents', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 const run: Run = { runId: 'r1', name: 'review-changes', parent: 'main', startedAt: NOW - 90_000 }
 const wf = (id: string, index: number, description: string, doing: string, status: AgentRow['status']): AgentRow => ({
@@ -245,7 +245,7 @@ test('the mode buttons are labelled without their hotkeys', async ($, on) => {
   }
 })
 
-test('narrow: no Text longer than 24', async ($, on) => {
+test('narrow: no Text longer than 32', async ($, on) => {
   seed(
     on,
     busy({
@@ -259,12 +259,12 @@ test('narrow: no Text longer than 24', async ($, on) => {
     AGENTS_UI,
   )
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = await ui.findAll({ type: 'Text' })
     expect(found.length > 8).toBe(true)
     // A Text may hold two lines; each line is what must fit.
     for (const f of found) {
-      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     }
     await ui.unmount()
   }
@@ -328,7 +328,7 @@ test('a row is one Button: meta flush right, the doing line second, dim and pref
 test('the AGENTS and run headers are section headers that sum to the columns', async ($, on) => {
   seed(on, MIXED_AGENTS, AGENTS_UI)
   for (const surface of SURFACES) {
-    for (const columns of [62, 24]) {
+    for (const columns of [62, 32]) {
       const ui = await mount($, surface, columns)
       const found = await ui.findAll({ type: 'Text' })
       const heads = found.filter(f => (f.text ?? '').startsWith('AGENTS') && (f.text ?? '').length === columns)

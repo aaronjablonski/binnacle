@@ -3,12 +3,15 @@ import type { On } from 'claude-code'
 
 import type { Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
+import { initialUi } from '../state'
+import { colOf, screen } from './screen.testkit'
 
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
-function world(on: On, t: Timeline, u?: UiState): { stored: Stored; opened: Record<string, unknown>[] } {
+function world(on: On, t: Timeline, u?: UiState, shapes: Record<string, string> = SHAPES): { stored: Stored; opened: Record<string, unknown>[] } {
   const stored: Stored = new Map()
   stored.set('timeline', t)
   if (u) stored.set('ui', u)
@@ -21,7 +24,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; opened: Reco
     const v = stored.get(key)
     return {
       value: {
-        value: v === undefined ? undefined : { shape: SHAPES[key], value: v },
+        value: v === undefined ? undefined : { shape: shapes[key], value: v },
         version: versions.get(key) ?? 0,
       },
     }
@@ -45,12 +48,14 @@ const run = ($: { command: { run: (a: never) => Promise<{ text?: string }> } }, 
   $.command.run({ command: 'mc', args } as never)
 
 const FORMS: [string, string, string][] = [
-  ['1', 'overview', 'Overview'],
+  ['1', 'overview', 'Now'],
   ['2', 'tasks', 'Tasks'],
   ['3', 'agents', 'Agents'],
-  ['4', 'timeline', 'Timeline'],
+  ['4', 'timeline', 'Steps'],
   ['5', 'artifacts', 'Artifacts'],
 ]
+
+const UNKNOWN = 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close or slim.'
 
 for (const [arg, tab, label] of FORMS) {
   test(`/mc ${arg} switches to ${tab}, clears detail and opens the pane`, async ($, on) => {
@@ -72,7 +77,7 @@ test('/mc with an old tab name answers Unknown and writes nothing', async ($, on
 
   const got = await run($, 'agents')
 
-  expect(got.text).toBe('Unknown. Try /mc, /mc 1-5, pin, export or close.')
+  expect(got.text).toBe(UNKNOWN)
   expect(stored.has('ui')).toBe(false)
   expect(opened.length).toBe(0)
 })
@@ -82,22 +87,171 @@ test('/mc with an unknown tab answers and writes nothing', async ($, on) => {
 
   for (const arg of ['6', '0', 'banana']) {
     const got = await run($, arg)
-    expect(got.text).toBe('Unknown. Try /mc, /mc 1-5, pin, export or close.')
+    expect(got.text).toBe(UNKNOWN)
   }
 
   expect(stored.has('ui')).toBe(false)
   expect(opened.length).toBe(0)
 })
 
-test('/mc close and /mc pin still work', async ($, on) => {
+test('/mc close and /mc keep work', async ($, on) => {
   const { opened } = world(on, empty)
 
   const closed = await run($, 'close')
-  const pinned = await run($, 'pin')
+  const kept = await run($, 'keep')
 
   expect(closed.text).toBe('Mission Control closed.')
-  expect(pinned.text).toBe('Nothing to pin yet.')
+  expect(kept.text).toBe('Nothing to pin yet.')
   expect(opened.length).toBe(0)
+})
+
+test('/mc keep <note> keeps the newest main step with the note', async ($, on) => {
+  const t: Timeline = {
+    ...empty,
+    steps: [
+      { id: 'a', seq: 1, agent: 'main', tool: 'Edit', label: 'Edit a.ts', status: 'done', startedAt: 1 },
+      { id: 'b', seq: 2, agent: 'main', tool: 'Bash', label: 'Bash ls', status: 'done', startedAt: 2 },
+      { id: 'c', seq: 3, agent: 'a1', tool: 'Read', label: 'Read x', status: 'done', startedAt: 3 },
+    ],
+  }
+  const { stored } = world(on, t)
+
+  await run($, 'keep the label helper')
+
+  const steps = (stored.get('timeline') as Timeline).steps
+  expect(steps.find(x => x.id === 'b')?.pin).toBe('the label helper')
+  expect(steps.find(x => x.id === 'a')?.pin).toBe(undefined)
+  expect(steps.find(x => x.id === 'c')?.pin).toBe(undefined)
+})
+
+test('/mc pin is gone: it answers Unknown and keeps nothing', async ($, on) => {
+  const t: Timeline = {
+    ...empty,
+    steps: [{ id: 'a', seq: 1, agent: 'main', tool: 'Edit', label: 'Edit a.ts', status: 'done', startedAt: 1 }],
+  }
+  const { stored, opened } = world(on, t)
+
+  const got = await run($, 'pin a note')
+
+  expect(got.text).toBe(UNKNOWN)
+  expect((stored.get('timeline') as Timeline).steps[0]?.pin).toBe(undefined)
+  expect(opened.length).toBe(0)
+})
+
+test('/mc slim asks for 28 columns, and again for 62; /mc keeps the slim width while slim', async ($, on) => {
+  const { stored, opened } = world(on, empty)
+
+  const first = await run($, 'slim')
+  expect((stored.get('ui') as UiState).slim).toBe(true)
+  expect(opened[0]).toMatchObject({ id: 'mission-control', columns: 28, focus: true })
+  expect(first.text).toBe('Mission Control: slim, 28 columns.')
+
+  await run($, '')
+  expect(opened[1]).toMatchObject({ id: 'mission-control', columns: 28 })
+  await run($, '3')
+  expect(opened[2]).toMatchObject({ id: 'mission-control', columns: 28 })
+
+  const second = await run($, 'slim')
+  expect((stored.get('ui') as UiState).slim).toBe(false)
+  expect(opened[3]).toMatchObject({ id: 'mission-control', columns: 62, focus: true })
+  expect(second.text).toBe('Mission Control: full width, 62 columns.')
+
+  await run($, '')
+  expect(opened[4]).toMatchObject({ columns: 62 })
+})
+
+test('a ui value stored as ui-3 reads as the initial value', async ($, on) => {
+  const old = { ...initialUi, tab: 'artifacts', runningOnly: true } as unknown as UiState
+  const { stored } = world(on, empty, old, { timeline: 'timeline-4', ui: 'ui-3' })
+
+  await run($, 'slim')
+
+  expect(stored.get('ui')).toEqual({ ...initialUi, slim: true })
+})
+
+const PANE = (columns: number) =>
+  ({
+    plugin: 'mission-control',
+    component: 'Pane',
+    requestId: 'mission-control',
+    props: {
+      title: 'Mission Control',
+      isFocused: false,
+      bodyColumns: columns,
+      placement: 'dock',
+      scroll: { offset: 0, bodyRows: 40 },
+      view: {},
+    },
+  }) as const
+
+const TAB_TIERS: [number, number, string[]][] = [
+  [62, 12, ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']],
+  [80, 12, ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']],
+  [55, 7, ['Now', 'Tsk', 'Agt', 'Stp', 'Art']],
+  [40, 7, ['Now', 'Tsk', 'Agt', 'Stp', 'Art']],
+  [38, 7, ['Now', 'Tsk', 'Agt', 'Stp', 'Art']],
+  [34, 5, ['◆', '▣', '◎', '≡', '↗']],
+  [32, 5, ['◆', '▣', '◎', '≡', '↗']],
+]
+
+for (const [cols, cell, labels] of TAB_TIERS) {
+  test(`at ${cols} columns the tabs are one line of ${cell}-column cells from column 2, then the track and a blank row`, async ($, on) => {
+    world(on, empty, { ...initialUi, tab: 'agents' })
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE(cols), surface })
+      const rows = screen(await ui.drawn())
+      const [tabs, track, gap] = rows
+      labels.forEach((label, i) => {
+        expect(colOf(tabs, `${i + 1}: ${label}`)).toBe(2 + i * cell)
+      })
+      expect((tabs ?? '').length <= cols).toBe(true)
+      // The track: subtle rest, the open tab (3: Agents) underlined in the accent.
+      const open = `3: ${labels[2]}`
+      const from = 2 + 2 * cell
+      expect(colOf(track, '─')).toBe(2)
+      expect((track ?? '').slice(from, from + open.length)).toBe('━'.repeat(open.length))
+      expect((track ?? '').length).toBe(Math.min(cols, 2 + 5 * cell))
+      expect(gap).toBe('')
+      const row = await ui.find({ type: 'Box', key: 'tabs' })
+      expect(row?.props.flexWrap).toBe(undefined)
+      expect((await ui.findAll({ type: 'Text', text: '│' })).length).toBe(0)
+      const agents = await ui.find({ type: 'Button', key: 'tab-agents' })
+      expect(agents?.props).toMatchObject({ hotkey: '3', plain: true })
+      expect((await ui.find({ type: 'Text', text: new RegExp(`^${labels[2]}$`) }))?.props).toMatchObject({ color: 'suggestion', bold: true })
+      expect((await ui.find({ type: 'Button', key: 'tab-tasks' }))?.props).toMatchObject({ dimColor: true })
+      await ui.unmount()
+    }
+  })
+}
+
+for (const cols of [31, 28, 24, 20]) {
+  test(`at ${cols} columns there is no tab bar: the slim view draws, within the width`, async ($, on) => {
+    world(on, { ...empty, now: { focus: 'Grouping timeline steps by agent and humanising labels', at: 1 } })
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE(cols), surface })
+      for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts']) {
+        expect(await ui.find({ key: `tab-${tab}` })).toBe(undefined)
+      }
+      expect(await ui.find({ type: 'Box', key: 'tabs' })).toBe(undefined)
+      const rows = screen(await ui.drawn())
+      expect(rows[0]?.startsWith('▍ Grouping')).toBe(true)
+      for (const r of rows) expect(r.length <= cols).toBe(true)
+      await ui.unmount()
+    }
+  })
+}
+
+test('pressing a tab writes ui.tab and leaves the step it had open', async ($, on) => {
+  const { stored } = world(on, empty, { ...initialUi, tab: 'timeline', detail: { stepId: 's1' } })
+  for (const surface of SURFACES) {
+    stored.set('ui', { ...initialUi, tab: 'timeline', detail: { stepId: 's1' } })
+    const ui = await $.ui.mount({ ...PANE(62), surface })
+    await ui.press({ key: 'tab-artifacts' })
+    const u = stored.get('ui') as UiState
+    expect(u.tab).toBe('artifacts')
+    expect(u.detail).toBe(undefined)
+    await ui.unmount()
+  }
 })
 
 test('/mc export writes the digest to the journal, copies it and answers the path', async ($, on) => {

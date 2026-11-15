@@ -9,7 +9,7 @@ import { initialUi } from '../state'
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const BAND_SURFACES = ['terminal', 'desktop', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -189,7 +189,7 @@ test('dismiss writes ui.dismissed and the row goes away', async ($, on) => {
   }
 })
 
-test('at bodyColumns 24 and 40 nothing in NEEDS YOU is wider than the body', async ($, on) => {
+test('at bodyColumns 32 and 40 nothing in NEEDS YOU is wider than the body', async ($, on) => {
   world(on, {
     ...empty,
     seq: 3,
@@ -201,7 +201,7 @@ test('at bodyColumns 24 and 40 nothing in NEEDS YOU is wider than the body', asy
     ],
     agents: { main },
   })
-  for (const columns of [24, 40]) {
+  for (const columns of [32, 40]) {
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...PANE(columns), surface })
       const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]

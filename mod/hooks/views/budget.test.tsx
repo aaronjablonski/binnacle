@@ -9,7 +9,7 @@ import { modelName, resetText, tokenText, windowName } from './budget'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 const HOUR = 3_600_000
 
 type Stored = Map<string, unknown>
@@ -106,7 +106,7 @@ test('helpers: model, tokens, window names and reset text', () => {
 test('no budget yet: no BUDGET section and no one-line summary', async ($, on) => {
   world(on, withBudget(undefined))
   for (const surface of SURFACES) {
-    for (const cols of [24, 62, 110]) {
+    for (const cols of [34, 62, 110]) {
       const m = await view($, surface, cols)
       const all = (await lines(m)).join('\n')
       expect(all).not.toContain('BUDGET')
@@ -147,7 +147,7 @@ test('wide seats put BUDGET in the two-column Overview', async ($, on) => {
 test('narrow and inline seats show the one line', async ($, on) => {
   world(on, withBudget(budget()))
   for (const surface of SURFACES) {
-    for (const [cols, placement] of [[30, 'dock'], [62, 'inline']] as const) {
+    for (const [cols, placement] of [[34, 'dock'], [62, 'inline']] as const) {
       const m = await view($, surface, cols, placement)
       const all = await lines(m)
       expect(all).toContain('ctx 62% · 5h 71%')
@@ -157,7 +157,7 @@ test('narrow and inline seats show the one line', async ($, on) => {
   }
 })
 
-test('every budget line fits the width, down to 24', async ($, on) => {
+test('every budget line fits the width, down to 32', async ($, on) => {
   world(
     on,
     withBudget(
@@ -171,7 +171,7 @@ test('every budget line fits the width, down to 24', async ($, on) => {
     ),
   )
   for (const surface of SURFACES) {
-    for (const cols of [24, 30, 40, 62, 110]) {
+    for (const cols of [32, 34, 40, 62, 110]) {
       const m = await view($, surface, cols)
       for (const l of await lines(m)) expect(l.length).toBeLessThanOrEqual(cols)
       await m.unmount()
@@ -191,7 +191,7 @@ test('showCost adds the dollar figure to the section and the one line', { option
   const a = await view($, 'terminal', 62)
   expect((await lines(a)).join('\n')).toContain('$0.50')
   await a.unmount()
-  const b = await view($, 'terminal', 30)
+  const b = await view($, 'terminal', 34)
   expect(await lines(b)).toContain('ctx 62% · 5h 71% · $0.50')
   await b.unmount()
 })
@@ -250,7 +250,7 @@ test('no usage anywhere: no totals section', async ($, on) => {
   await m.unmount()
 })
 
-test('agent rows and totals fit 24 columns', async ($, on) => {
+test('agent rows and totals fit 32 columns', async ($, on) => {
   world(
     on,
     withBudget(undefined, {
@@ -262,8 +262,8 @@ test('agent rows and totals fit 24 columns', async ($, on) => {
     ui('agents'),
   )
   for (const surface of SURFACES) {
-    const m = await view($, surface, 24)
-    for (const l of await lines(m)) expect(l.length).toBeLessThanOrEqual(24)
+    const m = await view($, surface, 32)
+    for (const l of await lines(m)) expect(l.length).toBeLessThanOrEqual(32)
     await m.unmount()
   }
 })

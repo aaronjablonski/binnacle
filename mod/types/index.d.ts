@@ -87,6 +87,9 @@ export type UiState = {
   runningOnly: boolean                                 // the agent tree hides finished branches
   notified: string[]                                   // ids already raised as a notification (≤ 200, newest last)
   toasted: string[]                                    // markers of toasts already raised (≤ 50, newest last)
+  agentOpen?: string                                   // the agent row opened in place on the Agents tab (its AgentKey)
+  stepOpen?: string                                    // the step opened in place on the Steps tab (its id); the full step is `detail`
+  slim: boolean                                        // `/mc slim` asked for the 28-column pane; the layout itself reads only bodyColumns
 }
 
 declare module 'claude-code' {

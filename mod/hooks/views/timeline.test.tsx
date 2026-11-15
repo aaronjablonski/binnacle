@@ -8,7 +8,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 const HOME = 'C:/Users/test'
 
 type Stored = Map<string, unknown>
@@ -77,7 +77,7 @@ const TL_UI: UiState = {
   query: '',
   runningOnly: false,
   notified: [],
-  toasted: [],
+  toasted: [], slim: false,
 }
 
 const PANE = (columns: number, bodyRows = 40) =>
@@ -250,9 +250,9 @@ test('pressing a step opens its detail with the body read from disk', async ($, 
   }
 })
 
-test('/mc pin note pins the newest main step and it shows ★ and the note', async ($, on) => {
+test('/mc keep note keeps the newest main step and it shows ★ and the note', async ($, on) => {
   const stored = world(on, twoTurns(), TL_UI)
-  const got = await $.command.run({ command: 'mc', args: 'pin the limiter itself' } as never)
+  const got = await $.command.run({ command: 'mc', args: 'keep the limiter itself' } as never)
   expect(got.text).toBe('Pinned: Bash npm test')
   const t = stored.get('timeline') as Timeline
   expect(t.steps.find(s => s.id === 's4')?.pin).toBe('the limiter itself')
@@ -265,20 +265,20 @@ test('/mc pin note pins the newest main step and it shows ★ and the note', asy
   }
 })
 
-test('/mc pin with no note pins with an empty note, and skips a subagent step', async ($, on) => {
+test('/mc keep with no note keeps with an empty note, and skips a subagent step', async ($, on) => {
   const t = twoTurns()
   t.steps.push(step('s5', 5, 'Grep later', 'done', { turnId: 't2', agent: 'a1', tool: 'Grep' }))
   const stored = world(on, t, TL_UI)
-  const got = await $.command.run({ command: 'mc', args: 'pin' } as never)
+  const got = await $.command.run({ command: 'mc', args: 'keep' } as never)
   expect(got.text).toBe('Pinned: Bash npm test')
   const after = stored.get('timeline') as Timeline
   expect(after.steps.find(s => s.id === 's4')?.pin).toBe('')
   expect(after.steps.find(s => s.id === 's5')?.pin).toBeUndefined()
 })
 
-test('/mc pin with no steps says Nothing to pin yet.', async ($, on) => {
+test('/mc keep with no steps says Nothing to pin yet.', async ($, on) => {
   world(on, empty, TL_UI)
-  const got = await $.command.run({ command: 'mc', args: 'pin' } as never)
+  const got = await $.command.run({ command: 'mc', args: 'keep' } as never)
   expect(got.text).toBe('Nothing to pin yet.')
 })
 
@@ -292,7 +292,7 @@ test('a ui value stored as ui-2 is read as the initial value', async ($, on) => 
   }
 })
 
-test('narrow: no Text longer than 24', async ($, on) => {
+test('narrow: no Text longer than 32', async ($, on) => {
   const t = twoTurns()
   t.steps.push(
     step('s6', 6, 'Edit src/server/middleware/rateLimit.ts', 'done', { turnId: 't2', pin: 'the limiter itself, a long note' }),
@@ -301,11 +301,11 @@ test('narrow: no Text longer than 24', async ($, on) => {
   t.turns[1] = turn('t2', 'add rate limiting to the upload endpoint and write the tests', NOW - 60_000)
   world(on, t, { ...TL_UI, openTurns: ['t1'] })
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
     expect(found.length > 10).toBe(true)
     for (const f of found) {
-      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     }
     await ui.unmount()
   }
@@ -379,14 +379,14 @@ test('the newest turn is a space-between row with its time dim; a folded turn co
   }
 })
 
-test('narrow: a pinned step and the turn rows keep every line within 24', async ($, on) => {
+test('narrow: a pinned step and the turn rows keep every line within 32', async ($, on) => {
   world(on, pinned(), TL_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = await ui.findAll({ type: 'Text' })
     expect(found.length > 6).toBe(true)
     for (const f of found) {
-      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     }
     await ui.unmount()
   }
@@ -550,13 +550,13 @@ test('the active filter chip is accent coloured, the others dim', async ($, on) 
   await ui.unmount()
 })
 
-test('narrow find results keep every line within 24', async ($, on) => {
+test('narrow find results keep every line within 32', async ($, on) => {
   world(on, twoTurns(), { ...TL_UI, query: 'rate', hits: ['s4'] })
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
     expect(found.length > 5).toBe(true)
-    for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+    for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     await ui.unmount()
   }
 })

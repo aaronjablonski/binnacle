@@ -628,3 +628,32 @@ conversation and needs Aaron's decision.
 three runs count focus updates only, so they are unaffected, but any
 headless check of the task list needs `--tools` naming `TaskCreate`,
 `TaskUpdate` (and the rest it uses).
+
+**Task 4: does the guide get Claude to set a focus?** Three runs of
+`claude -p "Use the Explore agent to read README.md, then tell me in one
+line what this repo is." --model haiku --plugin-dir ./mod` (guide on by
+default), counted in `<home>/.claude/mission-control/<session-id>/timeline.json`:
+
+- With the brief's text, **0 of 3** set `now.focus`. A `--debug-file` run
+  showed the wiring is sound: `$.tool.register` served
+  `mcp__mission-control__update` before the first prompt ("visible after
+  43ms"), and the model, asked, named the tool and the "Mission Control"
+  section. Haiku simply read "whenever what you are working on changes" as
+  optional on a one-shot request.
+- One change to the second bullet, which now reads: "Call
+  mcp__mission-control__update with `focus` (and `next` when you know it)
+  as your first tool call on a new request, and again whenever what you are
+  working on changes. One short line each." With it, **3 of 3** set
+  `now.focus` and `now.next` (e.g. focus "Reading README.md via Explore
+  agent to summarise the repo in one line", next "Report the one-line
+  summary"). One run also added a note ("Explore agent is reading
+  README.md; result pending."), which is status rather than something to
+  find again later. No reply mentioned the panel or the updates.
+
+**Task 4: `ToolUse` has no `bodyColumns`.** The type file gives
+`bodyColumns` to `Pane`, `AbovePrompt` and `AbovePromptList` only. The
+update tool's row is cut to `e.viewport.columns` (80 when no surface has
+measured). The row and `ToolResult` hooks pass to `next(e)` when
+`isExpanded` is true, as the type file asks of a compact row, so ctrl+o
+still shows the full call. The empty `ToolResult` answer is an empty `Box`
+(the kit accepts it and finds no `Text` in it).

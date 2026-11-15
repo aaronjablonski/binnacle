@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pane, Timeline tab</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#7aa2f7}a:hover{color:#a9c1fa}
+</style>
+</helmet>
+<div style="width: 560px; height: 760px; box-sizing: border-box; background: #16181d; color: #d6d9e0; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 22px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-direction: row; gap: 8px">
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 4px">1 Overview</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 4px">2 Tasks</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 4px">3 Agents</button>
+<button style="font: inherit; background: #7aa2f7; color: #16181d; border: 0; border-radius: 3px; padding: 0px 4px; font-weight: 700">4 Timeline</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 4px">5 Artifacts</button>
+</div>
+<div style="border-top: 1px solid #4a5165"></div>
+<div style="display: flex; flex-direction: row; gap: 8px">
+<button style="font: inherit; background: #262a35; color: #d6d9e0; border: 1px solid #7aa2f7; border-radius: 3px; padding: 0px 8px">All</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 1px solid #4a5165; border-radius: 3px; padding: 0px 8px">★ Pinned 2</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 1px solid #4a5165; border-radius: 3px; padding: 0px 8px">✖ Errors 1</button>
+</div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7">▾ add rate limiting to the upload endpoint and…</span> <span style="color: #9aa3b5">14:02</span></div>
+<div><span style="color: #e0af68">  ·</span> Edit src/server/middleware/index.ts          <span style="color: #9aa3b5">…</span></div>
+<div><span style="color: #9ece6a">  ✔</span> Edit test/rateLimit.test.ts  <span style="color: #9aa3b5">general-purp…   1s</span></div>
+<div><span style="color: #9ece6a">  ✔</span> Grep "upload\(" src/         <span style="color: #9aa3b5">Explore        0s</span></div>
+<div style="background: #262a35"><span style="color: #9ece6a">  ✔</span> <span style="color: #e0af68">★</span> Edit src/server/middleware/rateLimit.ts    <span style="color: #9aa3b5">1s</span></div>
+<div style="background: #262a35"><span style="color: #9aa3b5">      the limiter itself</span></div>
+<div><span style="color: #9ece6a">  ✔</span> Agent general-purpose · write limiter tests  <span style="color: #9aa3b5">0s</span></div>
+<div><span style="color: #9ece6a">  ✔</span> Agent Explore · find callers of upload()     <span style="color: #9aa3b5">0s</span></div>
+<div><span style="color: #f7768e">  ✖</span> Bash npm test -- rateLimit                   <span style="color: #9aa3b5">8s</span></div>
+<div><span style="color: #9ece6a">  ✔</span> Bash cat src/server/middleware/index.ts      <span style="color: #9aa3b5">0s</span></div>
+<div><span style="color: #9ece6a">  ✔</span> <span style="color: #e0af68">★</span> Read src/server/upload.ts                  <span style="color: #9aa3b5">0s</span></div>
+<div><span style="color: #9ece6a">  ✔</span> Task 1 → in_progress                         <span style="color: #9aa3b5">0s</span></div>
+<div> </div>
+<div><span style="color: #7aa2f7">▸ what does the upload endpoint accept today?</span>   <span style="color: #9aa3b5">13:51</span></div>
+<div><span style="color: #9aa3b5">    7 steps · 1 agent</span></div>
+<div> </div>
+<div><span style="color: #7aa2f7">▸ run the tests and show me what fails</span>          <span style="color: #9aa3b5">13:44</span></div>
+<div><span style="color: #9aa3b5">    3 steps</span></div>
+</div>
+
+<div style="flex-grow: 1"></div>
+<div style="color: #9aa3b5; white-space: pre">↑↓ move · enter open step · /mc pin [note] pins the latest</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":560,"height":760}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

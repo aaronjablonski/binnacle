@@ -8,12 +8,14 @@ import { STEP_GLYPH } from './agentmeta'
 import { clock, elapsed, fit, splitRow } from './fit'
 import { openStep } from './openstep'
 import { deepSearch, setQuery, showInChat } from './find'
+import { isOnScreen } from './onscreen'
 import { flushRight, glyphText, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
 import { C, glyphColor } from './style'
 
 const INDENT = '  '
 const MIN_PAD = 20
+const ON_SCREEN = '◂ on screen'
 
 type Group = { turn?: TurnRow; steps: Step[] }
 
@@ -26,6 +28,10 @@ type Item =
 // What the row needs of the find: a hit marks `in result`, and while a query is
 // active each row carries a Show in chat line under it.
 type Find = { active: boolean; hits: ReadonlySet<string> }
+
+// The surface the pane is drawn on: a step whose row its transcript shows now
+// is marked `◂ on screen`.
+type Seen = (id: string) => boolean
 
 const groupId = (g: Group): string => g.turn?.id ?? 'none'
 
@@ -50,11 +56,16 @@ function turnLayout(g: Group, isOpen: boolean, cols: number) {
   return { mark, ...splitRow(`${mark} ${title}`, time, cols) }
 }
 
-function stepLayout(t: Timeline, s: Step, cols: number, now: number, find: Find) {
+function stepLayout(t: Timeline, s: Step, cols: number, now: number, find: Find, seen: Seen) {
   const glyph = STEP_GLYPH[s.status]
   const star = s.pin !== undefined ? '★ ' : ''
   const end = s.status === 'running' ? now : (s.endedAt ?? s.startedAt)
-  const right = [s.agent !== 'main' ? agentName(t, s.agent) : '', elapsed(s.startedAt, end), find.hits.has(s.id) ? 'in result' : '']
+  const right = [
+    s.agent !== 'main' ? agentName(t, s.agent) : '',
+    elapsed(s.startedAt, end),
+    find.hits.has(s.id) ? 'in result' : '',
+    seen(s.id) ? ON_SCREEN : '',
+  ]
     .filter(x => x !== '')
     .join(' · ')
   const head = splitRow(`${INDENT}${glyph} ${star}${s.label}`, right, cols)
@@ -155,10 +166,10 @@ ${fit(`${INDENT}└ ${countLine(t, item.group)}`, cols)}`}
   )
 }
 
-function stepRow(ctx: ViewCtx, s: Step, $: EngineInterface, find: Find): RenderElement {
+function stepRow(ctx: ViewCtx, s: Step, $: EngineInterface, find: Find, seen: Seen): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { t, cols, now } = ctx
-  const lay = stepLayout(t, s, cols, now, find)
+  const lay = stepLayout(t, s, cols, now, find, seen)
   const glyph = STEP_GLYPH[s.status]
   const parts: RenderElement[] = [
     <Text key="indent">{INDENT}</Text>,
@@ -266,6 +277,9 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       shown = { ...t, steps: t.steps.filter(s => keep.has(s.id)) }
     }
 
+    const surface = ctx.e.surface
+    const seen: Seen = id => isOnScreen(surface, id)
+
     const groups = stepGroups(shown, f)
     if (groups.length === 0) {
       return (
@@ -287,7 +301,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const height = 1 + (lay.stacked ? 1 : 0) + (isOpen ? 0 : 1)
       items.push({ kind: 'turn', id, group: g, isNewest, isOpen, height })
       if (!isOpen) return
-      for (const s of g.steps) items.push({ kind: 'step', step: s, height: stepLayout(t, s, cols, ctx.now, find).height })
+      for (const s of g.steps) items.push({ kind: 'step', step: s, height: stepLayout(t, s, cols, ctx.now, find, seen).height })
     })
     const total = items.reduce((sum, it) => sum + it.height, 0)
     const { offset, bodyRows } = scrollOf(ctx)
@@ -309,7 +323,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         bottom += it.height
         continue
       }
-      drawn.push(it.kind === 'turn' ? turnRow(ctx, it, $) : stepRow(ctx, it.step, $, find))
+      drawn.push(it.kind === 'turn' ? turnRow(ctx, it, $) : stepRow(ctx, it.step, $, find, seen))
     }
 
     return (

@@ -4,9 +4,11 @@ import type { Update } from '../types'
 import { UPDATE_TOOL } from './capture'
 import { MAX_LINE, MAX_REF } from './model/limits'
 import { apply, debug, errText } from './state'
+import { observeRow } from './views/onscreen'
 
 // The guide is the one place the mod adds to a conversation: one tool and
-// one fixed system-prompt section. Everything here is off with `guide: false`.
+// one fixed system-prompt section. Everything here is off with `guide: false`,
+// except the ToolUse hook's observer, which adds nothing to a conversation.
 
 const TOOL_NAME = 'update'
 const FIELD_MAX = MAX_LINE
@@ -98,8 +100,16 @@ export function registerGuide(on: On, options: PluginOptions): void {
     return { sections: [...out.sections.filter(s => s.id !== SECTION_ID), SECTION] }
   }).catch(($, e, next) => next(e))
 
+  // The one ToolUse hook, registered with the guide on or off. Every other
+  // tool's row is only observed for the Timeline's on-screen mark and handed
+  // on untouched; the update tool's compact row is the guide's alone.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    if (!on_ || e.component !== 'ToolUse' || e.props.tool !== UPDATE_TOOL || e.props.isExpanded === true) return next(e)
+    if (e.component !== 'ToolUse') return next(e)
+    if (e.props.tool !== UPDATE_TOOL) {
+      observeRow($, e)
+      return next(e)
+    }
+    if (!on_ || e.props.isExpanded === true) return next(e)
     const { Text } = $.ui.resolve(e)
     return <Text dimColor>{rowText(e.props.input, e.viewport?.columns ?? 80)}</Text>
   }).catch(($, e, next) => next(e))

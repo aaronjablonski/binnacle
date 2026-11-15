@@ -560,3 +560,71 @@ test('narrow find results keep every line within 24', async ($, on) => {
     await ui.unmount()
   }
 })
+
+const SEEN = { first: 0, last: 2, of: 3 }
+type Seen = { first: number; last: number; of: number } | null
+const toolRow = (id: string, tool: string, onScreen: Seen) => ({
+  tool_use_id: id, tool, input: {}, isRunning: false, isErrored: false, isInterrupted: false, onScreen,
+})
+
+async function mountRow($: Engine, surface: (typeof SURFACES)[number], id: string, onScreen: Seen) {
+  return $.ui.mount({
+    plugin: 'mission-control', surface, component: 'ToolUse', requestId: id,
+    props: toolRow(id, 'Edit', onScreen),
+  } as never)
+}
+
+test('a step whose row is on screen shows ◂ on screen, and loses it when the row leaves', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  for (const surface of SURFACES) {
+    const row = await mountRow($, surface, 's3', SEEN)
+    const ui = await mount($, surface)
+    expect((await ui.find({ key: 'step-s3' }))?.text).toContain('◂ on screen')
+    expect((await ui.find({ key: 'step-s4' }))?.text).not.toContain('on screen')
+
+    await row.redraw(toolRow('s3', 'Edit', null))
+    await clock?.advance(1000)
+    expect((await ui.find({ key: 'step-s3' }))?.text).not.toContain('on screen')
+    await ui.unmount()
+
+    // The mark is per surface: what one surface shows says nothing of another's.
+    await row.redraw(toolRow('s3', 'Edit', SEEN))
+    const other = SURFACES.find(s => s !== surface)!
+    const elsewhere = await mount($, other)
+    expect((await elsewhere.find({ key: 'step-s3' }))?.text).not.toContain('on screen')
+    await elsewhere.unmount()
+    await row.redraw(toolRow('s3', 'Edit', null))
+    await row.unmount()
+  }
+})
+
+test('with guide: false nothing is added to the conversation and the mark still shows', { options: { guide: false } }, async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  const registered: string[] = []
+  on('tool.register', (_, e) => {
+    registered.push(e.name)
+    return { value: { tool: `mcp__mission-control__${e.name}` } }
+  })
+  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const sections = [{ id: 'lean_body', text: 'body', scope: 'shared' }] as const
+  on('prompt.compose', () => ({ sections }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: false })
+  const composed = await $.prompt.compose({
+    model: 'claude-haiku-5-5', promptModel: 'claude-haiku-5-5', surfaces: [],
+    tools: ['mcp__mission-control__update'], outputStyle: null, traits: ['lean', 'print'],
+  })
+  expect(registered).toEqual([])
+  expect(composed.sections).toEqual(sections)
+
+  for (const surface of SURFACES) {
+    const row = await mountRow($, surface, 's4', SEEN)
+    const ui = await mount($, surface)
+    expect((await ui.find({ key: 'step-s4' }))?.text).toContain('◂ on screen')
+    expect((await ui.find({ key: 'step-s3' }))?.text).not.toContain('on screen')
+    await ui.unmount()
+    await row.redraw(toolRow('s4', 'Bash', null))
+    await row.unmount()
+  }
+})

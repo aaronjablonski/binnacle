@@ -229,3 +229,69 @@ test("another tool's row is left to the engine", async ($, on) => {
     await result.unmount()
   }
 })
+
+const SEEN = { first: 0, last: 2, of: 3 }
+const OTHER_TOOLS = ['Bash', 'Read', 'Edit', 'Agent', 'mcp__github__get_issue', 'mcp__mission-control__other']
+
+test("every other tool's row is the engine's node, unchanged, on screen or not", async ($, on) => {
+  world(on)
+  on('ui.render', ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const tool = e.component === 'ToolUse' ? e.props.tool : '?'
+    return (
+      <Box key="engine-row" flexDirection="column">
+        <Text>{`engine ${tool}`}</Text>
+      </Box>
+    )
+  })
+  for (const surface of SURFACES) {
+    for (const tool of OTHER_TOOLS) {
+      for (const onScreen of [SEEN, null, undefined]) {
+        const props = onScreen === undefined ? row(tool, { a: 1 }) : { ...row(tool, { a: 1 }), onScreen }
+        const ui = await $.ui.mount({
+          plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_1', props,
+        })
+        expect(await ui.drawn()).toMatchObject({ type: 'Box', props: { key: 'engine-row' } })
+        const texts = await ui.findAll({ type: 'Text' })
+        expect(texts.map(t => t.text)).toEqual([`engine ${tool}`])
+        await ui.redraw({ ...row(tool, { a: 1 }), onScreen: null })
+        expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual([`engine ${tool}`])
+        await ui.unmount()
+      }
+    }
+  }
+})
+
+test('an expanded update row is the engine\'s too', async ($, on) => {
+  world(on)
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({
+      plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_9',
+      props: { ...row(UPDATE, { focus: 'x' }), isExpanded: true, onScreen: SEEN },
+    })
+    expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine'])
+    await ui.unmount()
+  }
+})
+
+test("with guide: false the update tool's row is the engine's and other rows pass unchanged", { options: { guide: false } }, async ($, on) => {
+  world(on)
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+  for (const surface of SURFACES) {
+    for (const tool of [UPDATE, 'Bash']) {
+      const ui = await $.ui.mount({
+        plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_8',
+        props: { ...row(tool, { focus: 'x' }), onScreen: SEEN },
+      })
+      expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine'])
+      await ui.unmount()
+    }
+  }
+})

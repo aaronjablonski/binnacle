@@ -4,6 +4,7 @@ import type { AgentRow } from '../../types'
 import { agentGroups } from '../model/select'
 import { debug, errText, leaveDetail, updateUi } from '../state'
 import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, WORKFLOW_TYPE, metaOf } from './agentmeta'
+import { modelsSection } from './budget'
 import { fit, splitRow } from './fit'
 import { flushRight, glyphText, sectionHeader } from './parts'
 import { glyphColor } from './style'
@@ -18,14 +19,14 @@ import type { ViewCtx } from './shell'
  * `$` is a separate argument because the scan refuses it inside an object.
  */
 export function agentRow(ctx: ViewCtx, agent: AgentRow, prefix: string, selected: boolean, $: EngineInterface): RenderElement {
-  const { Text, Button } = $.ui.resolve(ctx.e)
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { cols } = ctx
   const isMain = agent.id === 'main'
   const glyph = isMain ? MAIN_GLYPH : AGENT_GLYPH[agent.status]
   let name = `${agent.type} · ${agent.description}`
   if (isMain) name = 'main · this conversation'
   else if (agent.type === WORKFLOW_TYPE) name = agent.description
-  const meta = metaOf(ctx, agent)
+  const meta = metaOf(ctx, agent, ' steps', true)
   const head = splitRow(`${prefix}${glyph} ${name}`, meta, cols)
   const room = Math.max(0, head.left.length - prefix.length - glyph.length - 1)
   const lines: RenderElement[] = []
@@ -51,7 +52,7 @@ ${fit(`${' '.repeat(prefix.length)}└ ${head.right}`, cols)}`}</Text>)
     lines.push(<Text key="doing" dimColor>{`
 ${fit(`${' '.repeat(prefix.length)}└ ${agent.doing}`, cols)}`}</Text>)
   }
-  return (
+  const row = (
     <Button
       key={`agent-${agent.id}`}
       plain
@@ -60,6 +61,27 @@ ${fit(`${' '.repeat(prefix.length)}└ ${agent.doing}`, cols)}`}</Text>)
       {lines}
     </Button>
   )
+  if (isMain) return row
+  return (
+    <Box key={`row-${agent.id}`} flexDirection="column">
+      {row}
+      <Box flexDirection="row">
+        <Text>{' '.repeat(prefix.length + 2)}</Text>
+        <Button key={`view-${agent.id}`} label="View" plain dimColor onPress={() => viewAgent($, agent.id)} />
+      </Box>
+    </Box>
+  )
+}
+
+// A press only: the engine refuses `$.ui.view` outside one. A refusal is toasted.
+async function viewAgent($: EngineInterface, agentId: string): Promise<void> {
+  try {
+    const shown = await $.ui.view({ agentId })
+    if (shown.deny !== undefined && shown.deny !== '') $.ui.toast(shown.deny)
+  } catch (err) {
+    debug($, `view failed: ${errText(err)}`)
+    $.ui.toast(errText(err))
+  }
 }
 
 /** A run's section header as one Button that opens its board. */
@@ -135,6 +157,7 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
             </Box>
           )
         })}
+        {modelsSection(ctx, $)}
       </Box>
     )
   } catch (err) {

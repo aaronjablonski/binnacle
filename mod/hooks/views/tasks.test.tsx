@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 
 import type { AgentRow, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
+import { decode, PALETTE } from './raster'
 import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -118,24 +119,31 @@ const BUSY: Timeline = {
 
 const rowWith = (rows: string[], text: string): string => rows.find(r => r.includes(text)) ?? ''
 
-// LOOK TEST (rewritten for Neo): replaces "readouts DONE, ACTIVE, QUEUED and ELAPSED sit on cells 2, 14, 26 and 38".
-test('the TASKS and PACE deck: rails on 0 and 61, label at 2, gauge at 14, value at 38, aside at 50', async ($, on) => {
+const TEXT_SURFACES = ['desktop', 'vscode', 'mobile'] as const
+
+// LOOK TEST (rewritten for Neo Rich): replaces "the TASKS and PACE deck: rails on 0 and 61, label at 2, gauge at 14, value at 38, aside at 50".
+// The text form (every surface but the terminal) is TASKS, PLAN and PACE between the rails.
+test('the text deck is TASKS, PLAN and PACE: rails on 0 and 61, label at 2, gauge at 14, value at 38, aside at 50', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
-  for (const surface of SURFACES) {
+  for (const surface of TEXT_SURFACES) {
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
     const tasks = rowWith(rows, 'TASKS')
+    const plan = rowWith(rows, 'PLAN')
     const pace = rowWith(rows, 'PACE')
     expect(tasks.startsWith('┏ ')).toBe(true)
+    expect(plan.startsWith('┃ ')).toBe(true)
     expect(pace.startsWith('┗ ')).toBe(true)
     expect(tasks.length).toBe(62)
     expect(tasks.endsWith('┓')).toBe(true)
     expect(pace.endsWith('┛')).toBe(true)
     expect([colOf(tasks, 'TASKS'), colOf(tasks, '▪'), colOf(tasks, '5/13'), colOf(tasks, '1h00')]).toEqual([2, 14, 38, 50])
+    expect([colOf(plan, 'PLAN'), colOf(plan, '160k all'), colOf(plan, 'peak 160k')]).toEqual([2, 38, 50])
+    expect(plan.slice(14, 36)).toMatch(/^[▁▂▃▄▅▆▇█]{22}$/)
     expect([colOf(pace, 'PACE'), colOf(pace, '12m each'), colOf(pace, '7 queued')]).toEqual([2, 38, 50])
     expect(pace.slice(14, 36)).toMatch(/^[▁▂▃▄▅▆▇█]{22}$/)
     // the deck is the first block: tab content starts with it, one blank row, then ACTIVE
-    expect(rows.indexOf(pace) - rows.indexOf(tasks)).toBe(1)
+    expect([rows.indexOf(plan) - rows.indexOf(tasks), rows.indexOf(pace) - rows.indexOf(plan)]).toEqual([1, 1])
     expect(rows[rows.indexOf(pace) + 1]).toBe('')
     await ui.unmount()
   }
@@ -144,7 +152,7 @@ test('the TASKS and PACE deck: rails on 0 and 61, label at 2, gauge at 14, value
 // LOOK TEST (rewritten for Neo): replaces "every diagram is 10 wide and the three bars share one scale".
 test('the TASKS gauge is one pip per task: ▪ done, ▸ current, ▫ queued', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
-  const ui = await mount($, 'terminal')
+  const ui = await mount($, 'desktop')
   const row = rowWith(await drawnRows(ui), 'TASKS')
   expect(row.slice(14, 27)).toBe('▪▪▪▪▪▸▫▫▫▫▫▫▫')
   await ui.unmount()
@@ -156,7 +164,7 @@ test('over 22 tasks the TASKS gauge is a 22-cell ▮▯ bar', async ($, on) => {
     tasks: [...BUSY.tasks, ...Array.from({ length: 12 }, (_, i) => task(`z${i}`, `Extra ${i}`, 'pending'))],
   }
   seed(on, many, TASKS_UI)
-  const wide = await mount($, 'terminal')
+  const wide = await mount($, 'desktop')
   const bar = rowWith(await drawnRows(wide), 'TASKS').slice(14, 36)
   expect(bar).toHaveLength(22)
   expect(bar).toMatch(/^▮+▯+$/)
@@ -184,7 +192,8 @@ test('sections run ACTIVE, QUEUED, DONE and are capped at 1, 5 and 3 with a more
     expect(done.filter(r => r.startsWith('  ▪')).map(r => r.slice(4, 21).trimEnd())).toEqual(['Read the plan', 'Read the spec', 'Read the handover'])
     expect(done).toContain('  + 2 more')
     // no blank row twice in a row anywhere
-    for (let i = 1; i < rows.length; i++) expect(rows[i] === '' && rows[i - 1] === '').toBe(false)
+    // (On the terminal the testkit draws the lintel and sill Rasters as blank rows, so only the text form is held to this.)
+    if (surface !== 'terminal') for (let i = 1; i < rows.length; i++) expect(rows[i] === '' && rows[i - 1] === '').toBe(false)
     await ui.unmount()
   }
 })
@@ -195,11 +204,11 @@ test('rows put glyph at 2, name at 4, the metric at 38 and the time at 50 at 62 
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
     const active = rowWith(rows, 'Grouping timeline steps')
-    expect([colOf(active, '▸'), colOf(active, 'Grouping'), colOf(active, '2 live'), colOf(active, '3m')]).toEqual([2, 4, 38, 50])
+    expect([colOf(active, '▸'), colOf(active, 'Grouping'), colOf(active, '160k'), colOf(active, '3m')]).toEqual([2, 4, 38, 50])
     const done = rowWith(rows, 'Read the plan')
     expect([colOf(done, '▪'), colOf(done, 'Read the plan'), colOf(done, '10m')]).toEqual([2, 4, 50])
     const heads = rowWith(rows, '┌ ACTIVE')
-    expect([colOf(heads, 'agents'), colOf(heads, 'time')]).toEqual([38, 50])
+    expect([colOf(heads, 'tokens'), colOf(heads, 'time')]).toEqual([38, 50])
     await ui.unmount()
   }
 })
@@ -341,7 +350,7 @@ test('e exports the digest from the Tasks tab', async ($, on) => {
 // LOOK TEST (rewritten for Neo): at 40 the deck drops the aside and the value; the gauge stays.
 test('at 40 columns: the deck keeps label and gauge only; the time on the last cell (26), no metric; nothing past 40', async ($, on) => {
   seed(on, BUSY, TASKS_UI)
-  const ui = await mount($, 'terminal', 40)
+  const ui = await mount($, 'desktop', 40)
   const rows = await drawnRows(ui)
   const tasks = rowWith(rows, 'TASKS')
   expect(tasks.length).toBe(40)
@@ -351,7 +360,7 @@ test('at 40 columns: the deck keeps label and gauge only; the time on the last c
   expect(rowWith(rows, 'PACE')).not.toContain('queued')
   const active = rowWith(rows, 'Grouping')
   expect(colOf(active, '3m')).toBe(26)
-  expect(active).not.toContain('live')
+  expect(active).not.toContain('160k')
   for (const r of rows) expect(r.length <= 40).toBe(true)
   await ui.unmount()
 })
@@ -363,10 +372,11 @@ test('at 32 columns: the deck keeps its pips and a 10-cell trace, name only rows
     { ...BUSY, tasks: [...BUSY.tasks, task('long', 'A task name that is far longer than a narrow pane can hold', 'pending')] },
     TASKS_UI,
   )
-  const ui = await mount($, 'terminal', 32)
+  const ui = await mount($, 'desktop', 32)
   const rows = await drawnRows(ui)
   const tasks = rowWith(rows, 'TASKS')
   expect(tasks.length).toBe(32)
+  expect(rowWith(rows, 'PLAN').slice(14, 24)).toMatch(/^[▁▂▃▄▅▆▇█]{10}$/)
   expect(tasks.slice(14, 28)).toBe('▪▪▪▪▪▸▫▫▫▫▫▫▫▫')
   expect(rowWith(rows, 'PACE').slice(14, 24)).toMatch(/^[▁▂▃▄▅▆▇█]{10}$/)
   for (const r of rows) expect(r.length <= 32).toBe(true)
@@ -425,4 +435,141 @@ test('focused, every row of Tasks, footer included, fits 32 and 40 columns', asy
       await ui.unmount()
     }
   }
+})
+
+// ---- Neo Rich: the PLAN strip, pace, pages ------------------------------------
+
+const PLANNED: Timeline = {
+  ...empty,
+  steps: [{ id: 's1', seq: 1, agent: 'main', tool: 'Bash', label: 'Bash ls', status: 'done', startedAt: NOW - 3_600_000 }],
+  tasks: [
+    task('t1', 'Sketch the bucket', 'completed', { tokens: 40_000, ms: 300_000 }),
+    task('t2', 'Map the middleware', 'completed', { tokens: 120_000, ms: 360_000 }),
+    task('t3', 'Wire the limiter', 'in_progress', { tokens: 60_000, ms: 120_000, updatedAt: NOW - 120_000 }),
+    task('t4', 'Run it on staging', 'pending'),
+  ],
+  agents: { main },
+}
+
+test('PLAN on the terminal: one Raster column per task, its height the tokens it took, its colour its state, the heaviest in ember', async ($, on) => {
+  seed(on, PLANNED, TASKS_UI)
+  const ui = await mount($, 'terminal')
+  const r = await ui.find({ type: 'Raster', key: 'plan' })
+  expect(r?.props.columns).toBe(8)
+  expect(r?.props.rows).toBe(3)
+  const cells = decode(String(r?.props.cells))
+  const at = (row: number, n: number) => cells[row * 8 + n * 2]!
+  const FULL = 0x2588
+  // Heights: t2 (120k) fills all three rows, t3 (60k) half, t1 (40k) one row, t4 (queued) only a rest tick.
+  expect([at(0, 1)[0], at(1, 1)[0], at(2, 1)[0]]).toEqual([FULL, FULL, FULL])
+  expect(at(0, 2)[0]).not.toBe(FULL)
+  expect(at(1, 2)[0]).toBe(0x2584)
+  expect(at(1, 0)[0]).not.toBe(FULL)
+  expect(at(2, 0)[0]).toBe(FULL)
+  expect(at(2, 3)[0]).toBe(0x2581)
+  // Colours: done mute, the heaviest ember, the current one iris, queued rest.
+  expect(at(2, 0)[1]).toBe(PALETTE.night.mute)
+  expect(at(2, 1)[1]).toBe(PALETTE.night.ember)
+  expect(at(2, 2)[1]).toBe(PALETTE.night.iris)
+  expect(at(2, 3)[1]).toBe(PALETTE.night.rest)
+  // The strip names its heaviest and current column, and the deck has no TASKS row (the lintel says 2 of 4).
+  const rows = await drawnRows(ui)
+  expect(rows.some(x => x.includes('▴2 heaviest') && x.includes('▴3 now'))).toBe(true)
+  expect(rows.some(x => x.includes('TASKS'))).toBe(false)
+  await ui.unmount()
+})
+
+test('PLAN in the text form: per-task tokens in eighth blocks, the total and the peak beside it', async ($, on) => {
+  seed(on, PLANNED, TASKS_UI)
+  for (const surface of TEXT_SURFACES) {
+    const ui = await mount($, surface)
+    const plan = rowWith(await drawnRows(ui), 'PLAN')
+    expect([colOf(plan, '220k all'), colOf(plan, 'peak 120k')]).toEqual([38, 50])
+    expect(plan.slice(14, 22)).toMatch(/^[▁▂▃▄▅▆▇█]{8}$/)
+    await ui.unmount()
+  }
+})
+
+test('over 34 tasks the PLAN strip buckets them so it stays 34 columns wide', async ($, on) => {
+  const many: Timeline = { ...PLANNED, tasks: [...PLANNED.tasks, ...Array.from({ length: 40 }, (_, i) => task(`z${i}`, `Extra ${i}`, 'pending'))] }
+  seed(on, many, TASKS_UI)
+  const ui = await mount($, 'terminal')
+  const r = await ui.find({ type: 'Raster', key: 'plan' })
+  expect(Number(r?.props.columns)).toBeLessThanOrEqual(34)
+  await ui.unmount()
+})
+
+test('Enter on a queued or done task opens its page; the opened active task has p: page', async ($, on) => {
+  const stored = seed(on, BUSY, TASKS_UI)
+  const ui = await mount($, 'desktop')
+  await ui.press({ key: 'task-main:q1' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'task', id: 'main:q1' })
+  await ui.unmount()
+  stored.set('ui', { ...TASKS_UI, taskOpen: 'main:a1' })
+  const open = await mount($, 'desktop')
+  expect((await drawnRows(open)).some(r => r.includes('p: page'))).toBe(true)
+  await open.press({ key: 'page-main:a1' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'task', id: 'main:a1' })
+  await open.unmount()
+})
+
+const LONG_SUBJECT =
+  'Wire the rate limiter into the middleware chain ahead of the auth check and make every response carry the limit headers so callers can back off'
+const LONG_FORM = 'Wiring the rate limiter into the middleware chain ahead of the auth check'
+const LONG_DESC = 'Find every caller of the upload function across the whole repository and report each file and line'
+const PAGE_TL: Timeline = {
+  ...PLANNED,
+  tasks: [...PLANNED.tasks, task('p1', LONG_SUBJECT, 'in_progress', { activeForm: LONG_FORM, tokens: 30_000, ms: 90_000, updatedAt: NOW - 90_000 })],
+  agents: {
+    main,
+    x1: { ...agent('x1', 'Explore', LONG_DESC, 'Grep rateLimit'), taskId: 'p1', tokensIn: 50_000, tokensOut: 2_000 },
+  },
+  steps: [
+    { id: 's1', seq: 1, agent: 'main', tool: 'Bash', label: 'Bash ls', status: 'done', startedAt: NOW - 3_600_000 },
+    { id: 's2', seq: 2, agent: 'x1', tool: 'Grep', label: 'Grep rateLimit in src/middleware/limits/upload/handlers.ts', status: 'done', startedAt: NOW - 80_000 },
+  ],
+}
+
+test('the task page shows the whole subject, the active form, status, time and tokens, its agents in full and its steps, and no line ends in …', async ($, on) => {
+  seed(on, PAGE_TL, { ...TASKS_UI, page: { kind: 'task', id: 'main:p1' } })
+  for (const surface of SURFACES) {
+    for (const columns of [62, 40, 32]) {
+      const ui = await mount($, surface, columns)
+      const rows = await drawnRows(ui)
+      for (const r of rows) {
+        expect([surface, columns, r.length <= columns]).toEqual([surface, columns, true])
+        expect([surface, columns, r.trimEnd().endsWith('…')]).toEqual([surface, columns, false])
+      }
+      // Every word of the long texts is on the page: nothing was cut.
+      const flat = rows.join(' ').replace(/\s+/g, ' ')
+      for (const text of [LONG_SUBJECT, LONG_FORM, LONG_DESC]) {
+        for (const w of text.split(' ')) expect([surface, columns, w, flat.includes(w)]).toEqual([surface, columns, w, true])
+      }
+      expect(flat).toContain('in progress')
+      expect(flat).toContain('Explore')
+      expect(flat).toContain('52k')
+      expect(flat).toContain('STEPS')
+      expect(flat).toContain('b: back')
+      await ui.unmount()
+    }
+  }
+})
+
+test('the task page stacks the tokens by agent and sets the time against the usual', async ($, on) => {
+  seed(on, PAGE_TL, { ...TASKS_UI, page: { kind: 'task', id: 'main:p1' } })
+  const ui = await mount($, 'desktop')
+  const flat = (await drawnRows(ui)).join('\n')
+  expect(flat).toContain('TOKENS BY AGENT')
+  expect(flat).toMatch(/main 30k · 37%/)
+  expect(flat).toMatch(/Explore 52k · 63%/)
+  // The usual is the median of the done tasks (5m and 6m).
+  expect(flat).toMatch(/usually 5m/)
+  await ui.unmount()
+})
+
+test('a task page for a task that is gone says so', async ($, on) => {
+  seed(on, PLANNED, { ...TASKS_UI, page: { kind: 'task', id: 'main:nope' } })
+  const ui = await mount($, 'desktop')
+  expect((await drawnRows(ui)).join('\n')).toContain('This task is gone.')
+  await ui.unmount()
 })

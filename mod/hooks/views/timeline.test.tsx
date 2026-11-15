@@ -5,7 +5,10 @@ import type { On } from 'claude-code'
 import type { AgentRow, Step, Timeline, TurnRow, UiState } from '../../types'
 import { bodyOf } from '../journal'
 import { empty } from '../model/reduce'
+import { filesOf } from './detail'
+import { decode, PALETTE } from './raster'
 import { colOf, screen } from './screen.testkit'
+import { mapBuckets } from './timeline'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -362,8 +365,9 @@ const fileFor = (id: string, text: string, extra: Record<string, unknown> = {}):
 const TAB_ROWS = 3
 const drawnRows = async (ui: { drawn: () => Promise<unknown> }): Promise<string[]> => screen(await ui.drawn()).slice(TAB_ROWS)
 
-// LOOK TEST (rewritten for Neo): replaces "at 62: find row, chips on cells, the turn section and its rows sit on the grid".
-test('at 62: the FIND and SHOW deck, then the turn section and its rows sit on the grid', async ($, on) => {
+// LOOK TEST (rewritten for Neo Rich): replaces "at 62: the FIND and SHOW deck, then the turn section and its rows sit on the grid"
+// (the bracket now holds FIND, SHOW and the two-row MAP, so the turn section starts two rows lower).
+test('at 62: the FIND, SHOW and MAP deck, then the turn section and its rows sit on the grid', async ($, on) => {
   world(on, twoTurns(), TL_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 62)
@@ -375,26 +379,35 @@ test('at 62: the FIND and SHOW deck, then the turn section and its rows sit on t
     expect(colOf(rows[0], '✖ 1 error')).toBe(50)
     expect(rows[0]?.length).toBe(62)
     expect(rows[0]?.endsWith('┓')).toBe(true)
-    // SHOW (bottom bracket): the chips on cells 14, 26 and 38; the chosen one, All, is a pill (one space each side).
-    expect(rows[1]?.startsWith('┗ SHOW')).toBe(true)
+    // SHOW (middle of the bracket): the chips on cells 14, 26 and 38; the chosen one, All, is a pill (one space each side).
+    expect(rows[1]?.startsWith('┃ SHOW')).toBe(true)
     expect(colOf(rows[1], ' All 4 ')).toBe(14)
     expect(colOf(rows[1], 'Errors 1')).toBe(26)
     expect(rows[1]).not.toContain('Kept')
     expect(rows[1]).not.toContain('In view')
     expect(rows[1]?.length).toBe(62)
-    expect(rows[1]?.endsWith('┛')).toBe(true)
-    expect(rows[2]).toBe('')
-    expect(rows[3]?.startsWith('┌ ')).toBe(true)
-    expect(colOf(rows[3], '“add rate limiting”')).toBe(2)
-    expect(colOf(rows[3], 'agent')).toBe(38)
-    expect(colOf(rows[3], 'time')).toBe(50)
+    expect(rows[1]?.endsWith('┃')).toBe(true)
+    // MAP: the label on the first of its two rows, the bracket closing under it and at the right edge.
+    expect(rows[2]?.startsWith('┃ MAP')).toBe(true)
+    expect(rows[2]?.endsWith('┃')).toBe(true)
+    expect(rows[3]?.startsWith('┗')).toBe(true)
+    expect(rows[3]?.endsWith('┛')).toBe(true)
+    expect(rows[2]?.length).toBe(62)
+    expect(rows[3]?.length).toBe(62)
+    // In the text form the MAP is 44 cells of eighth blocks at 14.
+    if (surface !== 'terminal') expect(rows[3]?.slice(14, 58)).toMatch(/^[▁▂▃▄▅▆▇█]{44}$/)
+    expect(rows[4]).toBe('')
+    expect(rows[5]?.startsWith('┌ ')).toBe(true)
+    expect(colOf(rows[5], '“add rate limiting”')).toBe(2)
+    expect(colOf(rows[5], 'agent')).toBe(38)
+    expect(colOf(rows[5], 'time')).toBe(50)
     // s4 (newest): glyph 2, tool 4, name 10, metric 38, time 50.
-    expect(colOf(rows[4], '✖')).toBe(2)
-    expect(colOf(rows[4], 'Bash')).toBe(4)
-    expect(colOf(rows[4], 'npm test')).toBe(10)
-    expect(colOf(rows[4], 'main')).toBe(38)
-    expect(colOf(rows[4], '1s')).toBe(50)
-    expect(colOf(rows[5], 'rateLimit.ts')).toBe(10)
+    expect(colOf(rows[6], '✖')).toBe(2)
+    expect(colOf(rows[6], 'Bash')).toBe(4)
+    expect(colOf(rows[6], 'npm test')).toBe(10)
+    expect(colOf(rows[6], 'main')).toBe(38)
+    expect(colOf(rows[6], '1s')).toBe(50)
+    expect(colOf(rows[7], 'rateLimit.ts')).toBe(10)
     for (const r of rows) expect(r.length <= 62).toBe(true)
     await ui.unmount()
   }
@@ -616,19 +629,28 @@ test('a press opens the step in place: at most 3 detail lines, then g: chat  k: 
   }
 })
 
-test('a second press on the opened step opens the full step with its body', async ($, on) => {
+// BEHAVIOUR TEST (rewritten for Neo Rich: the second press opens the step's page, not the old detail view).
+// Replaces "a second press on the opened step opens the full step with its body".
+test('a second press on the opened step opens its page with the body, and b comes back to the step open in place', async ($, on) => {
   const stored = world(on, twoTurns(), TL_UI, new Map([BODY_S4]))
   const ui = await mount($, 'terminal')
   await ui.press({ key: 'step-s4' })
   await ui.unmount()
   const open = await mount($, 'terminal')
   await open.press({ key: 'step-s4' })
-  const u = stored.get('ui') as UiState
-  expect(u.detail?.stepId).toBe('s4')
-  expect(u.detail?.body?.isError).toBe(true)
+  const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; body?: { isError: boolean } } }
+  expect(u.page).toEqual({ kind: 'step', id: 's4' })
+  expect(u.detail).toBeUndefined()
+  expect(u.stepBody?.body?.isError).toBe(true)
   await open.unmount()
   const full = await mount($, 'terminal')
-  expect(await full.find({ key: 'detail-back' })).toBeDefined()
+  expect(await full.find({ key: 'step-page-open' })).toBeUndefined()
+  expect(await full.find({ key: 'step-page-keep' })).toBeDefined()
+  expect(await full.find({ key: 'page-back' })).toBeDefined()
+  await full.press({ key: 'page-back' })
+  const back = stored.get('ui') as UiState
+  expect(back.page).toBeUndefined()
+  expect(back.stepOpen).toBe('s4')
   await full.unmount()
 })
 
@@ -955,4 +977,217 @@ test('a general-purpose agent shows general in the metric cell at 62, never gene
   expect(colOf(row, 'general')).toBe(38)
   expect(row).not.toContain('general-')
   await ui.unmount()
+})
+
+// ---- Neo Rich: the step MAP and the step page ------------------------------------
+
+test('mapBuckets counts steps into slices of the session, marks an error and the run in view', () => {
+  const mk = (id: string, at: number, status: Step['status'] = 'done'): Step => ({ id, seq: 1, agent: 'main', tool: 'Bash', label: id, status, startedAt: at })
+  const steps = [mk('a', 0), mk('b', 10), mk('c', 20, 'error'), mk('d', 90), mk('e', 100)]
+  const got = mapBuckets(steps, 100, 4, id => id === 'd' || id === 'e')
+  expect(got.map(b => b.count)).toEqual([3, 0, 0, 2])
+  expect(got.map(b => b.error)).toEqual([true, false, false, false])
+  expect(got.map(b => b.view)).toEqual([false, false, false, true])
+  expect(mapBuckets([], 100, 4, () => false).map(b => b.count)).toEqual([0, 0, 0, 0])
+})
+
+test('MAP on the terminal: a 44 x 2 Raster, an error bucket red and the rest iris; the text form is the same box', async ($, on) => {
+  const spread: Timeline = { ...twoTurns(), steps: twoTurns().steps.map((x, i) => ({ ...x, startedAt: NOW - 400_000 + i * 100_000 })) }
+  world(on, spread, TL_UI)
+  const ui = await mount($, 'terminal', 62)
+  const r = await ui.find({ type: 'Raster', key: 'map' })
+  expect([r?.props.columns, r?.props.rows]).toEqual([44, 2])
+  const cells = decode(String(r?.props.cells))
+  const lit = cells.filter(c => c[0] !== 0x20 && c[0] !== 0x2581)
+  expect(lit.some(c => c[1] === PALETTE.night.red)).toBe(true)
+  expect(lit.some(c => c[1] === PALETTE.night.iris)).toBe(true)
+  await ui.unmount()
+  const narrow = await mount($, 'terminal', 32)
+  expect(Number((await narrow.find({ type: 'Raster', key: 'map' }))?.props.columns)).toBe(16)
+  await narrow.unmount()
+})
+
+// ---- the step page -------------------------------------------------------------------
+
+const PAGE_UI = (id: string): UiState => ({ ...TL_UI, stepOpen: id, page: { kind: 'step', id } })
+const withBody = (id: string, body: Record<string, unknown>, text = 'ok') =>
+  ({ ...TL_UI, stepOpen: id, page: { kind: 'step', id }, stepBody: { stepId: id, body: { input: body, text, cut: 0, isError: false } } }) as UiState
+
+function editorWorld(on: On) {
+  const runs: string[][] = []
+  const copies: string[] = []
+  on('session.root', () => ({ value: 'C:/repo' }))
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.copy', (_, e) => {
+    copies.push(e.text)
+    return { value: { isCopied: true as const } }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  return { runs, copies }
+}
+
+function oneStep(id: string, tool: string, label: string, status: Step['status'] = 'done'): Timeline {
+  return { ...empty, turns: [turn('t1', 'go', NOW - 900_000)], steps: [step(id, 1, label, status, { turnId: 't1', tool })] }
+}
+
+test('filesOf names file_path, notebook_path, a path with an extension, and the clear paths of a Bash command, with the line when known', () => {
+  expect(filesOf('Read', { file_path: 'src/a.ts', offset: 40 })).toEqual([{ path: 'src/a.ts', line: 40, image: false }])
+  expect(filesOf('Edit', { file_path: 'src/a.ts', old_string: 'x', new_string: 'y' })).toEqual([{ path: 'src/a.ts', image: false }])
+  expect(filesOf('NotebookEdit', { notebook_path: 'n/a.ipynb' })).toEqual([{ path: 'n/a.ipynb', image: false }])
+  expect(filesOf('Grep', { pattern: 'x', path: 'src/middleware' })).toEqual([])
+  expect(filesOf('Grep', { pattern: 'x', path: 'src/a.ts' })).toEqual([{ path: 'src/a.ts', image: false }])
+  expect(
+    filesOf('Bash', { command: 'node run.js ./scripts/build.sh --flag https://x.dev/a.html && cat docs/plan.md:12 | wc' }).map(f => [f.path, f.line]),
+  ).toEqual([
+    ['./scripts/build.sh', undefined],
+    ['docs/plan.md', 12],
+  ])
+  expect(filesOf('Read', { file_path: 'shots/a.PNG' })[0]?.image).toBe(true)
+  expect(filesOf('Read', { file_path: 'a.ts', offset: 3 }).concat(filesOf('Read', { file_path: 'a.ts' })).length).toBe(2)
+  expect(filesOf('Bash', {})).toEqual([])
+})
+
+test('the step page lists FILES with o: open; openInEditor runs on a press only, at the line', async ($, on) => {
+  const w = editorWorld(on)
+  world(on, oneStep('s1', 'Read', 'Read src/a.ts'), withBody('s1', { file_path: 'src/a.ts', offset: 42 }))
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const rows = await drawnRows(ui)
+    const at = rows.findIndex(r => r.startsWith('┌ FILES'))
+    expect(at).toBeGreaterThan(-1)
+    expect(rows[at + 1]).toContain('a.ts')
+    // The row is the short form; the whole path is on the page under it.
+    expect(rows.slice(at + 2).some(r => r.trim() === 'src/a.ts')).toBe(true)
+    expect(colOf(rows[at + 1], 'o: open')).toBe(38)
+    expect(colOf(rows[at + 1], 'line 42')).toBe(50)
+    expect(rows.some(r => r.includes('o: open') && r.trimStart().startsWith('o: open'))).toBe(true)
+    // Drawing opens nothing.
+    expect(w.runs).toEqual([])
+    await ui.unmount()
+  }
+  const ui = await mount($, 'terminal', 62)
+  await ui.press({ key: 'step-page-open' })
+  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/src/a.ts:42']])
+  await ui.press({ key: 'step-page-file-0' })
+  expect(w.runs).toHaveLength(2)
+  expect(w.runs[1]).toEqual(['code', '-r', '-g', 'C:/repo/src/a.ts:42'])
+  await ui.unmount()
+})
+
+test('the step page has a row and an o: open for every path the step names; the o key opens the first', async ($, on) => {
+  const w = editorWorld(on)
+  world(on, oneStep('s1', 'Bash', 'Bash cp a b'), withBody('s1', { command: 'cp src/a.ts ./b/c.md' }))
+  const ui = await mount($, 'desktop', 62)
+  expect(await ui.find({ key: 'step-page-file-0' })).toBeDefined()
+  expect(await ui.find({ key: 'step-page-file-1' })).toBeDefined()
+  expect((await drawnRows(ui)).join(' ')).not.toContain('image preview')
+  await ui.press({ key: 'step-page-file-1' })
+  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/b/c.md']])
+  await ui.press({ key: 'step-page-open' })
+  expect(w.runs[1]).toEqual(['code', '-r', '-g', 'C:/repo/src/a.ts'])
+  await ui.unmount()
+})
+
+test('an image step says it opens in the editor image preview, and still opens through the editor', async ($, on) => {
+  const w = editorWorld(on)
+  world(on, oneStep('s1', 'Read', 'Read shots/a.png'), withBody('s1', { file_path: 'shots/a.png' }))
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const flat = (await drawnRows(ui)).join('\n')
+    expect(flat).toContain("opens in your editor's image preview")
+    await ui.unmount()
+  }
+  const ui = await mount($, 'terminal', 62)
+  await ui.press({ key: 'step-page-open' })
+  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/shots/a.png']])
+  await ui.unmount()
+})
+
+test('a step with no file has no FILES and no o: open', async ($, on) => {
+  world(on, oneStep('s1', 'Bash', 'Bash ls'), withBody('s1', { command: 'ls' }))
+  const ui = await mount($, 'desktop', 62)
+  const flat = (await drawnRows(ui)).join('\n')
+  expect(flat).not.toContain('FILES')
+  expect(flat).not.toContain('o: open')
+  expect(await ui.find({ key: 'step-page-open' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the step page: TOOL, AGENT, STATUS, TIME, INPUT, CHANGE as a diff for Edit, RESULT in full, the actions, nothing cut', async ($, on) => {
+  const longPath = 'src/some/very/deep/folder/structure/that/goes/on/and/on/forever/rateLimit.ts'
+  const result = Array.from({ length: 30 }, (_, i) => `result line ${i}`).join('\n')
+  world(
+    on,
+    oneStep('s1', 'Edit', `Edit ${longPath}`),
+    withBody('s1', { file_path: longPath, old_string: 'const a = 1', new_string: 'const a = 2\nconst b = 3' }, result),
+  )
+  for (const surface of SURFACES) {
+    for (const columns of [62, 32]) {
+      const ui = await mount($, surface, columns)
+      const rows = await drawnRows(ui)
+      const flat = rows.join('\n')
+      for (const label of ['TOOL', 'AGENT', 'STATUS', 'TIME', 'INPUT', 'CHANGE', 'RESULT', 'FILES']) expect(flat).toContain(label)
+      expect(rows.some(r => r.includes('-const a = 1'))).toBe(true)
+      expect(rows.some(r => r.includes('+const b = 3'))).toBe(true)
+      expect(flat).toContain('result line 29')
+      for (const r of rows) {
+        expect(r.length <= columns).toBe(true)
+        expect(r.trimEnd().endsWith('…')).toBe(false)
+      }
+      // The long path is on the page whole (the row cuts it, the lines under FILES give it in full).
+      expect(flat.replace(/\s+/g, '')).toContain(longPath)
+      for (const k of ['o: open', 'g: chat', 'k: keep', 'c: copy as Markdown', 'q: quote', 'b: back']) expect(flat).toContain(k)
+      await ui.unmount()
+    }
+  }
+})
+
+test('the step page: g, k, c and q act on a press; c copies the step as Markdown', async ($, on) => {
+  const copies: string[] = []
+  const fills: string[] = []
+  const toasts: string[] = []
+  on('ui.copy', (_, e) => {
+    copies.push(e.text)
+    return { value: { isCopied: true as const } }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  on('prompt.fill', (_, e) => {
+    fills.push(e.text)
+    return { isFilled: true as const }
+  })
+  const stored = world(on, oneStep('s1', 'Read', 'Read a.ts'), withBody('s1', { file_path: 'a.ts' }, 'file text'))
+  const ui = await mount($, 'terminal', 62)
+  expect([copies, fills, toasts]).toEqual([[], [], []])
+  await ui.press({ key: 'step-page-copy' })
+  expect(copies).toHaveLength(1)
+  expect(copies[0]).toContain('### Read a.ts')
+  expect(copies[0]).toContain('file text')
+  await ui.press({ key: 'step-page-quote' })
+  expect(fills[0]).toContain('> Read: Read a.ts')
+  // Nothing beneath the mounted kit scrolls a transcript, so the press toasts why.
+  await ui.press({ key: 'step-page-chat' })
+  expect(toasts.some(t => t.startsWith('Not shown in chat'))).toBe(true)
+  await ui.press({ key: 'step-page-keep' })
+  expect((stored.get('timeline') as Timeline).steps[0]?.pin).toBe('')
+  await ui.unmount()
+})
+
+test('the step page for a step whose body is not on disk says so', async ($, on) => {
+  world(on, oneStep('s1', 'Bash', 'Bash ls'), { ...PAGE_UI('s1'), stepBody: { stepId: 's1', missing: true } } as UiState)
+  const a = await mount($, 'desktop', 62)
+  expect((await drawnRows(a)).join('\n')).toContain('Result not kept on disk.')
+  await a.unmount()
+})
+
+test('the step page for a running step says it has no result yet', async ($, on) => {
+  world(on, oneStep('s2', 'Bash', 'Bash sleep 9', 'running'), PAGE_UI('s2'))
+  const b = await mount($, 'desktop', 62)
+  expect((await drawnRows(b)).join('\n')).toContain('No result yet')
+  await b.unmount()
 })

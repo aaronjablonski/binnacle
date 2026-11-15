@@ -51,22 +51,25 @@ export async function openStepInline($: EngineInterface, stepId: string): Promis
 }
 
 /**
- * The full step (the second press on a step, inside Steps): `detail` is set at once with the body
- * the inline open already read, or bare while a fresh read runs and is then
- * written under it (`body`, or `missing`). Never throws.
+ * The full step (the second press on a step, inside Steps): the step's page
+ * (`ui.page = { kind: 'step', id }`) opens at once, with the body the inline
+ * open already read, or bare while a fresh read runs and is then written
+ * beside `stepOpen` (`stepBody`, or `missing`). `b` returns to the list with
+ * the step still open in place. Never throws.
  */
 export async function openStep($: EngineInterface, stepId: string): Promise<void> {
   let known: StepBodyOpen | undefined
   await updateUi($, u => {
     known = bodyOfOpen(u, stepId)
-    const detail: NonNullable<UiState['detail']> =
-      known?.body !== undefined ? { stepId, body: known.body } : known?.missing === true ? { stepId, missing: true } : { stepId }
-    return { ...u, tab: 'timeline', stepOpen: stepId, detail }
+    const { detail: _detail, ...rest } = u
+    const keep = known !== undefined ? { stepBody: known } : {}
+    return { ...rest, tab: 'timeline', stepOpen: stepId, page: { kind: 'step', id: stepId }, ...keep } as UiState
   })
   if (known !== undefined) return
   const body = await bodyFor($, stepId)
   await updateUi($, u => {
-    if (u.detail?.stepId !== stepId) return u
-    return { ...u, detail: body !== undefined ? { stepId, body } : { stepId, missing: true } }
+    if (u.stepOpen !== stepId) return u
+    const stepBody: StepBodyOpen = body !== undefined ? { stepId, body } : { stepId, missing: true }
+    return { ...u, stepBody } as UiState
   })
 }

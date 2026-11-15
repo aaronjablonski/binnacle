@@ -4,6 +4,7 @@ import type { Step, StepBody } from '../../types'
 import { BUDGET_CHANGE, BUDGET_INPUT, BUDGET_TOTAL, clean, cutChars, cutLines, diffOf } from '../model/code'
 import { apply, debug, errText, leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
+import { showInChat } from './find'
 import { clock, elapsed, fit, packParts } from './fit'
 import { glyphLine, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
@@ -73,6 +74,7 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           hotkey="p"
           onPress={() => togglePin($, s)}
         />
+        <Button key="detail-chat" label="Show in chat" onPress={() => showInChat($, s.id)} />
         {body !== undefined ? (
           <Button
             key="detail-copy"

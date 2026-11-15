@@ -17,6 +17,7 @@ export const MAX_RESULT = 200          // a workflow agent's result line is cut 
 export const MAX_WINDOWS = 8           // rate-limit windows kept in the budget
 export const MAX_WINDOW_NAME = 40      // a window's name is cut to this
 export const MAX_DISMISSED = 200       // UiState.dismissed keeps the newest this many
+export const MAX_HITS = 200            // UiState.hits is cut to this
 export const MAX_QUERY = 200           // UiState.query is cut to this
 export const MAX_NOTIFIED = 200        // UiState.notified keeps the newest this many
 export const MAX_TOASTED = 50          // UiState.toasted keeps the newest this many

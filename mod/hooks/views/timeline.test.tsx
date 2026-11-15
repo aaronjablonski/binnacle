@@ -12,6 +12,9 @@ const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 const HOME = 'C:/Users/test'
 
 type Stored = Map<string, unknown>
+let clock: ReturnType<typeof mock.clock> | undefined
+let readCostMs = 0
+const reads: string[] = []
 
 // The engine's $.state beneath the mod, seeded and remembering every write; the
 // disk answers fs.read from `files`.
@@ -26,11 +29,14 @@ function world(
   stored.set('timeline', t)
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
-  mock.clock(on, { now: NOW })
+  clock = mock.clock(on, { now: NOW })
+  reads.length = 0
   mock.env(on, { USERPROFILE: HOME, OS: 'Windows_NT' })
   on('ui.log', () => ({ value: undefined }))
   on('session.id', () => ({ value: 'sess-1' }))
-  on('fs.read', (_, e) => {
+  on('fs.read', async (_, e) => {
+    reads.push(e.path.replaceAll('\\', '/'))
+    if (readCostMs > 0 && e.path.includes('steps')) await clock?.advance(readCostMs)
     const text = files.get(e.path.replace(/\\/g, '/'))
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
     return { value: text }
@@ -382,6 +388,175 @@ test('narrow: a pinned step and the turn rows keep every line within 24', async 
     for (const f of found) {
       for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
     }
+    await ui.unmount()
+  }
+})
+
+// ---- find and jump (F4) ---------------------------------------------------
+
+const FIND_KEY = 'timeline-find'
+const bodyFile = (id: string, text: string): [string, string] => [
+  `${HOME}/.claude/mission-control/sess-1/steps/${id}.json`,
+  JSON.stringify({ input: { file_path: 'a.ts' }, text, cut: 0, isError: false }),
+]
+
+test('the Timeline has a find Input bound to ui.query; typing filters live', async ($, on) => {
+  const stored = world(on, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
+  for (const surface of SURFACES) {
+    put(stored, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
+    const ui = await mount($, surface)
+    expect(await ui.find({ key: FIND_KEY })).toBeDefined()
+    await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'rateLimit', kind: 'change', surface })
+    expect((stored.get('ui') as UiState).query).toBe('rateLimit')
+    await ui.unmount()
+    const filtered = await mount($, surface)
+    expect(await filtered.find({ key: 'step-s3' })).toBeDefined()
+    expect(await filtered.find({ key: 'step-s4' })).toBeUndefined()
+    expect(await filtered.find({ key: 'step-s1' })).toBeUndefined()
+    expect((await texts(filtered)).join('\n')).toContain('1 of 4 steps')
+    await filtered.unmount()
+  }
+})
+
+test('the query narrows by agent type and pin note too, and combines with a chip', async ($, on) => {
+  const t = pinned()
+  const stored = world(on, t, { ...TL_UI, openTurns: ['t1'], query: 'explore' })
+  const ui = await mount($, 'terminal')
+  expect(await ui.find({ key: 'step-s2' })).toBeDefined()
+  expect(await ui.find({ key: 'step-s3' })).toBeUndefined()
+  await ui.unmount()
+  put(stored, t, { ...TL_UI, openTurns: ['t1'], query: 'limiter itself', filter: { kind: 'errors' } })
+  const both = await mount($, 'terminal')
+  expect(await both.find({ key: 'step-s4' })).toBeDefined()
+  await both.unmount()
+  put(stored, t, { ...TL_UI, query: 'limiter itself', filter: { kind: 'agent', id: 'a1' } })
+  const none = await mount($, 'terminal')
+  expect((await texts(none)).join('\n')).toContain('No steps match.')
+  expect(await none.find({ key: FIND_KEY })).toBeDefined()
+  await none.unmount()
+})
+
+test('Enter runs a deep search over stored bodies and marks hits "in result"', async ($, on) => {
+  on('ui.toast', () => ({ value: undefined }))
+  const files = new Map([
+    bodyFile('s1', 'nothing'),
+    bodyFile('s2', 'nothing'),
+    bodyFile('s3', 'nothing'),
+    bodyFile('s4', 'HTTP/1.1 429 Too Many Requests'),
+  ])
+  const stored = world(on, twoTurns(), { ...TL_UI, openTurns: ['t1'], query: '429' }, files)
+  const ui = await mount($, 'terminal')
+  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: '429', surface: 'terminal' })
+  expect((stored.get('ui') as UiState).hits).toEqual(['s4'])
+  await ui.unmount()
+  for (const surface of SURFACES) {
+    const found = await mount($, surface, 62)
+    expect((await found.find({ key: 'step-s4' }))?.text ?? '').toContain('in result')
+    expect(await found.find({ key: 'step-s3' })).toBeUndefined()
+    await found.unmount()
+  }
+})
+
+test('typing again clears the deep-search hits', async ($, on) => {
+  const stored = world(on, twoTurns(), { ...TL_UI, query: '429', hits: ['s4'] })
+  const ui = await mount($, 'terminal')
+  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: '4290', kind: 'change', surface: 'terminal' })
+  const u = stored.get('ui') as UiState
+  expect(u.query).toBe('4290')
+  expect(u.hits).toBeUndefined()
+  await ui.unmount()
+})
+
+test('deep search reads newest first and at most 200 bodies', async ($, on) => {
+  on('ui.toast', () => ({ value: undefined }))
+  const steps = Array.from({ length: 250 }, (_, i) => step(`d${i}`, i + 1, `Edit f${i}.ts`, 'done', { turnId: 't1' }))
+  const files = new Map(steps.map(s => bodyFile(s.id, s.id === 'd249' || s.id === 'd10' ? 'needle' : 'hay')))
+  const stored = world(on, { ...empty, turns: [turn('t1', 'big', NOW - 60_000)], steps }, { ...TL_UI, query: 'needle' }, files)
+  const ui = await mount($, 'terminal')
+  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'needle', surface: 'terminal' })
+  const bodies = reads.filter(r => r.includes('/steps/'))
+  expect(bodies.length).toBe(200)
+  expect(bodies[0]?.endsWith('/d249.json')).toBe(true)
+  // d10 is the 240th newest: beyond the cap.
+  expect((stored.get('ui') as UiState).hits).toEqual(['d249'])
+  await ui.unmount()
+})
+
+test('deep search stops at 8 seconds', async ($, on) => {
+  on('ui.toast', () => ({ value: undefined }))
+  const steps = Array.from({ length: 50 }, (_, i) => step(`d${i}`, i + 1, `Edit f${i}.ts`, 'done', { turnId: 't1' }))
+  const files = new Map(steps.map(s => bodyFile(s.id, 'needle')))
+  const stored = world(on, { ...empty, turns: [turn('t1', 'big', NOW - 60_000)], steps }, { ...TL_UI, query: 'needle' }, files)
+  readCostMs = 1000
+  try {
+    const ui = await mount($, 'terminal')
+    await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'needle', surface: 'terminal' })
+    const bodies = reads.filter(r => r.includes('/steps/'))
+    expect(bodies.length).toBe(8)
+    expect((stored.get('ui') as UiState).hits?.length).toBe(8)
+    await ui.unmount()
+  } finally {
+    readCostMs = 0
+  }
+})
+
+test('a blank query clears the hits and runs no deep search', async ($, on) => {
+  const stored = world(on, twoTurns(), { ...TL_UI, query: '', hits: ['s4'] })
+  const ui = await mount($, 'terminal')
+  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: '  ', surface: 'terminal' })
+  expect(reads.filter(r => r.includes('/steps/')).length).toBe(0)
+  expect((stored.get('ui') as UiState).hits).toBeUndefined()
+  await ui.unmount()
+})
+
+// A press runs the plugin's own $.ui.scroll; the mounted kit has nothing beneath
+// it that answers (find.test.tsx drives the call itself), so the refusal toast
+// is what shows the press reached it.
+test('with a query, a step row has Show in chat; nothing scrolls until it is pressed', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, query: 'rateLimit' })
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  const ui = await mount($, 'terminal')
+  expect(toasts.length).toBe(0)
+  expect(await ui.find({ key: 'chat-s4' })).toBeUndefined()
+  expect((await ui.find({ key: 'chat-s3' }))?.text).toContain('Show in chat')
+  expect(toasts.length).toBe(0)
+  await ui.press({ key: 'chat-s3' })
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toContain('Not shown in chat')
+  await ui.unmount()
+})
+
+test('without a query, step rows have no Show in chat line', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  const ui = await mount($, 'terminal')
+  expect(await ui.find({ key: 'chat-s3' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the active filter chip is accent coloured, the others dim', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, filter: { kind: 'errors' } })
+  const ui = await mount($, 'terminal')
+  const texts_ = await ui.findAll({ type: 'Text' })
+  const active = propsOf(texts_.find(x => x.text === '✖ Errors 0' || x.text === '✖ Errors 1'))
+  expect(active.color).toBe('suggestion')
+  expect(active.bold).toBe(true)
+  const all = propsOf((await ui.findAll({ type: 'Button' })).find(b => b.text === 'All'))
+  expect(all.dimColor).toBe(true)
+  expect(texts_.some(x => x.text === 'All')).toBe(false)
+  await ui.unmount()
+})
+
+test('narrow find results keep every line within 24', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, query: 'rate', hits: ['s4'] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 24)
+    const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
+    expect(found.length > 5).toBe(true)
+    for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
     await ui.unmount()
   }
 })

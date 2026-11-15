@@ -79,6 +79,7 @@ export type UiState = {
   detail?: { stepId: string; body?: StepBody; missing?: true }
   dismissed: string[]                                  // dismissKey of each problem the person dismissed (≤ 200, newest last)
   query: string                                        // the Timeline's find text (≤ 200)
+  hits?: string[]                                      // step ids whose stored result holds the query (deep search, ≤ 200, newest first); cleared when the query changes
   run?: string                                         // the workflow run whose board the Agents tab shows
   runningOnly: boolean                                 // the agent tree hides finished branches
   notified: string[]                                   // ids already raised as a notification (≤ 200, newest last)

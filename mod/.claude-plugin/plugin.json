@@ -1,0 +1,25 @@
+{
+  "name": "mission-control",
+  "version": "0.1.0",
+  "description": "Keeps tasks, agents, a step timeline and artifacts in a pane and band beside the chat.",
+  "userConfig": {
+    "probe": {
+      "type": "boolean",
+      "title": "Probe",
+      "description": "Developer probe: record raw hook events to .mc-probe/ in the working directory.",
+      "default": false
+    },
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open at start",
+      "description": "Open the Mission Control pane when a session starts.",
+      "default": false
+    },
+    "guide": {
+      "type": "boolean",
+      "title": "Guide Claude",
+      "description": "Add the Mission Control update tool and one system-prompt section so Claude keeps the panel current.",
+      "default": true
+    }
+  }
+}

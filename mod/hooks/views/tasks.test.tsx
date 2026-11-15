@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -96,7 +96,7 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =
 
 const TASKS_UI: UiState = {
   tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 
 test('shows a completed, an in-progress and a pending task with their glyphs', async ($, on) => {
@@ -178,7 +178,7 @@ test('empty state text', async ($, on) => {
   }
 })
 
-test('narrow: no Text longer than 24', async ($, on) => {
+test('narrow: no Text longer than 32', async ($, on) => {
   seed(
     on,
     {
@@ -202,10 +202,10 @@ test('narrow: no Text longer than 24', async ($, on) => {
     TASKS_UI,
   )
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = await ui.findAll({ type: 'Text' })
     expect(found.length >= 8).toBe(true)
-    for (const f of found) expect((f.text ?? '').length <= 24).toBe(true)
+    for (const f of found) expect((f.text ?? '').length <= 32).toBe(true)
     await ui.unmount()
   }
 })
@@ -250,10 +250,10 @@ test('the in-progress task is bold with its age dim on the right of a space-betw
   }
 })
 
-test('the TASKS header is label, rule and meta summing to the columns, and no line passes 24', async ($, on) => {
+test('the TASKS header is label, rule and meta summing to the columns, and no line passes 32', async ($, on) => {
   seed(on, MIXED, TASKS_UI)
   for (const surface of SURFACES) {
-    for (const columns of [62, 24]) {
+    for (const columns of [62, 32]) {
       const ui = await mount($, surface, columns)
       const found = await ui.findAll({ type: 'Text' })
       const header = found.find(f => (f.text ?? '').startsWith('TASKS ') && (f.text ?? '').length === columns)

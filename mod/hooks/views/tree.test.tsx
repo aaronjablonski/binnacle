@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -106,7 +106,7 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =
 
 const TREE_UI: UiState = {
   tab: 'agents', filter: { kind: 'all' }, agentsMode: 'tree', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 const run: Run = { runId: 'r1', name: 'review-changes', parent: 'main', startedAt: NOW - 90_000 }
 const wf = (id: string, index: number, description: string, doing: string, status: AgentRow['status']): AgentRow => ({
@@ -251,7 +251,7 @@ test('an agent whose parent never spawned sits under main', async ($, on) => {
   }
 })
 
-test('depth 8 at bodyColumns 24 keeps every Text within 24', async ($, on) => {
+test('depth 8 at bodyColumns 32 keeps every Text within 32', async ($, on) => {
   const agents: Record<string, AgentRow> = { main: withMainWork }
   for (let i = 1; i <= 8; i++) {
     agents[`c${i}`] = at(
@@ -262,11 +262,11 @@ test('depth 8 at bodyColumns 24 keeps every Text within 24', async ($, on) => {
   }
   seed(on, busy({ agents }), TREE_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = await ui.findAll({ type: 'Text' })
     expect(found.length > 16).toBe(true)
     for (const f of found) {
-      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
     }
     expect(await allText(ui)).toContain('8›')
     expect(await ui.find({ key: 'node-c8' })).toBeDefined()
@@ -292,7 +292,7 @@ const props2 = (f: Found2 | undefined): { color?: string; dimColor?: boolean } =
 test('tree glyphs carry status colours, folds are accent, and the header sums to the columns', async ($, on) => {
   seed(on, family(), TREE_UI)
   for (const surface of SURFACES) {
-    for (const columns of [62, 24]) {
+    for (const columns of [62, 32]) {
       const ui = await mount($, surface, columns)
       const found = await ui.findAll({ type: 'Text' })
       expect(found.filter(f => f.text === '▶').map(f => props2(f).color)).toContain('warning')
@@ -487,11 +487,13 @@ const fits = async (ui: Awaited<ReturnType<typeof mount>>, columns: number): Pro
   }
 }
 
-test('at 24 columns the meta goes before the description, and every line fits', async ($, on) => {
+test('at 32 columns the meta goes before the description, and every line fits', async ($, on) => {
+  // Under 32 the shell draws slim, so the narrowest tree is 32 wide: the
+  // description is long enough that name and meta no longer share the row.
   const t = busy({
     agents: {
       main: withMainWork,
-      a1: at(agent('a1', 'Explore', 'map it', 'Read up.ts'), 60_000),
+      a1: at(agent('a1', 'Explore', 'map the upload', 'Read up.ts'), 60_000),
       a2: at(agent('a2', 'general-purpose', 'write the limiter tests now', 'Edit x'), 50_000, {
         model: 'claude-sonnet-5',
         tokensIn: 5000,
@@ -501,20 +503,20 @@ test('at 24 columns the meta goes before the description, and every line fits', 
   })
   seed(on, t, TREE_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const a1 = ((await ui.find({ key: 'node-a1' }))?.text ?? '').split('\n')[0] ?? ''
-    expect(a1).toContain('map it')
+    expect(a1).toContain('map the upload')
     expect(a1).not.toContain('1m')
-    await fits(ui, 24)
+    await fits(ui, 32)
     await ui.unmount()
   }
 })
 
-test('a bang and a folded count still fit at 24 columns', async ($, on) => {
+test('a bang and a folded count still fit at 32 columns', async ($, on) => {
   seed(on, stalledFamily(), { ...TREE_UI, folded: ['a1'] })
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
-    await fits(ui, 24)
+    const ui = await mount($, surface, 32)
+    await fits(ui, 32)
     expect((await ui.find({ key: 'node-a1' }))?.text).toContain('!')
     await ui.unmount()
   }

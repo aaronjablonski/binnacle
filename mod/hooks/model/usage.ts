@@ -80,8 +80,8 @@ const newest = (list: string[] | undefined, max: number): string[] => {
 
 /**
  * The pane's state with its lists and query held to their bounds, and any of
- * them (or `runningOnly`) a partial value lacks filled in; the same value
- * when nothing changes.
+ * them (or `runningOnly`, `slim`) a partial value lacks filled in; the same
+ * value when nothing changes.
  */
 export function boundUi(u: UiState): UiState {
   const dismissed = newest(u.dismissed, MAX_DISMISSED)
@@ -90,12 +90,13 @@ export function boundUi(u: UiState): UiState {
   const rawQuery: unknown = u.query
   const query = typeof rawQuery !== 'string' ? '' : rawQuery.length > MAX_QUERY ? rawQuery.slice(0, MAX_QUERY) : rawQuery
   const runningOnly = u.runningOnly === true
+  const slim = u.slim === true
   const rawHits: unknown = u.hits
   const hits = !Array.isArray(rawHits) ? undefined : rawHits.length > MAX_HITS ? rawHits.slice(0, MAX_HITS) : (rawHits as string[])
   const same = hits === u.hits && dismissed === u.dismissed && notified === u.notified && toasted === u.toasted &&
-    query === u.query && runningOnly === u.runningOnly
+    query === u.query && runningOnly === u.runningOnly && slim === u.slim
   if (same) return u
-  const next = { ...u, dismissed, notified, toasted, query, runningOnly }
+  const next = { ...u, dismissed, notified, toasted, query, runningOnly, slim }
   if (hits === undefined) delete next.hits
   else next.hits = hits
   return next

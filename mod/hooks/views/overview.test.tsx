@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -285,7 +285,7 @@ test('pressing tab-tasks writes ui.tab', async ($, on) => {
 test('the Artifacts tab keeps the tab row', async ($, on) => {
   seed(on, empty, {
     tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
   })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -296,32 +296,33 @@ test('the Artifacts tab keeps the tab row', async ($, on) => {
   }
 })
 
-test('the tab labels shorten below 56 columns', async ($, on) => {
+test('the tab labels shorten below 62 columns and turn to icons below 38', async ($, on) => {
   seed(on, empty)
   for (const surface of SURFACES) {
     const wide = await mount($, surface, 62)
-    expect((await wide.find({ key: 'tab-overview' }))?.text).toContain('Overview')
+    expect((await wide.find({ key: 'tab-tasks' }))?.text).toBe('Tasks')
     await wide.unmount()
-    const narrow = await mount($, surface, 40)
-    const label = (await narrow.find({ key: 'tab-overview' }))?.text ?? ''
-    expect(label).toContain('Ove')
-    expect(label).not.toContain('Overview')
-    await narrow.unmount()
+    const mid = await mount($, surface, 40)
+    expect((await mid.find({ key: 'tab-tasks' }))?.text).toBe('Tsk')
+    await mid.unmount()
+    const icon = await mount($, surface, 34)
+    expect((await icon.find({ key: 'tab-tasks' }))?.text).toBe('▣')
+    await icon.unmount()
   }
 })
 
-test('an empty session at bodyColumns 24 keeps Idle within 24', async ($, on) => {
+test('an empty session at bodyColumns 32 keeps Idle within 32', async ($, on) => {
   seed(on, empty)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
     expect(found.some(f => (f.text ?? '').startsWith('Idle'))).toBe(true)
-    for (const f of found) expect((f.text ?? '').length <= 24).toBe(true)
+    for (const f of found) expect((f.text ?? '').length <= 32).toBe(true)
     await ui.unmount()
   }
 })
 
-test('at bodyColumns 24 no Text or Button is longer than 24', async ($, on) => {
+test('at bodyColumns 32 no Text or Button is longer than 32', async ($, on) => {
   seed(on, {
     ...empty,
     now: {
@@ -352,10 +353,10 @@ test('at bodyColumns 24 no Text or Button is longer than 24', async ($, on) => {
     ],
   })
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
     expect(found.length > 10).toBe(true)
-    for (const f of found) expect((f.text ?? '').length <= 24).toBe(true)
+    for (const f of found) expect((f.text ?? '').length <= 32).toBe(true)
     await ui.unmount()
   }
 })
@@ -432,7 +433,7 @@ test('session.start without autoOpen opens nothing, and registers /mc as immedia
   await start($)
 
   expect(opened.length).toBe(0)
-  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | pin <note> | export | close]' })
+  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim]' })
 })
 
 test('the clock invalidates only while a subagent or step runs, and main never counts', async ($, on) => {
@@ -467,23 +468,22 @@ type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
 const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; backgroundColor?: string } =>
   (f?.props ?? {}) as { color?: string; dimColor?: boolean; backgroundColor?: string }
 
-test('the tab bar has a dim │ between every two tabs and fills the open tab', async ($, on) => {
+test('the tab bar has no separators and draws the open tab bold in the accent, the others dim', async ($, on) => {
   seed(on, empty, {
     tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
   })
   for (const surface of SURFACES) {
-    for (const columns of [62, 24]) {
+    for (const columns of [62, 32]) {
       const ui = await mount($, surface, columns)
       const found = await ui.findAll({ type: 'Text' })
-      const bars = found.filter(f => f.text === '│' && propsOf(f).dimColor === true)
-      expect(bars.length).toBe(4)
-      const filled = found.filter(f => propsOf(f).backgroundColor === 'suggestion')
-      expect(filled.length).toBe(1)
-      expect(propsOf(filled[0]).color).toBe('inverseText')
-      expect(filled[0]?.text).toContain(columns === 62 ? 'Tasks' : 'Tas')
+      expect(found.filter(f => f.text === '│').length).toBe(0)
+      expect(found.filter(f => propsOf(f).backgroundColor !== undefined).length).toBe(0)
+      const open = found.filter(f => f.text === (columns === 62 ? 'Tasks' : '▣') && propsOf(f).color === 'suggestion')
+      expect(open.length).toBe(1)
       const tab = await ui.find({ key: 'tab-tasks' })
       expect(tab?.props).toMatchObject({ hotkey: '2', plain: true })
+      expect((await ui.find({ key: 'tab-overview' }))?.props).toMatchObject({ dimColor: true })
       await ui.unmount()
     }
   }
@@ -492,7 +492,7 @@ test('the tab bar has a dim │ between every two tabs and fills the open tab', 
 test('a section header draws label, rule and meta that sum to the columns', async ($, on) => {
   seed(on, { ...empty, tasks: [task('1', 'Map', 'completed'), task('2', 'Wire', 'in_progress')] })
   for (const surface of SURFACES) {
-    for (const columns of [62, 24]) {
+    for (const columns of [62, 32]) {
       const ui = await mount($, surface, columns)
       const header = await ui.find({ key: 'go-tasks' })
       expect((header?.text ?? '').length).toBe(columns)

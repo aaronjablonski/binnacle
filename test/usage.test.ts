@@ -150,7 +150,7 @@ describe('measure', () => {
 describe('boundUi', () => {
   const base: UiState = {
     tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
   }
 
   it('keeps the newest entries of each list and cuts the query', () => {
@@ -166,7 +166,13 @@ describe('boundUi', () => {
 
   it('fills a list or query a partial value lacks', () => {
     const partial = { tab: 'timeline', filter: { kind: 'all' } } as unknown as UiState
-    expect(boundUi(partial)).toEqual({ ...partial, dismissed: [], query: '', runningOnly: false, notified: [], toasted: [] })
+    expect(boundUi(partial)).toEqual({ ...partial, dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false })
+  })
+
+  it('reads slim as a boolean and keeps the in-place opened rows', () => {
+    expect(boundUi({ ...base, slim: 'yes' as unknown as boolean }).slim).toBe(false)
+    const open = { ...base, slim: true, agentOpen: 'a1', stepOpen: 's1' }
+    expect(boundUi(open)).toBe(open)
   })
 
   it('returns the same value when nothing is over', () => {

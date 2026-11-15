@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
@@ -78,7 +78,7 @@ const art = (kind: ArtifactRow['kind'], title: string, extra: Partial<ArtifactRo
 const tl = (artifacts: ArtifactRow[], extra: Partial<Timeline> = {}): Timeline => ({ ...empty, artifacts, ...extra })
 const ART_UI: UiState = {
   tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 
 async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62) {
@@ -215,14 +215,14 @@ test('the footer counts changed files', async ($, on) => {
   }
 })
 
-test('a long path is cut from the left and fits 24 columns', async ($, on) => {
+test('a long path is cut from the left and fits 32 columns', async ($, on) => {
   const ref = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
   seed(on, tl([art('document', ref, { ref, count: 2 })]), ART_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface, 24)
+    const ui = await mount($, surface, 32)
     const lines = (await textOf(ui, `art-document:${ref}`)).split('\n')
     expect(lines.length).toBe(2)
-    for (const line of lines) expect(line.length <= 24).toBe(true)
+    for (const line of lines) expect(line.length <= 32).toBe(true)
     expect(lines[1]).toContain('…')
     expect(lines[1]).toContain('limiter.ts')
     expect(lines[1]).toContain('· ×2')
@@ -267,7 +267,7 @@ test('keys are the artifact id: rewriting one document keeps the keys of both th
   }
 })
 
-test('narrow: every line of every Text within 24', async ($, on) => {
+test('narrow: every line of every Text within 32', async ($, on) => {
   const long = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
   const full = tl(
     [
@@ -282,10 +282,10 @@ test('narrow: every line of every Text within 24', async ($, on) => {
   for (const timeline of [full, empty]) {
     stored.set('timeline', timeline)
     for (const surface of SURFACES) {
-      const ui = await mount($, surface, 24)
+      const ui = await mount($, surface, 32)
       const found = await ui.findAll({ type: 'Text' })
       expect(found.length >= 1).toBe(true)
-      for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
       await ui.unmount()
     }
   }

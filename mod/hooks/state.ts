@@ -13,10 +13,10 @@ export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as c
 
 export const initialUi: UiState = {
   tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
 }
 
-export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-3' })
+export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-4' })
 
 /** Folds one event into the timeline. Never throws: a failure goes to the debug log. */
 export async function apply($: EngineInterface, ev: Ev): Promise<void> {
@@ -37,9 +37,12 @@ export async function readTimeline($: EngineInterface): Promise<Timeline> {
 
 const isEmpty = (t: Timeline): boolean => JSON.stringify(t) === JSON.stringify(empty)
 
-/** The pane's own state: tab, filter, detail. */
+/**
+ * The pane's own state: tab, filter, detail. A partial value (one an earlier
+ * write left short) reads with its missing fields at their defaults.
+ */
 export async function readUi($: EngineInterface): Promise<UiState> {
-  return read($, ui)
+  return boundUi(await read($, ui))
 }
 
 /**

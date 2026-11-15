@@ -4,14 +4,14 @@ import type { Step, Tab } from '../../types'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { budgetView, isBudgetOpen, setBudgetOpen, windowName } from './budget'
-import { wordFit, wrapWords } from './fit'
+import { bar, crewRow, GAUGE, pillRun, pips, wordFit, wrapWords } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
-import { chatFor, dismissNeed, needGlyph, needName, needsYou, openProblem } from './needs'
-import { barCell, blank, more, row } from './parts'
-import type { Run } from './parts'
+import { chatFor, crewPods, dismissNeed, needGlyph, needName, needsYou, openProblem, paneState, podFor, waitStates } from './needs'
+import { blank, deck, more, row } from './parts'
+import type { DeckRow, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, COL, GRID, rateColor, statusColor } from './style'
+import { C, COL, GLYPHS, GRID, statusColor } from './style'
 
 // Under 32 columns: one stacked summary, no tab bar (spec "Slim mode").
 // Grid: gutter 0, content from 2, a value at 14 (the second cell), `›` in the
@@ -77,21 +77,30 @@ function line(ctx: ViewCtx, $: EngineInterface, key: string, glyph: string, colo
   )
 }
 
-function focusBlock(ctx: ViewCtx, $: EngineInterface): Block {
+/** The runs laid from `col`, one after the other. */
+function runsAt(runs: Run[], col: number): Placed[] {
+  let at = col
+  return runs.map(r => {
+    const p = { ...r, col: at }
+    at += r.text.length
+    return p
+  })
+}
+
+/**
+ * The head (spec "Slim"): a left-only bracket holding the state pill and the
+ * focus wrapped to 2 lines. It turns `warning` when something waits.
+ */
+function headBlock(ctx: ViewCtx, $: EngineInterface): Block {
   const h = headline(ctx.t)
+  const state = paneState(ctx)
   const lines = wrapWords(h.text, ctx.cols - COL.glyph, 2)
-  const els = lines.map((l, i) =>
-    runsLine(
-      ctx.e,
-      $,
-      [
-        ...(i === 0 ? [{ col: 0, text: '▍', color: C.accent }] : []),
-        { col: COL.glyph, text: l, ...(h.isIdle ? { dim: true } : { bold: true }) },
-      ],
-      `slim-focus-${i}`,
-    ),
-  )
-  return { els, rows: els.length }
+  const rows: DeckRow[] = [
+    { key: 'slim-pill', label: [pillRun(state.word, state.color)] },
+    ...lines.map((l, i): DeckRow => ({ key: `slim-focus-${i}`, label: [{ text: l, ...(h.isIdle ? { dim: true } : { bold: true }) }] })),
+  ]
+  const els = deck(ctx, $, rows, { key: 'slim-head', side: 'left', tone: state.word === 'WAITING' ? 'warning' : 'accent' })
+  return { els: els !== null ? [els] : [], rows: rows.length }
 }
 
 function needsBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
@@ -162,13 +171,20 @@ function tasksBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
   const { t, cols } = ctx
   const s = summary(t)
   if (s.total === 0) return undefined
+  const active = t.tasks.filter(x => x.status === 'in_progress').length
   const els: RenderElement[] = [
     label(ctx, $, 'TASKS', { text: `${s.done}/${s.total}`, dim: true }, 'slim-go-tasks', () => openTab($, 'tasks')),
+    runsLine(ctx.e, $, runsAt(pips(s.done, s.total, cols - COL.glyph >= GAUGE ? GAUGE : 10, active), COL.glyph), 'slim-pips'),
   ]
   // The current task, or the next one when the current task is the focus.
   const current = s.current
   const isFocus = current !== undefined && s.focus === (current.activeForm ?? current.subject)
-  const pick = current !== undefined && !isFocus ? { task: current, glyph: '▸', color: C.live } : s.upcoming !== undefined ? { task: s.upcoming, glyph: '○', color: undefined } : undefined
+  const pick =
+    current !== undefined && !isFocus
+      ? { task: current, glyph: GLYPHS.pip[1], color: C.live }
+      : s.upcoming !== undefined
+        ? { task: s.upcoming, glyph: GLYPHS.pip[2], color: undefined }
+        : undefined
   if (pick !== undefined) {
     const text = pick.task.subject.replace(/\s+/g, ' ').trim()
     if (fits(text, cols - COL.name)) els.push(line(ctx, $, 'slim-task', pick.glyph, pick.color, wordFit(text, cols - COL.name)))
@@ -176,20 +192,37 @@ function tasksBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
   return { els, rows: els.length }
 }
 
-function agentsBlock(ctx: ViewCtx, $: EngineInterface, withNames: boolean): Block | undefined {
+const widthOf = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
+
+/** The crew row that fits `room`: as many pods as there are, up to 7, then `+n`. */
+function crewFit(ctx: ViewCtx, room: number): Run[] {
+  const pods = crewPods(ctx)
+  for (let max = 7; max >= 1; max--) {
+    const runs = crewRow(pods, max)
+    if (widthOf(runs) <= room) return runs
+  }
+  return crewRow(pods, 1, { tight: true })
+}
+
+/** CREW (spec "Slim"): `┌ CREW 2 live ›`, one row of pods and the live names with their hulls. Nothing without a subagent. */
+function crewBlock(ctx: ViewCtx, $: EngineInterface, withNames: boolean): Block | undefined {
   const { t, cols } = ctx
-  const live = Object.values(t.agents)
-    .filter(a => a.id !== 'main' && a.status === 'running')
-    .sort((a, b) => a.startedAt - b.startedAt)
-  if (live.length === 0) return undefined
+  const subs = Object.values(t.agents).filter(a => a.id !== 'main')
+  if (subs.length === 0) return undefined
+  const live = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
   const els: RenderElement[] = [
-    label(ctx, $, 'AGENTS', { text: `${live.length} live`, dim: true }, 'slim-go-agents', () => openTab($, 'agents')),
+    label(ctx, $, 'CREW', { text: `${live.length} live`, dim: true }, 'slim-go-agents', () => openTab($, 'agents')),
+    runsLine(ctx.e, $, runsAt(crewFit(ctx, cols - COL.glyph), COL.glyph), 'slim-crew'),
   ]
   if (withNames) {
+    const waits = waitStates(t, ctx.u, ctx.now)
     live
       .slice(0, 3)
       .filter(a => fits(argOf('', a.description || a.type), cols - COL.name))
-      .forEach(a => els.push(line(ctx, $, `slim-agent-${a.id}`, '▸', C.live, wordFit(argOf('', a.description || a.type), cols - COL.name))))
+      .forEach(a => {
+        const hull = podFor(a, waits, ctx.now).hull
+        els.push(line(ctx, $, `slim-agent-${a.id}`, hull.text, hull.color, wordFit(argOf('', a.description || a.type), cols - COL.name)))
+      })
   }
   return { els, rows: els.length }
 }
@@ -207,25 +240,13 @@ function budgetBlock(ctx: ViewCtx, $: EngineInterface, withSeven: boolean): Bloc
   const els: RenderElement[] = [
     label(ctx, $, 'BUDGET', undefined, 'slim-go-budget', () => setBudgetOpen($, true)),
   ]
-  // From 24 up the bar is 10 wide at 14; under 24 it shortens to the room.
-  const room = Math.max(0, Math.min(GRID.content, ctx.cols - VALUE))
+  // The bar is 10 cells at 14 and ends by the last column; where it would not, it is left out (bars are 10 or 22, never in between).
   for (const r of rows) {
-    const bar: Run[] = []
-    let left = room
-    for (const run of barCell(Math.max(0, Math.min(100, r.pct)), 100, rateColor(r.pct))) {
-      if (left <= 0) break
-      bar.push({ ...run, text: run.text.slice(0, left) })
-      left -= run.text.length
-    }
     const segs: Placed[] = [
       { col: COL.glyph, text: r.label, dim: true },
       { col: BAR, text: `${Math.round(r.pct)}%`, bold: true },
     ]
-    let col = VALUE
-    for (const run of bar) {
-      segs.push({ ...run, col })
-      col += run.text.length
-    }
+    if (ctx.cols >= VALUE + GRID.content) segs.push(...runsAt(bar(Math.max(0, Math.min(100, r.pct)), 100, 10), VALUE))
     els.push(runsLine(ctx.e, $, segs, `slim-budget-${r.label}`))
   }
   return { els, rows: els.length }
@@ -239,7 +260,7 @@ function latestBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
   const kept = bySeq.find(x => x.pin !== undefined)
   const items: { id: string; glyph: string; color: string | undefined; text: string }[] = []
   if (error !== undefined) items.push({ id: error.id, glyph: STEP_GLYPH.error, color: statusColor('error'), text: argOf(error.tool, error.label) || error.tool })
-  if (kept !== undefined) items.push({ id: kept.id, glyph: '★', color: C.live, text: kept.pin !== undefined && kept.pin !== '' ? kept.pin : argOf(kept.tool, kept.label) })
+  if (kept !== undefined) items.push({ id: kept.id, glyph: '★', color: C.spark, text: kept.pin !== undefined && kept.pin !== '' ? kept.pin : argOf(kept.tool, kept.label) })
   const shown = items.filter(i => fits(i.text, room))
   if (shown.length === 0) return undefined
   const errors = bySeq.filter(x => x.status === 'error').length
@@ -253,10 +274,10 @@ function latestBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
 /** The stack at a drop level: 0 all, 1 without LATEST, 2 also without 7D, 3 also without the agent names. */
 function stackAt(ctx: ViewCtx, $: EngineInterface, level: number): { els: RenderElement[]; rows: number } {
   const blocks = [
-    focusBlock(ctx, $),
+    headBlock(ctx, $),
     needsBlock(ctx, $),
+    crewBlock(ctx, $, level < 3),
     tasksBlock(ctx, $),
-    agentsBlock(ctx, $, level < 3),
     budgetBlock(ctx, $, level < 2),
     level < 1 ? latestBlock(ctx, $) : undefined,
   ]
@@ -270,7 +291,7 @@ function stackAt(ctx: ViewCtx, $: EngineInterface, level: number): { els: Render
       rows += 1
     }
     els.push(...b.els)
-    rows += b.els.length
+    rows += b.rows
     n += 1
   }
   return { els, rows }

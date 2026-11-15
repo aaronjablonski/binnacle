@@ -141,30 +141,35 @@ const FOCUSED = (columns: number) => ({ ...PANE(columns), props: { ...PANE(colum
 
 const rowsOf = async (ui: { drawn: () => Promise<unknown> }): Promise<string[]> => screen(await ui.drawn())
 
-test('NEEDS YOU comes right after the headline: the label in warning with why and waiting heads, the first row opened', async ($, on) => {
+test('NEEDS YOU is a warning bracket first on Now: the pill, the count and the why and waiting heads, the first item opened inside it', async ($, on) => {
   world(on, waiting())
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE(62), surface })
     const rows = await rowsOf(ui)
-    const head = rows.findIndex(r => r.includes('NEEDS YOU'))
-    expect(head).toBe(rows.findIndex(r => r.startsWith('▍')) + 2)
-    expect(colOf(rows[head], '┌')).toBe(0)
-    expect(colOf(rows[head], 'NEEDS YOU')).toBe(2)
+    const head = rows.findIndex(r => r.includes(' NEEDS YOU '))
+    // Right under the tab bar, its track and one blank row.
+    expect(head).toBe(3)
+    expect(rows[head]!.startsWith('┏ ')).toBe(true)
+    expect(rows[head]![61]).toBe('┓')
+    expect(colOf(rows[head], ' NEEDS YOU ')).toBe(2)
+    expect(colOf(rows[head], '2')).toBe(14)
     expect(colOf(rows[head], 'why')).toBe(38)
     expect(colOf(rows[head], 'waiting')).toBe(50)
     const found = await ui.findAll({ type: 'Text' })
-    const color = (t: string): string | undefined => (found.find(f => f.text === t)?.props as { color?: string } | undefined)?.color
-    expect(color('┌')).toBe('warning')
-    expect(color('NEEDS YOU')).toBe('warning')
+    const pill = found.find(f => f.text === ' NEEDS YOU ')
+    expect(pill?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText', bold: true })
+    expect((found.find(f => f.text === '┏ ')?.props as { color?: string }).color).toBe('warning')
+    expect((found.find(f => f.text === '┃ ')?.props as { color?: string }).color).toBe('warning')
     // The first row: ? at 2, tool at 4, the command at 10, why at 38, waiting at 50, bold.
     const first = rows[head + 1]!
+    expect(first.startsWith('┃ ')).toBe(true)
     expect(colOf(first, '?')).toBe(2)
     expect(colOf(first, 'Bash')).toBe(4)
     expect(colOf(first, 'rm -rf build')).toBe(10)
     expect(colOf(first, 'asking')).toBe(38)
     expect(colOf(first, '30s')).toBe(50)
     expect((found.find(f => f.text === 'rm -rf build')?.props as { bold?: boolean }).bold).toBe(true)
-    // Opened: asks at 6, its value at 14, the agent, then the three actions from 6.
+    // Opened: asks at 6, its value at 14, the agent, then the three actions from 6, all inside the rails.
     expect(colOf(rows[head + 2], 'asks')).toBe(6)
     expect(colOf(rows[head + 2], 'to run Bash rm -rf build')).toBe(14)
     expect(colOf(rows[head + 3], 'agent')).toBe(6)
@@ -172,18 +177,60 @@ test('NEEDS YOU comes right after the headline: the label in warning with why an
     expect(colOf(actions, 'g: chat')).toBe(6)
     expect(colOf(actions, 'x: dismiss')).toBe(16)
     expect(colOf(actions, 'n: next')).toBe(29)
-    expect(rows[head + 5]).toBe('')
-    // The second row is not opened.
+    // A blank rail row follows the action line, then the second row, which is not opened.
+    expect(rows[head + 5]!.replace(/[┃ ]/g, '')).toBe('')
     const second = rows[head + 6]!
+    expect(second.startsWith('┗ ')).toBe(true)
+    expect(second[61]).toBe('┛')
     expect(colOf(second, '✖')).toBe(2)
     expect(colOf(second, 'npm test')).toBe(10)
     expect(colOf(second, 'failed 2×')).toBe(38)
     expect(colOf(second, '1m')).toBe(50)
     expect((found.find(f => f.text === 'npm test')?.props as { bold?: boolean }).bold).not.toBe(true)
+    // Every row of the bracket is the full width, with a rail on the last column.
+    for (const r of rows.slice(head, head + 7)) expect(r.length).toBe(62)
     expect((await ui.find({ key: 'open-asking:s1' }))?.props).toMatchObject({ autoFocus: true })
+    // The deck follows after one blank row.
+    expect(rows[head + 7]).toBe('')
+    expect(rows[head + 8]!.startsWith('┏ FOCUS')).toBe(true)
     await ui.unmount()
   }
 })
+
+test('the NEEDS YOU bracket closes on the last row at 50, 40 and 32 columns, and a long ask is cut by word inside the rails', async ($, on) => {
+  world(on, waiting())
+  for (const cols of [50, 40, 32]) {
+    const ui = await $.ui.mount({ ...PANE(cols), surface: 'terminal' })
+    const rows = await rowsOf(ui)
+    const head = rows.findIndex(r => r.includes(' NEEDS YOU '))
+    expect(head).toBeGreaterThanOrEqual(0)
+    const end = rows.findIndex((r, i) => i > head && r.startsWith('┗ '))
+    expect(end).toBeGreaterThan(head)
+    for (const r of rows.slice(head, end + 1)) {
+      expect(r.length).toBe(cols)
+      expect('┓┃┛'.includes(r[cols - 1]!)).toBe(true)
+    }
+    expect(rows[end]![cols - 1]).toBe('┛')
+    await ui.unmount()
+  }
+})
+
+test('the crew shows who asks (?) and who stalled (z): lit hulls in warning with their signals', async ($, on) => {
+  world(on, {
+    ...asked(30),
+    agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
+  })
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  const rows = await rowsOf(ui)
+  const crew = rows.find(r => r.startsWith('┃ CREW'))!
+  expect(crew.slice(14, 19)).toBe('◈? ◉z')
+  const found = await ui.findAll({ type: 'Text' })
+  expect(found.find(f => f.text === '?' && (f.props as { bold?: boolean }).bold === true)?.props).toMatchObject({ color: 'warning' })
+  expect(found.find(f => f.text === 'z')?.props).toMatchObject({ color: 'warning' })
+  expect(found.find(f => f.text === '◈')?.props).toMatchObject({ color: 'warning', bold: true })
+  await ui.unmount()
+})
+
 
 test('n opens the next item and p the previous; the opened row is bold and shows its why line', async ($, on) => {
   world(on, waiting())
@@ -324,7 +371,7 @@ test('at bodyColumns 32 and 40 nothing in NEEDS YOU is wider than the body', asy
   }
 })
 
-test('the band leads with "▲ n need you" in bold warning, and still fits at 24 columns', async ($, on) => {
+test('the band leads with the WAITING pill and the need count in bold warning, and still fits at 24 columns', async ($, on) => {
   world(on, {
     ...asked(30),
     tasks: [{ id: '1', subject: 'x', status: 'in_progress', owner: 'main', updatedAt: NOW }],
@@ -332,15 +379,17 @@ test('the band leads with "▲ n need you" in bold warning, and still fits at 24
   })
   for (const surface of BAND_SURFACES) {
     const ui = await $.ui.mount({ ...BAND(80), surface })
-    const row = (await ui.find({ type: 'Text' }))?.text
-    expect(row?.startsWith('▲ 1 need you   ▍ 0/1   x')).toBe(true)
-    const lead = (await ui.findAll({ type: 'Text' })).find(f => f.text === '▲ 1 need you')
-    expect(lead?.props).toMatchObject({ bold: true, color: 'warning' })
+    const found = await ui.findAll({ type: 'Text' })
+    const row = found.map(f => f.text ?? '').find(t => t.includes('WAITING')) ?? ''
+    expect(row).toContain(' WAITING ')
+    expect(row).toContain('1 need you')
+    expect(found.find(f => f.text === ' WAITING ' && (f.props as { backgroundColor?: string }).backgroundColor !== undefined)?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText' })
+    expect(found.find(f => f.text === '1 need you')?.props).toMatchObject({ bold: true, color: 'warning' })
     await ui.unmount()
     const narrow = await $.ui.mount({ ...BAND(24), surface })
-    const small = (await narrow.find({ type: 'Text' }))?.text ?? ''
+    const small = (await narrow.findAll({ type: 'Text' })).map(f => f.text ?? '').find(t => t.includes('WAITING')) ?? ''
     expect(small.length <= 24).toBe(true)
-    expect(small.startsWith('▲ 1 need you')).toBe(true)
+    expect(small).toContain('WAITING')
     await narrow.unmount()
   }
 })

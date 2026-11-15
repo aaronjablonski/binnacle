@@ -2,14 +2,15 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, Budget, BudgetWindow, Timeline } from '../../types'
 import { budgetOf } from '../model/usage'
-import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, fit, wordFit } from './fit'
-import { runsLine } from './lay'
+import { apply, debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
+import { bar, clock, elapsed, meter, shortPaths, wordFit } from './fit'
+import { laid } from './lay'
 import type { Placed } from './lay'
-import { barCell, blank, more, row, section } from './parts'
-import type { ReadoutCell, Run } from './parts'
+import { podFor, waitStates } from './needs'
+import { blank, deck, more, section } from './parts'
+import type { DeckCell, DeckRow, ReadoutCell, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, GRID, rateColor } from './style'
+import { C, COL, DECK, GRID, tableCols } from './style'
 
 /** A budget older than this is a restored one: it was toasted (or not) when it arrived. */
 const FRESH_MS = 30_000
@@ -76,14 +77,17 @@ export function modelTotals(t: Timeline): { model: string; tokens: number; agent
   return [...by.values()].sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model))
 }
 
-type Row = { label: string; pct: number; reset?: string }
+type Row = { label: string; pct: number; reset?: string; at?: number }
 
 function rowsOf(b: Budget, now: number): Row[] {
   const rows: Row[] = []
   if (b.contextPct !== undefined) rows.push({ label: 'ctx', pct: b.contextPct })
   for (const w of b.windows) {
     const row: Row = { label: windowName(w.name), pct: w.pct }
-    if (w.resetsAt !== undefined) row.reset = resetText(w.resetsAt, now)
+    if (w.resetsAt !== undefined) {
+      row.reset = resetText(w.resetsAt, now)
+      row.at = w.resetsAt
+    }
     rows.push(row)
   }
   return rows
@@ -96,7 +100,7 @@ export function budgetLine(b: Budget, showCost: boolean): string {
   return parts.join(' · ')
 }
 
-// ---------- the Now readout cells and the budget view ----------
+// ---------- the Now BUDGET row and the budget view ----------
 
 // Whether Now shows the budget view in place of its sections. Ephemeral pane
 // state like onscreen.ts's: a render hook may not write `$.state`, and a
@@ -118,44 +122,34 @@ export function setBudgetOpen($: EngineInterface, open: boolean): void {
   }
 }
 
-/** The hotter of the 5-hour and 7-day windows; the one there is when only one is. */
-function hotWindow(b: Budget): BudgetWindow | undefined {
-  const five = b.windows.find(w => w.name === 'five_hour')
-  const seven = b.windows.find(w => w.name === 'seven_day')
-  if (five !== undefined && seven !== undefined) return five.pct > seven.pct ? five : seven
-  return five ?? seven
-}
-
-const none = (text: string): Run[] => [{ text, dim: true }]
+const DAY = 86_400_000
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /**
- * The CTX and the 7D (or 5H, when it is the hotter window) readout cells of
- * Now. Pressing either label opens the budget view. They drop last-but-one
- * (CTX, rank 3) and first (the window, rank 1).
+ * When a window resets, short enough for the aside cell: the time of day
+ * inside the next 24 hours (`15:40`), the weekday and time beyond it
+ * (`Thu 09:00`), `now` once it has passed.
  */
-export function budgetCells($: EngineInterface, t: Timeline): ReadoutCell[] {
+export function resetClock(at: number, now: number): string {
+  if (at <= now) return 'now'
+  if (at - now < DAY) return clock(at)
+  return `${WEEKDAYS[new Date(at).getDay()] ?? ''} ${clock(at)}`
+}
+
+/**
+ * The meters of Now's BUDGET row, left to right: CTX, then the 5-hour and
+ * 7-day windows, those the reading has (`CTX ◔ 9%`, each at most 10 wide).
+ */
+export function budgetMeters(t: Timeline): Run[][] {
   const b = t.budget
-  const open = (): void => setBudgetOpen($, true)
-  const pct = b?.contextPct
-  const win = b !== undefined ? hotWindow(b) : undefined
-  return [
-    {
-      label: 'CTX',
-      key: 'readout-ctx',
-      onPress: open,
-      drop: 3,
-      value: pct !== undefined ? percent(pct) : none('–'),
-      gfx: barCell(pct ?? 0, 100, pct !== undefined ? rateColor(pct) : undefined),
-    },
-    {
-      label: win !== undefined ? windowName(win.name).toUpperCase() : '7D',
-      key: 'readout-window',
-      onPress: open,
-      drop: 1,
-      value: win !== undefined ? percent(win.pct) : none('–'),
-      gfx: barCell(win?.pct ?? 0, 100, win !== undefined ? rateColor(win.pct) : undefined),
-    },
-  ]
+  if (b === undefined) return []
+  const out: Run[][] = []
+  if (b.contextPct !== undefined) out.push(meter('CTX', b.contextPct))
+  for (const [name, label] of [['five_hour', '5H'], ['seven_day', '7D']] as const) {
+    const w = b.windows.find(x => x.name === name)
+    if (w !== undefined) out.push(meter(label, w.pct))
+  }
+  return out
 }
 
 /** The two heaviest models as readout cells: the model and its share of all tokens. */
@@ -167,7 +161,7 @@ export function modelCells(t: Timeline): ReadoutCell[] {
     return {
       label: x.model.toUpperCase(),
       value: `${share}%`,
-      gfx: barCell(share, 100, C.model),
+      gfx: bar(share, 100, 10, C.model),
       drop: 2 - i,
     }
   })
@@ -175,76 +169,153 @@ export function modelCells(t: Timeline): ReadoutCell[] {
 
 const MAX_LIST = 6
 
-// The runs cut to `n` characters (a bar shortens by its rest).
-function shrink(runs: Run[], n: number): Run[] {
-  const out: Run[] = []
-  let left = n
-  for (const r of runs) {
-    if (left <= 0) break
-    out.push({ ...r, text: r.text.slice(0, left) })
-    left -= r.text.length
+/** One row of a share table: a hull or `▪`, a name, the tokens at 38 and a 10-cell bar at 50. */
+type Share = { key: string; glyph: Run; name: string; tokens: number; color: string; dim?: boolean; onPress?: () => void | Promise<void> }
+
+/**
+ * `┌ LABEL tokens share` and one row per item: glyph at 2, name at 4, tokens
+ * at the metric column and a 10-cell `▮▯` bar of its share of `total` at the
+ * time column (`row` takes one run per cell and a bar has two, so the row is
+ * laid here). Under 38 columns there is only the name.
+ */
+function shareTable(ctx: ViewCtx, $: EngineInterface, label: string, items: Share[], total: number, extra: number): RenderElement[] {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const tc = tableCols(ctx.cols)
+  const out: RenderElement[] = [section(ctx, $, label, 'tokens', 'share')]
+  for (const x of items) {
+    const dim = x.dim === true ? { dim: true } : {}
+    const segs: Placed[] = [
+      { ...x.glyph, col: COL.glyph },
+      { col: COL.name, text: wordFit(x.name, Math.max(0, tc.nameEnd - COL.name)), ...dim },
+    ]
+    if (tc.metric !== undefined) segs.push({ col: tc.metric, text: wordFit(tokenText(x.tokens), Math.min(GRID.content, ctx.cols - tc.metric)), dim: true })
+    if (tc.time !== undefined && ctx.cols - tc.time >= 10) {
+      let col = tc.time
+      for (const r of bar(x.tokens, total, 10, x.color)) {
+        segs.push({ ...r, col })
+        col += r.text.length
+      }
+    }
+    const body = laid(segs, COL.glyph, ctx.e, $, `${x.key}-`)
+    out.push(
+      <Box key={`row-${x.key}`} flexDirection="row">
+        <Text>{'  '}</Text>
+        {x.onPress !== undefined ? (
+          <Button key={x.key} plain onPress={x.onPress}>
+            {body}
+          </Button>
+        ) : (
+          <Text key={x.key} wrap="truncate-end">
+            {body}
+          </Text>
+        )}
+      </Box>,
+    )
   }
+  if (extra > 0) out.push(more(ctx, $, extra, `more ${label.toLowerCase()}`))
   return out
 }
 
 /**
- * The budget view (spec "Now": one press from the readouts): `b: back`, then
- * every window (CTX first) as label at 2, value at 8, a 10-column bar at 14
- * and its reset at 26 (on its own line at 8 when the width is under 40), the
- * cost when asked for, and one row per model with its tokens and agents.
+ * The budget view (spec "Budget view"): a deck with `used` and `resets` heads
+ * and one row per window, CTX first, each a 22-cell bar, the percentage at
+ * 38 and when it resets at 50; `┌ MODELS tokens share` and `┌ AGENTS tokens
+ * share` with a 10-cell bar in the time column. No dollar figure is drawn.
+ * Pressing the head row (or `b`, from the footer) goes back; an agent row
+ * opens that agent.
+ *
+ * Under 62 columns the percentage moves to 8, the bar is 10 cells at 14 and
+ * the reset follows at 26, or on a row of its own at 8 under 42 columns; in
+ * slim (under 32) the bracket is the left one only and a `b: back` row leads.
  */
 export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { Box, Button } = $.ui.resolve(ctx.e)
   const { t, cols, now } = ctx
   const b = t.budget
-  const out: (RenderElement | null)[] = [
-    <Box key="budget-top" flexDirection="row" paddingLeft={GRID.margin}>
-      <Button key="budget-back" hotkey="b" plain onPress={() => setBudgetOpen($, false)}>
-        back
-      </Button>
-    </Box>,
-    blank(ctx, $, 'budget-gap-0'),
-    section(ctx, $, 'BUDGET'),
-  ]
-  const rows = b !== undefined ? rowsOf(b, now) : []
-  if (b === undefined || rows.length === 0) {
-    out.push(<Text key="budget-none" dimColor>{'  No reading yet.'}</Text>)
+  const slim = cols < 32
+  const wide = cols >= 62
+  const back = (): void => setBudgetOpen($, false)
+  const out: (RenderElement | null)[] = []
+  if (slim) {
+    out.push(
+      <Box key="budget-top" flexDirection="row" paddingLeft={GRID.margin}>
+        <Button key="budget-back" hotkey="b" plain onPress={back}>
+          back
+        </Button>
+      </Box>,
+      blank(ctx, $, 'budget-gap-0'),
+    )
   }
-  const room = Math.max(0, Math.min(GRID.content, cols - 14))
-  const inline = cols >= 40
+  const head: DeckRow = {
+    key: slim ? 'budget-head' : 'budget-back',
+    label: [{ text: 'BUDGET', bold: true }],
+    ...(slim ? {} : { onPress: back }),
+    cells: wide ? [{ col: DECK.value, runs: [{ text: 'used', dim: true }] }, { col: DECK.aside, runs: [{ text: 'resets', dim: true }] }] : [],
+  }
+  const rows = b !== undefined ? rowsOf(b, now) : []
+  const deckRows: DeckRow[] = [head]
+  if (b === undefined || rows.length === 0) {
+    deckRows.push({ key: 'budget-none', label: [{ text: 'No reading yet.', dim: true }] })
+  }
   for (const r of rows) {
-    const label = fit(r.label.toUpperCase(), 5)
-    const bar = barCell(Math.max(0, Math.min(100, r.pct)), 100, rateColor(r.pct))
-    const barRuns = shrink(bar, room)
-    const segs: Placed[] = [
-      { col: GRID.margin, text: label, dim: true },
-      { col: 8, text: percent(r.pct), bold: true },
-      ...barRuns.map((x, i) => ({ ...x, col: 14 + (i === 0 ? 0 : (barRuns[0]?.text.length ?? 0)) })),
+    const share = Math.max(0, Math.min(100, r.pct))
+    const label = r.label.toUpperCase()
+    const pct = { text: percent(r.pct), bold: true }
+    if (wide) {
+      const cells: DeckCell[] = [
+        { col: DECK.gauge, runs: bar(share, 100, 22), narrow: bar(share, 100, 10), whole: true },
+        { col: DECK.value, runs: [pct] },
+      ]
+      if (r.at !== undefined) cells.push({ col: DECK.aside, runs: [{ text: resetClock(r.at, now), dim: true }] })
+      deckRows.push({ key: `budget-${r.label}`, label, cells })
+      continue
+    }
+    const cells: DeckCell[] = [
+      { col: 8, runs: [pct] },
+      { col: DECK.gauge, runs: bar(share, 100, 10), whole: true },
     ]
-    if (inline && r.reset !== undefined) segs.push({ col: 26, text: wordFit(r.reset, cols - 26), dim: true })
-    out.push(runsLine(ctx.e, $, segs, `budget-${r.label}`))
-    if (!inline && r.reset !== undefined) {
-      out.push(runsLine(ctx.e, $, [{ col: 8, text: wordFit(r.reset, cols - 8), dim: true }], `budget-${r.label}-reset`))
+    const inline = cols >= 42
+    if (inline && r.at !== undefined) cells.push({ col: 26, runs: [{ text: resetText(r.at, now), dim: true }], whole: true })
+    deckRows.push({ key: `budget-${r.label}`, label, cells })
+    if (!inline && r.at !== undefined) {
+      deckRows.push({ key: `budget-${r.label}-reset`, cells: [{ col: 8, runs: [{ text: resetText(r.at, now), dim: true }] }] })
     }
   }
-  if (ctx.showCost === true && b?.costUsd !== undefined) {
-    out.push(runsLine(ctx.e, $, [{ col: GRID.margin, text: 'COST', dim: true }, { col: 8, text: dollars(b.costUsd), bold: true }], 'budget-cost'))
-  }
+  out.push(deck(ctx, $, deckRows, { key: 'budget', side: slim ? 'left' : 'both' }))
+
   const totals = modelTotals(t)
   if (totals.length > 0) {
-    out.push(blank(ctx, $, 'budget-gap-1'), section(ctx, $, 'BY MODEL', 'tokens', 'agents'))
-    for (const x of totals.slice(0, MAX_LIST)) {
-      out.push(
-        row(ctx, $, {
-          key: `model-${x.model}`,
-          glyph: '·',
-          name: x.model,
-          metric: tokenText(x.tokens),
-          time: `${x.agents} ${x.agents === 1 ? 'agent' : 'agents'}`,
-        }),
-      )
-    }
-    if (totals.length > MAX_LIST) out.push(more(ctx, $, totals.length - MAX_LIST))
+    const all = totals.reduce((n, x) => n + x.tokens, 0)
+    const items: Share[] = totals.slice(0, MAX_LIST).map(x => ({
+      key: `model-${x.model}`,
+      glyph: { text: '▪', color: C.model },
+      name: x.model,
+      tokens: x.tokens,
+      color: C.model,
+    }))
+    out.push(blank(ctx, $, 'budget-gap-1'), ...shareTable(ctx, $, 'MODELS', items, all, totals.length - items.length))
+  }
+  const waits = waitStates(t, ctx.u, now)
+  const reported = Object.values(t.agents)
+    .filter(a => a.tokensIn !== undefined || a.tokensOut !== undefined)
+    .map(a => ({ a, tokens: (a.tokensIn ?? 0) + (a.tokensOut ?? 0) }))
+    .sort((x, y) => y.tokens - x.tokens || x.a.id.localeCompare(y.a.id))
+  if (reported.length > 0) {
+    const all = reported.reduce((n, x) => n + x.tokens, 0)
+    const items: Share[] = reported.slice(0, MAX_LIST).map(({ a, tokens }) => {
+      const pod = podFor(a, waits, now)
+      const id = a.id
+      return {
+        key: `budget-agent-${id}`,
+        glyph: pod.hull,
+        name: id === 'main' ? 'main' : shortPaths(a.description || a.type),
+        tokens,
+        color: C.live,
+        ...(pod.state === 'done' || pod.state === 'queued' ? { dim: true } : {}),
+        ...(id !== 'main' ? { onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: id })) } : {}),
+      }
+    })
+    out.push(blank(ctx, $, 'budget-gap-2'), ...shareTable(ctx, $, 'AGENTS', items, all, reported.length - items.length))
   }
   return <Box flexDirection="column">{out.filter((x): x is RenderElement => x !== null)}</Box>
 }

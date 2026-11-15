@@ -3,17 +3,18 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { Step, Tab, Timeline } from '../../types'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
-import { budgetCells, budgetView, isBudgetOpen, setBudgetOpen, tokenText } from './budget'
-import { buckets10, clock, elapsed, shortPaths, typeShort, wordFit } from './fit'
+import { budgetMeters, budgetView, isBudgetOpen, setBudgetOpen, tokenText } from './budget'
+import { buckets, clock, crewRow, elapsed, GAUGE, pips, shortPaths, spark, typeShort, wordFit } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
-import { moveNeed, needsSection, needsYou } from './needs'
+import { crewPods, moveNeed, needsSection, needsYou, podFor, waitStates } from './needs'
 import { isOnScreen } from './onscreen'
 import { openStepInline } from './openstep'
-import { barCell, blank, footer, more, readout, row, section, sparkCell, stackCell } from './parts'
-import type { Hint, ReadoutCell } from './parts'
+import { blank, deck, deckRows, footer, more, row, section } from './parts'
+import type { DeckCell, DeckRow, Hint } from './parts'
 import type { ViewCtx } from './shell'
-import { C, COL, GRID, statusColor, tableCols } from './style'
+import { C, cellCol, COL, DECK, GRID, statusColor } from './style'
+import type { Run } from './style'
 
 // From this width the pane is the inline strip: eight cells, two halves.
 const STRIP = 96
@@ -30,65 +31,77 @@ function openTab($: EngineInterface, tab: Tab): Promise<void> {
 const agentTokens = (a: { tokensIn?: number; tokensOut?: number }): string =>
   a.tokensIn !== undefined || a.tokensOut !== undefined ? tokenText((a.tokensIn ?? 0) + (a.tokensOut ?? 0)) : '…'
 
-/** Now's readout cells: TASKS, AGENTS, STEPS, CTX and the hotter window, dropped by rank. */
-function cellsOf(ctx: ViewCtx, $: EngineInterface): ReadoutCell[] {
+/**
+ * Now's deck (spec "Now"): FOCUS, NEXT, a rail-only row, CREW, TASKS, STEPS
+ * and BUDGET, each a label at 2 and cells on 14, 26, 38 and 50. CREW, TASKS,
+ * STEPS and BUDGET open their tab (or the budget view). In the strip (`strip`)
+ * there is no rail-only row, the aside column is out, and STEPS carries its
+ * errors beside the count; `count` things waiting take the NEXT row.
+ */
+function nowRows(ctx: ViewCtx, $: EngineInterface, strip: boolean, count: number): (DeckRow | null)[] {
   const { t, now } = ctx
   const s = summary(t)
+  const h = headline(t)
   const subs = subagents(t)
   const live = subs.filter(a => a.status === 'running').length
   const failed = subs.filter(a => a.status === 'error').length
-  const done = subs.length - live - failed
   const times = t.steps.map(x => x.startedAt)
   const from = times.length > 0 ? Math.min(...times) : now
-  return [
-    {
-      label: 'TASKS',
-      key: 'readout-tasks',
-      onPress: () => openTab($, 'tasks'),
-      value: s.total > 0 ? [{ text: String(s.done), bold: true }, { text: `/${s.total}`, dim: true }] : [{ text: '–', dim: true }],
-      gfx: barCell(s.done, s.total),
-    },
-    {
-      label: 'AGENTS',
-      key: 'readout-agents',
-      onPress: () => openTab($, 'agents'),
-      value: [{ text: String(live), bold: true }, { text: ' live', dim: true }],
-      gfx: stackCell([{ count: live, color: C.live }, { count: done }, { count: failed, color: C.fail }]),
-    },
-    {
-      label: 'STEPS',
-      key: 'readout-steps',
-      onPress: () => openTab($, 'timeline'),
-      drop: 2,
-      value: [
-        { text: String(s.steps), bold: true },
-        ...(s.errors > 0 ? [{ text: ' ' }, { text: '✖', color: C.fail }, { text: ` ${s.errors}` }] : []),
-      ],
-      gfx: sparkCell(buckets10(times, from, now)),
-    },
-    ...budgetCells($, t),
-  ]
-}
+  const pods = crewPods(ctx)
+  const rows: (DeckRow | null)[] = []
 
-/** The headline row and its `next` row. `cols` is the width of the half they sit in. */
-function headRows(ctx: ViewCtx, $: EngineInterface, cols: number): RenderElement[] {
-  const { t, now, e } = ctx
-  const h = headline(t)
-  const s = summary(t)
-  const timeCol = tableCols(cols).time
-  const room = (timeCol ?? cols) - 2 - COL.glyph
-  const segs: Placed[] = [
-    { col: 0, text: '▍', color: C.accent },
-    { col: COL.glyph, text: wordFit(h.text, room), ...(h.isIdle ? { dim: true } : { bold: true }) },
-  ]
-  if (timeCol !== undefined && h.at !== undefined) segs.push({ col: timeCol, text: elapsed(h.at, now), dim: true })
-  const out = [runsLine(e, $, segs, 'now-head')]
-  if (s.next !== undefined) {
-    out.push(
-      runsLine(e, $, [{ col: COL.glyph, text: 'next', dim: true }, { col: 8, text: wordFit(s.next, cols - 8) }], 'now-next'),
-    )
+  const focus: DeckCell[] = [{ col: DECK.gauge, runs: [{ text: h.text, ...(h.isIdle ? { dim: true } : { bold: true }) }] }]
+  if (h.at !== undefined) focus.push({ col: DECK.aside, runs: [{ text: elapsed(h.at, now), dim: true }] })
+  rows.push({ key: 'deck-focus', label: 'FOCUS', cells: focus })
+
+  if (strip && count > 0) {
+    rows.push({
+      key: 'deck-wait',
+      label: [{ text: 'WAITING', color: C.wait, bold: true }],
+      cells: [{ col: DECK.gauge, runs: [{ text: `${count} need you`, color: C.wait, bold: true }] }],
+    })
+  } else if (s.next !== undefined) {
+    rows.push({ key: 'deck-next', label: 'NEXT', cells: [{ col: DECK.gauge, runs: s.next }] })
   }
-  return out
+  if (!strip) rows.push(null)
+
+  const crew: DeckCell[] = [
+    { col: DECK.gauge, runs: crewRow(pods), narrow: crewRow(pods, 7, { tight: true }), whole: true },
+    { col: DECK.value, runs: [{ text: String(live), bold: true }, { text: ' live', dim: true }] },
+  ]
+  if (failed > 0) crew.push({ col: DECK.aside, runs: [{ text: String(failed), bold: true, color: C.fail }, { text: ' failed', dim: true }] })
+  rows.push({ key: 'deck-crew', label: 'CREW', onPress: () => openTab($, 'agents'), cells: crew })
+
+  const active = t.tasks.filter(x => x.status === 'in_progress').length
+  const tasks: DeckCell[] =
+    s.total > 0
+      ? [
+          { col: DECK.gauge, runs: pips(s.done, s.total, GAUGE, active), narrow: pips(s.done, s.total, 10, active), whole: true },
+          { col: DECK.value, runs: [{ text: String(s.done), bold: true }, { text: `/${s.total}`, dim: true }] },
+        ]
+      : [{ col: DECK.value, runs: [{ text: '–', dim: true }] }]
+  if (s.total > 0 && times.length > 0) tasks.push({ col: DECK.aside, runs: [{ text: elapsed(from, now), dim: true }] })
+  rows.push({ key: 'deck-tasks', label: 'TASKS', onPress: () => openTab($, 'tasks'), cells: tasks })
+
+  const errors: Run[] = s.errors > 0 ? [{ text: '✖', color: C.fail }, { text: ` ${s.errors}` }] : []
+  const steps: DeckCell[] = [
+    { col: DECK.gauge, runs: spark(buckets(times, from, now, GAUGE), GAUGE), narrow: spark(buckets(times, from, now, 10), 10), whole: true },
+    { col: DECK.value, runs: [{ text: String(s.steps), bold: true }, ...(strip && errors.length > 0 ? [{ text: ' ' }, ...errors] : [])] },
+  ]
+  if (!strip && errors.length > 0) steps.push({ col: DECK.aside, runs: errors })
+  rows.push({ key: 'deck-steps', label: 'STEPS', onPress: () => openTab($, 'timeline'), cells: steps })
+
+  const meters = budgetMeters(t)
+  if (meters.length > 0) {
+    const cols = [DECK.gauge, cellCol(2), DECK.value]
+    rows.push({
+      key: 'deck-budget',
+      label: 'BUDGET',
+      onPress: () => setBudgetOpen($, true),
+      cells: meters.map((m, i) => ({ col: cols[i] ?? DECK.value, runs: m, whole: true })),
+    })
+  }
+  return rows
 }
 
 function agentsBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
@@ -96,17 +109,19 @@ function agentsBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
     .filter(a => a.status === 'running')
     .sort((a, b) => a.startedAt - b.startedAt)
   if (live.length === 0) return []
-  const rows = live.slice(0, MAX_LIST).map(a =>
-    row(ctx, $, {
+  const waits = waitStates(ctx.t, ctx.u, ctx.now)
+  const rows = live.slice(0, MAX_LIST).map(a => {
+    const hull = podFor(a, waits, ctx.now).hull
+    return row(ctx, $, {
       key: `agent-${a.id}`,
-      glyph: '▸',
-      glyphColor: C.live,
+      glyph: hull.text,
+      ...(hull.color !== undefined ? { glyphColor: hull.color } : {}),
       name: shortPaths(a.description || a.type),
       metric: agentTokens(a),
       time: elapsed(a.startedAt, ctx.now),
       onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })),
-    }),
-  )
+    })
+  })
   return [section(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows, ...(live.length > MAX_LIST ? [more(ctx, $, live.length - MAX_LIST)] : [])]
 }
 
@@ -150,7 +165,7 @@ function keptBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
     row(ctx, $, {
       key: `kept-${x.id}`,
       glyph: '★',
-      glyphColor: C.live,
+      glyphColor: C.spark,
       name: x.pin !== undefined && x.pin !== '' ? x.pin : argOf(x.tool, x.label),
       metric: x.tool,
       time: clock(x.startedAt),
@@ -251,16 +266,19 @@ function stripRight(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const live = subagents(t)
     .filter(a => a.status === 'running')
     .sort((a, b) => a.startedAt - b.startedAt)
-  const agentRow = (a: (typeof live)[number]): RenderElement =>
-    stripRow($, ctx, {
+  const waits = waitStates(t, ctx.u, now)
+  const agentRow = (a: (typeof live)[number]): RenderElement => {
+    const hull = podFor(a, waits, now).hull
+    return stripRow($, ctx, {
       key: `agent-${a.id}`,
-      glyph: '▸',
-      color: C.live,
+      glyph: hull.text,
+      ...(hull.color !== undefined ? { color: hull.color } : {}),
       name: shortPaths(a.description || a.type),
       metric: agentTokens(a),
       time: elapsed(a.startedAt, now),
       onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })),
     })
+  }
   if (live.length > 0) {
     out.push(stripHead($, ctx, 'AGENTS', 'tokens', 'time', 'strip-agents'))
     if (live.length <= 2) out.push(...live.map(agentRow))
@@ -290,13 +308,7 @@ function stripRight(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
 
 function stripView(ctx: ViewCtx, $: EngineInterface, count: number): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
-  const left = { ...ctx, cols: HALF }
-  const head = headRows(left, $, HALF)
-  if (count > 0 && head.length > 1) {
-    head[1] = runsLine(ctx.e, $, [{ col: COL.glyph, text: `▲ ${count} need you`, color: C.wait, bold: true }], 'now-wait')
-  }
-  const cells = readout(left, $, cellsOf(left, $))
-  const leftRows = [...head, blank(ctx, $, 'strip-blank'), ...(cells !== null ? [cells] : [])]
+  const leftRows = deckRows(ctx, $, nowRows(ctx, $, true, count), { key: 'strip-deck', side: 'left', cols: HALF })
   const bar = footer(ctx, $, hints($, count, true))
   return (
     <Box flexDirection="column">
@@ -315,11 +327,11 @@ function stripView(ctx: ViewCtx, $: EngineInterface, count: number): RenderEleme
 }
 
 /**
- * The Now tab (spec "Now"): headline and `next`; NEEDS YOU when anything
- * waits; the readout (TASKS, AGENTS, STEPS, CTX, 7D or 5H); AGENTS live only;
+ * The Now tab (spec "Now"): the NEEDS YOU bracket first when anything
+ * waits; the deck (FOCUS, NEXT, CREW, TASKS, STEPS, BUDGET); AGENTS live only;
  * LATEST; KEPT; NOTES; the footer while the pane has the focus. From 96
- * columns the inline strip: the headline and four cells left, AGENTS and
- * LATEST right. The budget view replaces both while it is open.
+ * columns the inline strip: the deck's rows left (the left bracket only),
+ * AGENTS and LATEST right. The budget view replaces both while it is open.
  */
 export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
@@ -330,9 +342,8 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const count = Math.min(needsYou(ctx.t, ctx.u, ctx.now).length, MAX_LIST)
   if (ctx.cols >= STRIP) return stripView(ctx, $, count)
   const blocks = [
-    headRows(ctx, $, ctx.cols),
     needsSection(ctx, $),
-    readout(ctx, $, cellsOf(ctx, $)),
+    deck(ctx, $, nowRows(ctx, $, false, count), { key: 'now' }),
     agentsBlock(ctx, $),
     latestBlock(ctx, $),
     keptBlock(ctx, $),

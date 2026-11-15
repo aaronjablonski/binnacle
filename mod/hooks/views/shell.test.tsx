@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 import type { Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 
 type Stored = Map<string, unknown>
 

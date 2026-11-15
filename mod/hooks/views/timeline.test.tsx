@@ -8,7 +8,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 const HOME = 'C:/Users/test'
 
 type Stored = Map<string, unknown>
@@ -67,6 +67,11 @@ const TL_UI: UiState = {
   agentsMode: 'list',
   folded: [],
   openTurns: [],
+  dismissed: [],
+  query: '',
+  runningOnly: false,
+  notified: [],
+  toasted: [],
 }
 
 const PANE = (columns: number, bodyRows = 40) =>
@@ -271,8 +276,8 @@ test('/mc pin with no steps says Nothing to pin yet.', async ($, on) => {
   expect(got.text).toBe('Nothing to pin yet.')
 })
 
-test('a ui value stored as ui-1 is read as the initial value', async ($, on) => {
-  world(on, twoTurns(), TL_UI, new Map(), { timeline: 'timeline-2', ui: 'ui-1' })
+test('a ui value stored as ui-2 is read as the initial value', async ($, on) => {
+  world(on, twoTurns(), TL_UI, new Map(), { timeline: 'timeline-3', ui: 'ui-2' })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     expect(await ui.find({ key: 'filter-errors' })).toBeUndefined()

@@ -180,6 +180,11 @@ describe('reduce', () => {
     expect(t.agents.a1!.doing).toBe('Reading files')
   })
 
+  it("a subagent focus is cut to 80 like its doing's other sources", () => {
+    const t = fold([agentStart('a1'), update({ focus: 'f'.repeat(300) }, 'a1')])
+    expect(t.agents.a1!.doing).toBe('f'.repeat(79) + '…')
+  })
+
   it('an update note is cut to MAX_LINE and one line', () => {
     const t = fold([update({ note: 'line one\nline two ' + 'x'.repeat(500) })])
     expect(t.notes).toHaveLength(1)

@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 
 type Stored = Map<string, unknown>
 
@@ -283,7 +283,10 @@ test('pressing tab-tasks writes ui.tab', async ($, on) => {
 })
 
 test('the Artifacts tab keeps the tab row', async ($, on) => {
-  seed(on, empty, { tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] })
+  seed(on, empty, {
+    tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
+    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     expect((await texts(ui)).join('\n')).toContain('No artifacts yet.')
@@ -465,7 +468,10 @@ const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; ba
   (f?.props ?? {}) as { color?: string; dimColor?: boolean; backgroundColor?: string }
 
 test('the tab bar has a dim │ between every two tabs and fills the open tab', async ($, on) => {
-  seed(on, empty, { tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] })
+  seed(on, empty, {
+    tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
+    dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+  })
   for (const surface of SURFACES) {
     for (const columns of [62, 24]) {
       const ui = await mount($, surface, columns)

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { Ev, Timeline } from '../mod/types'
 import {
-  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
+  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
+  MAX_WINDOW_NAME, MAX_WINDOWS,
 } from '../mod/hooks/model/limits'
 import { empty, reduce } from '../mod/hooks/model/reduce'
 
@@ -24,18 +25,30 @@ const agentId = (i: number) => `a${String(i).padStart(16, '0')}`
 const turnId = (i: number) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`
 const runId = (i: number) => `wf_${String(i).padStart(20, '0')}`
 
-function* everyListPastItsBound(): Generator<Ev> {
+const HUGE = 999_999_999_999_999
+
+function* everyListPastItsBound(opts: { finish: boolean } = { finish: true }): Generator<Ev> {
   // Agents (each a workflow agent, so runs fill too), each with a long type,
-  // description and doing; the first few never finish.
+  // description, doing, model and result and the largest token counts; the
+  // first few never finish.
   for (let i = 0; i < MAX_AGENTS + 50; i++) {
     yield { kind: 'agent.start', at: at(), id: agentId(i), parent: 'main', type: long('type'), description: long(`d${i}`), runId: runId(i % (MAX_RUNS + 20)), agentIndex: i }
+    yield { kind: 'agent.model', id: agentId(i), model: long('model') }
     yield { kind: 'update', at: at(), agent: agentId(i), update: { focus: long(`f${i}`) } }
+    yield { kind: 'step.start', at: at(), id: toolId(200_000 + i), agent: agentId(i), tool: 'StructuredOutput', input: { result: long('r') } }
+    yield { kind: 'step.end', at: at(), id: toolId(200_000 + i), status: 'done' }
+    yield { kind: 'usage', at: at(), agent: agentId(i), model: long('used-model'), tokensIn: HUGE, tokensOut: HUGE }
     if (i >= 10) yield { kind: 'turn.end', at: at(), turnId: turnId(i), agent: agentId(i), answer: long('answer'), failed: false }
   }
-  // Turns with long prompts.
+  yield { kind: 'usage', at: at(), agent: 'main', model: long('used-model'), tokensIn: HUGE, tokensOut: HUGE }
+  // Turns with long prompts, each but the newest ended failed.
   for (let i = 0; i < MAX_TURNS + 50; i++) {
     yield { kind: 'turn.start', at: at(), turnId: turnId(i), agent: 'main', prompt: long(`p${i}`) }
+    if (i < MAX_TURNS + 49) yield { kind: 'turn.end', at: at(), turnId: turnId(i), agent: 'main', answer: '', failed: true }
   }
+  // A budget past its window bound, every name at its longest.
+  const windows = Array.from({ length: MAX_WINDOWS + 4 }, (_, i) => ({ name: long(`w${i}`), pct: 100.5, resetsAt: HUGE }))
+  yield { kind: 'measure', at: at(), budget: { contextPct: 100, windows, costUsd: 123456.789, at: 0 } }
   // Notes, and declared artifacts with every string at its longest.
   for (let i = 0; i < MAX_NOTES + 20; i++) yield { kind: 'update', at: at(), agent: 'main', update: { note: long(`n${i}`) } }
   for (let i = 0; i < MAX_ARTIFACTS + 50; i++) {
@@ -62,8 +75,32 @@ function* everyListPastItsBound(): Generator<Ev> {
       ? { title: long('title'), file_path: long(`C:/r/page${i}`), html: long('html') }
       : { taskId: long('task'), status: long('status'), subject: long('subject'), activeForm: long('af') }
     yield { kind: 'step.start', at: at(), id: toolId(100_000 + i), agent: 'main', tool: `${tool}`, input }
+    if (!opts.finish) yield { kind: 'step.ask', at: at(), id: toolId(100_000 + i) }
   }
-  yield { kind: 'turn.end', at: at(), turnId: turnId(MAX_TURNS + 49), agent: 'main', answer: long('done'), failed: false }
+  if (opts.finish) yield { kind: 'turn.end', at: at(), turnId: turnId(MAX_TURNS + 49), agent: 'main', answer: long('done'), failed: false }
+}
+
+/** The checks both worst cases share: every list at its bound, every new field at its cap. */
+function atBounds(t: Timeline) {
+  expect(t.steps).toHaveLength(MAX_STEPS)
+  expect(t.turns).toHaveLength(MAX_TURNS)
+  expect(t.notes).toHaveLength(MAX_NOTES)
+  expect(t.artifacts).toHaveLength(MAX_ARTIFACTS)
+  expect(t.changed).toHaveLength(MAX_CHANGED)
+  expect(t.tasks).toHaveLength(MAX_TASKS)
+  expect(Object.keys(t.agents)).toHaveLength(MAX_AGENTS)
+  expect(Object.keys(t.runs)).toHaveLength(MAX_RUNS)
+  expect(t.agents.main).toBeDefined()
+  const subs = Object.values(t.agents).filter((a) => a.id !== 'main')
+  for (const a of subs) {
+    expect(a.model!.length).toBe(MAX_MODEL)
+    expect(a.result!.length).toBe(MAX_RESULT)
+    expect(a.tokensIn).toBe(HUGE)
+    expect(a.lastStepAt).toBeDefined()
+  }
+  expect(t.turns.filter((x) => x.failed === true)).toHaveLength(MAX_TURNS - 1)
+  expect(t.budget!.windows).toHaveLength(MAX_WINDOWS)
+  for (const w of t.budget!.windows) expect(w.name.length).toBe(MAX_WINDOW_NAME)
 }
 
 describe('bounds', () => {
@@ -72,18 +109,15 @@ describe('bounds', () => {
   // that is also in the id) are about 0.5 MB each, tasks and agents about
   // 0.3 MB each, and 2,000 steps about 0.75 MB, about 2.4 MB in all. The
   // bound held here is 2,500,000: under 60% of $.state's 4,194,304.
+  // The model, tokens, result and lastStepAt on every agent (about 0.36 KB a
+  // row), failed turns and the budget took it to about 2.59 MB; MAX_AGENTS
+  // went from 500 to 400, MAX_PENDING_STEPS from 100 to 50 and a subagent's
+  // focus is cut to 80 like its other doing sources, which brings both worst
+  // cases back to about 2.41 MB.
   it('a timeline with every list at its bound and every string at its longest stays under 2,500,000 characters', () => {
     const t = fold(everyListPastItsBound())
 
-    expect(t.steps).toHaveLength(MAX_STEPS)
-    expect(t.turns).toHaveLength(MAX_TURNS)
-    expect(t.notes).toHaveLength(MAX_NOTES)
-    expect(t.artifacts).toHaveLength(MAX_ARTIFACTS)
-    expect(t.changed).toHaveLength(MAX_CHANGED)
-    expect(t.tasks).toHaveLength(MAX_TASKS)
-    expect(Object.keys(t.agents)).toHaveLength(MAX_AGENTS)
-    expect(Object.keys(t.runs)).toHaveLength(MAX_RUNS)
-    expect(t.agents.main).toBeDefined()
+    atBounds(t)
     // The steps kept are the interrupted ones; the newest still carry their pending.
     expect(t.steps.every((s) => s.status === 'interrupted')).toBe(true)
     const carrying = t.steps.filter((s) => s.pending !== undefined)
@@ -91,6 +125,16 @@ describe('bounds', () => {
     expect(carrying[0]).toBe(t.steps[MAX_STEPS - MAX_PENDING_STEPS])
     for (const s of carrying) for (const v of Object.values(s.pending!)) expect(String(v).length <= MAX_PENDING).toBe(true)
     for (const a of t.artifacts) expect((a.ref ?? '').length <= MAX_REF).toBe(true)
+
+    const size = JSON.stringify(t).length
+    expect(size).toBeLessThan(2_500_000)
+  })
+
+  it('the same with every kept step still running and asked stays under 2,500,000 characters', () => {
+    const t = fold(everyListPastItsBound({ finish: false }))
+
+    atBounds(t)
+    expect(t.steps.every((s) => s.status === 'running' && s.asking !== undefined)).toBe(true)
 
     const size = JSON.stringify(t).length
     expect(size).toBeLessThan(2_500_000)

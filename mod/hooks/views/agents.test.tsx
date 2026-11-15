@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 
 type Stored = Map<string, unknown>
 
@@ -104,7 +104,10 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =
   return found.map(f => f.text ?? '')
 }
 
-const AGENTS_UI: UiState = { tab: 'agents', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] }
+const AGENTS_UI: UiState = {
+  tab: 'agents', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+}
 const run: Run = { runId: 'r1', name: 'review-changes', parent: 'main', startedAt: NOW - 90_000 }
 const wf = (id: string, index: number, description: string, doing: string, status: AgentRow['status']): AgentRow => ({
   ...agent(id, 'workflow-subagent', description, doing, status),

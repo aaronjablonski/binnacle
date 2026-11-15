@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 
 type Stored = Map<string, unknown>
 
@@ -79,6 +79,11 @@ const DETAIL = (body?: StepBody): UiState => ({
   agentsMode: 'list',
   folded: [],
   openTurns: [],
+  dismissed: [],
+  query: '',
+  runningOnly: false,
+  notified: [],
+  toasted: [],
   detail: body ? { stepId: 's1', body } : { stepId: 's1', missing: true },
 })
 

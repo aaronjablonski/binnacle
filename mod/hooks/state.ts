@@ -3,16 +3,20 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Ev, Timeline, UiState } from '../types'
 import { empty, reduce } from './model/reduce'
+import { boundUi } from './model/usage'
 
 // Change a tag when the value's fields change: a reload then declines what
 // the earlier code stored instead of misreading it.
 export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as const, empty, {
-  shape: 'timeline-2',
+  shape: 'timeline-3',
 })
 
-const initialUi: UiState = { tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] }
+export const initialUi: UiState = {
+  tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+}
 
-export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-2' })
+export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-3' })
 
 /** Folds one event into the timeline. Never throws: a failure goes to the debug log. */
 export async function apply($: EngineInterface, ev: Ev): Promise<void> {
@@ -38,9 +42,12 @@ export async function readUi($: EngineInterface): Promise<UiState> {
   return read($, ui)
 }
 
-/** Changes the pane's state from a press handler or another event; never from ui.render. */
+/**
+ * Changes the pane's state from a press handler or another event; never from
+ * ui.render. What `fn` answers is held to the lists' and query's bounds.
+ */
 export async function updateUi($: EngineInterface, fn: (u: UiState) => UiState): Promise<void> {
-  await update($, ui, fn)
+  await update($, ui, u => boundUi(fn(u)))
 }
 
 /** True when the state holds a timeline with anything in it. */

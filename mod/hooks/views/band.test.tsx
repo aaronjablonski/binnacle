@@ -15,7 +15,7 @@ function seed(on: On, t: Timeline): void {
     const key = (e as { key: string }).key
     return {
       value: {
-        value: key === 'timeline' ? { shape: 'timeline-2', value: t } : undefined,
+        value: key === 'timeline' ? { shape: 'timeline-3', value: t } : undefined,
         version: 0,
       },
     }

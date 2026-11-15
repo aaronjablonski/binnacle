@@ -402,7 +402,13 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const comp = richStrip(ctx, $, { maxRows: Math.max(0, (ctx.bodyRows ?? 14) - (bar !== null ? 2 : 0)) })
     if (comp !== undefined) return <Box flexDirection="column">{stack(ctx, $, [comp, bar])}</Box>
   }
-  const svgDeck = deckSvg(ctx, $)
+  // The desktop's Svg deck takes no presses: CREW, TASKS, STEPS and BUDGET stay Buttons, under it, keyed as in the other forms.
+  const svgDeck = deckSvg(ctx, $, [
+    { key: 'deck-crew', label: 'CREW', onPress: () => openTab($, 'agents') },
+    { key: 'deck-tasks', label: 'TASKS', onPress: () => openTab($, 'tasks') },
+    { key: 'deck-steps', label: 'STEPS', onPress: () => openTab($, 'timeline') },
+    { key: 'deck-budget', label: 'BUDGET', onPress: () => setBudgetOpen($, true) },
+  ])
   if (svgDeck === null && ctx.cols >= STRIP) return stripView(ctx, $, count)
   const deckEl = svgDeck ?? deck(ctx, $, nowRows(ctx, $, false, count), { key: 'now' })
   // NEEDS YOU lists what waits in the rows the deck leaves (binding rule 2): its head and opened item take 4, the gaps 2.

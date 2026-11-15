@@ -20,30 +20,51 @@ export function lookFor(table: object, surface: string, options: LookOptions = {
   return look === 'svg' && surface !== 'desktop' ? 'text' : look
 }
 
-/**
- * Now's deck as one interactive Svg when the look is `svg` (the desktop
- * app), else null: the caller draws its own deck. It takes no presses, so
- * every pressable row stays a Button outside it.
- *
- * @example ctx.look === 'svg' ? deckSvg(ctx, $) : richDeck(ctx, $, rows, opts)
- */
-export function deckSvg(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  const table = $.ui.resolve(ctx.e)
-  if (ctx.look !== 'svg' || !('Svg' in table)) return null
-  const { Box, Svg } = table
+/** A press the Svg cannot take, drawn as a plain Button beside it: its key (as the text and rich forms key it), label and handler. */
+export type SvgPress = { key: string; label: string; onPress: () => void | Promise<void> }
+
+/** The presses as one row of plain label Buttons, three cells apart, under an Svg. */
+function pressRow($: EngineInterface, e: RenderInput, key: string, presses: SvgPress[]): RenderElement | null {
+  if (presses.length === 0) return null
+  const { Box, Button } = $.ui.resolve(e)
   return (
-    <Box key="now-svg">
-      <Svg source={nowDeckSvg(ctx.t, ctx.u, ctx.now, ctx.cols)} alt={nowDeckAlt(ctx.t, ctx.u, ctx.now)} isInteractive />
+    <Box key={key} flexDirection="row" columnGap={3} paddingLeft={2}>
+      {presses.map(p => (
+        <Button key={p.key} plain onPress={p.onPress}>
+          {p.label}
+        </Button>
+      ))}
     </Box>
   )
 }
 
-/** What the band's Svg reads: the band's render input and its look, the state, the clock and its width. */
-export type BandSvgArgs = { e: RenderInput; look: Look; t: Timeline; u: UiState; now: number; cols: number }
+/**
+ * Now's deck as one interactive Svg when the look is `svg` (the desktop
+ * app), else null: the caller draws its own deck. The Svg takes no presses,
+ * so the deck's pressable rows (`presses`: CREW, TASKS, STEPS, BUDGET, keyed
+ * as the other forms key them) are a row of label Buttons under it.
+ *
+ * @example ctx.look === 'svg' ? deckSvg(ctx, $, presses) : richDeck(ctx, $, rows, opts)
+ */
+export function deckSvg(ctx: ViewCtx, $: EngineInterface, presses: SvgPress[] = []): RenderElement | null {
+  const table = $.ui.resolve(ctx.e)
+  if (ctx.look !== 'svg' || !('Svg' in table)) return null
+  const { Box, Svg } = table
+  return (
+    <Box key="now-svg" flexDirection="column">
+      <Svg source={nowDeckSvg(ctx.t, ctx.u, ctx.now, ctx.cols)} alt={nowDeckAlt(ctx.t, ctx.u, ctx.now)} isInteractive />
+      {pressRow($, ctx.e, 'now-svg-presses', presses)}
+    </Box>
+  )
+}
+
+/** What the band's Svg reads: the band's render input and its look, the state, the clock and its width; `presses` go beside it. */
+export type BandSvgArgs = { e: RenderInput; look: Look; t: Timeline; u: UiState; now: number; cols: number; presses?: SvgPress[] }
 
 /**
  * The band as one interactive Svg when the look is `svg`, else null: the
- * band draws its own rows. `/mc` and any press stay outside it.
+ * band draws its own rows. `/mc` and any press stay outside it, as Buttons
+ * beside it (`presses`).
  *
  * @example const svg = bandSvgOf($, { e, look, t, u, now, cols: e.props.bodyColumns }); if (svg !== null) return svg
  */
@@ -52,8 +73,9 @@ export function bandSvgOf($: EngineInterface, a: BandSvgArgs): RenderElement | n
   if (a.look !== 'svg' || !('Svg' in table)) return null
   const { Box, Svg } = table
   return (
-    <Box key="band-svg">
+    <Box key="band-svg" flexDirection="row" columnGap={1}>
       <Svg source={bandSvg(a.t, a.u, a.now, a.cols)} alt={bandAlt(a.t, a.u, a.now)} isInteractive />
+      {pressRow($, a.e, 'band-svg-presses', a.presses ?? [])}
     </Box>
   )
 }

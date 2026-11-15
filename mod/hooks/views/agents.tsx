@@ -7,12 +7,12 @@ import { EMPTY, RUN_GLYPH, agentOpened, agentRow, jumpToProblem, tokensOf } from
 import type { Jump } from './agentmeta'
 import { modelTotals, tokenText } from './budget'
 import { bar, crewRow, elapsed, fit, wrapWords } from './fit'
-import { blank, deck, footer, more, row, section } from './parts'
+import { blank, deck, footer, more, page, row, section } from './parts'
 import type { DeckCell, Run } from './parts'
 import { runBoardView } from './runboard'
 import type { ViewCtx } from './shell'
 import { needsYou, waitStates } from './needs'
-import { C, DECK, GRID, HULL, cellCol, podOf, roleOf } from './style'
+import { C, DECK, GRID, HULL, cellCol, podOf, roleOf, spriteOf } from './style'
 import type { PodState, Role } from './style'
 import { treeView } from './tree'
 
@@ -259,4 +259,21 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     debug($, `agents view failed: ${errText(err)}`)
     return <Text dimColor>{fit(`Agents: ${errText(err)}`, cols)}</Text>
   }
+}
+
+/**
+ * The agent page (`ui.page = { kind: 'agent', id: <AgentKey> }`). A stub from
+ * R1b so page routing has a body: the large character, the full
+ * description and the type. R3 replaces it with the spec's page.
+ */
+export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderElement {
+  const a = ctx.t.agents[id]
+  if (a === undefined) return page(ctx, $, { key: 'agent-page', title: 'This agent is gone.' })
+  return page(ctx, $, {
+    key: 'agent-page',
+    frame: { pill: a.status === 'running' ? 'WORKING' : a.status === 'error' ? 'FAILED' : 'DONE' },
+    who: { key: 'agent-page-who', ...spriteOf(a, ctx.now) },
+    title: id === 'main' ? 'main' : a.description || a.type,
+    fields: [{ label: 'AGENT', value: a.type }],
+  })
 }

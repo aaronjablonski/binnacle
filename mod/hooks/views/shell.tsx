@@ -1,20 +1,22 @@
 import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput } from 'claude-code'
 
-import type { Tab, Timeline, UiState } from '../../types'
+import type { PageKind, Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
-import { agentsView } from './agents'
-import { artifactsView } from './artifacts'
-import { detailView } from './detail'
+import { agentPage, agentsView } from './agents'
+import { artifactPage, artifactsView } from './artifacts'
+import { detailView, stepPage } from './detail'
+import { configureEditor, rememberRoot } from './editor'
 import { exportDigest } from './handoff'
 import { overviewView } from './overview'
-import { startClock } from './paint'
+import { leavePage, pageOf } from './pagenav'
+import { begin, forget, startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
 import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { slimView } from './slim'
-import { C, GRID, TAB_CELL, tier } from './style'
-import type { Tier } from './style'
-import { tasksView } from './tasks'
+import { C, GRID, lookOf, TAB_CELL, tier } from './style'
+import type { Look, Tier } from './style'
+import { taskPage, tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
 import { landing, stopsOf, withStart } from './ring'
 import type { Stops } from './ring'
@@ -39,10 +41,16 @@ export const TABS: { tab: Tab; label: string; short: string; icon: string; hotke
  * object. `cols` is `e.props.bodyColumns`; `isFocused` is the pane's
  * `e.props.isFocused` (the footer draws only then); `bodyRows` is
  * `e.props.scroll.bodyRows` (slim drops sections to fit it).
+ * `look` (Neo Rich) is computed once per draw from the surface's element
+ * table (`lookOf`): `inst`, `richDeck`, `hero` and `page` draw Rasters only
+ * when it is `rich`; absent, they draw the text form. `site` is the
+ * requestId the draw's Rasters are tracked under for the paint clock (the
+ * pane's id); absent, the pane's.
  */
 export type ViewCtx = {
   e: RenderInput; t: Timeline; u: UiState; cols: number; now: number; showCost?: boolean
   isFocused?: boolean; bodyRows?: number
+  look?: Look; site?: string
 }
 export type View = (ctx: ViewCtx, $: EngineInterface) => RenderElement
 
@@ -57,7 +65,7 @@ export function isTabKey(key: string): boolean {
  * press draws the new tab from. Ephemeral UI state, not session state: a
  * reload starts it over. Bounded: `Stops` holds at most MAX_STOPS keys.
  */
-const ring: { stops: Stops; at?: string; input?: RenderInput<'Pane'> } = { stops: { order: [], tabs: [] } }
+const ring: { stops: Stops; at?: string; input?: RenderInput<'Pane'>; look?: Look } = { stops: { order: [], tabs: [] } }
 
 const ROWS_INLINE = 14
 const COLUMNS_DOCK = 62
@@ -105,12 +113,15 @@ export async function syncPaneOpen($: EngineInterface): Promise<void> {
   }
 }
 
-export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: boolean }): void {
+export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: boolean; editor?: string; look?: string }): void {
+  configureEditor(options.editor)
   // Observes every close of the pane (the person's own, /mc close, a press): the
-  // flag follows what the hooks beneath settled. The one ui.close hook of the
-  // module; it answers exactly what next(e) answered.
+  // flag follows what the hooks beneath settled, and the paint clock drops the
+  // pane's Rasters. The one ui.close hook of the module; it answers exactly
+  // what next(e) answered.
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const settled = await next(e)
+    forget(PANE)
     await setPaneOpen($, false)
     return settled
   })
@@ -139,7 +150,9 @@ export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: 
     const { Box, Text } = $.ui.resolve(e)
     const cols = e.props.bodyColumns
     try {
-      const rest = await drawnOf($, e, options.showCost === true)
+      // A new draw of the pane: Rasters it does not track again stop painting.
+      begin(PANE)
+      const rest = await drawnOf($, e, options.showCost === true, options.look)
       const width = tier(cols)
       // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary.
       const tree =
@@ -156,6 +169,7 @@ export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: 
       const out = withStart(tree, isTabKey)
       ring.stops = stopsOf(out, isTabKey)
       ring.input = e
+      ring.look = rest.look
       return out
     } catch (err) {
       debug($, `pane failed: ${errText(err)}`)
@@ -220,12 +234,17 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<
 
 type Drawn = {
   t: Timeline; u: UiState; cols: number; now: number; showCost: boolean
-  isFocused: boolean; bodyRows: number
+  isFocused: boolean; bodyRows: number; look: Look; site: string
 }
 
-/** What a drawing of the pane reads: the state, the clock and the pane's props. */
-async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, showCost: boolean): Promise<Drawn> {
+/**
+ * What a drawing of the pane reads: the state, the clock and the pane's
+ * props, and the look, once per draw, from the surface's element table.
+ */
+async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, showCost: boolean, look?: string): Promise<Drawn> {
   return {
+    look: lookOf($.ui.resolve(e), { look }),
+    site: PANE,
     t: await readTimeline($),
     u: await readUi($),
     cols: e.props.bodyColumns,
@@ -244,12 +263,12 @@ async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, showCost: boo
  * Never throws; a ring that cannot move stays where it was.
  */
 async function switchTab($: EngineInterface, tab: Tab, showCost: boolean): Promise<void> {
-  await updateUi($, cur => ({ ...leaveDetail(cur), tab }))
+  await updateUi($, cur => ({ ...leavePage(leaveDetail(cur)), tab }))
   const e = ring.input
   if (e === undefined) return
   let key: string | undefined
   try {
-    const rest = await drawnOf($, e, showCost)
+    const rest = { ...(await drawnOf($, e, showCost)), look: ring.look ?? 'text' }
     if (tier(rest.cols) === 'slim') return
     key = stopsOf(withStart(body($, e, rest), isTabKey), isTabKey).start
     if (key === undefined) return
@@ -277,6 +296,9 @@ function slim($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
 function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
   const { Text } = $.ui.resolve(e)
   try {
+    // A detail page replaces the open tab's list until `b` (or a tab) clears it.
+    const open = pageOf(rest.u)
+    if (open !== undefined) return pageBody($, e, rest, open.kind, open.id)
     // A step open on the Timeline tab replaces the tab's list.
     if (rest.u.tab === 'timeline' && rest.u.detail !== undefined) return detailView({ e, ...rest }, $)
     switch (rest.u.tab) {
@@ -294,6 +316,25 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
   } catch (err) {
     debug($, `view failed: ${errText(err)}`)
     return <Text dimColor>{`This tab failed: ${errText(err)}`.slice(0, Math.max(1, rest.cols))}</Text>
+  }
+}
+
+/**
+ * The body of a detail page: each kind's page is drawn by its view's own
+ * function (tasks.tsx `taskPage`, agents.tsx `agentPage`, detail.tsx
+ * `stepPage`, artifacts.tsx `artifactPage`), called by name so the engine's
+ * scan follows `$` into it.
+ */
+function pageBody($: EngineInterface, e: RenderInput, rest: Drawn, kind: PageKind, id: string): RenderElement {
+  switch (kind) {
+    case 'task':
+      return taskPage({ e, ...rest }, $, id)
+    case 'agent':
+      return agentPage({ e, ...rest }, $, id)
+    case 'step':
+      return stepPage({ e, ...rest }, $, id)
+    default:
+      return artifactPage({ e, ...rest }, $, id)
   }
 }
 
@@ -380,7 +421,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   if (target !== undefined) {
     try {
       await seedBudget($, { skipIfFresh: true })
-      await updateUi($, cur => ({ ...leaveDetail(cur), tab: target.tab }))
+      await updateUi($, cur => ({ ...leavePage(leaveDetail(cur)), tab: target.tab }))
       const opened = await openPane($)
       if (!opened.isPlaced) return { text: `Mission Control: ${target.label}. It waits for a wider terminal.` }
       return { text: `Mission Control: ${target.label}.` }
@@ -460,6 +501,12 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   }
   // A restored or reloaded session starts with the flag false until the engine says the pane is up.
   await syncPaneOpen($)
+  // A draw makes a relative path absolute for a file link without waiting on the engine.
+  try {
+    rememberRoot(await $.session.root())
+  } catch (err) {
+    debug($, `root read failed: ${errText(err)}`)
+  }
   // The mod's one 1 s clock lives in paint.ts: each period runs this tick,
   // then the rich instruments' paint pass. A second start cancels the first.
   try {

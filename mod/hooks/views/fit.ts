@@ -609,3 +609,229 @@ export function tether(depth: number, last: boolean, outer = false): string {
 export function pillRun(word: string, bg: string): Run {
   return { text: ` ${word} `, bg, color: C.inverse, bold: true }
 }
+
+// ---------- Neo Rich: meters, the height rule, the strip's compartments ----------
+
+/**
+ * Bar heights in eighths for `rows` rows (1 to 3): each value scaled to the
+ * largest, 0 to `rows * 8`; any value above zero shows at least one eighth.
+ * A value that is not a positive number is 0.
+ *
+ * @example levels([0, 5, 10], 1) // [0, 4, 8]
+ */
+export function levels(values: number[], rows: number): number[] {
+  const top = Math.max(0, Math.floor(rows)) * 8
+  const clean = values.map(v => (Number.isFinite(v) && v > 0 ? v : 0))
+  const max = Math.max(0, ...clean)
+  if (max === 0) return clean.map(() => 0)
+  return clean.map(v => (v === 0 ? 0 : Math.max(1, Math.round((v / max) * top))))
+}
+
+/**
+ * How many of `n` beads a meter at `pct` lights: none at 0, any value above
+ * zero lights one, only 100 or more lights all (raster.ts `beads` draws it).
+ *
+ * @example beadCount(50, 11) // 5
+ */
+export function beadCount(pct: number, n: number): number {
+  if (n <= 0 || !Number.isFinite(pct) || pct <= 0) return 0
+  if (pct >= 100) return n
+  return Math.max(1, Math.min(n - 1, Math.floor((pct * n) / 100)))
+}
+
+/**
+ * One section a page or tab stacks under its deck: how many rows its list
+ * holds (`count`), the rows it takes before any other grows (`floor`,
+ * default 1) and the most it takes (`cap`, default no limit).
+ */
+export type SectionCount = { key: string; count: number; floor?: number; cap?: number }
+
+/** Now's sections by height (spec "Now by height"), in the order spare rows are dealt. */
+export const NOW_SECTIONS = {
+  latest: { floor: 2, cap: 8 },
+  agents: { floor: 3, cap: 6 },
+  tasks: { floor: 1, cap: 8 },
+  kept: { floor: 1, cap: 4 },
+  notes: { floor: 2, cap: 4 },
+} as const
+
+/** The rows sections take: a header and its rows each, one blank between two. */
+export function rowsUsed(got: { rows: number }[]): number {
+  if (got.length === 0) return 0
+  return got.reduce((n, g) => n + 1 + g.rows, 0) + got.length - 1
+}
+
+/**
+ * The height rule (rich spec "Now by height", binding rule 2): how many list
+ * rows each section shows in `bodyRows` rows. A section costs its header and
+ * its rows, and one blank row sits between two sections, never two. Rows are
+ * dealt one at a time: first each section's floor, in order, then the spare
+ * one to each in turn up to its cap or its count. A row that does not fit is
+ * not dealt, so with fewer rows the last sections go first (taken back in
+ * reverse) and the lists dealt first grow. Empty sections are left out. The
+ * answer is in input order, shown sections only.
+ *
+ * @example sectionRows(bodyRows - deckRows, [{ key: 'latest', count: steps.length, ...NOW_SECTIONS.latest }])
+ */
+export function sectionRows(bodyRows: number, counts: SectionCount[]): { key: string; rows: number }[] {
+  const want = counts.map(c => Math.max(0, Math.min(Math.floor(c.count), c.cap ?? Number.POSITIVE_INFINITY)))
+  const floor = counts.map((c, i) => Math.min(Math.max(1, c.floor ?? 1), want[i]!))
+  const got = counts.map(() => 0)
+  let left = Math.max(0, Math.floor(bodyRows))
+  let shown = 0
+  const deal = (i: number): boolean => {
+    const cost = got[i] === 0 ? 2 + (shown > 0 ? 1 : 0) : 1
+    if (cost > left) return false
+    if (got[i] === 0) shown += 1
+    got[i] = got[i]! + 1
+    left -= cost
+    return true
+  }
+  for (let i = 0; i < counts.length; i++) {
+    while (got[i]! < floor[i]!) {
+      if (!deal(i)) break
+    }
+  }
+  let moved = true
+  while (moved && left > 0) {
+    moved = false
+    for (let i = 0; i < counts.length; i++) {
+      if (got[i]! < want[i]! && deal(i)) moved = true
+    }
+  }
+  return counts.map((c, i) => ({ key: c.key, rows: got[i]! })).filter(g => g.rows > 0)
+}
+
+/** The gap between strip compartments: three clear columns, or two where three would drop one. */
+const STRIP_GAPS = [3, 2] as const
+
+/**
+ * Widths across `cols` for blocks of at least `min` each, side by side: the
+ * gap is 3, or 2 where 3 would drop one; blocks that still do not fit are
+ * dropped from the right. Spare columns go evenly to those that grow, the
+ * remainder to the first of them. (Moved here from stripband.tsx.)
+ */
+export function layOut(mins: { min: number; grows: boolean }[], cols: number): { widths: number[]; gap: number } {
+  for (let n = mins.length; n >= 1; n--) {
+    const kept = mins.slice(0, n)
+    const sum = kept.reduce((a, c) => a + c.min, 0)
+    for (const gap of STRIP_GAPS) {
+      const used = sum + gap * (n - 1)
+      if (used > cols) continue
+      const growers = kept.map((c, i) => (c.grows ? i : -1)).filter(i => i >= 0)
+      const spare = cols - used
+      const each = growers.length > 0 ? Math.floor(spare / growers.length) : 0
+      const widths = kept.map((c, i) => c.min + (growers.includes(i) ? each : 0))
+      if (growers.length > 0) widths[growers[0]!] = widths[growers[0]!]! + (spare - each * growers.length)
+      return { widths, gap }
+    }
+  }
+  return { widths: [Math.max(1, cols)], gap: STRIP_GAPS[0] }
+}
+
+/** A strip compartment: `activity` is AGENTS over LATEST in one (96 to 116 columns). */
+export type CompKey = 'now' | 'needs' | 'tasks' | 'agents' | 'latest' | 'budget' | 'activity'
+
+/** The strip's compartments (rich spec "Strip"): their table widths, and whether they take spare columns. */
+const COMP: Record<CompKey, { min: number; grows: boolean }> = {
+  now: { min: 52, grows: false },
+  needs: { min: 34, grows: true },
+  tasks: { min: 34, grows: true },
+  agents: { min: 36, grows: true },
+  latest: { min: 28, grows: true },
+  budget: { min: 23, grows: false },
+  activity: { min: 46, grows: true },
+}
+
+/** The compartments a too-narrow strip gives up first, whole. NOW and NEEDS YOU stay. */
+const COMP_DROP: readonly CompKey[] = ['tasks', 'latest', 'budget', 'agents']
+
+/** The narrowest strip in compartments; under it the strip stacks. */
+export const COMPARTMENTS_FROM = 96
+
+/**
+ * The strip's compartments at `cols` (rich spec "Strip"), each dropped whole
+ * and never squeezed, with three clear columns between (two where three would
+ * drop one):
+ * - 185 and up: NOW 52, TASKS 34, AGENTS 36, LATEST 28, BUDGET 23
+ * - 148 to 184: NOW, AGENTS, LATEST, BUDGET
+ * - 117 to 147: NOW, AGENTS, BUDGET
+ * - 96 to 116: NOW 48, then AGENTS over LATEST (`activity`) 46
+ * - under 96: none (the strip stacks)
+ * Whenever something waits NEEDS YOU takes the second place: it replaces
+ * TASKS (or `activity` under 117) or is put second, and compartments go whole
+ * in COMP_DROP order until the rest fits. Spare columns go to the lists.
+ *
+ * @example compartments(150, false) // { comps: [now 52, agents 37, latest 29, budget 23], gap: 3 }
+ */
+export function compartments(cols: number, waiting: boolean): { comps: { key: CompKey; width: number }[]; gap: number } {
+  if (cols < COMPARTMENTS_FROM) return { comps: [], gap: STRIP_GAPS[0] }
+  const narrow = cols < 117
+  let keys: CompKey[]
+  if (cols >= 185) keys = ['now', 'tasks', 'agents', 'latest', 'budget']
+  else if (cols >= 148) keys = ['now', 'agents', 'latest', 'budget']
+  else if (narrow) keys = ['now', 'activity']
+  else keys = ['now', 'agents', 'budget']
+  if (waiting) {
+    const swap = keys.indexOf(narrow ? 'activity' : 'tasks')
+    if (swap >= 0) keys[swap] = 'needs'
+    else keys = [keys[0]!, 'needs', ...keys.slice(1)]
+  }
+  const minOf = (k: CompKey): number => {
+    if (narrow && k === 'now') return 48
+    if (narrow && k === 'needs') return 46
+    return COMP[k].min
+  }
+  const specs = (ks: CompKey[]) => ks.map(k => ({ min: minOf(k), grows: COMP[k].grows }))
+  const fits = (ks: CompKey[]) => layOut(specs(ks), cols).widths.length === ks.length
+  for (const drop of COMP_DROP) {
+    if (fits(keys)) break
+    keys = keys.filter(k => k !== drop)
+  }
+  const { widths, gap } = layOut(specs(keys), cols)
+  return { comps: keys.slice(0, widths.length).map((key, i) => ({ key, width: widths[i]! })), gap }
+}
+
+/**
+ * `text` wrapped in full into lines of at most `cols`: by word, a word wider
+ * than a line broken across lines, each newline kept (an empty line for a
+ * blank one). Nothing is cut and no line ends in `…` (detail pages).
+ *
+ * @example wrapFull('abcdefghij', 4) // ['abcd', 'efgh', 'ij']
+ */
+export function wrapFull(text: string, cols: number): string[] {
+  if (cols <= 0 || text.trim() === '') return []
+  const out: string[] = []
+  for (const para of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const words = para
+      .replace(/[\t ]+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(w => w !== '')
+    if (words.length === 0) {
+      out.push('')
+      continue
+    }
+    let cur = ''
+    for (const word of words) {
+      let w = word
+      if (cur !== '' && cur.length + 1 + w.length <= cols) {
+        cur = `${cur} ${w}`
+        continue
+      }
+      if (cur !== '') {
+        out.push(cur)
+        cur = ''
+      }
+      while (w.length > cols) {
+        out.push(w.slice(0, cols))
+        w = w.slice(cols)
+      }
+      cur = w
+    }
+    if (cur !== '') out.push(cur)
+  }
+  while (out.length > 0 && out[out.length - 1] === '') out.pop()
+  while (out.length > 0 && out[0] === '') out.shift()
+  return out
+}

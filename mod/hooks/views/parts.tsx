@@ -1,7 +1,11 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { debug, errText } from '../state'
-import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, pillRun, placed, spark10, stack10, tether, wordFit } from './fit'
+import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, pillRun, placed, spark10, stack10, tether, wordFit, wrapFull, wrapWords } from './fit'
+import { closePage } from './pagenav'
+import { track } from './paint'
+import { lintel, sill } from './raster'
+import type { Grid, Hue } from './raster'
 import type { ViewCtx } from './shell'
 import { C, cellsFor, COL, DECK, GRID, RAIL, tableCols } from './style'
 import type { Run } from './style'
@@ -741,6 +745,483 @@ export function deck(ctx: ViewCtx, $: EngineInterface, rows: (DeckRow | null)[],
   return (
     <Box key={opts.key ?? 'deck'} flexDirection="column">
       {deckRows(ctx, $, rows, opts)}
+    </Box>
+  )
+}
+
+// ---------- Neo Rich: instruments, the rich deck, the hero, detail pages ----------
+
+/**
+ * One instrument: a Raster on a rich surface, its text form elsewhere, in the
+ * same box. `frames` draws it (one frame still, two for a pulse), run only
+ * when `sig` changes (paint.ts `track`). `fallback` is its text form, one
+ * runs list a row; `inst` pads or cuts each row to `columns` and gives it
+ * exactly `rows` rows, so the two forms swap without moving anything.
+ * `spriteOf` (style.ts) returns everything but `key`.
+ */
+export type InstSpec = {
+  key: string
+  columns: number
+  rows: number
+  sig: string
+  frames: () => Grid[]
+  fallback: Run[][]
+}
+
+/** The text form of an instrument: `rows` rows, each exactly `columns` wide. */
+function fallbackRows(s: { columns: number; rows: number; fallback: Run[][] }): Run[][] {
+  const out: Run[][] = []
+  for (let i = 0; i < s.rows; i++) {
+    const row: Run[] = []
+    let used = 0
+    for (const r of s.fallback[i] ?? []) {
+      if (used >= s.columns) break
+      const text = r.text.slice(0, s.columns - used)
+      if (text === '') continue
+      row.push({ ...r, text })
+      used += text.length
+    }
+    if (used < s.columns) row.push({ text: ' '.repeat(s.columns - used) })
+    out.push(row)
+  }
+  return out
+}
+
+/**
+ * An instrument (spec "inst"): a Raster when `ctx.look` is `rich` and the
+ * surface's table has one, else its same-size text fallback. Either way it
+ * is a Box of its own, `columns` wide and `rows` tall, so nothing pressable
+ * ever shares its cells: put Buttons beside it, never in it. A Raster's
+ * cells come from paint.ts (`track` under `ctx.site`), so a pulse blits on
+ * the clock without a redraw. Throws when the frames are not `columns` x `rows`.
+ *
+ * @example inst(ctx, $, { key: 'lead', ...spriteOf(agent, ctx.now) })
+ */
+export function inst(ctx: ViewCtx, $: EngineInterface, s: InstSpec): RenderElement {
+  const table = $.ui.resolve(ctx.e)
+  if (ctx.look === 'rich' && 'Raster' in table) {
+    const { Box, Raster } = table
+    const p = track(ctx.site ?? 'mission-control', s.key, s.sig, s.frames)
+    if (p.columns !== s.columns || p.rows !== s.rows) {
+      throw new Error(`instrument ${s.key} draws ${p.columns}x${p.rows}, not ${s.columns}x${s.rows}`)
+    }
+    return (
+      <Box key={`inst-${s.key}`} width={s.columns} height={s.rows} flexShrink={0}>
+        <Raster key={s.key} columns={p.columns} rows={p.rows} cells={p.cells} />
+      </Box>
+    )
+  }
+  const { Box, Text } = table
+  return (
+    <Box key={`inst-${s.key}`} flexDirection="column" width={s.columns} flexShrink={0}>
+      {fallbackRows(s).map((r, i) => (
+        <Text key={`${s.key}-text-${i}`}>{r.map((x, j) => runText(x, ctx.e, $, `${s.key}-t${i}-${j}`))}</Text>
+      ))}
+    </Box>
+  )
+}
+
+/** The frame's colour: iris, amber while something waits (`tone: 'warning'`). */
+const frameHue = (tone: DeckOpts['tone']): Hue => (tone === 'warning' ? 'amber' : 'iris')
+
+/** What the rich deck's lintel carries: the state pill and one dim readout at the right. */
+export type FrameSpec = {
+  /** The state pill hanging from the line (` WORKING `); in the text form a Text pill. */
+  pill?: string
+  /** The pill's colour as a theme key (`C.live`, `C.wait`, …) for the text form; the Raster takes `pillHue`. */
+  pillColor?: string
+  pillHue?: Hue
+  /** One dim readout at the right (`turn 6 41m`, `agent 3 of 6`). */
+  right?: string
+}
+
+/** The lintel as an instrument: the Raster `lintel`, and as text `┏` with the pill and the readout. */
+function lintelInst(key: string, width: number, tone: DeckOpts['tone'], f: FrameSpec): InstSpec {
+  const hue = frameHue(tone)
+  const corner = tone === 'warning' ? C.wait : C.live
+  const text: Run[] = [{ text: '┏', color: corner }]
+  let used = 1
+  if (f.pill !== undefined) {
+    const gap = Math.max(1, DECK.gauge - 1 - used)
+    text.push({ text: ' '.repeat(gap) })
+    const pr = pillRun(f.pill, f.pillColor ?? corner)
+    text.push(pr)
+    used += gap + pr.text.length
+  }
+  if (f.right !== undefined && f.right !== '') {
+    const room = width - 1 - used - 1
+    if (room > 0) {
+      const r = wordFit(f.right, room)
+      text.push({ text: ' '.repeat(Math.max(1, width - 1 - used - r.length)) }, { text: r, dim: true })
+    }
+  }
+  return {
+    key,
+    columns: width,
+    rows: 1,
+    sig: `lintel:${width}:${hue}:${f.pill ?? ''}:${f.pillHue ?? ''}:${f.right ?? ''}`,
+    frames: () => [lintel(width, { hue, pill: f.pill, pillHue: f.pillHue ?? hue, right: f.right })],
+    fallback: [text],
+  }
+}
+
+/** The sill as an instrument: the Raster `sill`, and as text a `┗` corner. */
+function sillInst(key: string, width: number, tone: DeckOpts['tone']): InstSpec {
+  const hue = frameHue(tone)
+  return {
+    key,
+    columns: width,
+    rows: 1,
+    sig: `sill:${width}:${hue}`,
+    frames: () => [sill(width, { hue })],
+    fallback: [[{ text: '┗', color: tone === 'warning' ? C.wait : C.live }]],
+  }
+}
+
+/**
+ * One rich deck row (spec "Identity: one rule"): a `DeckRow` (label, its text
+ * cells, `onPress`) and, in the rich look, `inst` at the gauge column (14) in
+ * place of the gauge cell, with `sub` (a second dim line, e.g. `4 live`)
+ * under the label when the instrument is two rows tall. The row's own
+ * `cells` stay its text form: the text look draws the row exactly as `deck`
+ * does. A row with `inst` and no cell at the gauge takes the instrument's
+ * first fallback row there in the text look.
+ */
+export type RichRow = DeckRow & { inst?: InstSpec; sub?: string | Run[] }
+
+/** Options of `richDeck`: `deck`'s, and what the lintel carries. */
+export type RichDeckOpts = DeckOpts & { frame?: FrameSpec }
+
+/**
+ * The rich deck (spec "Frame: the lintel and the sill"). In the rich look:
+ * the lintel (one Raster row: clamp, hairline, the pill at the gauge, the
+ * readout at the right), then each row as a row Box of
+ * `[label: a plain dim Button (with onPress) or Text, at 2][inst at 14][Text cells after]`,
+ * then the sill. No sides. The label is the row's only Button, so no Button
+ * shares a cell with a Raster. `tone: 'warning'` turns clamps and pill amber.
+ *
+ * In any other look it is `deck(ctx, $, rows, opts)`, the Neo text form as
+ * built (instruments with no gauge cell lend it their first fallback row).
+ *
+ * @example
+ * richDeck(ctx, $, [
+ *   { key: 'deck-crew', label: 'CREW', onPress: openAgents, sub: [{ text: '4 live', dim: true }],
+ *     inst: { key: 'crew', columns: 30, rows: 2, sig, frames, fallback },
+ *     cells: [{ col: DECK.gauge, runs: crewRow(pods), whole: true }] },
+ * ], { key: 'now', frame: { pill: 'WORKING', right: 'turn 6 41m' } })
+ */
+export function richDeck(ctx: ViewCtx, $: EngineInterface, rows: RichRow[], opts: RichDeckOpts = {}): RenderElement | null {
+  if (rows.length === 0) return null
+  const key = opts.key ?? 'deck'
+  if (ctx.look !== 'rich') {
+    const textRows: DeckRow[] = rows.map(r => {
+      const { inst: spec, sub: _sub, ...row } = r
+      if (spec === undefined || (row.cells ?? []).some(c => c.col === DECK.gauge)) return row
+      return { ...row, cells: [{ col: DECK.gauge, runs: fallbackRows(spec)[0] ?? [], whole: true }, ...(row.cells ?? [])] }
+    })
+    return deck(ctx, $, textRows, opts)
+  }
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cols = Math.max(DECK.gauge + 2, opts.cols ?? ctx.cols)
+  const labelRoom = DECK.gauge - 2 - DECK.label
+  const drawn = rows.map((r, i) => {
+    const rowKey = r.key ?? `${key}-row-${i}`
+    const spec = r.inst !== undefined && DECK.gauge + r.inst.columns <= cols ? r.inst : undefined
+    const after = spec !== undefined ? DECK.gauge + spec.columns + 1 : DECK.label
+    const cells = deckCells(
+      (r.cells ?? []).filter(c => (spec !== undefined ? c.col >= after : true)),
+      cols,
+      cols,
+    )
+    const segs: (Run & { col: number })[] = []
+    for (const c of cells) segs.push(...c)
+    const label = r.label !== undefined ? (fitRuns(asRuns(r.label, { dim: true }), labelRoom) as Run[]) : []
+    const labelEl =
+      r.onPress !== undefined ? (
+        <Button key={rowKey} plain dimColor onPress={r.onPress} autoFocus={r.autoFocus === true ? true : undefined}>
+          {label.map((l, j) => runText(l, ctx.e, $, `${rowKey}-l${j}`))}
+        </Button>
+      ) : (
+        <Text key={rowKey}>{label.map((l, j) => runText(l, ctx.e, $, `${rowKey}-l${j}`))}</Text>
+      )
+    const sub = r.sub !== undefined && spec !== undefined && spec.rows > 1 ? (fitRuns(asRuns(r.sub, { dim: true }), labelRoom) as Run[]) : []
+    return (
+      <Box key={`${key}-${r.key ?? i}`} flexDirection="row">
+        <Box key={`${rowKey}-label`} flexDirection="column" width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
+          {labelEl}
+          {sub.length > 0 ? <Text key={`${rowKey}-sub`}>{sub.map((l, j) => runText(l, ctx.e, $, `${rowKey}-s${j}`))}</Text> : null}
+        </Box>
+        {spec !== undefined ? inst(ctx, $, spec) : null}
+        {segs.length > 0 ? (
+          <Text key={`${rowKey}-cells`} wrap="truncate-end">
+            {laidOut(segs, spec !== undefined ? DECK.gauge + spec.columns : DECK.gauge, ctx.e, $, `${rowKey}-c`)}
+          </Text>
+        ) : null}
+      </Box>
+    )
+  })
+  return (
+    <Box key={key} flexDirection="column">
+      {inst(ctx, $, lintelInst(`${key}-lintel`, cols, opts.tone, opts.frame ?? {}))}
+      {drawn}
+      {inst(ctx, $, sillInst(`${key}-sill`, cols, opts.tone))}
+    </Box>
+  )
+}
+
+/** One line of the hero: a Text, or a plain Button (the running step, the BUDGET line). `lines: 2` wraps it by word onto two rows (the focus). */
+export type HeroLine = { key?: string; runs: string | Run[]; onPress?: () => void | Promise<void>; lines?: 1 | 2 }
+
+/** What `hero` draws: the character in the label column, the lines at the gauge, and a right instrument (the rings at 39) when it fits. */
+export type HeroSpec = { key: string; who: InstSpec; lines: HeroLine[]; right?: InstSpec }
+
+/**
+ * The Now hero (spec "Screens: Now"): `who` (the lead's large character,
+ * 9 x 4) at column 2, the lines from the gauge column (14), each a Text or a
+ * plain Button cut by word to its room, and `right` (three rings, 23 x 4)
+ * at `DECK.ring` (39) when the width holds it, else left out and the lines
+ * take the width. Each instrument is its own Box beside the lines, so no
+ * Button shares a cell with a Raster. In the text look the instruments draw
+ * their same-size fallbacks.
+ *
+ * @example hero(ctx, $, { key: 'hero', who: { key: 'lead', ...spriteOf(main, ctx.now) }, lines: [{ runs: focus, lines: 2 }, { key: 'hero-step', runs: step, onPress }], right: rings })
+ */
+export function hero(ctx: ViewCtx, $: EngineInterface, spec: HeroSpec): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cols = ctx.cols
+  const right = spec.right !== undefined && DECK.ring + spec.right.columns <= cols ? spec.right : undefined
+  const room = Math.max(1, (right !== undefined ? DECK.ring - 2 : cols) - DECK.gauge)
+  const lines: RenderElement[] = []
+  spec.lines.forEach((l, i) => {
+    const key = l.key ?? `${spec.key}-line-${i}`
+    if (typeof l.runs === 'string' && l.lines === 2 && l.onPress === undefined) {
+      wrapWords(l.runs, room, 2).forEach((t, j) => {
+        lines.push(
+          <Text key={`${key}-${j}`} bold>
+            {t}
+          </Text>,
+        )
+      })
+      return
+    }
+    const runs = fitRuns(asRuns(l.runs), room) as Run[]
+    const body = runs.map((r, j) => runText(r, ctx.e, $, `${key}-r${j}`))
+    lines.push(
+      l.onPress !== undefined ? (
+        <Button key={key} plain onPress={l.onPress}>
+          {body}
+        </Button>
+      ) : (
+        <Text key={key} wrap="truncate-end">
+          {body}
+        </Text>
+      ),
+    )
+  })
+  return (
+    <Box key={spec.key} flexDirection="row">
+      <Box key={`${spec.key}-who`} width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
+        {inst(ctx, $, spec.who)}
+      </Box>
+      <Box key={`${spec.key}-lines`} flexDirection="column" width={right !== undefined ? DECK.ring - DECK.gauge : room}>
+        {lines}
+      </Box>
+      {right !== undefined ? inst(ctx, $, right) : null}
+    </Box>
+  )
+}
+
+/**
+ * One labelled row of a detail page: the dim caps label at 2, the value at
+ * 14 wrapped in full (never cut), and up to two cells on its first line at
+ * 38 and 50 (`DeckCell`s: `started`, `13:22:08`). With `onPress` the first
+ * line is one plain Button keyed `key` (the TASK of an agent, the AGENT of a
+ * step).
+ */
+export type PageField = {
+  key?: string
+  label: string
+  value: string | Run[]
+  cells?: DeckCell[]
+  onPress?: () => void | Promise<void>
+}
+
+/** A block of a detail page under its section label: wrapped text (in full, at 4), a list of rows (the pane scrolls), or prepared lines. */
+export type PageBlock = {
+  key: string
+  label: string
+  heads?: { metric?: string; time?: string }
+  text?: string
+  rows?: RowSpec[]
+  lines?: Run[][]
+}
+
+/**
+ * What a detail page draws (spec "Detail pages"). `kind` and `id` name it;
+ * `frame` is its lintel (pill and readout); `who` a large character beside
+ * the title in the label column; `title` bold and `body` dim, both wrapped
+ * in full; `fields` the labelled rows; `blocks` the sections; `actions` the
+ * hotkeyed row (`b: back` is added last by `page`).
+ */
+export type PageSpec = {
+  key: string
+  frame?: FrameSpec & { tone?: DeckOpts['tone'] }
+  who?: InstSpec
+  title?: string
+  body?: string
+  fields?: PageField[]
+  blocks?: PageBlock[]
+  actions?: Action[]
+}
+
+/** A string, or runs, as whole lines of at most `room`: runs that fit stay one line; longer ones wrap as plain text. Never `…`. */
+function fullLines(v: string | Run[], room: number, style: Omit<Run, 'text'> = {}): Run[][] {
+  const runs = asRuns(v, style)
+  const joined = runs.map(r => r.text).join('')
+  if (joined.length <= room && !joined.includes('\n')) return [runs]
+  const { text: _text, ...first } = runs[0] ?? { text: '' }
+  return wrapFull(joined, room).map(t => [{ ...first, text: t }])
+}
+
+/** The actions as rows of hotkeyed Buttons from column 2, three columns apart, wrapping to more rows rather than dropping any. */
+function actionRows(cols: number, actions: Action[]): Action[][] {
+  const out: Action[][] = []
+  let cur: Action[] = []
+  let used = GRID.margin
+  for (const a of actions) {
+    if (cur.length > 0 && used + 3 + actionWidth(a) > cols) {
+      out.push(cur)
+      cur = []
+      used = GRID.margin
+    }
+    used += (cur.length > 0 ? 3 : 0) + actionWidth(a)
+    cur.push(a)
+  }
+  if (cur.length > 0) out.push(cur)
+  return out
+}
+
+/**
+ * A detail page (spec "Detail pages"; binding rule 4): replaces the tab's
+ * list while `ui.page` is set. Nothing on it is cut: every value and block
+ * wraps in full (`wrapFull`, so no line ends in `…`), a list draws every row
+ * and the pane scrolls. Top to bottom:
+ * - the frame: in the rich look the lintel (pill, readout); in text a `┏`
+ *   row with a Text pill and the readout
+ * - `who` at 2 with `title` (bold) and `body` (dim) wrapped from 14 beside it;
+ *   without `who` they wrap from 2
+ * - `fields`: label at 2, value from 14 wrapped, cells at 38 and 50
+ * - the sill (rich) or `┗` (text), then each block after one blank row:
+ *   `section(label, heads)`, then its text (wrapped at 4), rows or lines
+ * - one blank row, then the actions with `b: back` last (keyed `page-back`)
+ *
+ * @example page(ctx, $, { key: 'agent-page', frame: { pill: 'WORKING', right: 'agent 3 of 6' }, who, title: a.description, fields: [{ label: 'AGENT', value: a.type }], blocks: [{ key: 'steps', label: 'STEPS', rows }], actions })
+ */
+export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cols = Math.max(DECK.gauge + 8, ctx.cols)
+  const tone = p.frame?.tone
+  const out: RenderElement[] = []
+  const lineText = (key: string, col: number, runs: Run[]): RenderElement => (
+    <Text key={key}>
+      {' '.repeat(col)}
+      {runs.map((r, j) => runText(r, ctx.e, $, `${key}-${j}`))}
+    </Text>
+  )
+
+  // The frame's top.
+  if (p.frame !== undefined || ctx.look === 'rich') out.push(inst(ctx, $, lintelInst(`${p.key}-lintel`, cols, tone, p.frame ?? {})))
+
+  // The character, title and body.
+  const textCol = p.who !== undefined ? DECK.gauge : DECK.label
+  const head: RenderElement[] = []
+  if (p.title !== undefined && p.title !== '') {
+    fullLines(p.title, cols - textCol, { bold: true }).forEach((l, i) => head.push(lineText(`${p.key}-title-${i}`, 0, l)))
+  }
+  if (p.body !== undefined && p.body !== '') {
+    fullLines(p.body, cols - textCol, { dim: true }).forEach((l, i) => head.push(lineText(`${p.key}-body-${i}`, 0, l)))
+  }
+  if (p.who !== undefined) {
+    out.push(
+      <Box key={`${p.key}-head`} flexDirection="row">
+        <Box key={`${p.key}-who`} width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
+          {inst(ctx, $, p.who)}
+        </Box>
+        <Box key={`${p.key}-headtext`} flexDirection="column" width={cols - DECK.gauge}>
+          {head}
+        </Box>
+      </Box>,
+    )
+  } else if (head.length > 0) {
+    out.push(
+      <Box key={`${p.key}-head`} flexDirection="column" paddingLeft={DECK.label}>
+        {head}
+      </Box>,
+    )
+  }
+
+  // The labelled rows.
+  ;(p.fields ?? []).forEach((f, i) => {
+    const fk = f.key ?? `${p.key}-field-${i}`
+    const cells = deckCells((f.cells ?? []).filter(c => c.col >= DECK.value), cols, cols)
+    const valueEnd = cells.length > 0 ? (cells[0]?.[0]?.col ?? cols) - 2 : cols
+    const lines = fullLines(f.value, Math.max(1, valueEnd - DECK.gauge))
+    const label: Run & { col: number } = { col: DECK.label, text: wordFit(f.label, DECK.gauge - 2 - DECK.label), dim: true }
+    lines.forEach((l, j) => {
+      const segs: (Run & { col: number })[] = []
+      if (j === 0) segs.push(label)
+      let col: number = DECK.gauge
+      for (const r of l) {
+        if (r.text !== '') segs.push({ ...r, col })
+        col += r.text.length
+      }
+      if (j === 0) for (const c of cells) segs.push(...c)
+      const body = laidOut(segs, 0, ctx.e, $, `${fk}-${j}-`)
+      out.push(
+        j === 0 && f.onPress !== undefined ? (
+          <Button key={fk} plain onPress={f.onPress}>
+            {body}
+          </Button>
+        ) : (
+          <Text key={j === 0 ? fk : `${fk}-${j}`}>{body}</Text>
+        ),
+      )
+    })
+  })
+
+  // The frame's foot.
+  if (p.frame !== undefined || ctx.look === 'rich') out.push(inst(ctx, $, sillInst(`${p.key}-sill`, cols, tone)))
+
+  // The blocks.
+  for (const b of p.blocks ?? []) {
+    out.push(blank(ctx, $, `${p.key}-${b.key}-gap`))
+    out.push(section(ctx, $, b.label, b.heads?.metric, b.heads?.time, { key: `${p.key}-${b.key}-sec` }))
+    if (b.text !== undefined) {
+      wrapFull(b.text, cols - COL.name).forEach((t, i) => out.push(lineText(`${p.key}-${b.key}-t${i}`, COL.name, [{ text: t }])))
+    }
+    for (const r of b.rows ?? []) out.push(row(ctx, $, r))
+    ;(b.lines ?? []).forEach((l, i) => {
+      fullLines(l, cols - COL.name).forEach((w, j) => out.push(lineText(`${p.key}-${b.key}-l${i}-${j}`, COL.name, w)))
+    })
+  }
+
+  // The actions, `b: back` last.
+  const actions: Action[] = [...(p.actions ?? []), { hotkey: 'b', label: 'back', key: 'page-back', onPress: () => closePage($) }]
+  out.push(blank(ctx, $, `${p.key}-actions-gap`))
+  actionRows(cols, actions).forEach((as, i) =>
+    out.push(
+      <Box key={`${p.key}-actions-${i}`} flexDirection="row" paddingLeft={GRID.margin} columnGap={3}>
+        {as.map(a => (
+          <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
+            {a.label}
+          </Button>
+        ))}
+      </Box>,
+    ),
+  )
+  return (
+    <Box key={p.key} flexDirection="column">
+      {out}
     </Box>
   )
 }

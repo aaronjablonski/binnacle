@@ -29,6 +29,12 @@
       "description": "Add a COST row with the session's dollar cost to the budget view. Off by default: Mission Control otherwise draws no dollar figure.",
       "default": false
     },
+    "editor": {
+      "type": "string",
+      "title": "Editor",
+      "description": "The editor o: open runs as <editor> -r -g <path>:<line> (VS Code, Cursor and Windsurf read this). When it cannot run, the path is copied instead.",
+      "default": "code"
+    },
     "agentLimitMin": {
       "type": "number",
       "title": "Agent time limit (minutes)",

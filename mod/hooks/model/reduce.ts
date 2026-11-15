@@ -1,7 +1,7 @@
 import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, Run, Step, TaskItem, Timeline, TurnRow } from '../../types'
-import { basename, cut, isDoc, labelOf, oneLine, pathsOf, tail2 } from './label'
+import { basename, cut, isDoc, labelOf, oneLine, pathsOf, sigOf, tail2 } from './label'
 import {
-  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEPS, MAX_TASKS,
+  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEP_ID, MAX_STEPS, MAX_TASKS,
   MAX_TURNS,
 } from './limits'
 import { windowsOf } from './usage'
@@ -194,6 +194,14 @@ function resultLine(input: Obj): string {
   return cut(oneLine(parts.join(' · ')), MAX_RESULT)
 }
 
+/** The step with its ask mark dropped; the same timeline when it has none. */
+function unask(t: Timeline, id: string): Timeline {
+  const i = t.steps.findIndex((s) => s.id === id)
+  if (i < 0 || t.steps[i]!.asking === undefined) return t
+  const { asking: _asked, ...rest } = t.steps[i]!
+  return { ...t, steps: t.steps.map((x, j) => (j === i ? rest : x)) }
+}
+
 function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeline {
   if (t.steps.some((s) => s.id === ev.id)) return t
   const input = isObj(ev.input) ? ev.input : {}
@@ -201,13 +209,16 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
   const seq = t.seq + 1
   const step: Step = {
     id: ev.id, seq, agent: ev.agent, tool: ev.tool, label, status: 'running',
-    startedAt: ev.at,
+    startedAt: ev.at, sig: sigOf(ev.tool, input),
   }
   const pending = keepPending(ev.tool, input)
   if (pending !== undefined) step.pending = pending
   const turnId = openTurn(t, ev.agent)
   if (turnId !== undefined) step.turnId = turnId
-  let next: Timeline = { ...t, seq, steps: boundPending(boundSteps([...t.steps, step])) }
+  // An agent's first step shows the call that spawned it went ahead: its ask is settled.
+  const spawner = t.agents[ev.agent]
+  const settled = spawner?.spawnStep !== undefined && spawner.stepCount === 0 ? unask(t, spawner.spawnStep) : t
+  let next: Timeline = { ...settled, seq, steps: boundPending(boundSteps([...settled.steps, step])) }
   next = withAgent(next, ev.agent, ev.at, (a) => {
     const row: AgentRow = { ...a, stepCount: a.stepCount + 1, doing: label, lastStepAt: ev.at }
     if (ev.tool === 'StructuredOutput' && isWorkflowAgent(a)) row.result = resultLine(input)
@@ -321,6 +332,8 @@ function agentStart(t: Timeline, ev: Extract<Ev, { kind: 'agent.start' }>): Time
     if (ev.runId !== undefined) row.runId = ev.runId
     if (ev.agentIndex !== undefined) row.agentIndex = ev.agentIndex
     if (taskId !== undefined) row.taskId = taskId
+    const spawnStep = typeof ev.spawnStep === 'string' && ev.spawnStep !== '' ? cut(ev.spawnStep, MAX_STEP_ID) : undefined
+    if (spawnStep !== undefined) row.spawnStep = spawnStep
     return row
   })
 }
@@ -450,6 +463,7 @@ export function reduce(t: Timeline, ev: Ev): Timeline {
       case 'pin': return pin(t, ev.id, typeof ev.note === 'string' ? cut(oneLine(ev.note), MAX_LINE) : '')
       case 'unpin': return pin(t, ev.id, undefined)
       case 'step.ask': return stepAsk(t, ev)
+      case 'step.unask': return typeof ev.id === 'string' ? unask(t, ev.id) : t
       case 'usage': return addUsage(t, ev)
       case 'agent.model': return agentModel(t, ev)
       case 'measure': return measure(t, ev)
@@ -458,4 +472,33 @@ export function reduce(t: Timeline, ev: Ev): Timeline {
   } catch {
     return t
   }
+}
+
+/** The newest time anything in `t` happened: a step's or turn's start or end, an agent's start, last step or end. */
+function lastActivity(t: Timeline): number {
+  let last = 0
+  for (const s of t.steps) last = Math.max(last, s.endedAt ?? s.startedAt)
+  for (const x of t.turns) last = Math.max(last, x.endedAt ?? x.startedAt)
+  for (const a of Object.values(t.agents)) last = Math.max(last, a.endedAt ?? 0, a.lastStepAt ?? 0, a.startedAt)
+  return last
+}
+
+/**
+ * A stored timeline folded through an interrupt pass, for adopting it into a
+ * new session: nothing that was running then can end now. Running steps
+ * become `interrupted` with their ask dropped; running subagents become
+ * `done`. Both end at the timeline's last activity. Main stays as it is. Pure.
+ */
+export function settle(t: Timeline): Timeline {
+  const last = lastActivity(t)
+  const steps = t.steps.map((s): Step => {
+    if (s.status !== 'running') return s
+    const { asking: _asked, ...rest } = s
+    return { ...rest, status: 'interrupted', endedAt: s.endedAt ?? last }
+  })
+  const agents: Record<AgentKey, AgentRow> = {}
+  for (const [id, a] of Object.entries(t.agents)) {
+    agents[id] = a.id === 'main' || a.status !== 'running' ? a : { ...a, status: 'done', endedAt: last }
+  }
+  return { ...t, steps, agents }
 }

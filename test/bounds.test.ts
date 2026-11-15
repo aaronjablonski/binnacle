@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Ev, Timeline } from '../mod/types'
 import {
   MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
-  MAX_WINDOW_NAME, MAX_WINDOWS,
+  MAX_SIG, MAX_STEP_ID, MAX_WINDOW_NAME, MAX_WINDOWS,
 } from '../mod/hooks/model/limits'
 import { empty, reduce } from '../mod/hooks/model/reduce'
 
@@ -32,7 +32,7 @@ function* everyListPastItsBound(opts: { finish: boolean } = { finish: true }): G
   // description, doing, model and result and the largest token counts; the
   // first few never finish.
   for (let i = 0; i < MAX_AGENTS + 50; i++) {
-    yield { kind: 'agent.start', at: at(), id: agentId(i), parent: 'main', type: long('type'), description: long(`d${i}`), runId: runId(i % (MAX_RUNS + 20)), agentIndex: i }
+    yield { kind: 'agent.start', at: at(), id: agentId(i), parent: 'main', type: long('type'), description: long(`d${i}`), runId: runId(i % (MAX_RUNS + 20)), agentIndex: i, spawnStep: long(`spawn${i}`) }
     yield { kind: 'agent.model', id: agentId(i), model: long('model') }
     yield { kind: 'update', at: at(), agent: agentId(i), update: { focus: long(`f${i}`) } }
     yield { kind: 'step.start', at: at(), id: toolId(200_000 + i), agent: agentId(i), tool: 'StructuredOutput', input: { result: long('r') } }
@@ -97,6 +97,11 @@ function atBounds(t: Timeline) {
     expect(a.result!.length).toBe(MAX_RESULT)
     expect(a.tokensIn).toBe(HUGE)
     expect(a.lastStepAt).toBeDefined()
+    expect(a.spawnStep!.length).toBe(MAX_STEP_ID)
+  }
+  for (const st of t.steps) {
+    expect(st.sig!.length > 0).toBe(true)
+    expect(st.sig!.length <= MAX_SIG).toBe(true)
   }
   expect(t.turns.filter((x) => x.failed === true)).toHaveLength(MAX_TURNS - 1)
   expect(t.budget!.windows).toHaveLength(MAX_WINDOWS)
@@ -113,7 +118,9 @@ describe('bounds', () => {
   // row), failed turns and the budget took it to about 2.59 MB; MAX_AGENTS
   // went from 500 to 400, MAX_PENDING_STEPS from 100 to 50 and a subagent's
   // focus is cut to 80 like its other doing sources, which brings both worst
-  // cases back to about 2.41 MB.
+  // cases back to about 2.41 MB. A sig on every step (≤ 16) and a spawning
+  // step id on every agent (≤ 64) add about 0.07 MB: about 2.48 MB, a margin
+  // of about 17 KB under the bound.
   it('a timeline with every list at its bound and every string at its longest stays under 2,500,000 characters', () => {
     const t = fold(everyListPastItsBound())
 

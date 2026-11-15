@@ -23,3 +23,5 @@ export const MAX_NOTIFIED = 200        // UiState.notified keeps the newest this
 export const MAX_TOASTED = 50          // UiState.toasted keeps the newest this many
 export const STALL_MS = 180_000        // a running subagent with no new step for longer is stalled
 export const FAILED_TURN_MS = 600_000  // a failed turn stays a problem this long
+export const MAX_SIG = 16              // a step's call signature (a hash of its tool and input) is at most this long
+export const MAX_STEP_ID = 64          // an agent's spawnStep (the tool_use_id that spawned it) is cut to this

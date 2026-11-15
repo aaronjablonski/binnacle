@@ -77,11 +77,16 @@ export function registerCapture(on: On): void {
         kind: 'agent.start', at: await now($), id: out.agentId,
         parent: e.parentAgentId ?? 'main', type: e.subagentType, description: e.description,
       }
+      const spawnStep = typeof e.tool_use_id === 'string' && e.tool_use_id !== '' ? e.tool_use_id : undefined
+      if (spawnStep !== undefined) ev.spawnStep = spawnStep
       if (e.workflow !== undefined) {
         ev.runId = e.workflow.runId
         ev.agentIndex = e.workflow.agentIndex
       }
       await apply($, ev)
+      // A spawn happens only once the call was let through, so its ask is
+      // settled. Workflow agents carry the Workflow call's id: that clears it too.
+      if (spawnStep !== undefined) await apply($, { kind: 'step.unask', id: spawnStep })
       // The model the subagent runs on: core's resolved id (`claude-sonnet-5-5`
       // in probe-usage), replaced later by each turn's usage.model.
       if (typeof out.model === 'string' && out.model !== '') {
@@ -93,7 +98,9 @@ export function registerCapture(on: On): void {
 
   // Observes the engine's permission verdict. `ask` only says the call was put
   // to the mode's decider (a person, a host or the auto-mode classifier); the
-  // step stays marked until it ends through the tool.call capture above.
+  // step stays marked until it ends through the tool.call capture above, or
+  // until an agent it spawned shows it went ahead (agent.spawn above, and the
+  // agent's first step in the reducer).
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     await safely($, 'step.ask', async () => {

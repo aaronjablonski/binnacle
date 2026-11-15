@@ -12,7 +12,15 @@ import { C } from './style'
 
 /** An ask counts as "waiting on you" only once it has run this long: in auto mode the classifier settles most within seconds. */
 export const ASK_MS = 20_000
-/** A subagent's finish is toasted only while it is this fresh, so a restore does not replay old ones. */
+/**
+ * An ask on any tool but Agent and Workflow notifies only once it has run this
+ * long: a real permission dialog raises Claude Code's own notification, and a
+ * call let through that runs long (a test run, a build) is no wait at all.
+ */
+export const NOTIFY_ASK_MS = 60_000
+/** Asks that notify from ASK_MS: their mark clears as soon as the agent they spawn shows. */
+const SPAWNING_TOOLS = new Set(['Agent', 'Workflow'])
+/** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
 // Rows the section draws; the rest become one dim line.
 const MAX_ROWS = 5
@@ -102,8 +110,9 @@ export function needsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | 
 
 /**
  * The clock's one call: raises a native notification once per step id for an
- * ask that has waited ASK_MS (and, with `all`, once per failed turn), and a
- * toast when a subagent has just finished. What was raised is recorded in
+ * ask that has waited ASK_MS on Agent or Workflow and NOTIFY_ASK_MS on any
+ * other tool (and, with `all`, once per failed turn that ended within
+ * FRESH_MS), and a toast when a subagent has just finished. What was raised is recorded in
  * `ui` before it is sent. Runs from the clock callback, not a render hook, so
  * it may write state. Never throws.
  */
@@ -119,8 +128,13 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       for (const p of needsYou(t, u, now)) {
         const id = p.stepId ?? p.key
         if (u.notified.includes(id)) continue
-        if (p.kind === 'asking') notes.push({ id, text: `Waiting on you: ${oneLine(p.label)}` })
-        else if (p.kind === 'failed-turn' && mode === 'all') notes.push({ id, text: `Turn failed: ${oneLine(p.label)}` })
+        if (p.kind === 'asking') {
+          const tool = t.steps.find(s => s.id === p.stepId)?.tool
+          const wait = tool !== undefined && SPAWNING_TOOLS.has(tool) ? ASK_MS : NOTIFY_ASK_MS
+          if (now - p.since >= wait) notes.push({ id, text: `Waiting on you: ${oneLine(p.label)}` })
+        } else if (p.kind === 'failed-turn' && mode === 'all' && now - p.since <= FRESH_MS) {
+          notes.push({ id, text: `Turn failed: ${oneLine(p.label)}` })
+        }
       }
     }
     const toasts: { id: string; text: string }[] = []
@@ -128,7 +142,9 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       if (a.id === 'main' || a.status === 'running' || a.endedAt === undefined) continue
       const id = `agent-done:${a.id}`
       if (now - a.endedAt > FRESH_MS || u.toasted.includes(id)) continue
-      const first = oneLine(a.doing.split('\n')[0] ?? '')
+      // A workflow agent's answer is empty and its doing is its last step: its result says more.
+      const result = a.result !== undefined ? oneLine(a.result) : ''
+      const first = result !== '' ? result : oneLine(a.doing.split('\n')[0] ?? '')
       toasts.push({ id, text: `${a.type} finished${first !== '' ? `: ${first}` : ''}` })
     }
     if (notes.length === 0 && toasts.length === 0) return

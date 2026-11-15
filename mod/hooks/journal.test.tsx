@@ -4,6 +4,8 @@ import type { EngineInterface, On } from 'claude-code'
 import type { Timeline } from '../types'
 import { CLEAR_MARK_MAX_AGE_MS, MAX_TEXT, MIN_PRUNE_AGE_MS, bodyOf, loadSnapshot, prune, readBody, saveSnapshot, writeBody } from './journal'
 import { empty } from './model/reduce'
+import { initialUi } from './state'
+import { needsYou } from './views/needs'
 
 const HOME = 'C:/home'
 const ROOT = `${HOME}/.claude/mission-control`
@@ -637,4 +639,49 @@ test('a throwing command.register still restores and starts the guide (M2)', asy
 
   expect(box.timeline).toEqual(saved)
   expect(tools).toEqual(['update'])
+})
+
+// I2: what a snapshot left running can never end in this session, so it is
+// adopted settled: no ask, no stalled agent, no notification for either.
+test('an adopted snapshot raises no NEEDS YOU and no notify, five minutes on', async ($, on) => {
+  const d = new Disk()
+  const T = NOW - 60_000
+  const left: Timeline = {
+    ...empty,
+    seq: 3,
+    turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: T - 5000, endedAt: T }],
+    steps: [
+      { id: 's1', seq: 1, agent: 'a1', tool: 'Bash', label: 'Bash npm test', status: 'running', startedAt: T - 4000, asking: T - 3900 },
+      { id: 's2', seq: 2, agent: 'main', tool: 'Bash', label: 'Bash ls', status: 'done', startedAt: T - 3000, endedAt: T - 2000 },
+    ],
+    agents: {
+      main: { ...empty.agents.main! },
+      a1: { id: 'a1', parent: 'main', type: 'Explore', description: 'look', status: 'running', startedAt: T - 4500, doing: 'Bash npm test', stepCount: 1, lastStepAt: T - 4000 },
+    },
+  }
+  d.write(`${ROOT}/sess-i/timeline.json`, JSON.stringify(left))
+  const box = world(on, d, 'sess-i', { ownState: true })
+  const clock = mock.clock(on, { now: NOW })
+  const notes: string[] = []
+  const toasts: string[] = []
+  on('ui.notify', (_, e) => {
+    notes.push((e as unknown as { text: string }).text)
+    return { value: { isSent: true as const, channel: 'terminal' } } as never
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  on('ui.invalidate', () => ({ value: undefined }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await clock.advance(5 * 60_000)
+
+  const t = box.timeline!
+  expect(t.steps.find(s => s.id === 's1')).toMatchObject({ status: 'interrupted', endedAt: T })
+  expect(t.steps.find(s => s.id === 's1')?.asking).toBe(undefined)
+  expect(t.agents.a1).toMatchObject({ status: 'done', endedAt: T })
+  expect(needsYou(t, initialUi, NOW + 5 * 60_000)).toEqual([])
+  expect(notes).toEqual([])
+  expect(toasts).toEqual([])
 })

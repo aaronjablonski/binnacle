@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { Ev, Timeline } from '../mod/types'
 import { MAX_LINE, MAX_NOTES, MAX_STEPS } from '../mod/hooks/model/limits'
-import { empty, reduce } from '../mod/hooks/model/reduce'
+import { empty, reduce, settle } from '../mod/hooks/model/reduce'
+import { sigOf } from '../mod/hooks/model/label'
 
 const fold = (evs: Ev[], from: Timeline = empty): Timeline => evs.reduce(reduce, from)
 
@@ -299,5 +300,71 @@ describe('reduce', () => {
     // every event here must produce a new value.
     for (const ev of evs) expect(reduce(t, ev)).not.toBe(t)
     expect(JSON.stringify(t)).toBe(snapshot)
+  })
+
+  it('a step keeps the sig of its call', () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm test' })])
+    expect(t.steps[0]!.sig).toBe(sigOf('Bash', { command: 'npm test' }))
+  })
+})
+
+describe('asks cleared on evidence the call went ahead', () => {
+  const ask = (id: string): Ev => ({ kind: 'step.ask', at: at(), id })
+
+  it('step.unask clears the mark and leaves the step running', () => {
+    const t = fold([start('call', 'Agent', { subagent_type: 'Explore', description: 'look' }), ask('call'), { kind: 'step.unask', id: 'call' }])
+    expect(t.steps[0]!.asking).toBeUndefined()
+    expect(t.steps[0]!.status).toBe('running')
+  })
+
+  it('step.unask of an unknown or unmarked step is a no-op', () => {
+    const t = fold([start('s1', 'Bash', { command: 'a' })])
+    expect(reduce(t, { kind: 'step.unask', id: 'nope' })).toBe(t)
+    expect(reduce(t, { kind: 'step.unask', id: 's1' })).toBe(t)
+  })
+
+  it('agent.start keeps the step that spawned it', () => {
+    const t = fold([agentStart('a1', 'main', { spawnStep: 'call' })])
+    expect(t.agents.a1!.spawnStep).toBe('call')
+  })
+
+  it("the first step of a spawned agent clears its spawning call's ask", () => {
+    const t = fold([
+      start('call', 'Workflow', { script: 'x' }), ask('call'),
+      agentStart('w1', 'main', { spawnStep: 'call', runId: 'r1', agentIndex: 1 }),
+    ])
+    expect(t.steps[0]!.asking).toBeDefined()
+    const u = fold([start('w1s1', 'Read', { file_path: 'a.ts' }, 'w1')], t)
+    expect(u.steps[0]!.asking).toBeUndefined()
+    expect(u.steps[0]!.status).toBe('running')
+  })
+})
+
+describe('settle: a snapshot folded through an interrupt pass', () => {
+  it('interrupts running steps and drops their asks, and ends running subagents at the last activity', () => {
+    const t = fold([
+      { kind: 'turn.start', at: at(), turnId: 't1', agent: 'main', prompt: 'go' },
+      start('s1', 'Bash', { command: 'npm test' }), { kind: 'step.ask', at: at(), id: 's1' },
+      agentStart('a1'), start('a1s1', 'Read', { file_path: 'x' }, 'a1'),
+      agentStart('a2'), { kind: 'turn.end', at: at(), turnId: 'ta2', agent: 'a2', answer: 'ok', failed: false },
+      start('done', 'Bash', { command: 'ls' }), end('done', {}),
+    ])
+    const last = t.steps.find((s) => s.id === 'done')!.endedAt!
+    const a2End = t.agents.a2!.endedAt
+    const s = settle(t)
+    expect(s.steps.find((x) => x.id === 's1')).toMatchObject({ status: 'interrupted', endedAt: last })
+    expect(s.steps.find((x) => x.id === 's1')!.asking).toBeUndefined()
+    expect(s.steps.find((x) => x.id === 'a1s1')!.status).toBe('interrupted')
+    expect(s.steps.find((x) => x.id === 'done')!.status).toBe('done')
+    expect(s.agents.a1).toMatchObject({ status: 'done', endedAt: last })
+    expect(s.agents.a2).toMatchObject({ status: 'done', endedAt: a2End })
+    expect(s.agents.main!.status).toBe('running')
+  })
+
+  it('a settled timeline holds nothing running but main', () => {
+    const t = deepFreeze(fold([agentStart('a1'), start('s1', 'Bash', { command: 'x' }, 'a1')]))
+    const s = settle(t)
+    expect(s.steps.every((x) => x.status !== 'running')).toBe(true)
+    expect(Object.values(s.agents).filter((a) => a.status === 'running').map((a) => a.id)).toEqual(['main'])
   })
 })

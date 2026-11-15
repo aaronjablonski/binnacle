@@ -80,3 +80,72 @@ export function isDoc(path: string): boolean {
   const dot = name.lastIndexOf('.')
   return dot > 0 && DOC_EXT.includes(name.slice(dot))
 }
+
+// ---- Call signature -------------------------------------------------------------
+
+/** Past this many characters a string is not read further for a signature. */
+const SIG_TEXT_MAX = 100_000
+const SIG_DEPTH_MAX = 20
+
+/** `v` as JSON with keys sorted and strings on one line, so equal inputs give equal text. Cycles and deep nesting are cut. */
+function stableText(v: unknown, seen: WeakSet<object>, depth: number): string {
+  if (typeof v === 'string') return JSON.stringify(oneLine(v.slice(0, SIG_TEXT_MAX)))
+  if (typeof v === 'number' || typeof v === 'boolean' || v === null) return JSON.stringify(v)
+  if (typeof v !== 'object') return '"?"'
+  if (seen.has(v) || depth > SIG_DEPTH_MAX) return '"~"'
+  seen.add(v)
+  let out: string
+  if (Array.isArray(v)) {
+    out = `[${v.map((x) => stableText(x, seen, depth + 1)).join(',')}]`
+  } else {
+    const o = v as Record<string, unknown>
+    const keys = Object.keys(o).sort()
+    out = `{${keys.map((k) => `${JSON.stringify(k)}:${stableText(o[k], seen, depth + 1)}`).join(',')}}`
+  }
+  seen.delete(v)
+  return out
+}
+
+/** cyrb53: a stable 53-bit string hash, in base 36 (at most 11 characters). */
+function hash53(text: string): string {
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
+}
+
+/** What a call's signature is read from: a shell command, a file tool's path, else the whole input. */
+function sigText(tool: string, input: Record<string, unknown>): string {
+  if (SHELL_TOOLS.has(tool)) {
+    const c = str(input.command)
+    if (c) return oneLine(c.slice(0, SIG_TEXT_MAX))
+  }
+  if (FILE_TOOLS.has(tool)) {
+    const p = str(input.file_path) ?? str(input.notebook_path)
+    if (p) return p.trim().replace(/\\/g, '/')
+  }
+  return stableText(input, new WeakSet(), 0).slice(0, SIG_TEXT_MAX)
+}
+
+/**
+ * A call's signature: a short stable hash (≤ MAX_SIG) of its tool and its
+ * normalised input. Two calls share it when they run the same command, touch
+ * the same file, or (any other tool) give the same input. Never throws.
+ */
+export function sigOf(tool: string, input: Record<string, unknown>): string {
+  let text: string
+  try {
+    text = sigText(tool, input ?? {})
+  } catch {
+    text = ''
+  }
+  return hash53(`${tool}\u0000${text}`)
+}

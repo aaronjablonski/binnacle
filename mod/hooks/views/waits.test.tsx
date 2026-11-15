@@ -6,6 +6,7 @@ import type { AgentRow, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { screen } from './screen.testkit'
+import { HULL } from './style'
 
 // One waiting agent, one rule: the same `?` on every view that draws the
 // agent, and none once the ask is dismissed.
@@ -55,9 +56,19 @@ const BAND = (columns: number) =>
 
 const uiOf = (tab: UiState['tab'], dismissed: string[]): UiState => ({ ...initialUi, tab, dismissed })
 
-/** A `?` signal as a view draws it: after a hull, or alone in the gutter. */
-const signalled = (rows: string[]): boolean => rows.some(r => /[◇○□△◈◉▣◆●■]\?/.test(r) || r.startsWith('? '))
-const anyMark = (rows: string[]): boolean => rows.some(r => r.includes('?'))
+// Every hull of every role and state, from the one table the views draw with.
+const HULLS: string[] = Object.values(HULL).flatMap(h => [...h])
+/**
+ * A signal as a view draws it, and only there: in a row's gutter cell (column
+ * 0, then a space) or as a pod's suffix (right after a hull). A `?` inside a
+ * description is neither.
+ */
+const marked = (rows: string[], mark: '?' | '!' | 'z'): boolean =>
+  rows.some(r => r.startsWith(`${mark} `) || HULLS.some(h => r.includes(`${h}${mark}`)))
+const signalled = (rows: string[]): boolean => marked(rows, '?')
+const anyMark = (rows: string[]): boolean => marked(rows, '?')
+/** Any gutter flag on a row: `!`, `?` or `z` at column 0. */
+const gutterFlag = (rows: string[]): string | undefined => rows.find(r => /^[!?z] /.test(r))
 
 async function paneRows($: Engine, columns = 62): Promise<string[]> {
   const ui = await $.ui.mount({ ...PANE(columns), surface: 'terminal' })
@@ -94,3 +105,31 @@ for (const view of VIEWS) {
     expect(anyMark(await view.rows($))).toBe(false)
   })
 }
+
+for (const mode of ['list', 'tree'] as const) {
+  test(`an ask 5 s old marks nothing in the Agents ${mode}: no !, ? or z`, async ($, on) => {
+    seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, { ...uiOf('agents', []), agentsMode: mode })
+    const rows = await paneRows($)
+    expect(rows.some(r => r.includes('find callers'))).toBe(true)
+    expect(gutterFlag(rows)).toBe(undefined)
+    expect(marked(rows, '!')).toBe(false)
+    expect(marked(rows, '?')).toBe(false)
+    expect(marked(rows, 'z')).toBe(false)
+  })
+  test(`an ask 30 s old is ? in the Agents ${mode} gutter, and no !`, async ($, on) => {
+    seed(on, T, { ...uiOf('agents', []), agentsMode: mode })
+    const rows = await paneRows($)
+    const flagged = rows.filter(r => /^[!?z] /.test(r))
+    expect(flagged.length > 0).toBe(true)
+    expect(flagged.every(r => r.startsWith('? '))).toBe(true)
+    expect(flagged.some(r => r.includes('find callers'))).toBe(true)
+  })
+}
+
+test('the ? matcher reads the gutter and pods only: a ? in a description is no mark', async ($, on) => {
+  const quiet: AgentRow = { ...worker, description: 'why does it fail?' }
+  seed(on, { ...T, steps: [], agents: { ...T.agents, a1: quiet } }, uiOf('agents', []))
+  const rows = await paneRows($)
+  expect(rows.some(r => r.includes('fail?'))).toBe(true)
+  expect(anyMark(rows)).toBe(false)
+})

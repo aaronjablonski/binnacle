@@ -553,3 +553,22 @@ test('the look option text draws the Neo band on the terminal: no Raster, the br
   const rows = await bandRows($, 110)
   expect(rows.map(r => r[0])).toEqual(['┏', '┃', '┗'])
 })
+
+// ---------- the desktop: the Svg band keeps /mc pressable ----------
+
+test('desktop: the band is an Svg with /mc as a Button beside it; a press opens the pane', async ($, on) => {
+  seed(on, BUSY)
+  const opened: unknown[] = []
+  on('ui.open', (_, e) => {
+    opened.push(e)
+    return { value: { isPlaced: true as const } } as never
+  })
+  on('state.set', () => ({ value: { isSet: true as const, version: 1 } }))
+  const ui = await $.ui.mount({ ...BAND({ bodyColumns: 110 }), surface: 'desktop' })
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(1)
+  const mc = await ui.find({ type: 'Button', key: 'band-mc' })
+  expect(mc).toBeDefined()
+  await ui.press({ key: 'band-mc' })
+  expect(opened).toEqual([expect.objectContaining({ id: 'mission-control' })])
+  await ui.unmount()
+})

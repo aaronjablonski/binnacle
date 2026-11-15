@@ -588,7 +588,8 @@ function doneRow(ctx: ViewCtx, $: EngineInterface, crew: { agent: AgentRow; pod:
  * dials; the crew; the tasks (waiting: ASKS, then the crew). Otherwise, whenever
  * the pane is open or the band is narrower, it is one compact row that drops
  * the CTX dial, then `/mc`, then cuts the focus at a word. All done is one dim
- * row. The band holds no Button: nothing lives only here.
+ * row. The band holds no Button: nothing lives only here. The desktop app
+ * draws it as one Svg, with `/mc` beside it as a Button that opens the pane.
  *
  * While `ui.strip` (`/mc strip`) the band draws the strip in place of the
  * pane: overview.tsx's strip halves over the compact row (or the all-done
@@ -616,7 +617,8 @@ export function registerBand(on: On, options: { look?: string } = {}): void {
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE }
       // The desktop app draws the band as one Svg; /mc strip keeps its own rows.
       if (!isStrip) {
-        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols })
+        // `/mc` stays pressable beside the Svg: a press opens the pane, as the command does.
+        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
         if (svg !== null) return svg
       }
       const allDone = needs.length === 0 && s.total > 0 && s.done === s.total && live === 0

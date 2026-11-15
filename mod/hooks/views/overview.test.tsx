@@ -422,8 +422,7 @@ test('Enter on a kept row opens its step page and b returns to it; pressing CREW
     expect((stored.get('ui') as UiState).page).toBeUndefined()
     expect(backTo()).toEqual(['kept-s2'])
     await ui.unmount()
-    // The desktop's deck is an Svg: its rows are not Buttons (the tab bar opens the tabs).
-    if (surface === 'desktop') continue
+    // The desktop's deck is an Svg; its CREW, TASKS and STEPS stay Buttons, under it.
     for (const [key, tab] of [['deck-tasks', 'tasks'], ['deck-crew', 'agents'], ['deck-steps', 'timeline']] as const) {
       stored.delete('ui')
       const again = await mount($, surface)

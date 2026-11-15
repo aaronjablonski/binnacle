@@ -53,7 +53,9 @@ test('the real Now draws the Svg deck on the desktop only, with an alt, and its 
       const p = svgs[0]!.props as { source: string; alt: string }
       expect(p.source.length).toBeLessThan(SVG_MAX)
       expect(p.alt.length).toBeGreaterThan(0)
-      expect((await ui.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
+      // The deck's rows that take a press stay Buttons, outside the Svg.
+      const keys = (await ui.findAll({ type: 'Button' })).map(b => b.key)
+      expect(keys).toEqual(expect.arrayContaining(['deck-crew', 'deck-tasks', 'deck-steps']))
     } else {
       expect(svgs.length).toBe(0)
     }

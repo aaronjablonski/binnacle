@@ -7,7 +7,7 @@ import { debug, errText, readTimeline, readUi, updateUi } from '../state'
 import { elapsed, promptTitle, shortPaths } from './fit'
 import { showInChat } from './find'
 import { argOf } from './lay'
-import { openStep } from './openstep'
+import { openStepInline } from './openstep'
 import { blank, more, opened, row, section, viewAgent } from './parts'
 import type { Action, Detail } from './parts'
 import type { ViewCtx } from './shell'
@@ -60,7 +60,7 @@ function ageText(p: Problem, now: number): string {
 // Pressing a row: the step's detail, else the Timeline filtered to the agent.
 export async function openProblem($: EngineInterface, p: Problem): Promise<void> {
   if (p.stepId !== undefined) {
-    await openStep($, p.stepId)
+    await openStepInline($, p.stepId)
     return
   }
   await updateUi($, u => {

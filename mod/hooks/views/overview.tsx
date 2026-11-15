@@ -9,7 +9,7 @@ import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { moveNeed, needsSection, needsYou } from './needs'
 import { isOnScreen } from './onscreen'
-import { openStep } from './openstep'
+import { openStepInline } from './openstep'
 import { barCell, blank, footer, more, readout, row, section, sparkCell, stackCell } from './parts'
 import type { Hint, ReadoutCell } from './parts'
 import type { ViewCtx } from './shell'
@@ -135,7 +135,7 @@ function latestBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       name: argOf(x.tool, x.label),
       metric: who(t, x.agent),
       time: x.status === 'running' ? 'now' : elapsed(x.endedAt ?? x.startedAt, now),
-      onPress: () => openStep($, x.id),
+      onPress: () => openStepInline($, x.id),
     }),
   )
   return [section(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
@@ -153,7 +153,7 @@ function keptBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       name: x.pin !== undefined && x.pin !== '' ? x.pin : argOf(x.tool, x.label),
       metric: x.tool,
       time: clock(x.startedAt),
-      onPress: () => openStep($, x.id),
+      onPress: () => openStepInline($, x.id),
     }),
   )
   const note =
@@ -280,7 +280,7 @@ function stripRight(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
         name: argOf(x.tool, x.label),
         metric: who(t, x.agent),
         time: x.status === 'running' ? 'now' : elapsed(x.endedAt ?? x.startedAt, now),
-        onPress: () => openStep($, x.id),
+        onPress: () => openStepInline($, x.id),
       }),
     )
   }

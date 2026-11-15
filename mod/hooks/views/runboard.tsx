@@ -5,7 +5,7 @@ import { runBoard } from '../model/select'
 import { updateUi } from '../state'
 import { agentOpened, agentRow } from './agentmeta'
 import { elapsed } from './fit'
-import { openStep } from './openstep'
+import { openStepInline } from './openstep'
 import { blank, section } from './parts'
 import { COL, GRID, statusColor } from './style'
 import type { ViewCtx } from './shell'
@@ -60,7 +60,7 @@ function strip(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, 
         <Text key="indent">{INDENT}</Text>
         {marker}
         {shown.map(s => (
-          <Button key={`block-${s.id}`} plain onPress={() => void openStep($, s.id)}>
+          <Button key={`block-${s.id}`} plain onPress={() => void openStepInline($, s.id)}>
             {blockText(s, $, ctx)}
           </Button>
         ))}
@@ -69,7 +69,7 @@ function strip(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, 
   }
   const newest = steps[steps.length - 1]!
   return (
-    <Button key={`strip-${agent.id}`} plain onPress={() => void openStep($, newest.id)}>
+    <Button key={`strip-${agent.id}`} plain onPress={() => void openStepInline($, newest.id)}>
       <Text>{INDENT}</Text>
       {marker}
       {shown.map(s => blockText(s, $, ctx))}

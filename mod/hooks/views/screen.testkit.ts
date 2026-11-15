@@ -83,3 +83,81 @@ export function screen(drawn: unknown): string[] {
 export function colOf(row: string | undefined, text: string): number {
   return (row ?? '').indexOf(text)
 }
+
+// ---------- where the focusable elements sit ----------
+
+const FOCUSABLE = new Set(['Button', 'Input', 'Select'])
+
+/** A laid-out row with the focusable elements that start on it, by column. */
+type Line = { s: string; at: { key: string; col: number }[] }
+
+function keyOf(node: El): string {
+  const k = node.props?.key
+  return typeof k === 'string' ? k : '?'
+}
+
+function inlineAt(node: Node): Line {
+  if (node === null || node === undefined || node === false || node === true) return { s: '', at: [] }
+  if (typeof node === 'string' || typeof node === 'number') return { s: String(node), at: [] }
+  if (Array.isArray(node)) return joinLines(node.map(inlineAt))
+  const at = FOCUSABLE.has(String(node.type)) ? [{ key: keyOf(node), col: 0 }] : []
+  return { s: inline(node), at }
+}
+
+function joinLines(parts: Line[]): Line {
+  let s = ''
+  const at: Line['at'] = []
+  for (const p of parts) {
+    for (const a of p.at) at.push({ key: a.key, col: a.col + s.length })
+    s += p.s
+  }
+  return { s, at }
+}
+
+function linesOf(node: Node): Line[] {
+  if (node === null || node === undefined || node === false || node === true) return []
+  if (typeof node === 'string' || typeof node === 'number') return String(node).split('\n').map(s => ({ s, at: [] }))
+  if (Array.isArray(node)) return node.flatMap(linesOf)
+  const props = node.props ?? {}
+  if (node.type !== 'Box') return [inlineAt(node)]
+  if (props.display === 'none') return []
+  const pad = num(props.paddingLeft) || num(props.paddingX)
+  const width = typeof props.width === 'number' ? props.width : undefined
+  let lines: Line[]
+  if (props.flexDirection !== 'column' && props.flexDirection !== 'column-reverse') {
+    const gap = num(props.columnGap) || num(props.gap)
+    const blocks = kidsOf(node)
+      .filter(k => !(k === null || k === undefined || k === false || k === true))
+      .map(k => {
+        const r = linesOf(k)
+        const w = typeof k === 'object' && !Array.isArray(k) && k !== null && typeof k.props?.width === 'number'
+          ? (k.props.width as number)
+          : Math.max(0, ...r.map(x => x.s.length))
+        return { r, w }
+      })
+    const height = Math.max(0, ...blocks.map(b => b.r.length))
+    lines = []
+    for (let i = 0; i < height; i++) {
+      let s = ''
+      const at: Line['at'] = []
+      blocks.forEach((b, j) => {
+        if (j > 0) s += ' '.repeat(gap)
+        const cell = b.r[i] ?? { s: '', at: [] }
+        for (const a of cell.at) at.push({ key: a.key, col: a.col + s.length })
+        s += cell.s.padEnd(b.w)
+      })
+      lines.push({ s, at })
+    }
+  } else {
+    lines = kidsOf(node).flatMap(linesOf)
+  }
+  return lines.map(l => ({ s: ' '.repeat(pad) + l.s, at: l.at.map(a => ({ key: a.key, col: a.col + pad })) }))
+}
+
+/**
+ * Every Button, Input and Select of the drawn tree with the row and column
+ * it starts at on the terminal, in reading order: row by row, left to right.
+ */
+export function stops(drawn: unknown): { key: string; row: number; col: number }[] {
+  return linesOf(drawn as Node).flatMap((l, row) => l.at.map(a => ({ key: a.key, row, col: a.col })))
+}

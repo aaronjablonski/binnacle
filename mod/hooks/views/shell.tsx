@@ -15,6 +15,8 @@ import { C, GRID, TAB_CELL, tier } from './style'
 import type { Tier } from './style'
 import { tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
+import { landing, stopsOf, withStart } from './ring'
+import type { Stops } from './ring'
 
 export const PANE = 'mission-control'
 
@@ -42,6 +44,19 @@ export type ViewCtx = {
   isFocused?: boolean; bodyRows?: number
 }
 export type View = (ctx: ViewCtx, $: EngineInterface) => RenderElement
+
+/** Whether `key` is one of the tab bar's Buttons. */
+export function isTabKey(key: string): boolean {
+  return TABS.some(x => key === `tab-${x.tab}`)
+}
+
+/**
+ * What this module knows of the pane's focus ring (ring.ts `Stops`), the
+ * element it last landed on, and the pane's last render input, which a tab's
+ * press draws the new tab from. Ephemeral UI state, not session state: a
+ * reload starts it over. Bounded: `Stops` holds at most MAX_STOPS keys.
+ */
+const ring: { stops: Stops; at?: string; input?: RenderInput<'Pane'> } = { stops: { order: [], tabs: [] } }
 
 const ROWS_INLINE = 14
 const COLUMNS_DOCK = 62
@@ -99,33 +114,48 @@ export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: 
     return settled
   })
 
+  // Every move of the pane's ring. A person's move onto a tab is sent to the
+  // content instead (ring.ts `landing`): the arrows and Tab walk the active
+  // tab's rows, and the tabs are reached by their hotkeys, a click and /mc 1-5.
+  // It answers what next(e) resolved to, for the move as sent.
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    if (e.requestId !== PANE) return next(e)
+    // The kit raises `$.ui.focus` with the plugin's arguments: no origin.
+    const isPerson = e.origin?.kind === 'person'
+    const dest = isPerson ? landing(ring.stops, ring.at, e.element) : undefined
+    // Down off the last row onto one of the engine's own stops: the engine
+    // refuses an element in place of its stop, so the ring is kept as the
+    // event documents it, by answering without next. It stays on that row.
+    if (dest !== undefined && e.element === undefined) return {}
+    const sent = dest !== undefined && dest !== e.element ? { ...e, element: dest } : e
+    const settled = await next(sent)
+    if (settled.deny === undefined) ring.at = sent.element
+    return settled
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const cols = e.props.bodyColumns
     try {
-      const t = await readTimeline($)
-      const u = await readUi($)
-      const now = await $.clock.now()
-      const rest: Drawn = {
-        t,
-        u,
-        cols,
-        now,
-        showCost: options.showCost === true,
-        isFocused: e.props.isFocused,
-        bodyRows: e.props.scroll.bodyRows,
-      }
+      const rest = await drawnOf($, e, options.showCost === true)
       const width = tier(cols)
       // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary.
-      if (width === 'slim') return <Box flexDirection="column">{slim($, e, rest)}</Box>
-      return (
-        <Box flexDirection="column">
-          {tabBar($, e, u, cols, width)}
-          <Text key="tabs-gap">{' '}</Text>
-          {body($, e, rest)}
-        </Box>
-      )
+      const tree =
+        width === 'slim' ? (
+          <Box flexDirection="column">{slim($, e, rest)}</Box>
+        ) : (
+          <Box flexDirection="column">
+            {tabBar($, e, rest, width)}
+            <Text key="tabs-gap">{' '}</Text>
+            {body($, e, rest)}
+          </Box>
+        )
+      // The ring starts on the first content row: the tab bar is never its start.
+      const out = withStart(tree, isTabKey)
+      ring.stops = stopsOf(out, isTabKey)
+      ring.input = e
+      return out
     } catch (err) {
       debug($, `pane failed: ${errText(err)}`)
       return <Text dimColor>{`Mission Control: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
@@ -140,7 +170,8 @@ export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: 
  * dim. Under them the track: `─` in `subtle` with `━` in the accent under the
  * open tab's `n: Label`, to the end of the last cell.
  */
-function tabBar($: EngineInterface, e: RenderInput, u: UiState, cols: number, width: Exclude<Tier, 'slim'>): RenderElement {
+function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<Tier, 'slim'>): RenderElement {
+  const { u, cols, showCost } = rest
   const { Box, Text, Button } = $.ui.resolve(e)
   const cell = TAB_CELL[width]
   const openAt = Math.max(0, TABS.findIndex(x => x.tab === u.tab))
@@ -162,7 +193,7 @@ function tabBar($: EngineInterface, e: RenderInput, u: UiState, cols: number, wi
                 hotkey={x.hotkey}
                 plain
                 dimColor={isOpen ? undefined : true}
-                onPress={() => updateUi($, cur => ({ ...leaveDetail(cur), tab: x.tab }))}
+                onPress={() => switchTab($, x.tab, showCost)}
               >
                 {isOpen ? (
                   <Text color={C.accent} bold>
@@ -189,6 +220,43 @@ function tabBar($: EngineInterface, e: RenderInput, u: UiState, cols: number, wi
 type Drawn = {
   t: Timeline; u: UiState; cols: number; now: number; showCost: boolean
   isFocused: boolean; bodyRows: number
+}
+
+/** What a drawing of the pane reads: the state, the clock and the pane's props. */
+async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, showCost: boolean): Promise<Drawn> {
+  return {
+    t: await readTimeline($),
+    u: await readUi($),
+    cols: e.props.bodyColumns,
+    now: await $.clock.now(),
+    showCost,
+    isFocused: e.props.isFocused,
+    bodyRows: e.props.scroll.bodyRows,
+  }
+}
+
+/**
+ * A tab's press (its hotkey or a click): opens the tab, then moves the ring
+ * onto the tab's first content row, as `autoFocus` marks it in the drawing
+ * the switch brings. That row is found by drawing the tab here, from the
+ * pane's last render input; `$.ui.focus` waits for the engine's own drawing.
+ * Never throws; a ring that cannot move stays where it was.
+ */
+async function switchTab($: EngineInterface, tab: Tab, showCost: boolean): Promise<void> {
+  await updateUi($, cur => ({ ...leaveDetail(cur), tab }))
+  const e = ring.input
+  if (e === undefined) return
+  let key: string | undefined
+  try {
+    const rest = await drawnOf($, e, showCost)
+    if (tier(rest.cols) === 'slim') return
+    key = stopsOf(withStart(body($, e, rest), isTabKey), isTabKey).start
+    if (key === undefined) return
+    const moved = await $.ui.focus({ requestId: PANE, key })
+    if (moved.deny !== undefined) debug($, `tab ${tab}: focus ${key} denied: ${moved.deny}`)
+  } catch (err) {
+    debug($, `tab ${tab}: focus ${key ?? '(none)'} failed: ${errText(err)}`)
+  }
 }
 
 // The slim stack has its own fallback line, as a tab has in `body`.

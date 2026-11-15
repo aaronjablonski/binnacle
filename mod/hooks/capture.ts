@@ -1,7 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Ev } from '../types'
-import { bodyOf, saveSnapshot, writeBody } from './journal'
+import { bodyOf, claimJournal, saveSnapshot, writeBody } from './journal'
 import { apply, debug, errText, readTimeline } from './state'
 
 // The capture hooks only observe: each calls `next(e)` exactly once and
@@ -62,7 +62,7 @@ export function registerCapture(on: On): void {
       const stepId = id
       const shown = ran.deny !== undefined ? { text: ran.deny, isError: true } : ran
       later($, 'writeBody', async () => {
-        await writeBody($, await $.session.id(), stepId, bodyOf(input, shown))
+        await writeBody($, await claimJournal($), stepId, bodyOf(input, shown))
       })
     })
     return ran
@@ -100,7 +100,8 @@ export function registerCapture(on: On): void {
       await apply($, { kind: 'turn.end', at: await now($), turnId: e.turnId, agent, answer: e.answer, failed })
       if (agent === 'main') {
         later($, 'saveSnapshot', async () => {
-          await saveSnapshot($, await $.session.id(), await readTimeline($))
+          const journal = await claimJournal($)
+          await saveSnapshot($, journal, await readTimeline($))
         })
       }
     })

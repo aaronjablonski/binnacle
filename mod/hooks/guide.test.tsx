@@ -59,6 +59,10 @@ test('registers the update tool, not deferred', async ($, on) => {
     'Keep the Mission Control overview current for the person watching this session. Cheap; returns nothing useful.',
   )
   expect(spec.inputSchema.additionalProperties).toBe(false)
+  const artifact = (spec.inputSchema.properties as Record<string, { properties: Record<string, { maxLength?: number }> }>).artifact!
+  expect(artifact.properties.title?.maxLength).toBe(200)
+  expect(artifact.properties.summary?.maxLength).toBe(200)
+  expect(artifact.properties.ref?.maxLength).toBe(1000)
 })
 
 test('a focus update sets now and answers Noted.', async ($, on) => {
@@ -136,6 +140,17 @@ test("prompt.compose gains exactly one section, last, equal to GUIDE_TEXT, and t
   expect(added?.text).toBe(GUIDE_TEXT)
   expect(added?.scope).toBe('session')
   expect(second).toEqual(first)
+})
+
+test('prompt.compose adds no section when the request does not offer the update tool', async ($, on) => {
+  world(on)
+  on('prompt.compose', () => ({ sections: ENGINE_SECTIONS }))
+
+  const composed = await $.prompt.compose({ ...COMPOSE, tools: ['Read', 'Bash'] })
+  const none = await $.prompt.compose({ ...COMPOSE, tools: [] })
+
+  expect(composed.sections).toEqual(ENGINE_SECTIONS)
+  expect(none.sections).toEqual(ENGINE_SECTIONS)
 })
 
 test('with guide: false no tool is registered and no section is added', { options: { guide: false } }, async ($, on) => {

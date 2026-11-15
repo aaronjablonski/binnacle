@@ -12,6 +12,7 @@ import { showInChat } from './find'
 import { argOf, laid } from './lay'
 import type { Placed } from './lay'
 import { openStepInline } from './openstep'
+import { tickCountdown } from './countdown'
 import { inst, viewAgent } from './parts'
 import type { ViewCtx } from './shell'
 import { C, COL, DECK, podOf, RAIL, spriteOf, tableCols } from './style'
@@ -29,6 +30,8 @@ export const NOTIFY_ASK_MS = 60_000
 const SPAWNING_TOOLS = new Set(['Agent', 'Workflow'])
 /** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
+// Where the warm countdown cannot be blitted, the pane is redrawn at most this often.
+const COUNTDOWN_REDRAW_MS = 10_000
 
 export type { NotifyMode }
 
@@ -568,6 +571,43 @@ export function doneText(t: Timeline, ms: number): string {
   return bits.length > 0 ? `${head}. ${bits.join(', ')}.` : head
 }
 
+// The idle countdown's last redraw: the 10 s bucket it showed, and whether
+// the cold redraw (which clears the readout) was taken. Ephemeral.
+const countdown: { bucket?: number; cold: boolean } = { cold: true }
+
+/**
+ * While the session is idle and the cache is warm, the lintel counts it down
+ * (plan constraint 5: idle is still). Where the lintel is a Raster the clock
+ * blits it alone (countdown.ts); otherwise, while the pane or the strip is
+ * open, the pane is redrawn at most once every 10 s. Once the cache is cold
+ * one redraw clears the readout and the countdown stops.
+ */
+async function countdownTick($: EngineInterface, t: Timeline, u: UiState, now: number): Promise<void> {
+  const warm = cacheLine(t).warmUntil
+  if (warm === undefined || turnClock(t, now) !== undefined) return
+  const redraw = (): void => {
+    try {
+      $.ui.invalidate('ui.render')
+    } catch (err) {
+      debug($, `invalidate failed: ${errText(err)}`)
+    }
+  }
+  if (warm <= now) {
+    if (countdown.cold) return
+    countdown.cold = true
+    delete countdown.bucket
+    redraw()
+    return
+  }
+  countdown.cold = false
+  if (await tickCountdown($, now)) return
+  if (u.paneOpen !== true && u.strip !== true) return
+  const bucket = Math.floor((warm - now) / COUNTDOWN_REDRAW_MS)
+  if (bucket === countdown.bucket) return
+  countdown.bucket = bucket
+  redraw()
+}
+
 /**
  * The clock's one call: raises a native notification once per step id for an
  * ask that has waited ASK_MS on Agent or Workflow and NOTIFY_ASK_MS on any
@@ -582,15 +622,7 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
     const u = await readUi($)
     const now = await $.clock.now()
     const mode = notify ?? 'waits'
-    // While the session is idle and the cache is warm, the lintel counts it down: one redraw a second.
-    const warm = cacheLine(t).warmUntil
-    if (warm !== undefined && warm > now && turnClock(t, now) === undefined) {
-      try {
-        $.ui.invalidate('ui.render')
-      } catch (err) {
-        debug($, `invalidate failed: ${errText(err)}`)
-      }
-    }
+    await countdownTick($, t, u, now)
 
     const notes: { id: string; text: string }[] = []
     let doneId: string | undefined

@@ -149,6 +149,37 @@ export function startClock($: EngineInterface, onTick: () => void | Promise<void
   })
 }
 
+/**
+ * Draws one tracked key again outside a draw (the idle countdown in the Now
+ * lintel): when the site's last draw mounted it as a Raster, its frames are
+ * replaced if `sig` changed and the new cells blitted. Resolves `blit` when a
+ * blit was taken, `same` when nothing changed, and `absent` when the last draw
+ * did not mount the key as a Raster (the text form), or the blit was denied.
+ * Never throws.
+ */
+export async function repaint($: EngineInterface, requestId: string, key: string, sig: string, frames: () => Grid[]): Promise<'blit' | 'same' | 'absent'> {
+  const site = sites.get(requestId)
+  const e = site?.entries.get(key)
+  if (site === undefined || e === undefined || e.draw !== site.draw) return 'absent'
+  if (e.sig === sig) return 'same'
+  try {
+    const grids = frames()
+    const first = grids[0]
+    if (first === undefined || first.columns !== e.columns || first.rows !== e.rows) return 'absent'
+    e.sig = sig
+    e.frames = grids.map(encode)
+    const cells = e.frames[beat % e.frames.length]!
+    if (cells === e.shown) return 'same'
+    e.shown = cells
+    const got = await $.ui.blit({ requestId, key, cells, columns: e.columns, rows: e.rows })
+    if (got.deny === undefined) return 'blit'
+  } catch (err) {
+    $.ui.log(`mission-control: repaint ${key} failed: ${String(err)}`, { to: 'debug' })
+  }
+  if (site.entries.get(key) === e) site.entries.delete(key)
+  return 'absent'
+}
+
 /** Stops the clock; `startClock` starts it again. */
 export function stopClock(): void {
   timer?.cancel()

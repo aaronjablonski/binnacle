@@ -26,7 +26,7 @@
     "showCost": {
       "type": "boolean",
       "title": "Show cost",
-      "description": "Show the session's dollar cost in the Budget section.",
+      "description": "Add a COST row with the session's dollar cost to the budget view. Off by default: Mission Control otherwise draws no dollar figure.",
       "default": false
     }
   }

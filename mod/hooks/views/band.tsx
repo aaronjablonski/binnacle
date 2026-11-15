@@ -1,11 +1,11 @@
 import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-code'
 
 import type { AgentRow, Timeline, UiState } from '../../types'
-import { problems, summary } from '../model/select'
+import { summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi } from '../state'
 import { bar, crewRow, elapsed, fit, fitRuns, meter, pillRun, pips } from './fit'
-import { ASK_MS, needsYou, problemText } from './needs'
+import { needsYou, problemText, waitStates } from './needs'
 import { deck, runText } from './parts'
 import type { DeckCell, DeckRow } from './parts'
 import type { ViewCtx } from './shell'
@@ -28,16 +28,14 @@ const widthOf = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length
 const spaces = (n: number): Run => ({ text: ' '.repeat(Math.max(0, n)) })
 
 /** The crew as pods: the lead (`main`) first, then the subagents in the order they started. */
-function podsOf(t: Timeline, needs: Problem[], now: number, settled: boolean): { agent: AgentRow; pod: Pod }[] {
+function podsOf(t: Timeline, waits: Map<string, PodState>, now: number, settled: boolean): { agent: AgentRow; pod: Pod }[] {
   const list = Object.values(t.agents)
   const main = list.filter(a => a.id === 'main')
   const rest = list.filter(a => a.id !== 'main').sort((a, b) => a.startedAt - b.startedAt)
   return [...main, ...rest].map(agent => {
-    const asked = needs.some(p => p.kind === 'asking' && p.agent === agent.id)
-    const stalled = needs.some(p => p.kind === 'stalled' && p.agent === agent.id)
     // A finished session leaves `main` running for good: all done draws it solid.
     const status = settled && agent.id === 'main' ? 'done' : agent.status
-    const state: PodState | undefined = asked ? 'waiting' : stalled ? 'stalled' : undefined
+    const state = waits.get(agent.id)
     return { agent, pod: podOf({ id: agent.id, type: agent.type, status, ...(state !== undefined ? { state } : {}) }, now) }
   })
 }
@@ -287,8 +285,8 @@ export function registerBand(on: On): void {
       const cols = e.props.bodyColumns
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now }
       const allDone = needs.length === 0 && s.total > 0 && s.done === s.total && live === 0
-      // The asks the pods show are the unfiltered problems: a dismissed one is still waiting.
-      const crew = podsOf(t, problems(t, now, []).filter(p => p.kind !== 'asking' || now - p.since >= ASK_MS), now, allDone)
+      // The pods and the pill answer to the same rule: `waitStates` is built on `needsYou`.
+      const crew = podsOf(t, waitStates(t, u, now), now, allDone)
       if (allDone) return doneRow(ctx, $, crew)
 
       const word: Word = needs.length > 0 ? 'WAITING' : live > 0 || e.props.isWorking || t.steps.some(x => x.status === 'running') ? 'WORKING' : 'IDLE'

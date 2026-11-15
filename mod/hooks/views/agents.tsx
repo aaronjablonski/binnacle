@@ -3,7 +3,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow } from '../../types'
 import { agentGroups, problems, runBoard } from '../model/select'
 import { debug, errText, updateUi } from '../state'
-import { EMPTY, RUN_GLYPH, agentOpened, agentRow, jumpToProblem, podStates, tokensOf } from './agentmeta'
+import { EMPTY, RUN_GLYPH, agentOpened, agentRow, jumpToProblem, tokensOf } from './agentmeta'
 import type { Jump } from './agentmeta'
 import { modelTotals, tokenText } from './budget'
 import { bar, crewRow, elapsed, fit, wrapWords } from './fit'
@@ -11,6 +11,7 @@ import { blank, deck, footer, more, row, section } from './parts'
 import type { DeckCell, Run } from './parts'
 import { runBoardView } from './runboard'
 import type { ViewCtx } from './shell'
+import { waitStates } from './needs'
 import { C, DECK, GRID, HULL, cellCol, podOf, roleOf } from './style'
 import type { PodState, Role } from './style'
 import { treeView } from './tree'
@@ -27,11 +28,14 @@ const ROLES: Role[] = ['lead', 'scout', 'build', 'check']
 const rank: Record<AgentRow['status'], number> = { running: 0, error: 1, done: 2 }
 const byRank = (a: AgentRow, b: AgentRow): number => rank[a.status] - rank[b.status] || a.startedAt - b.startedAt
 
-/** A model's cell text, `opus 993k`, in 10 columns: the name gives way (cut, no ellipsis) to keep the value whole. */
+/**
+ * A model's cell text, `opus 993k`, in 10 columns. The name is whole or
+ * absent: when the name and the tokens do not both fit, the tokens stand
+ * alone (the MODELS table names the model).
+ */
 function modelRuns(model: string, tokens: string): Run[] {
-  const room = Math.max(0, 10 - tokens.length - 1)
-  const name = model.length <= room ? model : model.slice(0, room)
-  return [...(name !== '' ? [{ text: `${name} `, dim: true }] : []), { text: tokens, bold: true }]
+  const named = model !== '' && model.length + 1 + tokens.length <= 10
+  return [...(named ? [{ text: `${model} `, dim: true }] : []), { text: tokens, bold: true }]
 }
 
 /**
@@ -225,7 +229,7 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   try {
     if (u.run !== undefined) return runBoardView(ctx, u.run, $)
     const ids = new Set(problems(t, now, u.dismissed).map(p => p.agent))
-    const states = podStates(ctx)
+    const states = waitStates(ctx.t, ctx.u, ctx.now)
     const body = u.agentsMode === 'tree' ? treeView(ctx, $, ids, states) : listView(ctx, $, ids, states)
     const jump = (dir: 1 | -1) => () => void jumpToProblem($, body.targets, dir)
     const foot = footer(ctx, $, [

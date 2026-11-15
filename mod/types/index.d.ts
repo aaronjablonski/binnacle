@@ -10,7 +10,7 @@ export type Step = {
   startedAt: number; endedAt?: number
   pin?: string                           // the note; '' when pinned without one
   pending?: Record<string, unknown>      // input kept between start and end; cleared at step.end
-  asking?: number                        // when tool.check resolved 'ask' for it; cleared when it ends, or when an agent it spawned shows it went ahead
+  asking?: number                        // set when a permission prompt was raised for this step; cleared when it ends, or when an agent it spawned shows it went ahead
   sig?: string                           // its call signature: a hash of the tool and its normalised input (≤ 16); absent on steps an earlier version stored
 }
 export type AgentRow = {

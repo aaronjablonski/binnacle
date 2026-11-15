@@ -137,6 +137,13 @@ const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bo
 
 const rows = async (ui: Mounted): Promise<string[]> => screen(await ui.drawn())
 const rowWith = (all: string[], text: string): string => all.find(r => r.includes(text)) ?? ''
+
+/** Every word of a MODELS row is a rail, the label, a whole model name, a token count or a bar: nothing cut mid-word. */
+const wholeModelTokens = (line: string): boolean =>
+  line
+    .split(/\s+/)
+    .filter(w => w !== '')
+    .every(w => /^[┏┃┗┓┛]+$/.test(w) || w === 'MODELS' || /^(opus|sonnet|haiku)$/.test(w) || /^\d+(\.\d+)?[kM]?$/.test(w) || /^[▮▯]+$/.test(w))
 const idxWith = (all: string[], text: string): number => all.findIndex(r => r.includes(text))
 
 const model = (id: string, tokensIn: number, extra: Partial<AgentRow> = {}): Partial<AgentRow> => ({ model: id, tokensIn, tokensOut: 0, ...extra })
@@ -312,7 +319,10 @@ test('LOOK: the deck: CREW, ROLES, MODELS between rails at 0 and 61, labels at 2
     // the two heaviest models: value at 14 and 38, a 10-cell share bar after each
     expect(colOf(models, 'opus 993k')).toBe(14)
     expect(models.slice(26, 36)).toBe('▮▮▮▮▮▮▮▮▯▯')
-    expect(colOf(models, '153k')).toBe(38 + 'sonne '.length)
+    // `sonnet 153k` does not fit the 10-column cell: the tokens stand alone, the name is never cut
+    expect(colOf(models, '153k')).toBe(38)
+    expect(models).not.toContain('sonn')
+    expect(wholeModelTokens(models)).toBe(true)
     expect(models.slice(50, 60)).toMatch(/^▮+▯+$/)
     expect(all.join('\n')).not.toContain('LIVE')
     await ui.unmount()
@@ -328,7 +338,8 @@ test('LOOK: the deck tiers: under 62 the aside goes, under 50 the third and four
     expect(rowWith(all, 'CREW').includes('failed')).toBe(aside)
     expect(rowWith(all, 'ROLES').includes('check')).toBe(aside)
     expect(rowWith(all, 'ROLES').includes('build')).toBe(third)
-    expect(rowWith(all, 'MODELS').includes('sonn')).toBe(third)
+    expect(rowWith(all, 'MODELS').includes('153k')).toBe(third)
+    expect(wholeModelTokens(rowWith(all, 'MODELS'))).toBe(true)
     expect(rowWith(all, 'ROLES').includes('lead')).toBe(true)
     expect(rowWith(all, 'MODELS').includes('opus')).toBe(true)
     expect(rowWith(all, 'CREW')[0]).toBe('┏')
@@ -673,7 +684,8 @@ test('focused, every row of Agents, footer included, fits 32 and 40 columns', as
 test('LOOK: an agent waiting on the person is ? in the gutter in warning, with its hull lit in warning and a ? in the crew', async ($, on) => {
   const t = busy({
     agents: { main, a1: agent('a1', 'Explore', 'find callers', 'Bash'), a2: agent('a2', 'Explore', 'write tests', 'Edit') },
-    steps: [step('s2', 2, 'Bash npm publish', 'running', { agent: 'a1', tool: 'Bash', asking: NOW - 4000 })],
+    // asked 30 s ago: past the 20 s threshold every view shares (see waits.test.tsx)
+    steps: [step('s2', 2, 'Bash npm publish', 'running', { agent: 'a1', tool: 'Bash', asking: NOW - 30_000 })],
   })
   seed(on, t, AGENTS_UI)
   for (const surface of SURFACES) {

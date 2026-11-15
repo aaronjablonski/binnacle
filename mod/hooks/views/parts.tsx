@@ -166,16 +166,21 @@ function laidOut(segs: (Run & { col: number })[], start: number, e: RenderInput,
   return out
 }
 
-/** The gutter flags: `◂` (in view in the chat) in the accent, `!` (a problem here or below) in error. */
-export type Flag = 'inView' | 'problem'
+/** The gutter flags: `◂` (in view in the chat) in the accent, `!` (a problem here or below) in error, `?` (waiting on the person) and `z` (stalled) in warning. */
+export type Flag = 'inView' | 'problem' | 'waiting' | 'stalled'
 
-const FLAG: Record<Flag, Run> = { inView: { text: '◂', color: C.live }, problem: { text: '!', color: C.fail } }
+const FLAG: Record<Flag, Run> = {
+  inView: { text: '◂', color: C.live },
+  problem: { text: '!', color: C.fail },
+  waiting: { text: '?', color: C.wait },
+  stalled: { text: 'z', color: C.wait },
+}
 
 /** What `row` draws. */
 export type RowSpec = {
   /** The row's address: the Button's key (and its press target). Unique in the pane. */
   key: string
-  /** Column 0: `◂` or `!`; absent, blank. */
+  /** Column 0: `◂`, `!`, `?` or `z`; absent, blank. */
   flag?: Flag
   /** Column 2 (+2 per depth): the status glyph. */
   glyph: string

@@ -2,7 +2,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow } from '../../types'
 import { agentGroups } from '../model/select'
-import { debug, errText, updateUi } from '../state'
+import { debug, errText, leaveDetail, updateUi } from '../state'
 import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, WORKFLOW_TYPE, metaOf } from './agentmeta'
 import { fit, splitRow } from './fit'
 import { treeView } from './tree'
@@ -38,7 +38,7 @@ export function agentRow(ctx: ViewCtx, agent: AgentRow, prefix: string, selected
     <Button
       key={`agent-${agent.id}`}
       plain
-      onPress={() => updateUi($, u => ({ ...u, tab: 'timeline', filter: { kind: 'agent', id: agent.id } }))}
+      onPress={() => updateUi($, u => ({ ...leaveDetail(u), tab: 'timeline', filter: { kind: 'agent', id: agent.id } }))}
     >
       {lines}
     </Button>

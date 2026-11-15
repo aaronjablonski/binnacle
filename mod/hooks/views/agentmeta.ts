@@ -1,7 +1,14 @@
-import type { AgentRow } from '../../types'
+import type { AgentRow, Step } from '../../types'
 import { elapsed } from './fit'
 import type { ViewCtx } from './shell'
 
+export const STEP_GLYPH: Record<Step['status'], string> = {
+  running: '·',
+  done: '✔',
+  error: '✖',
+  denied: '⊘',
+  interrupted: '◌',
+}
 export const AGENT_GLYPH: Record<AgentRow['status'], string> = { running: '▶', done: '✔', error: '✖' }
 // `main` stays 'running' for the whole session, so it gets no status glyph.
 export const MAIN_GLYPH = '•'

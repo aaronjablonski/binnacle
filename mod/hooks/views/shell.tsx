@@ -1,10 +1,12 @@
 import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput, Timer } from 'claude-code'
 
 import type { Tab, Timeline, UiState } from '../../types'
-import { debug, errText, readTimeline, readUi, updateUi } from '../state'
+import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
 import { agentsView } from './agents'
+import { detailView } from './detail'
 import { overviewView } from './overview'
 import { tasksView } from './tasks'
+import { pinNewest, timelineView } from './timeline'
 
 export const PANE = 'mission-control'
 
@@ -55,7 +57,7 @@ export function registerShell(on: On, _options: { autoOpen?: boolean }): void {
                 hotkey={x.hotkey}
                 plain
                 dimColor={x.tab !== u.tab}
-                onPress={() => updateUi($, cur => ({ ...cur, tab: x.tab }))}
+                onPress={() => updateUi($, cur => ({ ...leaveDetail(cur), tab: x.tab }))}
               />
             ))}
           </Box>
@@ -77,6 +79,8 @@ type Drawn = { t: Timeline; u: UiState; cols: number; now: number }
 function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
   const { Text } = $.ui.resolve(e)
   try {
+    // A step open on the Timeline tab replaces the tab's list.
+    if (rest.u.tab === 'timeline' && rest.u.detail !== undefined) return detailView({ e, ...rest }, $)
     switch (rest.u.tab) {
       case 'overview':
         return overviewView({ e, ...rest }, $)
@@ -84,6 +88,8 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
         return tasksView({ e, ...rest }, $)
       case 'agents':
         return agentsView({ e, ...rest }, $)
+      case 'timeline':
+        return timelineView({ e, ...rest }, $)
       default:
         // The tabs whose task has not landed yet.
         return <Text dimColor>Coming in a later task.</Text>
@@ -116,7 +122,15 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not close Mission Control: ${errText(err)}` }
     }
   }
-  if (word === 'pin') return { text: 'Coming in a later task.' }
+  if (word === 'pin') {
+    try {
+      const note = args.trim().slice('pin'.length).trim()
+      return await pinNewest($, note)
+    } catch (err) {
+      debug($, `pin failed: ${errText(err)}`)
+      return { text: `Could not pin: ${errText(err)}` }
+    }
+  }
   return { text: 'Usage: /mc, /mc close or /mc pin <note>.' }
 }
 

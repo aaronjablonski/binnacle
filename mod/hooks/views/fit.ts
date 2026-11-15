@@ -42,3 +42,31 @@ export function splitRow(left: string, right: string, columns: number, minLeft =
   if (room < minLeft) return { left: fit(left, columns), right: fit(right, columns), stacked: true }
   return { left: fit(left, room), right, stacked: false }
 }
+
+/** The time of day as 'hh:mm', or 'hh:mm:ss' with `seconds`; the machine's own clock. */
+export function clock(ms: number, seconds = false): string {
+  const d = new Date(ms)
+  const two = (n: number): string => String(n).padStart(2, '0')
+  const base = `${two(d.getHours())}:${two(d.getMinutes())}`
+  return seconds ? `${base}:${two(d.getSeconds())}` : base
+}
+
+/** `parts` joined by ' · ' and packed into lines of at most `columns`; a part wider than a line is cut. */
+export function packParts(parts: string[], columns: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const raw of parts) {
+    const part = fit(raw, columns)
+    if (part === '') continue
+    if (line === '') {
+      line = part
+    } else if (line.length + 3 + part.length <= columns) {
+      line = `${line} · ${part}`
+    } else {
+      lines.push(line)
+      line = part
+    }
+  }
+  if (line !== '') lines.push(line)
+  return lines
+}

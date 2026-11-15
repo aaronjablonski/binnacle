@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-1' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
 
 type Stored = Map<string, unknown>
 
@@ -250,7 +250,7 @@ test('pressing tab-tasks writes ui.tab', async ($, on) => {
 })
 
 test('a tab whose task has not landed says so, and the tab row stays', async ($, on) => {
-  seed(on, empty, { tab: 'timeline', filter: { kind: 'all' }, agentsMode: 'list', folded: [] })
+  seed(on, empty, { tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     expect((await texts(ui)).join('\n')).toContain('Coming in a later task.')

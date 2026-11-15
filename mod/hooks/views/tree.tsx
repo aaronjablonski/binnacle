@@ -3,7 +3,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow } from '../../types'
 import { agentTree, treeLines } from '../model/select'
 import type { TreeLine } from '../model/select'
-import { debug, errText, updateUi } from '../state'
+import { debug, errText, leaveDetail, updateUi } from '../state'
 import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, metaOf } from './agentmeta'
 import { fit } from './fit'
 import type { ViewCtx } from './shell'
@@ -88,7 +88,7 @@ function nodeButton(ctx: ViewCtx, line: TreeLine, room: number, $: EngineInterfa
     <Button
       key={`node-${key}`}
       plain
-      onPress={() => updateUi($, u => ({ ...u, tab: 'timeline', filter: { kind: 'agent', id: agent.id } }))}
+      onPress={() => updateUi($, u => ({ ...leaveDetail(u), tab: 'timeline', filter: { kind: 'agent', id: agent.id } }))}
     >
       {lines}
     </Button>

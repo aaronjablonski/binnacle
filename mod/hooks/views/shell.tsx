@@ -1,4 +1,4 @@
-import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput, Timer } from 'claude-code'
+import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput } from 'claude-code'
 
 import type { Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
@@ -7,6 +7,7 @@ import { artifactsView } from './artifacts'
 import { detailView } from './detail'
 import { exportDigest } from './handoff'
 import { overviewView } from './overview'
+import { startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
 import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
@@ -432,9 +433,6 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim or strip.' }
 }
 
-// The one timer of this module instance; a reload starts a fresh module.
-let ticker: Timer | undefined
-
 async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise<void> {
   await needsTick($, notify)
   await budgetTick($)
@@ -462,11 +460,10 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   }
   // A restored or reloaded session starts with the flag false until the engine says the pane is up.
   await syncPaneOpen($)
+  // The mod's one 1 s clock lives in paint.ts: each period runs this tick,
+  // then the rich instruments' paint pass. A second start cancels the first.
   try {
-    if (ticker) ticker.cancel()
-    ticker = $.clock.every(1000, () => {
-      void tick($, options.notify)
-    })
+    startClock($, () => tick($, options.notify))
   } catch (err) {
     debug($, `clock failed: ${errText(err)}`)
   }

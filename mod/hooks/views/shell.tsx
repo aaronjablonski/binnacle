@@ -13,7 +13,7 @@ import { begin, forget, startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
 import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
-import { configureOptions, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
+import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
 import { C, GRID, TAB_CELL, tier } from './style'
 import type { Look, Tier } from './style'
@@ -121,7 +121,6 @@ export async function syncPaneOpen($: EngineInterface): Promise<void> {
 export function registerShell(on: On, options: PluginOptions): void {
   configureEditor(options.editor)
   configureOptions(options)
-  const look = typeof options.look === 'string' ? options.look : undefined
   // Observes every close of the pane (the person's own, /mc close, a press): the
   // flag follows what the hooks beneath settled, and the paint clock drops the
   // pane's Rasters. The one ui.close hook of the module; it answers exactly
@@ -159,7 +158,8 @@ export function registerShell(on: On, options: PluginOptions): void {
     try {
       // A new draw of the pane: Rasters it does not track again stop painting.
       begin(PANE)
-      const rest = await drawnOf($, e, options.showCost === true, look)
+      // The look option is read on every draw (a press on the Options card's Look row applies at once).
+      const rest = await drawnOf($, e, options.showCost === true, lookOption())
       const width = tier(cols)
       // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary.
       const tree =

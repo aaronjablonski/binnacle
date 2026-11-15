@@ -123,6 +123,7 @@ from the config menu:
 | --- | --- | --- |
 | `guide` | `true` | Give Claude the update tool and one system-prompt section so it keeps the panel current. |
 | `autoOpen` | `false` | Open the pane when a session starts. In a narrow terminal the pane waits for more room. |
+| `look` | `rich` | How the pane and band are drawn: `rich` (pictures where the terminal can draw them) or `text` (letters and box lines only). Choose `text` if the terminal draws the pictures badly, or for a screen reader. Applies at once; the Options card (`0`) switches it too. |
 | `notify` | `waits` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn over 60 seconds finishes (`done`), also when a turn fails (`all`), or never (`off`). |
 | `showCost` | `false` | Show the session's dollar cost in the budget view. |
 | `doneSound` | `false` | Also play a short sound when the done notification is raised (macOS only; Windows and Linux terminals play nothing). |

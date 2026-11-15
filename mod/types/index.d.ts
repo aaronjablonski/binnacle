@@ -60,6 +60,7 @@ export type Tab = 'overview' | 'tasks' | 'agents' | 'timeline' | 'artifacts'
 export type UiState = {
   tab: Tab; filter: StepFilter
   agentsMode: 'list' | 'tree'; folded: string[]        // folded tree node keys
+  openTurns: string[]                                  // older timeline turns the person opened (the newest is always open)
   detail?: { stepId: string; body?: StepBody; missing?: true }
 }
 

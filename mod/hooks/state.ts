@@ -10,9 +10,9 @@ export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as c
   shape: 'timeline-2',
 })
 
-const initialUi: UiState = { tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [] }
+const initialUi: UiState = { tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] }
 
-export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-1' })
+export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-2' })
 
 /** Folds one event into the timeline. Never throws: a failure goes to the debug log. */
 export async function apply($: EngineInterface, ev: Ev): Promise<void> {
@@ -113,4 +113,10 @@ export function debug($: EngineInterface, msg: string): void {
   } catch {
     // nowhere left to report it
   }
+}
+
+/** The pane's state with no step open. */
+export function leaveDetail(u: UiState): UiState {
+  const { detail: _detail, ...rest } = u
+  return rest
 }

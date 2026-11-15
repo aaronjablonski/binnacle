@@ -1,18 +1,13 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { ArtifactKind, Step, Tab } from '../../types'
+import type { ArtifactKind, Tab } from '../../types'
 import { summary } from '../model/select'
-import { updateUi } from '../state'
+import { leaveDetail, updateUi } from '../state'
+import { STEP_GLYPH } from './agentmeta'
 import { elapsed, fit } from './fit'
+import { openStep } from './openstep'
 import type { ViewCtx } from './shell'
 
-const STEP_GLYPH: Record<Step['status'], string> = {
-  running: '·',
-  done: '✔',
-  error: '✖',
-  denied: '⊘',
-  interrupted: '◌',
-}
 const ARTIFACT_GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', result: '◆', link: '⎇' }
 const MIN_SPLIT = 8
 
@@ -24,7 +19,7 @@ export function overviewView({ e, t, cols, now }: ViewCtx, $: EngineInterface): 
 
   // A heading that opens its tab.
   const go = (tab: Tab, text: string): RenderElement => (
-    <Button key={`go-${tab}`} plain onPress={() => updateUi($, u => ({ ...u, tab }))}>
+    <Button key={`go-${tab}`} plain onPress={() => updateUi($, u => ({ ...leaveDetail(u), tab }))}>
       <Text bold>{fit(text, cols)}</Text>
     </Button>
   )
@@ -120,7 +115,7 @@ export function overviewView({ e, t, cols, now }: ViewCtx, $: EngineInterface): 
               key={`step-${x.id}`}
               plain
               label={fit(`${STEP_GLYPH[x.status]} ${star}${x.label}${note}${who}`, cols)}
-              onPress={() => updateUi($, u => ({ ...u, tab: 'timeline', detail: { stepId: x.id } }))}
+              onPress={() => openStep($, x.id)}
             />
           )
         })}

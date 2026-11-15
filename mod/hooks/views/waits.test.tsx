@@ -91,16 +91,19 @@ const VIEWS: { name: string; tab: UiState['tab']; rows: ($: Engine) => Promise<s
   { name: 'band (one row)', tab: 'overview', rows: $ => bandRows($, 80) },
 ]
 
+// LOOK TEST (edited for Rich): the ? is a glyph of the text form (a hull's suffix or a gutter flag); on Now and the three-row band the rich form draws it in a character, so those are read in the text form here (the rich band is tested in band.test.tsx, the rich Now in rich2.test.tsx).
+const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (three rows)' ? { options: { look: 'text' } } : {})
+
 for (const view of VIEWS) {
-  test(`a waiting agent shows ? on ${view.name}`, async ($, on) => {
+  test(`a waiting agent shows ? on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, T, uiOf(view.tab, []))
     expect(signalled(await view.rows($))).toBe(true)
   })
-  test(`a dismissed ask shows no ? on ${view.name}`, async ($, on) => {
+  test(`a dismissed ask shows no ? on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, T, uiOf(view.tab, ['asking:s1']))
     expect(anyMark(await view.rows($))).toBe(false)
   })
-  test(`an ask younger than 20 s shows no ? on ${view.name}`, async ($, on) => {
+  test(`an ask younger than 20 s shows no ? on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, uiOf(view.tab, []))
     expect(anyMark(await view.rows($))).toBe(false)
   })

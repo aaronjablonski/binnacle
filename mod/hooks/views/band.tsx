@@ -1,17 +1,21 @@
 import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-code'
 
 import type { AgentRow, Timeline, UiState } from '../../types'
+import { pace, taskMeter, thisTurn } from '../model/meter'
 import { summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi } from '../state'
-import { bar, crewRow, elapsed, fit, fitRuns, meter, pillRun, pips } from './fit'
-import { needsYou, problemText, waitStates } from './needs'
+import { bar, beadCount, crewRow, elapsed, fit, fitRuns, meter, pillRun, pips } from './fit'
+import { kindLabel, needsYou, problemText, waitStates } from './needs'
 import { stripBandView } from './stripband'
-import { deck, runText } from './parts'
-import type { DeckCell, DeckRow } from './parts'
+import { begin } from './paint'
+import { deck, inst, runText } from './parts'
+import type { DeckCell, DeckRow, InstSpec } from './parts'
+import { beads, bars, Grid, drawSprite, SPRITE } from './raster'
+import type { Hue } from './raster'
 import { leaveStrip } from './shell'
 import type { ViewCtx } from './shell'
-import { C, cellCol, podOf } from './style'
+import { C, cellCol, lookOf, podOf, rateColor } from './style'
 import type { Pod, PodState, Run } from './style'
 
 /** Under this many columns the band is the compact row, whatever the pane does. */
@@ -91,7 +95,300 @@ function askRuns(p: Problem): Run[] {
   return [text(glyph, { bold: true, color }), text(' '), text(tool, { dim: true }), ...(rest !== '' ? [text('  '), text(rest, { bold: true })] : [])]
 }
 
-/** The three rows (spec "Band"), at 86 columns or more while the pane is closed. */
+// ---------- the rich band: Rasters on the terminal (spec "Band") ----------
+
+/** The band's address for the paint registry. Its Rasters are all still, so the clock never blits it. */
+const BAND_SITE = 'mission-control-band'
+/** The crew's sprite pitch: a small sprite is 5 wide and a gap makes 6. */
+const PITCH = 6
+/** The plan strip's most cells. */
+const PLAN_MAX = 14
+/** From the right edge: where the meters begin (a label, ten beads, the figure, then the pace, `/mc` and the clamp). */
+const METERS_FROM_RIGHT = 33
+
+/** A run that stands for an instrument: its text is blank to the instrument's width so every width sum holds. */
+type Part = Run & { inst?: InstSpec }
+const instPart = (spec: InstSpec): Part => ({ text: ' '.repeat(spec.columns), inst: spec })
+
+/** Beads of one meter as an instrument: `cells` wide, in the rate colour; the text form is `▮▮` a lit bead and `▯▯` an unlit one. */
+function beadsInst(key: string, cells: number, pct: number): InstSpec {
+  const n = cells >> 1
+  const lit = beadCount(pct, n)
+  return {
+    key,
+    columns: cells,
+    rows: 1,
+    sig: `beads:${cells}:${Math.round(pct)}`,
+    frames: () => [beads(cells, pct)],
+    fallback: [[{ text: '▮▮'.repeat(lit), color: rateColor(pct) }, { text: '▯▯'.repeat(n - lit), color: C.subtle }]],
+  }
+}
+
+/** `CTX`, beads of `cells`, the figure: one meter's parts. The figure turns the rate colour from 70 %. */
+function beadMeter(label: string, pct: number, key: string, cells: number, gap: number): Part[] {
+  const p = Number.isFinite(pct) ? pct : 0
+  return [
+    { text: label.padEnd(3), dim: true },
+    { text: ' ' },
+    instPart(beadsInst(key, cells, p)),
+    { text: ' '.repeat(gap) },
+    { text: `${Math.min(999, Math.max(0, Math.round(p)))}%`, bold: true, ...(p >= 70 ? { color: rateColor(p) } : {}) },
+  ]
+}
+
+/** A hull and its signal as the small crew's text form: one cell of the pitch. */
+function podCell(pod: Pod): Run[] {
+  const runs: Run[] = [pod.hull]
+  if (pod.signal !== undefined) runs.push(pod.signal)
+  const used = runs.reduce((n, r) => n + r.text.length, 0)
+  runs.push({ text: ' '.repeat(Math.max(0, PITCH - used)) })
+  return runs
+}
+
+/** The small crew, the lead first: `slots` sprites 5 by 2 at a pitch of 6; the text form a hull and signal a slot. */
+function crewInst(crew: { agent: AgentRow; pod: Pod }[], slots: number): InstSpec {
+  const shown = crew.slice(0, slots)
+  const columns = slots * PITCH - 1
+  return {
+    key: 'band-crew',
+    columns,
+    rows: 2,
+    sig: `crew:${columns}:${shown.map(c => `${c.pod.role}.${c.pod.state}`).join(',')}`,
+    frames: () => {
+      const g = new Grid(columns, SPRITE.S.rows)
+      shown.forEach((c, i) => drawSprite(g, i * PITCH, 0, c.pod.role, c.pod.state, 'S', 'on'))
+      return [g]
+    },
+    fallback: [shown.flatMap(c => podCell(c.pod)), []],
+  }
+}
+
+/** The plan strip: one bar a task (the newest 14), as tall as its tokens, mute when done, iris while it runs, rest when queued. */
+function planInst(t: Timeline): InstSpec | undefined {
+  const rows = taskMeter(t).rows.slice(-PLAN_MAX)
+  if (rows.length === 0) return undefined
+  const hueOf = (i: number): Hue | 'mute' | 'rest' => (rows[i]?.task.status === 'completed' ? 'mute' : rows[i]?.task.status === 'in_progress' ? 'iris' : 'rest')
+  return {
+    key: 'band-plan',
+    columns: rows.length,
+    rows: 1,
+    sig: `plan:${rows.map(r => `${r.task.status[0]}${r.tokens}`).join(',')}`,
+    frames: () => [bars(1, rows.map(r => r.tokens), { hueOf })],
+    fallback: [
+      rows.map((r): Run =>
+        r.task.status === 'completed' ? { text: '▪', dim: true } : r.task.status === 'in_progress' ? { text: '▸', color: C.live } : { text: '▫', color: C.subtle },
+      ),
+    ],
+  }
+}
+
+/** The clamp at either end of the three rows: `█▀` top left, `▄█` bottom right; the text form `┏` and `┛`. */
+function clampInst(key: string, end: boolean, hue: Hue, tone: string): InstSpec {
+  return {
+    key,
+    columns: 2,
+    rows: 1,
+    sig: `clamp:${end ? 'end' : 'start'}:${hue}`,
+    frames: () => {
+      const g = new Grid(2, 1)
+      if (end) {
+        g.px(0, 1, hue)
+        g.full(1, 0, hue)
+      } else {
+        g.full(0, 0, hue)
+        g.px(1, 0, hue)
+      }
+      return [g]
+    },
+    fallback: [end ? [{ text: ' ' }, { text: '┛', color: tone }] : [{ text: '┏', color: tone }, { text: ' ' }]],
+  }
+}
+
+/** Runs cut to `room` by word, but left whole when they fit: `fitRuns` would collapse the double spaces that set a label apart. */
+const fitKeep = (runs: Run[], room: number): Run[] => (widthOf(runs) <= room ? runs : (fitRuns(runs, room) as Run[]))
+
+type Seg = { col: number; width: number; el: RenderElement }
+
+/** Elements side by side at columns (from the lane's own left edge): blank boxes fill the gaps. */
+function lane($: EngineInterface, ctx: ViewCtx, key: string, segs: Seg[]): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
+  const kids: RenderElement[] = []
+  let at = 0
+  for (const s of [...segs].sort((a, b) => a.col - b.col)) {
+    if (s.col > at) kids.push(<Box key={`${key}-gap-${s.col}`} width={s.col - at} flexShrink={0} />)
+    kids.push(
+      <Box key={`${key}-${s.col}`} width={s.width} flexShrink={0}>
+        {s.el}
+      </Box>,
+    )
+    at = s.col + s.width
+  }
+  return (
+    <Box key={key} flexDirection="row">
+      {kids}
+    </Box>
+  )
+}
+
+/** Runs as one segment of a lane. */
+function textSeg(ctx: ViewCtx, $: EngineInterface, key: string, col: number, runs: Run[]): Seg {
+  const { Text } = $.ui.resolve(ctx.e)
+  const live = runs.filter(r => r.text !== '')
+  return {
+    col,
+    width: widthOf(live),
+    el: <Text key={key} wrap="truncate-end">{live.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}</Text>,
+  }
+}
+
+/** Parts as one segment: the runs between instruments are Texts, an instrument is its own Box. */
+function partsSeg(ctx: ViewCtx, $: EngineInterface, key: string, col: number, parts: Part[]): Seg {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const kids: RenderElement[] = []
+  let buf: Run[] = []
+  const flush = (): void => {
+    if (buf.length > 0) {
+      const at = kids.length
+      kids.push(<Text key={`${key}-t${at}`}>{buf.map((r, i) => runText(r, ctx.e, $, `${key}-t${at}-${i}`))}</Text>)
+      buf = []
+    }
+  }
+  for (const p of parts) {
+    if (p.text === '') continue
+    if (p.inst !== undefined) {
+      flush()
+      kids.push(inst(ctx, $, p.inst))
+    } else buf.push(p)
+  }
+  flush()
+  return {
+    col,
+    width: widthOf(parts),
+    el: (
+      <Box key={key} flexDirection="row">
+        {kids}
+      </Box>
+    ),
+  }
+}
+
+/** What the other needs read in one line: `long run 24m, stalled 4m` (the kind lower-cased, how long it has waited). */
+function othersLine(needs: Problem[], now: number): string {
+  return needs
+    .slice(1)
+    .map(p => `${kindLabel(p).toLowerCase()} ${elapsed(p.since, now)}`)
+    .join(', ')
+}
+
+/** `▲ 37m`: the 5H window will fill before it resets. Nothing when pace has no reading, or the window will not fill in time. */
+function paceSeg(ctx: ViewCtx, $: EngineInterface, five: number | undefined, col: number): Seg[] {
+  if (five === undefined) return []
+  const row = pace(ctx.t, ctx.now).windows.find(w => w.name === 'five_hour')
+  if (row === undefined || row.beforeReset !== true) return []
+  return [textSeg(ctx, $, 'band-pace', col, [text('▲ ', { bold: true, color: C.wait }), text(elapsed(0, row.fullIn), { bold: true, color: C.wait })])]
+}
+
+/**
+ * The three rows of the rich band (spec "Band"; from 86 columns, pane
+ * closed, terminal only). A clamp and the pill, then the focus and its age
+ * (waiting: the first ask and how long it has waited); under it the small
+ * crew, the lead first, two rows tall, beside `next` and the plan strip with
+ * its count; a bead meter per window at the right (CTX, 5H, 7D, a row each)
+ * with `▲ 37m` beside 5H when it will fill before it resets, then `/mc` and
+ * the closing clamp. Everything that is a picture is an `inst`, so each has
+ * its text form in the same box. The band holds no Button.
+ */
+function richRows(ctx: ViewCtx, $: EngineInterface, word: Word, needs: Problem[], crew: { agent: AgentRow; pod: Pod }[]): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const { t, now, cols } = ctx
+  const s = summary(t)
+  const waiting = needs.length > 0
+  const hue: Hue = waiting ? 'amber' : 'iris'
+  const tone = waiting ? C.wait : C.live
+  const mstart = cols - METERS_FROM_RIGHT
+  const slots = Math.max(1, Math.min(6, Math.floor((mstart - 35) / PITCH)))
+  const crewWidth = slots * PITCH - 1
+  const midCol = 3 + crewWidth + 5
+  const midRoom = Math.max(1, mstart - 2 - midCol)
+
+  // ---- row 1: clamp, pill, the focus (or the first ask), its age, CTX
+  const pill = pillRun(waiting ? `NEEDS YOU ${needs.length}` : word, waiting ? C.wait : word === 'WORKING' ? C.live : C.subtle)
+  const head: Seg[] = [{ col: 0, width: 2, el: inst(ctx, $, clampInst('band-clamp', false, hue, tone)) }, textSeg(ctx, $, 'band-pill', 3, [pill])]
+  const leadCol = waiting ? 3 + pill.text.length + 2 : 14
+  const ageCol = mstart - 6
+  if (waiting) {
+    const first = needs[0]!
+    const ask = fitKeep(askRuns(first), Math.max(1, ageCol - 2 - leadCol))
+    head.push(textSeg(ctx, $, 'band-ask', leadCol, ask))
+    head.push(textSeg(ctx, $, 'band-age', Math.min(ageCol, leadCol + widthOf(ask) + 2), [text(elapsed(first.since, now), { color: C.wait })]))
+  } else {
+    if (s.focus !== undefined) head.push(textSeg(ctx, $, 'band-focus', leadCol, fitKeep([text(s.focus, { bold: true })], Math.max(1, ageCol - 2 - leadCol))))
+    if (s.focusAt !== undefined) head.push(textSeg(ctx, $, 'band-age', ageCol, [text(elapsed(s.focusAt, now), { dim: true })]))
+  }
+  const win = (name: string): number | undefined => t.budget?.windows.find(w => w.name === name)?.pct
+  const ctxPct = t.budget?.contextPct
+  const five = win('five_hour')
+  const seven = win('seven_day')
+  if (ctxPct !== undefined) head.push(partsSeg(ctx, $, 'band-ctx', mstart, beadMeter('CTX', ctxPct, 'band-ctx-beads', 10, 2)))
+
+  // ---- rows 2 and 3: the crew beside next and the plan, the meters on the right
+  const upcoming = s.next ?? s.upcoming?.subject
+  const nextRuns: Run[] =
+    waiting && needs.length > 1
+      ? [text(`+${needs.length - 1} `, { dim: true }), text(othersLine(needs, now), { color: C.wait })]
+      : upcoming !== undefined && upcoming !== ''
+        ? [text('next', { dim: true }), text('  '), text(upcoming)]
+        : []
+  const plan = planInst(t)
+  const taskParts: Part[] =
+    plan !== undefined
+      ? [text('TASKS', { dim: true }), text(' '), instPart(plan), text(' '), text(String(s.done), { bold: true }), text(`/${s.total}`, { dim: true })]
+      : [text('TASKS', { dim: true }), text(' '), text('no tasks', { dim: true })]
+  const mid = (
+    <Box key="band-mid" flexDirection="column" width={midRoom} flexShrink={0}>
+      {lane($, ctx, 'band-next', nextRuns.length > 0 ? [textSeg(ctx, $, 'band-next-t', 0, fitKeep(nextRuns, midRoom))] : [])}
+      {lane($, ctx, 'band-tasks', [partsSeg(ctx, $, 'band-tasks-p', 0, taskParts)])}
+    </Box>
+  )
+  const more = crew.length - slots
+  const side = (
+    <Box key="band-side" flexDirection="column" width={METERS_FROM_RIGHT} flexShrink={0}>
+      {lane($, ctx, 'band-5h', [
+        ...(five !== undefined ? [partsSeg(ctx, $, 'band-5h-p', 0, beadMeter('5H', five, 'band-5h-beads', 10, 2))] : []),
+        ...paceSeg(ctx, $, five, METERS_FROM_RIGHT - 11),
+      ])}
+      {lane($, ctx, 'band-7d', [
+        ...(seven !== undefined ? [partsSeg(ctx, $, 'band-7d-p', 0, beadMeter('7D', seven, 'band-7d-beads', 10, 2))] : []),
+        textSeg(ctx, $, 'band-mc', METERS_FROM_RIGHT - 6, [text(MC, { dim: true })]),
+        { col: METERS_FROM_RIGHT - 2, width: 2, el: inst(ctx, $, clampInst('band-end', true, hue, tone)) },
+      ])}
+    </Box>
+  )
+  const lower = (
+    <Box key="band-lower" flexDirection="row">
+      <Box key="band-lead-gap" width={3} flexShrink={0} />
+      {inst(ctx, $, crewInst(crew, slots))}
+      <Box key="band-more" width={5} flexShrink={0} flexDirection="column">
+        {more > 0 ? (
+          <Text key="band-more-t" dimColor>
+            {` +${more}`}
+          </Text>
+        ) : null}
+      </Box>
+      {mid}
+      <Box key="band-mid-gap" width={2} flexShrink={0} />
+      {side}
+    </Box>
+  )
+  return (
+    <Box key="band" flexDirection="column">
+      {lane($, ctx, 'band-head', head)}
+      {lower}
+    </Box>
+  )
+}
+
+/** The three rows (spec "Band"), at 86 columns or more while the pane is closed: the Neo text form, drawn where there is no Raster. */
 function threeRows(ctx: ViewCtx, $: EngineInterface, word: Word, needs: Problem[], crew: { agent: AgentRow; pod: Pod }[]): RenderElement | null {
   const { t, now } = ctx
   const s = summary(t)
@@ -123,7 +420,7 @@ function threeRows(ctx: ViewCtx, $: EngineInterface, word: Word, needs: Problem[
 
   if (waiting) {
     const first = needs[0]!
-    const why = first.kind === 'asking' ? 'permission' : first.kind === 'stalled' ? 'stalled' : first.kind === 'failed-turn' ? 'failed' : first.kind === 'repeat' ? 'repeated' : 'looping'
+    const why = first.kind === 'asking' ? 'permission' : first.kind === 'stalled' ? 'stalled' : first.kind === 'failed-turn' ? 'failed' : first.kind === 'repeat' ? 'repeated' : first.kind === 'long-run' ? kindLabel(first).toLowerCase() : 'looping'
     const asks: DeckRow = {
       label: [text(first.kind === 'asking' ? 'ASKS' : 'NEEDS', { bold: true, color: C.wait })],
       cells: [
@@ -153,7 +450,7 @@ function threeRows(ctx: ViewCtx, $: EngineInterface, word: Word, needs: Problem[
 }
 
 /** One side of a one-row band that can give way: `id` names it in a drop order. */
-type Piece = { id: string; runs: Run[]; gap: number }
+type Piece = { id: string; runs: Part[]; gap: number }
 
 /** What the row shows at one stage of giving way: the cut-able middle and the right side. */
 type Variant = { flex: Run[]; right: Piece[] }
@@ -190,7 +487,7 @@ function foldedRow(ctx: ViewCtx, $: EngineInterface, tone: string, lead: Run[], 
     // Not even the pill fits beside the rails: a plain cut of the one word.
     return <Text wrap="truncate-end" color={tone}>{fit(fallback, Math.max(1, cols))}</Text>
   }
-  const runs: Run[] = [
+  const runs: Part[] = [
     text('┃', { color: tone }),
     text(' '),
     ...lead,
@@ -200,9 +497,14 @@ function foldedRow(ctx: ViewCtx, $: EngineInterface, tone: string, lead: Run[], 
     text(' '),
     text('┃', { color: tone }),
   ]
+  const live = runs.filter(r => r.text !== '')
+  if (live.some(r => r.inst !== undefined)) {
+    // An instrument in the row: Texts between, each instrument a Box of its own.
+    return partsSeg(ctx, $, 'band-row', 0, live).el
+  }
   return (
     <Text wrap="truncate-end">
-      {runs.filter(r => r.text !== '').map((r, i) => runText(r, ctx.e, $, `band-${i}`))}
+      {live.map((r, i) => runText(r, ctx.e, $, `band-${i}`))}
     </Text>
   )
 }
@@ -219,7 +521,9 @@ function compactRow(ctx: ViewCtx, $: EngineInterface, word: Word, needs: Problem
   const count: Piece[] = s.total > 0 ? [{ id: 'count', runs: [text(String(s.done), { bold: true }), text(`/${s.total}`, { dim: true })], gap: 3 }] : []
   const tight = crewRow(crew.map(c => c.pod), 12, { tight: true })
   const crewPiece: Piece[] = tight.length > 0 ? [{ id: 'crew', runs: tight, gap: 0 }] : []
-  const dial: Piece[] = t.budget?.contextPct !== undefined ? [{ id: 'dial', runs: meter('CTX', t.budget.contextPct), gap: 3 }] : []
+  // Rich: beads in place of the dial, the Raster's text form being `▮▮` and `▯▯`.
+  const dialRuns = (pct: number): Part[] => (ctx.look === 'rich' ? beadMeter('CTX', pct, 'band-ctx-beads', 8, 1) : meter('CTX', pct))
+  const dial: Piece[] = t.budget?.contextPct !== undefined ? [{ id: 'dial', runs: dialRuns(t.budget.contextPct), gap: 3 }] : []
   const mc: Piece = { id: 'mc', runs: [text(MC, { dim: true })], gap: 3 }
   const right = (...parts: Piece[][]): Piece[] => parts.flat().map((p, i) => (i === 0 ? { ...p, gap: 0 } : p))
   const variants: Variant[] = [
@@ -248,12 +552,24 @@ function doneRow(ctx: ViewCtx, $: EngineInterface, crew: { agent: AgentRow; pod:
   const from = Math.min(...starts)
   const to = Math.max(...ends, ...starts)
   const span = starts.length > 0 && to - from >= 1000 ? elapsed(from, to) : undefined
-  const facts = [
-    `${s.done}/${s.total} tasks`,
-    ...(s.steps > 0 ? [`${s.steps} ${s.steps === 1 ? 'step' : 'steps'}`] : []),
-    ...(t.artifacts.length > 0 ? [`${t.artifacts.length} ${t.artifacts.length === 1 ? 'artifact' : 'artifacts'}`] : []),
-    ...(span !== undefined ? [span] : []),
-  ]
+  // THIS TURN (spec "Band", all done): how long the last turn took, the agents it finished, its errors and files.
+  const turn = thisTurn(t)
+  const n = (k: number, one: string, many: string): string => `${k} ${k === 1 ? one : many}`
+  const facts =
+    turn !== undefined
+      ? [
+          `${s.done}/${s.total} tasks`,
+          ...(turn.ms !== undefined ? [`done in ${elapsed(0, turn.ms)}`] : []),
+          n(turn.agentsFinished.length, 'agent', 'agents'),
+          n(turn.errors, 'error', 'errors'),
+          n(turn.files, 'file', 'files'),
+        ]
+      : [
+          `${s.done}/${s.total} tasks`,
+          ...(s.steps > 0 ? [`${s.steps} ${s.steps === 1 ? 'step' : 'steps'}`] : []),
+          ...(t.artifacts.length > 0 ? [`${t.artifacts.length} ${t.artifacts.length === 1 ? 'artifact' : 'artifacts'}`] : []),
+          ...(span !== undefined ? [span] : []),
+        ]
   const flexOf = (n: number): Run[] => [text(facts.slice(0, n).join('   '), { dim: true })]
   const tight = crewRow(crew.map(c => c.pod), 12, { tight: true })
   const crewPiece: Piece[] = tight.length > 0 ? [{ id: 'crew', runs: tight, gap: 0 }] : []
@@ -277,7 +593,7 @@ function doneRow(ctx: ViewCtx, $: EngineInterface, crew: { agent: AgentRow; pod:
  * row), even when there is nothing to say. Its rows are plain Buttons with
  * no hotkey; a press opens the pane on what it names and ends the strip.
  */
-export function registerBand(on: On): void {
+export function registerBand(on: On, options: { look?: string } = {}): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     try {
@@ -291,7 +607,10 @@ export function registerBand(on: On): void {
       if (!isStrip && needs.length === 0 && s.total === 0 && live === 0 && !s.focus) return next(e)
 
       const cols = e.props.bodyColumns
-      const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now }
+      // The look comes from the surface's element table, once per draw; the Rasters here are all still, so none is ever blitted.
+      begin(BAND_SITE)
+      const look = lookOf($.ui.resolve(e), options)
+      const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE }
       const allDone = needs.length === 0 && s.total > 0 && s.done === s.total && live === 0
       // The pods and the pill answer to the same rule: `waitStates` is built on `needsYou`.
       const crew = podsOf(t, waitStates(t, u, now), now, allDone)
@@ -304,6 +623,7 @@ export function registerBand(on: On): void {
 
       const compact = u.paneOpen === true || cols < THREE_ROWS_FROM || e.props.maxRows < 3
       if (!compact) {
+        if (look === 'rich') return richRows(ctx, $, word, needs, crew)
         const rows = threeRows(ctx, $, word, needs, crew)
         if (rows !== null) return rows
       }

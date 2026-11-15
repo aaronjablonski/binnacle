@@ -690,3 +690,34 @@ test('an artifact page for an artifact that is gone says so', async ($, on) => {
   expect((await drawnRows(ui)).join('\n')).toContain('This artifact is gone.')
   await ui.unmount()
 })
+
+test('the artifact page: the step that made it opens the step page through openStep, and its body load runs', async ($, on) => {
+  const a = art('document', 'Plan', { ref: 'docs/plan.md', stepId: 's9' })
+  const stored = seed(on, { ...tl([a], { steps: [step('s9', 9, 'Write the plan')] }), journal: 'sess1' }, { ...ART_UI, page: { kind: 'artifact', id: a.id } })
+  exportWorld(on)
+  const ui = await mount($, 'terminal')
+  await ui.press({ key: 'artifact-madeby' })
+  const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; missing?: true } }
+  expect(u.page).toEqual({ kind: 'step', id: 's9' })
+  expect(u.stepOpen).toBe('s9')
+  // openStep reads the body (here none is kept) and writes the result beside stepOpen; openPage would leave it unset.
+  expect(u.stepBody).toEqual({ stepId: 's9', missing: true })
+  await ui.unmount()
+})
+
+test('the lintel never gets a readout that meets the pill: the deck and the page draw at 32 columns', async ($, on) => {
+  const a = art('document', 'Plan', { ref: 'docs/plan.md' })
+  const stored = seed(on, tl([a, art('link', 'PR', { ref: 'x' })]), ART_UI)
+  for (const columns of [32, 36, 40]) {
+    const deckUi = await mount($, 'terminal', columns)
+    expect((await drawnRows(deckUi)).join('\n')).not.toContain('This tab failed')
+    expect(await deckUi.find({ key: 'artifacts-deck-lintel' })).toBeDefined()
+    await deckUi.unmount()
+    stored.set('ui', { ...ART_UI, page: { kind: 'artifact', id: a.id } })
+    const pageUi = await mount($, 'terminal', columns)
+    expect((await drawnRows(pageUi)).join('\n')).not.toContain('This tab failed')
+    expect(await pageUi.find({ key: 'artifact-page-lintel' })).toBeDefined()
+    await pageUi.unmount()
+    stored.set('ui', ART_UI)
+  }
+})

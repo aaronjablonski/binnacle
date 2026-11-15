@@ -1,15 +1,16 @@
 import type { On } from 'claude-code'
 
 import { summary } from '../model/select'
-import { debug, errText, readTimeline } from '../state'
+import { debug, errText, readTimeline, readUi } from '../state'
 import { fit } from './fit'
+import { needsYou } from './needs'
 import { C } from './style'
 
 const SEPARATOR = ' │ '
 const MIN_FOCUS = 8
 
 // A part of the band: an optional glyph in a theme colour, then plain text.
-type Part = { id: 'tasks' | 'agents' | 'focus' | 'hint'; glyph?: string; color?: string; text: string }
+type Part = { id: 'needs' | 'tasks' | 'agents' | 'focus' | 'hint'; glyph?: string; color?: string; text: string }
 
 // What gives way when the row is too wide, first to last. The focus is cut instead.
 const DROP_ORDER: Part['id'][] = ['agents', 'tasks', 'hint']
@@ -21,9 +22,12 @@ export function registerBand(on: On): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     try {
-      const s = summary(await readTimeline($))
+      const t = await readTimeline($)
+      const s = summary(t)
+      const needs = needsYou(t, await readUi($), await $.clock.now())
       const cols = e.props.bodyColumns
       const parts: Part[] = []
+      if (needs.length > 0) parts.push({ id: 'needs', glyph: '!', color: C.error, text: `${needs.length} need you` })
       if (s.total > 0) parts.push({ id: 'tasks', glyph: '▣', color: C.accent, text: `${s.done}/${s.total} tasks` })
       if (s.running.length > 0) {
         parts.push({ id: 'agents', glyph: '●', color: C.running, text: `${s.running.length} ${s.running.length === 1 ? 'agent' : 'agents'}` })
@@ -47,7 +51,7 @@ export function registerBand(on: On): void {
         const others = rowWidth()
         const room = cols - others - SEPARATOR.length
         if (room >= MIN_FOCUS) {
-          const at = s.total > 0 ? 1 : 0
+          const at = (needs.length > 0 ? 1 : 0) + (s.total > 0 ? 1 : 0)
           parts.splice(at, 0, { id: 'focus', glyph: '▶', color: C.running, text: fit(s.focus, room - 2) })
         }
       }

@@ -5,6 +5,7 @@ import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { blockBar, elapsed, fit } from './fit'
+import { needsSection } from './needs'
 import { openStep } from './openstep'
 import { glyphLine, sectionHeader, splitLine } from './parts'
 import type { ViewCtx } from './shell'
@@ -178,11 +179,13 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const half = { ...ctx, cols: width }
     const left = keep([nowSection(half, $), tasksSection(half, $)])
     const right = keep([agentsSection(half, $), latestSection(half, $)])
+    const needs = needsSection(ctx, $)
     const notes = ctx.t.notes.length
     const artifacts = ctx.t.artifacts.length
     const counts = [notes > 0 ? `notes ${notes}` : '', artifacts > 0 ? `artifacts ${artifacts}` : ''].filter(x => x !== '')
     return (
       <Box flexDirection="column" rowGap={1}>
+        {needs}
         <Box flexDirection="row" columnGap={COLUMN_GAP}>
           <Box key="col-left" flexDirection="column" rowGap={1} width={width}>
             {left}
@@ -198,6 +201,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     )
   }
   const sections = keep([
+    needsSection(ctx, $),
     nowSection(ctx, $),
     tasksSection(ctx, $),
     agentsSection(ctx, $),

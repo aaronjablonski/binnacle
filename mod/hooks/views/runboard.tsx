@@ -3,11 +3,11 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow, Step } from '../../types'
 import { runBoard } from '../model/select'
 import { updateUi } from '../state'
-import { AGENT_GLYPH } from './agentmeta'
-import { elapsed, fit } from './fit'
+import { agentOpened, agentRow } from './agentmeta'
+import { elapsed } from './fit'
 import { openStep } from './openstep'
-import { glyphText, sectionHeader } from './parts'
-import { glyphColor } from './style'
+import { blank, section } from './parts'
+import { COL, GRID, statusColor } from './style'
 import type { ViewCtx } from './shell'
 
 /** Blocks shown per agent. */
@@ -18,7 +18,8 @@ export const STRIP_MAX = 20
  * Button per agent that opens its newest step.
  */
 export const BLOCK_BUDGET = 150
-const INDENT = '  '
+// Under an agent's row, from its name column.
+const INDENT = ' '.repeat(COL.name)
 
 /** The steps a strip shows (the newest) and how many are hidden before them. */
 export function stripOf(steps: Step[], room: number): { shown: Step[]; hidden: number } {
@@ -34,9 +35,20 @@ function roomFor(cols: number, count: number): number {
 }
 
 function blockText(s: Step, $: EngineInterface, ctx: ViewCtx, key?: string): RenderElement {
-  return glyphText('■', glyphColor(s.status), ctx.e, $, key)
+  const { Text } = $.ui.resolve(ctx.e)
+  const color = statusColor(s.status)
+  return color !== undefined ? (
+    <Text key={key} color={color}>
+      ■
+    </Text>
+  ) : (
+    <Text key={key} dimColor>
+      ■
+    </Text>
+  )
 }
 
+/** The newest steps of one agent as blocks under its row: one Button each, or one Button for the strip. */
 function strip(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, $: EngineInterface): RenderElement | null {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   if (steps.length === 0) return null
@@ -65,55 +77,59 @@ function strip(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, 
   )
 }
 
-function agentBlock(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, $: EngineInterface): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const { cols } = ctx
-  const end = agent.status === 'running' ? ctx.now : (agent.endedAt ?? ctx.now)
-  const right = elapsed(agent.startedAt, end)
-  const index = String((agent.agentIndex ?? 0) + 1)
-  const glyph = AGENT_GLYPH[agent.status]
-  const used = index.length + glyph.length + 2
-  const room = Math.max(0, cols - used - right.length - 1)
-  return (
-    <Box key={`run-agent-${agent.id}`} flexDirection="column">
-      <Box flexDirection="row" justifyContent="space-between">
-        <Text>
-          <Text dimColor>{`${index} `}</Text>
-          {glyphText(glyph, glyphColor(agent.status), ctx.e, $)}
-          {` ${fit(agent.description, room)}`}
-        </Text>
-        <Text dimColor>{right}</Text>
+/** One agent of the run: its row (a press opens it), its strip of step blocks, and the opened part. */
+function agentBlock(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, last: boolean, first: boolean, $: EngineInterface): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
+  const line = agentRow(ctx, $, agent, { key: `run-agent-${agent.id}` })
+  const detail = agentOpened(ctx, $, agent)
+  const blocks = strip(ctx, agent, steps, perBlock, $)
+  if (detail === null) {
+    return (
+      <Box key={`run-block-${agent.id}`} flexDirection="column">
+        {line}
+        {blocks}
       </Box>
-      {strip(ctx, agent, steps, perBlock, $)}
-      {agent.result !== undefined && agent.result !== '' ? (
-        <Text key="result" dimColor>{fit(`${INDENT}└ ${agent.result}`, cols)}</Text>
-      ) : null}
+    )
+  }
+  return (
+    <Box key={`run-block-${agent.id}`} flexDirection="column">
+      {first ? null : blank(ctx, $, `pre-${agent.id}`)}
+      {line}
+      {blocks}
+      {detail}
+      {last ? null : blank(ctx, $, `post-${agent.id}`)}
     </Box>
   )
 }
 
-/** One workflow run: a header, its counts, and a row per agent in spawn order. */
+/**
+ * One workflow run: `b: Back`, its counts, and a row per agent in spawn order
+ * (tokens at 38, time at 50) with the newest steps as blocks under it. A press
+ * on a row opens it (`result`, `agent`, `s v g`); a press on a block opens the step.
+ */
 export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
-  const { cols } = ctx
   const back = (
-    <Button
-      key="run-back"
-      label="Back"
-      hotkey="b"
-      plain
-      onPress={() => updateUi($, u => {
-        const { run: _run, ...rest } = u
-        return rest
-      })}
-    />
+    <Box key="run-back-row" flexDirection="row" paddingLeft={GRID.margin}>
+      <Button
+        key="run-back"
+        label="Back"
+        hotkey="b"
+        plain
+        onPress={() => updateUi($, u => {
+          const { run: _run, ...rest } = u
+          return rest
+        })}
+      />
+    </Box>
   )
   const b = runBoard(ctx.t, runId, ctx.now)
   if (b === undefined) {
     return (
-      <Box flexDirection="column" rowGap={1}>
+      <Box flexDirection="column">
         {back}
-        <Text dimColor>This run is gone.</Text>
+        {blank(ctx, $, 'gap-back')}
+        <Text dimColor>{`${' '.repeat(GRID.margin)}This run is gone.`}</Text>
       </Box>
     )
   }
@@ -121,14 +137,13 @@ export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): R
   const perBlock = total <= BLOCK_BUDGET
   const stats = `${b.done}/${b.agents.length} done · ${b.failed} failed · ${elapsed(0, b.elapsed)}`
   return (
-    <Box flexDirection="column" rowGap={1}>
+    <Box flexDirection="column">
       {back}
-      <Box flexDirection="column">
-        {sectionHeader(`⚙ ${b.run.name}`, '', cols, ctx.e, $)}
-        <Text dimColor>{fit(stats, cols)}</Text>
-      </Box>
-      {b.agents.length === 0 ? <Text dimColor>No agents in this run yet.</Text> : null}
-      {b.agents.map(a => agentBlock(ctx, a, b.steps[a.id] ?? [], perBlock, $))}
+      {blank(ctx, $, 'gap-back')}
+      {section(ctx, $, b.run.name, 'tokens', 'time')}
+      <Text key="stats" dimColor wrap="truncate-end">{`${' '.repeat(COL.glyph)}${stats}`}</Text>
+      {b.agents.length === 0 ? <Text dimColor>{`${' '.repeat(COL.glyph)}No agents in this run yet.`}</Text> : null}
+      {b.agents.map((a, i) => agentBlock(ctx, a, b.steps[a.id] ?? [], perBlock, i === b.agents.length - 1, i === 0, $))}
     </Box>
   )
 }

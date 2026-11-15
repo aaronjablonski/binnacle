@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 
 import type { AgentRow, Run, Step, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
+import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -109,23 +110,60 @@ test('the Agents list run header opens the board', async ($, on) => {
   }
 })
 
-test('the board: header counts, rows in spawn order, results, no main', async ($, on) => {
+const rows = async (ui: Mounted): Promise<string[]> => screen(await ui.drawn())
+const rowWith = (all: string[], text: string): string => all.find(r => r.includes(text)) ?? ''
+
+test('the board: head on the grid, rows in spawn order on the table columns, no main', async ($, on) => {
   seed(on, board(), UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    const all = (await texts(ui)).join('\n')
-    expect(all).toContain('⚙ review-changes')
-    expect(all).toContain('1/3 done · 1 failed · 1m')
-    expect(all.indexOf('read agent one') < all.indexOf('read agent two')).toBe(true)
-    expect(all.indexOf('read agent two') < all.indexOf('read agent three')).toBe(true)
-    expect(all).toContain('└ found 3 bugs')
-    expect(all).not.toContain('main')
+    const all = await rows(ui)
+    const back = rowWith(all, 'b: Back')
+    expect(colOf(back, 'b: Back')).toBe(2)
+    const head = rowWith(all, '┌ review-changes')
+    expect([colOf(head, '┌'), colOf(head, 'review-changes'), colOf(head, 'tokens'), colOf(head, 'time')]).toEqual([0, 2, 38, 50])
+    expect(colOf(rowWith(all, 'done ·'), '1/3 done · 1 failed · 1m')).toBe(2)
+    const text = all.join('\n')
+    expect(text.indexOf('read agent one') < text.indexOf('read agent two')).toBe(true)
+    expect(text.indexOf('read agent two') < text.indexOf('read agent three')).toBe(true)
+    const one = rowWith(all, 'read agent one')
+    expect([colOf(one, '✓'), colOf(one, 'read agent one'), colOf(one, '–'), colOf(one, '40s')]).toEqual([2, 4, 38, 50])
+    expect(colOf(rowWith(all, 'read agent three'), '▸')).toBe(2)
+    expect(colOf(rowWith(all, 'read agent two'), '✖')).toBe(2)
+    expect(text).not.toContain('main')
+    expect(text).not.toContain('└')
     expect(await ui.find({ key: 'agent-main' })).toBeUndefined()
     await ui.unmount()
   }
 })
 
-test('step blocks are coloured by status, one Button each', async ($, on) => {
+test('a press on an agent row opens it: result and agent lines, then s: steps  v: transcript  g: chat', async ($, on) => {
+  const stored = seed(on, board(), UI)
+  for (const surface of SURFACES) {
+    stored.set('ui', UI)
+    let ui = await mount($, surface)
+    expect((await rows(ui)).join('\n')).not.toContain('found 3 bugs')
+    await ui.press({ key: 'run-agent-w0' })
+    expect((stored.get('ui') as UiState).agentOpen).toBe('w0')
+    await ui.unmount()
+    stored.set('ui', { ...UI, agentOpen: 'w0' })
+    ui = await mount($, surface)
+    const all = await rows(ui)
+    const at = all.findIndex(r => r.includes('read agent one'))
+    // the strip of blocks sits under the row, then the detail
+    const detail = all.slice(at + 1)
+    const result = detail.find(r => r.includes('result')) ?? ''
+    expect([colOf(result, 'result'), colOf(result, 'found 3 bugs')]).toEqual([6, 14])
+    const agent = detail.find(r => r.includes('workflow-subagent')) ?? ''
+    expect(colOf(agent, 'agent')).toBe(6)
+    expect(detail).toContain('      s: steps   v: transcript   g: chat')
+    await ui.press({ key: 'run-agent-w0' })
+    expect((stored.get('ui') as UiState).agentOpen).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('step blocks are coloured by status (live in the accent, done dim), one Button each', async ($, on) => {
   seed(on, board(), UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -133,10 +171,13 @@ test('step blocks are coloured by status, one Button each', async ($, on) => {
     expect((await ui.find({ key: 'block-b1' }))?.text).toBe('■')
     expect(await ui.find({ key: 'block-c2' })).toBeDefined()
     const found = await ui.findAll({ type: 'Text' })
-    const colors = found.filter(f => f.text === '■').map(f => propsOf(f).color)
-    expect(colors).toContain('success')
-    expect(colors).toContain('error')
-    expect(colors).toContain('warning')
+    const blocks = found.filter(f => f.text === '■')
+    expect(blocks.map(f => propsOf(f).color)).toContain('suggestion')
+    expect(blocks.map(f => propsOf(f).color)).toContain('error')
+    // a finished step is dim, with no colour of its own
+    const dim = blocks.filter(f => propsOf(f).color === undefined)
+    expect(dim.length > 0).toBe(true)
+    for (const d of dim) expect(propsOf(d).dimColor).toBe(true)
     await ui.unmount()
   }
 })
@@ -148,7 +189,7 @@ test('pressing a block opens that step', async ($, on) => {
     await ui.press({ key: 'block-b1' })
     const u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
-    expect(u.detail?.stepId).toBe('b1')
+    expect(u.stepOpen).toBe('b1')
     stored.set('ui', UI)
     await ui.unmount()
   }
@@ -166,7 +207,7 @@ test('more than 20 steps: the newest 20 with +n before them', async ($, on) => {
   }
 })
 
-test('Back clears ui.run', async ($, on) => {
+test('Back clears ui.run (b: Back)', async ($, on) => {
   const stored = seed(on, board(), UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -200,23 +241,34 @@ test('a huge run falls back to one Button per agent opening its newest step', as
     expect(await ui.find({ key: 'block-h3s24' })).toBeUndefined()
     expect((await ui.findAll({ type: 'Button' })).length < 30).toBe(true)
     await ui.press({ key: 'strip-h3' })
-    expect((stored.get('ui') as UiState).detail?.stepId).toBe('h3s24')
+    expect((stored.get('ui') as UiState).stepOpen).toBe('h3s24')
     stored.set('ui', UI)
     await ui.unmount()
   }
 })
 
-test('narrow: every Text line fits 32', async ($, on) => {
+test('narrow: every row fits 32, and the strip keeps its blocks and its marker', async ($, on) => {
   seed(on, board(25), UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 32)
+    const all = await rows(ui)
+    expect(all.length > 8).toBe(true)
+    for (const r of all) expect(r.length).toBeLessThanOrEqual(32)
     const found = await ui.findAll({ type: 'Text' })
-    expect(found.length > 8).toBe(true)
-    for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 32).toBe(true)
-    // a strip is a row: its blocks plus the +n marker must fit too
     const blocks = found.filter(f => f.text === '■').length
     const marker = found.filter(f => /^\+\d+ ?$/.test(f.text ?? '')).length
     expect(blocks > 0 && marker > 0).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('at 40 and 50 columns the time follows the table columns', async ($, on) => {
+  seed(on, board(), UI)
+  for (const [columns, time] of [[50, 38], [40, 26]] as const) {
+    const ui = await mount($, 'terminal', columns)
+    const all = await rows(ui)
+    for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
+    expect(colOf(rowWith(all, 'read agent one'), '40s')).toBe(time)
     await ui.unmount()
   }
 })

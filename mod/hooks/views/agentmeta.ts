@@ -1,7 +1,13 @@
+import type { EngineInterface, RenderElement } from 'claude-code'
+
 import type { AgentRow, Step } from '../../types'
-import { usageText } from './budget'
-import { elapsed } from './fit'
+import { debug, errText, leaveDetail, readUi, updateUi } from '../state'
+import { modelName, tokenText } from './budget'
+import { clock, elapsed } from './fit'
+import { opened, row, viewAgent } from './parts'
+import type { Action, Detail, Flag, Run } from './parts'
 import type { ViewCtx } from './shell'
+import { statusColor } from './style'
 
 export const STEP_GLYPH: Record<Step['status'], string> = {
   running: '·',
@@ -10,11 +16,17 @@ export const STEP_GLYPH: Record<Step['status'], string> = {
   denied: '⊘',
   interrupted: '◌',
 }
-export const AGENT_GLYPH: Record<AgentRow['status'], string> = { running: '▶', done: '✔', error: '✖' }
+/** An agent's row glyph: live in the accent (`statusColor`), a failure in error, done dim. */
+export const AGENT_GLYPH: Record<AgentRow['status'], string> = { running: '▸', done: '✓', error: '✖' }
 // `main` stays 'running' for the whole session, so it gets no status glyph.
-export const MAIN_GLYPH = '•'
+export const MAIN_GLYPH = '◆'
+/** A workflow run's row glyph. */
+export const RUN_GLYPH = '≡'
 export const WORKFLOW_TYPE = 'workflow-subagent'
 export const EMPTY = 'No agents yet. Subagents and workflow agents appear here while they run.'
+
+/** The pane's own id: the target of a `$.ui.focus`. */
+const PANE_ID = 'mission-control'
 
 /** When main began: its first step, since the `main` row itself carries no start. */
 export function mainSince({ t }: ViewCtx): number | undefined {
@@ -26,15 +38,138 @@ export function mainSince({ t }: ViewCtx): number | undefined {
   return first
 }
 
-/** `unit` follows the step count: ' steps' in the list, '' in the tree. */
-export function metaOf(ctx: ViewCtx, agent: AgentRow, unit = ' steps', usage = false): string {
-  const steps = `${agent.stepCount}${unit}`
-  const extra = usage ? usageText(agent) : ''
-  const head = extra !== '' ? `${extra} · ` : ''
-  if (agent.id === 'main') {
+/** Input and output tokens, or undefined when the agent has reported none. */
+export function tokensOf(a: AgentRow): number | undefined {
+  if (a.tokensIn === undefined && a.tokensOut === undefined) return undefined
+  return (a.tokensIn ?? 0) + (a.tokensOut ?? 0)
+}
+
+/** The metric: `41k`; `…` while it runs with no usage yet; `–` when it never reported. */
+export function tokensCell(a: AgentRow): string {
+  const n = tokensOf(a)
+  if (n !== undefined) return tokenText(n)
+  return a.status === 'running' ? '…' : '–'
+}
+
+/** The time: how long it ran (main: since its first step; '' before it has one). */
+export function timeCell(ctx: ViewCtx, a: AgentRow): string {
+  if (a.id === 'main') {
     const since = mainSince(ctx)
-    return `${head}${since === undefined ? steps : `${elapsed(since, ctx.now)} · ${steps}`}`
+    return since === undefined ? '' : elapsed(since, ctx.now)
   }
-  const end = agent.status === 'running' ? ctx.now : (agent.endedAt ?? ctx.now)
-  return `${head}${elapsed(agent.startedAt, end)} · ${steps}`
+  const end = a.status === 'running' ? ctx.now : (a.endedAt ?? ctx.now)
+  return elapsed(a.startedAt, end)
+}
+
+/** Opens the agent's row in place, or closes it when it is the open one. */
+export async function toggleOpen($: EngineInterface, id: string): Promise<void> {
+  await updateUi($, u => {
+    if (u.agentOpen === id) {
+      const { agentOpen: _open, ...rest } = u
+      return rest
+    }
+    return { ...u, agentOpen: id }
+  })
+}
+
+/** What `row` draws for an agent, and what its press does (open it). */
+export type AgentRowOpts = {
+  key: string
+  flag?: Flag
+  depth?: 0 | 1 | 2
+  guide?: string
+  /** Replaces the description (a tree row may carry styled runs). */
+  name?: string | Run[]
+}
+
+/** One agent as a table row: glyph, description, tokens at 38 and time at 50. A press opens it. */
+export function agentRow(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: AgentRowOpts): RenderElement {
+  const isMain = a.id === 'main'
+  const color = isMain ? undefined : statusColor(a.status)
+  const name = o.name ?? (isMain ? 'main' : a.description !== '' ? a.description : a.type)
+  return row(ctx, $, {
+    key: o.key,
+    glyph: isMain ? MAIN_GLYPH : AGENT_GLYPH[a.status],
+    ...(color !== undefined ? { glyphColor: color } : {}),
+    name,
+    bold: ctx.u.agentOpen === a.id,
+    metric: tokensCell(a),
+    time: timeCell(ctx, a),
+    ...(o.flag !== undefined ? { flag: o.flag } : {}),
+    ...(o.depth !== undefined ? { depth: o.depth } : {}),
+    ...(o.guide !== undefined ? { guide: o.guide } : {}),
+    onPress: () => toggleOpen($, a.id),
+  })
+}
+
+/** The `result` (or what it is doing, or did last) and `agent` lines of an opened row. */
+export function agentDetails(a: AgentRow): Detail[] {
+  const out: Detail[] = []
+  if (a.result !== undefined && a.result !== '') out.push({ key: 'result', value: a.result })
+  else if (a.doing !== '') out.push({ key: a.status === 'running' ? 'doing' : 'last', value: a.doing })
+  const model = a.model !== undefined ? modelName(a.model) : ''
+  const kind = a.id === 'main' ? 'main' : a.type
+  const parts = [kind, ...(model !== '' ? [model] : []), `${a.stepCount} steps`]
+  if (a.id !== 'main') parts.push(clock(a.startedAt))
+  out.push({ key: 'agent', value: parts.join(' · ') })
+  return out
+}
+
+/** Scrolls the chat to the call that spawned the agent. A press only; a refusal is toasted. */
+async function chatAgent($: EngineInterface, a: AgentRow): Promise<void> {
+  try {
+    if (a.spawnStep === undefined) {
+      $.ui.toast('Not shown in chat: this agent has no spawn call.')
+      return
+    }
+    const got = await $.ui.scroll({ to: { requestId: a.spawnStep }, block: 'center' })
+    if (got.deny !== undefined) $.ui.toast(`Not shown in chat: ${got.deny}`)
+  } catch (err) {
+    debug($, `agent in chat failed: ${errText(err)}`)
+    $.ui.toast(`Not shown in chat: ${errText(err)}`)
+  }
+}
+
+/** `s: steps  v: transcript  g: chat` (main has no transcript view and no spawn call: `s: steps`). */
+export function agentActions($: EngineInterface, a: AgentRow): Action[] {
+  const steps: Action = {
+    hotkey: 's',
+    label: 'steps',
+    key: `agent-steps-${a.id}`,
+    onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'timeline', filter: { kind: 'agent', id: a.id } })),
+  }
+  if (a.id === 'main') return [steps]
+  return [
+    steps,
+    { hotkey: 'v', label: 'transcript', key: `agent-view-${a.id}`, onPress: () => viewAgent($, a.id) },
+    { hotkey: 'g', label: 'chat', key: `agent-chat-${a.id}`, onPress: () => chatAgent($, a) },
+  ]
+}
+
+/** The opened part under an agent's row, or null while it is closed. */
+export function agentOpened(ctx: ViewCtx, $: EngineInterface, a: AgentRow): RenderElement | null {
+  if (ctx.u.agentOpen !== a.id) return null
+  return opened(ctx, $, agentDetails(a), agentActions($, a))
+}
+
+/** A row `n`/`p` can jump to: its element key, and the `agentOpen` value that marks the cursor on it. */
+export type Jump = { key: string; open: string }
+
+/**
+ * `n` (dir 1) and `p` (dir -1): the next or previous `!` row after the one
+ * `ui.agentOpen` marks (the first, or the last, when none is), wrapping. It
+ * opens an agent's row and moves the focus ring onto the row. A press only.
+ */
+export async function jumpToProblem($: EngineInterface, targets: Jump[], dir: 1 | -1): Promise<void> {
+  if (targets.length === 0) return
+  try {
+    const u = await readUi($)
+    const at = targets.findIndex(t => t.open === u.agentOpen)
+    const i = at < 0 ? (dir === 1 ? 0 : targets.length - 1) : (at + dir + targets.length) % targets.length
+    const target = targets[i]!
+    await updateUi($, cur => ({ ...cur, agentOpen: target.open }))
+    await $.ui.focus({ requestId: PANE_ID, key: target.key })
+  } catch (err) {
+    debug($, `jump to problem failed: ${errText(err)}`)
+  }
 }

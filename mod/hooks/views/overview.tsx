@@ -19,6 +19,7 @@ import type { DeckRowSpec, Ring } from './richkit'
 import { Grid, drawBeads, drawSprite } from './raster'
 import type { Ink } from './raster'
 import type { ViewCtx } from './shell'
+import { deckSvg } from './svgview'
 import { C, cellCol, COL, DECK, GRID, spriteOf, statusColor } from './style'
 import type { Pod, Run } from './style'
 import { richStrip } from './stripband'
@@ -399,10 +400,11 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const comp = richStrip(ctx, $, { maxRows: Math.max(0, (ctx.bodyRows ?? 14) - (bar !== null ? 2 : 0)) })
     if (comp !== undefined) return <Box flexDirection="column">{stack(ctx, $, [comp, bar])}</Box>
   }
-  if (ctx.cols >= STRIP) return stripView(ctx, $, count)
+  const svgDeck = deckSvg(ctx, $)
+  if (svgDeck === null && ctx.cols >= STRIP) return stripView(ctx, $, count)
   const blocks = [
     needsSection(ctx, $),
-    deck(ctx, $, nowRows(ctx, $, false, count), { key: 'now' }),
+    svgDeck ?? deck(ctx, $, nowRows(ctx, $, false, count), { key: 'now' }),
     agentsBlock(ctx, $),
     latestBlock(ctx, $),
     keptBlock(ctx, $),

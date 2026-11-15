@@ -85,7 +85,7 @@ test('rich Now: the lead, the rings, the crew, the plan and the trace are Raster
   const got = await rasters(rich)
   for (const k of ['lead', 'dials', 'crew', 'plan', 'trace', 'now-lintel', 'now-sill']) expect(got).toContain(k)
   await rich.unmount()
-  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+  for (const surface of ['vscode', 'mobile'] as const) {
     const ui = await mount($, 62, 40, surface)
     expect(await rasters(ui)).toEqual([])
     // The text form is the built Neo deck, untouched.
@@ -328,7 +328,7 @@ test('rich strip: compartments from 96 columns, each with its own lintel and sil
 
 test('rich strip: without a Raster the text strip is drawn', async ($, on) => {
   world(on, busy())
-  const ui = await mount($, 100, 14, 'desktop', 'inline')
+  const ui = await mount($, 100, 14, 'vscode', 'inline')
   expect(await rasters(ui)).toEqual([])
   await ui.unmount()
 })

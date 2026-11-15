@@ -14,8 +14,9 @@ import type { DeckCell, DeckRow, InstSpec } from './parts'
 import { beads, bars, Grid, drawSprite, SPRITE } from './raster'
 import type { Hue } from './raster'
 import { leaveStrip } from './shell'
+import { bandSvgOf, lookFor } from './svgview'
 import type { ViewCtx } from './shell'
-import { C, cellCol, lookOf, podOf, rateColor } from './style'
+import { C, cellCol, podOf, rateColor } from './style'
 import type { Pod, PodState, Run } from './style'
 
 /** Under this many columns the band is the compact row, whatever the pane does. */
@@ -609,8 +610,13 @@ export function registerBand(on: On, options: { look?: string } = {}): void {
       const cols = e.props.bodyColumns
       // The look comes from the surface's element table, once per draw; the Rasters here are all still, so none is ever blitted.
       begin(BAND_SITE)
-      const look = lookOf($.ui.resolve(e), options)
+      const look = lookFor($.ui.resolve(e), e.surface, options)
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE }
+      // The desktop app draws the band as one Svg; /mc strip keeps its own rows.
+      if (!isStrip) {
+        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols })
+        if (svg !== null) return svg
+      }
       const allDone = needs.length === 0 && s.total > 0 && s.done === s.total && live === 0
       // The pods and the pill answer to the same rule: `waitStates` is built on `needsYou`.
       const crew = podsOf(t, waitStates(t, u, now), now, allDone)

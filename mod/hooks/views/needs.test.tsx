@@ -384,7 +384,8 @@ test('the band leads with the WAITING pill and the need count in bold warning, a
     tasks: [{ id: '1', subject: 'x', status: 'in_progress', owner: 'main', updatedAt: NOW }],
     agents: { main, a1: sub('a1') },
   })
-  for (const surface of BAND_SURFACES) {
+  // The desktop draws the band as an Svg, which has no Text rows.
+  for (const surface of BAND_SURFACES.filter(x => x !== 'desktop')) {
     const ui = await $.ui.mount({ ...BAND(80), surface })
     const found = await ui.findAll({ type: 'Text' })
     const row = found.map(f => f.text ?? '').find(t => t.includes('WAITING')) ?? ''

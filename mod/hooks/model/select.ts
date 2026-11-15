@@ -1,5 +1,5 @@
 import type { AgentKey, AgentRow, ArtifactRow, Ev, Note, Run, Step, StepFilter, TaskItem, Timeline, TurnRow } from '../../types'
-import { oneLine } from './label'
+import { oneLine, sigOf } from './label'
 import { FAILED_TURN_MS, STALL_MS } from './limits'
 import { budgetOf, usageOf } from './usage'
 
@@ -248,6 +248,26 @@ export function signatureOf(step: Step): string {
   return `${step.tool}:${rest}`
 }
 
+/**
+ * The step a permission prompt was raised for: the newest running step of
+ * `tool`, not already asking, whose sig matches `input`'s. The prompt names
+ * no tool_use_id, so the call is found by what it runs. A step in `agent`'s
+ * loop wins; else any loop's. Undefined when none matches.
+ */
+export function promptedStep(t: Timeline, tool: string, input: unknown, agent: AgentKey): Step | undefined {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined
+  const sig = sigOf(tool, input as Record<string, unknown>)
+  let any: Step | undefined
+  for (let i = t.steps.length - 1; i >= 0; i--) {
+    const s = t.steps[i]!
+    if (s.status !== 'running' || s.asking !== undefined) continue
+    if (s.tool !== tool || s.sig !== sig) continue
+    if (s.agent === agent) return s
+    any ??= s
+  }
+  return any
+}
+
 /** What UiState.dismissed holds for a problem: its key, and its count when it has one, so a grown count is new. */
 export function dismissKey(p: Problem): string {
   return p.count === undefined ? p.key : `${p.key}#${p.count}`
@@ -286,7 +306,7 @@ function groupBy(steps: Step[], keyOf: (s: Step) => string | undefined): Map<str
 
 /**
  * What needs the person, newest first (by `since`):
- * - `asking`: a running step whose tool.check resolved `ask` (since: the ask);
+ * - `asking`: a running step a permission prompt was raised for (since: the prompt);
  * - `repeat`: one signature's newest runs ended `error` twice or more in a row, with no run of it
  *   ending `done` in between or since (since: the newest failure's end; keyed by the run of
  *   failures' first step, so a new run after a pass is a new problem);
@@ -404,6 +424,8 @@ export function runBoard(t: Timeline, runId: string, now?: number): RunBoard | u
 // ---- Probe fixture lines (test/fixtures/probe-*.jsonl) → events ----------------
 // A line is { at, event, e, r? }. tool.call / agent.spawn carry `e` only (written
 // before next); tool.result / agent.spawned are the probe's own result lines.
+// A tool.check line yields nothing: its `ask` is no prompt (auto mode asks before
+// its classifier decides), so it marks no step.
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -430,10 +452,6 @@ export function fromFixture(line: unknown): Ev[] {
       const u = usageOf(e.usage)
       if (u !== undefined) out.push({ kind: 'usage', at, agent: agentOf(e), ...u })
       return out
-    }
-    case 'tool.check': {
-      const id = s(e.tool_use_id)
-      return id && r.decision === 'ask' ? [{ kind: 'step.ask', at, id }] : []
     }
     case 'session.measure':
       return [{ kind: 'measure', at, budget: budgetOf(e, at) }]

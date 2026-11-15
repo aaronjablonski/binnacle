@@ -54,8 +54,9 @@ describe('fromFixture', () => {
     ])
     expect(fromFixture({ at: 12, event: 'session.measure', e: { context: { tokens: 1, window: 100, percent: 1 }, rateLimits: [], changed: ['context'] }, r: { changed: ['context'] } }))
       .toEqual([{ kind: 'measure', at: 12, budget: { contextPct: 1, windows: [], at: 12 } }])
+    // A check's ask is not a prompt (auto mode asks before its classifier decides): no step.ask.
     expect(fromFixture({ at: 13, event: 'tool.check', e: { tool: 'Bash', input: {}, tool_use_id: 'u6' }, r: { decision: 'ask', reason: 'r' } }))
-      .toEqual([{ kind: 'step.ask', at: 13, id: 'u6' }])
+      .toEqual([])
     expect(fromFixture({ at: 14, event: 'tool.check', e: { tool: 'Read', input: {}, tool_use_id: 'u7' }, r: { decision: 'allow' } })).toEqual([])
     expect(fromFixture({ at: 15, event: 'tool.check', e: { tool: 'Read', input: {} }, r: { decision: 'ask' } })).toEqual([])
   })
@@ -137,20 +138,20 @@ describe('fixtures fold through reduce', () => {
       costUsd: 0.25038801,
       at: 1794748046451,
     })
-    // The checks that resolved ask marked their steps; every one has ended since.
+    // Four checks resolved ask under auto mode; no prompt was raised, so nothing was marked.
     const asked = t.steps.filter((s) => s.tool === 'Workflow' || s.tool === 'Agent' || s.tool === 'Bash' || s.tool === 'SubagentHandback')
     expect(asked).toHaveLength(4)
     for (const s of asked) expect(s.asking).toBeUndefined()
   })
 
-  it('usage: a check that resolved ask marks its step while it runs', () => {
+  it('usage: a Bash step whose check resolved ask under auto mode is not marked while it runs', () => {
     const all = lines('usage')
     type Line = { event?: string; e?: { tool?: string } }
     const cut = all.findIndex((l) => (l as Line).event === 'tool.result' && (l as Line).e?.tool === 'Bash')
     const t = fixtureEvents(all.slice(0, cut)).reduce(reduce, empty)
     const bash = t.steps.find((s) => s.tool === 'Bash')!
     expect(bash.status).toBe('running')
-    expect(bash.asking).toBe(1794748033109)
+    expect(bash.asking).toBeUndefined()
   })
 
   it('stays far under the $.state limit', () => {

@@ -2,6 +2,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { Ev } from '../types'
 import { bodyOf, claimJournal, saveSnapshot, writeBody } from './journal'
+import { promptedStep } from './model/select'
 import { budgetOf, usageOf } from './model/usage'
 import { apply, debug, errText, readTimeline } from './state'
 
@@ -96,20 +97,23 @@ export function registerCapture(on: On): void {
     return out
   }).catch(($, e, next) => next(e))
 
-  // Observes the engine's permission verdict. `ask` only says the call was put
-  // to the mode's decider (a person, a host or the auto-mode classifier); the
-  // step stays marked until it ends through the tool.call capture above, or
-  // until an agent it spawned shows it went ahead (agent.spawn above, and the
-  // agent's first step in the reducer).
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
+  // A prompt is raised: the call waits on the person (or the host). Not
+  // `tool.check`'s `ask`, which only puts the call to the mode's decider; in
+  // auto mode that comes before the classifier allows it, with nobody asked.
+  // The request names no tool_use_id, so the step is found by tool and input.
+  // A hook beneath that answered it asked nobody: nothing is marked. The mark
+  // clears when the step ends, or when an agent it spawned shows it went ahead.
+  // Observes only: the answer is never changed or given here.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const answer = await next(e)
     await safely($, 'step.ask', async () => {
-      if (verdict.decision !== 'ask') return
-      const id = e.tool_use_id
-      if (typeof id !== 'string' || id === '') return
-      await apply($, { kind: 'step.ask', at: await now($), id })
+      if (answer.decision !== undefined) return
+      const agent = typeof e.agent_id === 'string' && e.agent_id !== '' ? e.agent_id : 'main'
+      const step = promptedStep(await readTimeline($), e.tool_name, e.tool_input, agent)
+      if (step === undefined) return
+      await apply($, { kind: 'step.ask', at: await now($), id: step.id })
     })
-    return verdict
+    return answer
   }).catch(($, e, next) => next(e))
 
   // The session's context fill, rate-limit windows and cost, whenever a unit moved.

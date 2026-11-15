@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Ev, Step, Timeline } from '../mod/types'
 import { empty, reduce } from '../mod/hooks/model/reduce'
-import { dismissKey, findSteps, problems, runBoard, signatureOf } from '../mod/hooks/model/select'
+import { dismissKey, findSteps, problems, promptedStep, runBoard, signatureOf } from '../mod/hooks/model/select'
 import { sigOf } from '../mod/hooks/model/label'
 
 const fold = (evs: Ev[], from: Timeline = empty): Timeline => evs.reduce(reduce, from)
@@ -47,8 +47,48 @@ describe('signatureOf', () => {
   })
 })
 
+describe('promptedStep', () => {
+  it('is the newest running step of the tool with the same normalised input', () => {
+    const t = fold([
+      start('s1', 'Bash', { command: 'npm test' }),
+      start('s2', 'Bash', { command: 'npm   test' }),
+      start('s3', 'Bash', { command: 'npm run build' }),
+    ])
+    expect(promptedStep(t, 'Bash', { command: 'npm test' }, 'main')?.id).toBe('s2')
+  })
+
+  it('skips steps that ended or are already asking', () => {
+    const t = fold([
+      start('s1', 'Bash', { command: 'npm test' }),
+      start('s2', 'Bash', { command: 'npm test' }),
+      { kind: 'step.ask', at: at(), id: 's2' },
+      start('s3', 'Bash', { command: 'npm test' }),
+      end('s3'),
+    ])
+    expect(promptedStep(t, 'Bash', { command: 'npm test' }, 'main')?.id).toBe('s1')
+  })
+
+  it("prefers the step in the asking agent's loop, else takes any loop's", () => {
+    const t = fold([
+      start('s1', 'Bash', { command: 'npm test' }, 'a1'),
+      start('s2', 'Bash', { command: 'npm test' }, 'main'),
+    ])
+    expect(promptedStep(t, 'Bash', { command: 'npm test' }, 'a1')?.id).toBe('s1')
+    expect(promptedStep(t, 'Bash', { command: 'npm test' }, 'main')?.id).toBe('s2')
+    expect(promptedStep(t, 'Bash', { command: 'npm test' }, 'a9')?.id).toBe('s2')
+  })
+
+  it('is undefined when no running step matches the tool and input', () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm test' }), start('s2', 'Read', { file_path: 'a.ts' })])
+    expect(promptedStep(t, 'Bash', { command: 'npm run build' }, 'main')).toBeUndefined()
+    expect(promptedStep(t, 'PowerShell', { command: 'npm test' }, 'main')).toBeUndefined()
+    expect(promptedStep(t, 'Bash', 'not an object', 'main')).toBeUndefined()
+    expect(promptedStep(empty, 'Bash', { command: 'npm test' }, 'main')).toBeUndefined()
+  })
+})
+
 describe('problems', () => {
-  it('asking: a running step the check sent to ask, until it ends', () => {
+  it('asking: a running step a permission prompt was raised for, until it ends', () => {
     const t = fold([start('s1', 'Bash', { command: 'rm -rf build' }, 'a1'), { kind: 'step.ask', at: 1_000_500, id: 's1' }])
     const now = 1_010_000
     expect(problems(t, now, [])).toEqual([

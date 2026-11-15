@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Ev, Timeline, UiState } from '../types'
+import type { Ev, LedgerRow, Timeline, UiState } from '../types'
+import { LEDGER_KEY, ledgerRow, putRow, readLedger, storedLedger } from './model/ledger'
 import { empty, reduce, settle } from './model/reduce'
 import { boundUi } from './model/usage'
 
@@ -116,6 +117,38 @@ export async function dropClearMark($: EngineInterface): Promise<void> {
     await $.store.delete(CLEAR_MARK)
   } catch {
     // nothing to remove, or no store
+  }
+}
+
+// The ledger: one row per session in `$.store` (model/ledger.ts), keyed by the
+// timeline's journal folder so a /clear goes on in the same row.
+
+/** The ledger's rows; an old or foreign stored shape reads as none. Never throws. */
+export async function readLedgerRows($: EngineInterface): Promise<LedgerRow[]> {
+  try {
+    return readLedger(await $.store.get(LEDGER_KEY))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Writes this session's ledger row as the timeline stands at `at`: tokens by
+ * model and the session's cost. An empty timeline writes nothing; `canWrite`
+ * (the exit's bound, at session.end) is asked just before the write. Never throws.
+ */
+export async function saveLedger($: EngineInterface, at: number, canWrite: () => boolean = () => true): Promise<void> {
+  try {
+    const t = await read($, timeline)
+    if (isEmpty(t)) return
+    const session = t.journal ?? (await $.session.id())
+    const row = ledgerRow(t, session, at, t.budget?.costUsd)
+    if (Object.keys(row.tokens).length === 0 && row.usd === undefined) return
+    const rows = putRow(await readLedgerRows($), row)
+    if (!canWrite()) return
+    await $.store.set(LEDGER_KEY, storedLedger(rows))
+  } catch (err) {
+    debug($, `saveLedger failed: ${errText(err)}`)
   }
 }
 

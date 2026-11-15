@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { StepBody } from '../../types'
 import { digest, stamp } from '../model/digest'
-import { debug, errText, readTimeline } from '../state'
+import { apply, debug, errText, readTimeline } from '../state'
 import { journalOf, journalRoot, readBody } from '../journal'
 
 /**
@@ -22,6 +22,7 @@ export async function exportDigest($: EngineInterface): Promise<{ text: string }
     const text = digest(t, bodies, now)
     const path = `${root}/${journal.replace(/[^A-Za-z0-9_-]/g, '_')}/export-${stamp(now)}.md`
     await $.fs.write(path, text)
+    await apply($, { kind: 'export', at: now, path })
     let tail = ''
     try {
       const got = await $.ui.copy({ text })

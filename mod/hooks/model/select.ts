@@ -1,6 +1,8 @@
 import type { AgentKey, AgentRow, ArtifactRow, Ev, Note, Run, Step, StepFilter, TaskItem, Timeline, TurnRow } from '../../types'
 import { oneLine, sigOf } from './label'
 import { FAILED_TURN_MS, STALL_MS } from './limits'
+import { runLevel, runLimits, usualMs } from './meter'
+import type { RunLimits } from './meter'
 import { budgetOf, usageOf } from './usage'
 
 const byStart = (a: { startedAt: number }, b: { startedAt: number }) => a.startedAt - b.startedAt
@@ -217,10 +219,11 @@ export function summary(t: Timeline): Summary {
 
 // ---- Problems: what needs the person ------------------------------------------
 
-export type ProblemKind = 'asking' | 'repeat' | 'loop' | 'stalled' | 'failed-turn'
+export type ProblemKind = 'asking' | 'repeat' | 'loop' | 'stalled' | 'failed-turn' | 'long-run'
 export type Problem = {
   key: string; kind: ProblemKind; label: string; agent: AgentKey
   stepId?: string; since: number; count?: number
+  limitMs?: number; usualMs?: number     // long-run only: the limit it passed, and the median time of finished agents of its type
 }
 
 /**
@@ -313,11 +316,14 @@ function groupBy(steps: Step[], keyOf: (s: Step) => string | undefined): Map<str
  * - `loop`: one signature ran three times or more in one turn, unless it is already a repeat, or
  *   its tool is routine (ROUTINE_TOOLS) and none of those runs failed (since: the newest run's start);
  * - `stalled`: a running subagent that started no step for more than STALL_MS (since: its last step, or its start);
- * - `failed-turn`: a turn that ended failed within FAILED_TURN_MS of `now` (since: its end).
+ * - `failed-turn`: a turn that ended failed within FAILED_TURN_MS of `now` (since: its end);
+ * - `long-run`: a running subagent past `limits.agentLimitMin` (default 20) that is not stalled, keyed
+ *   by its id, or the open main turn past `limits.turnLimitMin` (default 60), keyed by its turn id
+ *   (since: when it passed the limit); one key per run, so a dismissed one stays dismissed. 0 is off.
  * A problem whose `dismissKey` is in `dismissed` is left out; a repeat or loop
  * comes back once its count grows.
  */
-export function problems(t: Timeline, now: number, dismissed: string[]): Problem[] {
+export function problems(t: Timeline, now: number, dismissed: string[], limits?: RunLimits): Problem[] {
   const out: Problem[] = []
   for (const s of t.steps) {
     if (s.status === 'running' && s.asking !== undefined) {
@@ -357,6 +363,22 @@ export function problems(t: Timeline, now: number, dismissed: string[]): Problem
     if (a.status !== 'running') continue
     const since = a.lastStepAt ?? a.startedAt
     if (now - since > STALL_MS) out.push({ key: `stalled:${a.id}`, kind: 'stalled', label: a.description || a.type, agent: a.id, since })
+  }
+
+  const { agentLimitMin, turnLimitMin } = runLimits(limits)
+  for (const a of subagents(t)) {
+    if (a.status !== 'running' || now - (a.lastStepAt ?? a.startedAt) > STALL_MS) continue
+    if (runLevel(now - a.startedAt, agentLimitMin) !== 'over') continue
+    const limitMs = agentLimitMin * 60_000
+    const p: Problem = { key: `long-run:${a.id}`, kind: 'long-run', label: a.description || a.type, agent: a.id, since: a.startedAt + limitMs, limitMs }
+    const usual = usualMs(t, a.type)
+    if (usual !== undefined) p.usualMs = usual
+    out.push(p)
+  }
+  const turn = [...t.turns].reverse().find((x) => x.agent === 'main')
+  if (turn !== undefined && turn.endedAt === undefined && runLevel(now - turn.startedAt, turnLimitMin) === 'over') {
+    const limitMs = turnLimitMin * 60_000
+    out.push({ key: `long-run:turn:${turn.id}`, kind: 'long-run', label: turn.prompt, agent: 'main', since: turn.startedAt + limitMs, limitMs })
   }
 
   for (const x of t.turns) {
@@ -448,9 +470,16 @@ export function fromFixture(line: unknown): Ev[] {
       const turnId = s(e.turnId)
       if (!turnId) return []
       const failed = e.isAborted === true || (e.reason !== undefined && e.reason !== 'answer')
-      const out: Ev[] = [{ kind: 'turn.end', at, turnId, agent: agentOf(e), answer: typeof e.answer === 'string' ? e.answer : '', failed }]
+      const end: Extract<Ev, { kind: 'turn.end' }> = { kind: 'turn.end', at, turnId, agent: agentOf(e), answer: typeof e.answer === 'string' ? e.answer : '', failed }
+      if (e.isAborted === true || e.reason === 'aborted') end.aborted = true
+      const out: Ev[] = [end]
       const u = usageOf(e.usage)
-      if (u !== undefined) out.push({ kind: 'usage', at, agent: agentOf(e), ...u })
+      const ms = typeof e.durationMs === 'number' && Number.isFinite(e.durationMs) && e.durationMs >= 0 ? e.durationMs : undefined
+      if (u !== undefined) {
+        const ev: Extract<Ev, { kind: 'usage' }> = { kind: 'usage', at, agent: agentOf(e), ...u, turnId }
+        if (ms !== undefined) ev.ms = ms
+        out.push(ev)
+      }
       return out
     }
     case 'session.measure':

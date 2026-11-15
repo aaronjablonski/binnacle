@@ -1,8 +1,8 @@
-import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, Run, Step, TaskItem, Timeline, TurnRow } from '../../types'
+import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, Run, Sample, Samples, Step, TaskItem, Timeline, TurnRow } from '../../types'
 import { basename, cut, isDoc, labelOf, oneLine, pathsOf, sigOf, tail2 } from './label'
 import {
-  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEP_ID, MAX_STEPS, MAX_TASKS,
-  MAX_TURNS,
+  CACHE_TTL_MS, MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_SAMPLES,
+  MAX_STEP_ID, MAX_STEPS, MAX_TASKS, MAX_TURNS, MAX_WINDOWS, SAMPLE_GAP_MS,
 } from './limits'
 import { windowsOf } from './usage'
 
@@ -226,6 +226,7 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
   })
   if (ev.tool === 'TodoWrite' && Array.isArray(input.todos)) {
     const todos: TaskItem[] = []
+    const before = new Map(next.tasks.map((x) => [x.id, x]))
     input.todos.forEach((td, i) => {
       if (!isObj(td)) return
       const item: TaskItem = {
@@ -236,6 +237,14 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
       }
       const af = line(td.activeForm)
       if (af !== undefined) item.activeForm = af
+      // The list is rewritten whole: an item it leaves as it was keeps its
+      // time, and every item keeps the turns already attributed to it.
+      const old = before.get(item.id)
+      if (old !== undefined) {
+        if (old.subject === item.subject && old.status === item.status) item.updatedAt = old.updatedAt
+        if (old.tokens !== undefined) item.tokens = old.tokens
+        if (old.ms !== undefined) item.ms = old.ms
+      }
       todos.push(item)
     })
     next = { ...next, tasks: boundTasks([...next.tasks.filter((x) => x.owner !== ev.agent), ...todos]) }
@@ -374,13 +383,22 @@ function applyUpdate(t: Timeline, ev: Extract<Ev, { kind: 'update' }>): Timeline
 function turnStart(t: Timeline, ev: Extract<Ev, { kind: 'turn.start' }>): Timeline {
   const row = { id: ev.turnId, agent: ev.agent, prompt: cut(oneLine(str(ev.prompt) ?? ''), MAX_LINE), startedAt: ev.at }
   const next: Timeline = { ...t, turns: dropPast([...t.turns, row], MAX_TURNS) }
+  // A main turn's cost share starts from the session's cost as it stands.
+  if (ev.agent === 'main') {
+    delete next.turnCost
+    const usd = t.budget?.costUsd
+    if (usd !== undefined) next.turnCost = { turnId: ev.turnId, from: usd }
+  }
   return withAgent(next, ev.agent, ev.at, (a) => (ev.agent === 'main' || a.status === 'running' ? a : { ...a, status: 'running' }))
 }
 
 function turnEnd(t: Timeline, ev: Extract<Ev, { kind: 'turn.end' }>): Timeline {
   const turns = t.turns.map((x): TurnRow => {
     if (x.id !== ev.turnId || x.endedAt !== undefined) return x
-    return ev.failed === true ? { ...x, endedAt: ev.at, failed: true } : { ...x, endedAt: ev.at }
+    const row: TurnRow = { ...x, endedAt: ev.at }
+    if (ev.failed === true) row.failed = true
+    if (ev.aborted === true) row.aborted = true
+    return row
   })
   const steps = t.steps.map((s): Step => {
     if (s.agent !== ev.agent || s.status !== 'running') return s
@@ -388,7 +406,12 @@ function turnEnd(t: Timeline, ev: Extract<Ev, { kind: 'turn.end' }>): Timeline {
     return { ...rest, status: 'interrupted', endedAt: ev.at }
   })
   const first = cut(oneLine((str(ev.answer) ?? '').trim().split(/\r?\n/)[0] ?? ''), DOING_MAX)
-  return withAgent({ ...t, turns, steps }, ev.agent, ev.at, (a) => {
+  const ended: Timeline = { ...t, turns, steps }
+  const usd = t.budget?.costUsd
+  if (ev.agent === 'main' && t.turnCost !== undefined && t.turnCost.turnId === ev.turnId && usd !== undefined) {
+    ended.turnCost = { ...t.turnCost, to: usd }
+  }
+  return withAgent(ended, ev.agent, ev.at, (a) => {
     const row: AgentRow = { ...a }
     if (first !== '') row.doing = first
     if (ev.agent !== 'main') {
@@ -408,19 +431,87 @@ function stepAsk(t: Timeline, ev: Extract<Ev, { kind: 'step.ask' }>): Timeline {
   return { ...t, steps: t.steps.map((x, j) => (j === i ? { ...s, asking: ev.at } : x)) }
 }
 
-/** Adds a turn's token counts to its agent; a model given replaces the one held. */
+/**
+ * The index of the main task a main-loop turn that ended at `at` after `ms`
+ * goes to: the one in progress (the newest), else the one it closed (completed
+ * since the turn began, the newest); -1 when neither.
+ */
+function taskAtTurnEnd(t: Timeline, at: number, ms: number): number {
+  const newest = (ok: (x: TaskItem) => boolean): number => {
+    let best = -1
+    t.tasks.forEach((x, i) => {
+      if (x.owner === 'main' && ok(x) && (best < 0 || x.updatedAt >= t.tasks[best]!.updatedAt)) best = i
+    })
+    return best
+  }
+  const open = newest((x) => x.status === 'in_progress')
+  return open >= 0 ? open : newest((x) => x.status === 'completed' && x.updatedAt >= at - ms)
+}
+
+/**
+ * True when a main turn's cache counts show it read a prefix an earlier turn
+ * left, not one it wrote itself: what it wrote, times its requests (its steps
+ * plus one), is under half of what it read. A cold turn writes the whole
+ * prefix once and reads it back on each later request, so it fails this.
+ */
+function readWarm(t: Timeline, turnId: string | undefined, read: number, write: number): boolean {
+  if (read <= 0) return false
+  let requests = 1
+  if (turnId !== undefined) for (const s of t.steps) if (s.turnId === turnId) requests++
+  return write * requests < read / 2
+}
+
+/**
+ * The main loop's cache clock moved to its reply at `ev.at`; it says an hour
+ * from then on once a turn that began more than CACHE_TTL_MS after the last
+ * reply still read from the cache.
+ */
+function cacheClock(t: Timeline, ev: Extract<Ev, { kind: 'usage' }>, read: number | undefined, write: number | undefined): Timeline {
+  const old = t.cache
+  let hour = old?.hour === true
+  if (!hour && old !== undefined && read !== undefined) {
+    const turn = ev.turnId === undefined ? undefined : t.turns.find((x) => x.id === ev.turnId)
+    const ms = count(ev.ms)
+    const began = turn?.startedAt ?? (ms !== undefined ? ev.at - ms : undefined)
+    if (began !== undefined && began - old.at > CACHE_TTL_MS && readWarm(t, ev.turnId, read, write ?? 0)) hour = true
+  }
+  return { ...t, cache: hour ? { at: ev.at, hour: true } : { at: ev.at } }
+}
+
+/**
+ * Adds a turn's token counts, cache reads and writes and length to its agent;
+ * a model given replaces the one held. A main-loop turn's tokens and length
+ * also go to the task in progress at its end (taskAtTurnEnd), and its reply
+ * moves the cache clock.
+ */
 function addUsage(t: Timeline, ev: Extract<Ev, { kind: 'usage' }>): Timeline {
   const tokensIn = count(ev.tokensIn)
   const tokensOut = count(ev.tokensOut)
+  const read = count(ev.cacheRead)
+  const write = count(ev.cacheWrite)
+  const ms = count(ev.ms)
   const model = modelOf(ev.model)
-  if (tokensIn === undefined && tokensOut === undefined && model === undefined) return t
-  return withAgent(t, ev.agent, ev.at, (a) => {
+  if (tokensIn === undefined && tokensOut === undefined && model === undefined && ms === undefined) return t
+  let next = withAgent(t, ev.agent, ev.at, (a) => {
     const row: AgentRow = { ...a }
     if (tokensIn !== undefined) row.tokensIn = (a.tokensIn ?? 0) + tokensIn
     if (tokensOut !== undefined) row.tokensOut = (a.tokensOut ?? 0) + tokensOut
+    if (read !== undefined) row.cacheRead = (a.cacheRead ?? 0) + read
+    if (write !== undefined) row.cacheWrite = (a.cacheWrite ?? 0) + write
+    if (ms !== undefined) row.ms = (a.ms ?? 0) + ms
     if (model !== undefined) row.model = model
     return row
   })
+  if (ev.agent !== 'main') return next
+  const i = taskAtTurnEnd(next, ev.at, ms ?? 0)
+  if (i >= 0) {
+    const x = next.tasks[i]!
+    const task: TaskItem = { ...x, tokens: (x.tokens ?? 0) + (tokensIn ?? 0) + (tokensOut ?? 0) }
+    if (ms !== undefined) task.ms = (x.ms ?? 0) + ms
+    next = { ...next, tasks: next.tasks.map((y, j) => (j === i ? task : y)) }
+  }
+  if (tokensIn !== undefined || tokensOut !== undefined) next = cacheClock(next, ev, read, write)
+  return next
 }
 
 function agentModel(t: Timeline, ev: Extract<Ev, { kind: 'agent.model' }>): Timeline {
@@ -430,14 +521,48 @@ function agentModel(t: Timeline, ev: Extract<Ev, { kind: 'agent.model' }>): Time
   return withAgent(t, ev.id, at, (a) => ({ ...a, model }))
 }
 
-/** The budget replaced whole by the newest measurement. */
+/**
+ * The pace ring with `budget` taken in as a sample: window names it has not
+ * seen are added (at most MAX_WINDOWS); the newest sample is replaced while it
+ * is under SAMPLE_GAP_MS after the one before it, else a new one is added; past
+ * MAX_SAMPLES the oldest goes.
+ */
+function takeSample(old: Samples | undefined, budget: Budget): Samples {
+  const names = [...(old?.names ?? [])]
+  for (const w of budget.windows) if (!names.includes(w.name) && names.length < MAX_WINDOWS) names.push(w.name)
+  const sample: Sample = { at: budget.at, w: names.map((n) => budget.windows.find((w) => w.name === n)?.pct ?? null) }
+  if (budget.contextPct !== undefined) sample.ctx = budget.contextPct
+  const list = [...(old?.list ?? [])]
+  const n = list.length
+  if (n >= 2 && list[n - 1]!.at - list[n - 2]!.at < SAMPLE_GAP_MS) list[n - 1] = sample
+  else list.push(sample)
+  return { names, list: dropPast(list, MAX_SAMPLES) }
+}
+
+/**
+ * The budget replaced whole by the newest measurement and sampled for pace;
+ * an open main turn's cost share follows the cost.
+ */
 function measure(t: Timeline, ev: Extract<Ev, { kind: 'measure' }>): Timeline {
   const src: Partial<Budget> = isObj(ev.budget) ? ev.budget : {}
   const budget: Budget = { windows: windowsOf(src.windows), at: ev.at }
   if (typeof src.contextPct === 'number' && Number.isFinite(src.contextPct)) budget.contextPct = src.contextPct
+  const tokens = count(src.contextTokens)
+  if (tokens !== undefined) budget.contextTokens = tokens
   const usd = count(src.costUsd)
   if (usd !== undefined) budget.costUsd = usd
-  return { ...t, budget }
+  const next: Timeline = { ...t, budget, samples: takeSample(t.samples, budget) }
+  const tc = t.turnCost
+  const open = tc !== undefined && t.turns.some((x) => x.id === tc.turnId && x.agent === 'main' && x.endedAt === undefined)
+  if (open && usd !== undefined) next.turnCost = { ...tc, to: usd }
+  return next
+}
+
+/** What `/mc export` wrote last: its time and path (one line, cut to MAX_REF); a blank path changes nothing. */
+function noteExport(t: Timeline, ev: Extract<Ev, { kind: 'export' }>): Timeline {
+  if (typeof ev.path !== 'string' || typeof ev.at !== 'number') return t
+  const path = cut(oneLine(ev.path), MAX_REF)
+  return path === '' ? t : { ...t, lastExport: { at: ev.at, path } }
 }
 
 function pin(t: Timeline, id: string, note: string | undefined): Timeline {
@@ -467,6 +592,7 @@ export function reduce(t: Timeline, ev: Ev): Timeline {
       case 'usage': return addUsage(t, ev)
       case 'agent.model': return agentModel(t, ev)
       case 'measure': return measure(t, ev)
+      case 'export': return noteExport(t, ev)
       default: return t
     }
   } catch {

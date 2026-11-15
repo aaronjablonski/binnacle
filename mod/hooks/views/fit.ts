@@ -70,3 +70,29 @@ export function packParts(parts: string[], columns: number): string[] {
   if (line !== '') lines.push(line)
   return lines
 }
+
+/** A line of '─' as wide as `columns`; '' for no room. */
+export function rule(columns: number): string {
+  return '─'.repeat(Math.max(0, columns))
+}
+
+/** The filled and the resting blocks of a progress bar of `columns` cells. */
+export function blockBar(done: number, total: number, columns: number): { filled: string; rest: string } {
+  const cells = bar(done, total, columns)
+  return { filled: '█'.repeat(cells.filled), rest: '░'.repeat(cells.rest) }
+}
+
+/**
+ * The three parts of `LABEL ─── meta` for a row of `columns`: the rule part
+ * carries its own spaces, so the parts sum to `columns` exactly. The meta
+ * gives way first, then the rule.
+ */
+export function headerParts(label: string, meta: string, columns: number): { label: string; rule: string; meta: string } {
+  const head = fit(label, columns)
+  const room = columns - head.length - meta.length
+  // A rule between label and meta needs a space on each side and one dash.
+  if (meta !== '' && room >= 3) return { label: head, rule: ` ${rule(room - 2)} `, meta }
+  const left = columns - head.length
+  if (left >= 2) return { label: head, rule: ` ${rule(left - 1)}`, meta: '' }
+  return { label: head, rule: '', meta: '' }
+}

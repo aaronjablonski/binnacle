@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { bar, elapsed, fit, fitLeft } from '../mod/hooks/views/fit'
+import { bar, blockBar, elapsed, fit, fitLeft, headerParts, rule } from '../mod/hooks/views/fit'
 
 test('fit cuts with an ellipsis and never exceeds the columns', () => {
   expect(fit('abcdef', 4)).toBe('abc…')
@@ -28,4 +28,35 @@ test('bar splits the columns', () => {
   expect(bar(2, 6, 36)).toEqual({ filled: 12, rest: 24 })
   expect(bar(0, 0, 10)).toEqual({ filled: 0, rest: 10 })
   expect(bar(9, 3, 10)).toEqual({ filled: 10, rest: 0 })
+})
+
+test('rule repeats the line glyph and is empty for no room', () => {
+  expect(rule(5)).toBe('─────')
+  expect(rule(0)).toBe('')
+  expect(rule(-2)).toBe('')
+})
+
+test('blockBar fills and rests to the columns', () => {
+  expect(blockBar(2, 6, 12)).toEqual({ filled: '████', rest: '░░░░░░░░' })
+  expect(blockBar(0, 0, 4)).toEqual({ filled: '', rest: '░░░░' })
+  expect(blockBar(6, 6, 3)).toEqual({ filled: '███', rest: '' })
+  expect(blockBar(1, 2, 0)).toEqual({ filled: '', rest: '' })
+})
+
+test('headerParts sum to the columns, dropping the meta first and then the rule', () => {
+  const sum = (p: { label: string; rule: string; meta: string }): number => p.label.length + p.rule.length + p.meta.length
+  const wide = headerParts('TASKS', '2/6', 62)
+  expect(sum(wide)).toBe(62)
+  expect(wide.meta).toBe('2/6')
+  expect(wide.rule.startsWith(' ─')).toBe(true)
+  expect(wide.rule.endsWith('─ ')).toBe(true)
+  const narrow = headerParts('AGENTS', '1 running · 0 done', 24)
+  expect(narrow.meta).toBe('')
+  expect(sum(narrow)).toBe(24)
+  const tight = headerParts('TIMELINE', 'x', 9)
+  expect(tight.meta).toBe('')
+  expect(tight.rule).toBe('')
+  expect(sum(tight)).toBe(8)
+  expect(headerParts('ARTIFACTS', '', 9)).toEqual({ label: 'ARTIFACTS', rule: '', meta: '' })
+  expect(headerParts('A LONG LABEL', '', 5).label).toBe('A LO…')
 })

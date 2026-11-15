@@ -217,3 +217,109 @@ export function imageRgba(): { rgba: string; width: number; height: number } {
   }
   return { rgba: base64(px), width, height }
 }
+
+// --- 8. Braille ring ---------------------------------------------------------
+
+// Braille dot bits by [column][row] in a 2x4 cell.
+const DOT = [
+  [0x01, 0x02, 0x04, 0x40],
+  [0x08, 0x10, 0x20, 0x80],
+]
+
+/** A 7x4-cell Braille ring (14x16 dots, square on screen), then the value. */
+export function brailleRing(percent: number): Grid {
+  const W = 7
+  const H = 4
+  const label = ` ${percent}%`
+  const cx = W // 14 dots wide
+  const cy = H * 2 // 16 dots tall
+  const outer = 6.9
+  const inner = 4.6
+  const cells: Cell[] = []
+  for (let row = 0; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      let bits = 0
+      let on = 0
+      let off = 0
+      for (let dx = 0; dx < 2; dx++) {
+        for (let dy = 0; dy < 4; dy++) {
+          const x = col * 2 + dx + 0.5 - cx
+          const y = row * 4 + dy + 0.5 - cy
+          const r = Math.hypot(x, y)
+          if (r < inner || r > outer) continue
+          bits |= DOT[dx]![dy]!
+          const turn = (Math.atan2(x, -y) / (2 * Math.PI) + 1) % 1
+          if (turn <= percent / 100) on++
+          else off++
+        }
+      }
+      cells.push(bits === 0 ? blank() : [0x2800 + bits, on >= off ? AMBER : DIM, DEFAULT])
+    }
+    for (let i = 0; i < label.length; i++) {
+      cells.push(row === 1 || row === 2 ? glyph(row === 1 ? label[i]! : ' ', AMBER) : blank())
+    }
+  }
+  return pack(W + label.length, H, cells)
+}
+
+// --- 9. Quadrant sprites -----------------------------------------------------
+
+// 12x6 sub-pixels each: 6 columns by 3 rows of quadrant blocks.
+export const QUAD_SPRITES: Sprite[] = [
+  {
+    // round-headed scout
+    px: ['....pppp....', '...pppppp...', '....pppp....', '...gggggg...', '..gggggggg..', '..ll....ll..'],
+    palette: { p: 0xf9a8d4, g: 0x22c55e, l: 0x14532d },
+  },
+  {
+    // square-bodied builder: brimmed helmet, a hammer at the side
+    px: ['....yyyy....', '...yyyyyy...', '....ssss..hh', '..bbbbbbbbh.', '..bbbbbbbbh.', '..ll....ll..'],
+    palette: { y: 0xfde047, s: 0xfcd9b6, b: 0x3b82f6, l: 0x1e3a8a, h: 0x9ca3af },
+  },
+]
+
+/** One cell of 2x2 sub-pixels: the commonest colour as the glyph, the next as background. */
+function quadCell(s: Sprite, col: number, row: number): Cell {
+  const px: (number | undefined)[] = []
+  for (let q = 0; q < 4; q++) {
+    const k = s.px[row * 2 + (q & 2 ? 1 : 0)]?.[col * 2 + (q & 1)] ?? '.'
+    px.push(k === '.' ? undefined : s.palette[k])
+  }
+  const counts = new Map<number, number>()
+  for (const c of px) if (c !== undefined) counts.set(c, (counts.get(c) ?? 0) + 1)
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  const first = ranked[0]
+  if (first === undefined) return blank()
+  const empties = px.filter(c => c === undefined).length
+  const second = ranked[1]
+  let bits = 0
+  px.forEach((c, q) => {
+    if (c === first[0]) bits |= 1 << q
+  })
+  const bg = second !== undefined && second[1] > empties ? second[0] : DEFAULT
+  return glyph(QUAD[bits]!, first[0], bg)
+}
+
+/**
+ * Each quadrant sprite beside its half-block cousin: the round head by the
+ * scout, the square head by the builder.
+ */
+export function quadSprites(): Grid {
+  const pairs: [Sprite, Sprite][] = [
+    [SPRITES[1]!, QUAD_SPRITES[0]!],
+    [SPRITES[2]!, QUAD_SPRITES[1]!],
+  ]
+  const cells: Cell[] = []
+  const gap = (n: number) => {
+    for (let i = 0; i < n; i++) cells.push(blank())
+  }
+  for (let row = 0; row < 3; row++) {
+    pairs.forEach(([half, quad], i) => {
+      if (i > 0) gap(4)
+      for (let x = 0; x < 5; x++) cells.push(spriteCell(half, x, row))
+      gap(2)
+      for (let x = 0; x < 6; x++) cells.push(quadCell(quad, x, row))
+    })
+  }
+  return pack(2 * (5 + 2 + 6) + 4, 3, cells)
+}

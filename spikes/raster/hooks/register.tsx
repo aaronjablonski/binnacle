@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import { bar, barText, imageRgba, meter, pill, ring, SEGMENTS, sprites } from './card'
+import { bar, barText, brailleRing, imageRgba, meter, pill, quadSprites, ring, SEGMENTS, sprites } from './card'
 
 // Throwaway spike: does the terminal (VS Code's, on Windows) draw Raster cells?
 
@@ -94,6 +94,8 @@ export const register: Register = on => {
     const g4 = pill(' WORKING ')
     const g5 = meter(17)
     const g7 = bar(animFill())
+    const g8 = brailleRing(42)
+    const g9 = quadSprites()
     const img = imageRgba()
     const label = (s: string) => <Text dimColor>{s}</Text>
     const fallback = (s: string) => <Text dimColor>  fallback: {s}</Text>
@@ -125,6 +127,12 @@ export const register: Register = on => {
         {label('7. Animated bar ($.clock.every 1s + $.ui.blit)')}
         <Raster key="anim" columns={g7.columns} rows={g7.rows} cells={g7.cells} />
         {fallback('the bar above should grow by 3 segments a second')}
+        {label('8. Braille ring (2x4 dots per cell, 42%)')}
+        <Raster key="braille" columns={g8.columns} rows={g8.rows} cells={g8.cells} />
+        {fallback('braille ring 42%')}
+        {label('9. Half-block vs quadrant sprites (scout, builder)')}
+        <Raster key="quads" columns={g9.columns} rows={g9.rows} cells={g9.cells} />
+        {fallback('round head | quadrant scout    square head | quadrant builder')}
       </Box>
     )
   })

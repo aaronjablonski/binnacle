@@ -9,12 +9,12 @@ const PANE = {
     isFocused: true,
     bodyColumns: 62,
     placement: 'dock',
-    scroll: { offset: 0, bodyRows: 40 },
+    scroll: { offset: 0, bodyRows: 60 },
     view: {},
   },
 } as const
 
-const RASTERS = ['sprites', 'bar', 'ring', 'pill', 'meter', 'anim']
+const RASTERS = ['sprites', 'bar', 'ring', 'pill', 'meter', 'anim', 'braille', 'quads']
 
 test('/spike opens the pane, 62 columns, with focus', async ($, on) => {
   const opened: Record<string, unknown>[] = []

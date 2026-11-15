@@ -596,3 +596,22 @@ test('empty state', async ($, on) => {
     }
   }
 })
+
+test('focused, every row of Agents, footer included, fits 32 and 40 columns', async ($, on) => {
+  seed(on, busy({
+    agents: {
+      main,
+      a1: { ...agent('a1', 'Explore', 'find every caller of stepRow', 'Grep stepRow') },
+      a2: { ...agent('a2', 'general-purpose', 'write timeline tests', 'Edit a.ts'), status: 'error' as const },
+    },
+  }), AGENTS_UI)
+  for (const columns of [32, 40]) {
+    for (const surface of SURFACES) {
+      const ui = await mount($, surface, columns, true)
+      const rows = screen(await ui.drawn())
+      expect(rows.length > 5).toBe(true)
+      for (const r of rows) expect(r.length <= columns).toBe(true)
+      await ui.unmount()
+    }
+  }
+})

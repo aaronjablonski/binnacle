@@ -662,3 +662,21 @@ test('the strip with more than two live agents folds the rest into + n more', as
   }
 })
 
+
+test('focused, every row of Now, footer included, fits 32 and 40 columns', async ($, on) => {
+  seed(on, busy({
+    steps: [
+      step('s1', 1, 'Bash npm test -- timeline', 'error', { tool: 'Bash', agent: 'a2', endedAt: NOW - 4000, startedAt: NOW - 9000 }),
+      step('s3', 3, 'Edit mod/hooks/views/timeline.tsx', 'running', { startedAt: NOW - 2000, asking: NOW - 30_000 }),
+    ],
+  }))
+  for (const cols of [32, 40]) {
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE(cols), props: { ...PANE(cols).props, isFocused: true }, surface })
+      const rows = await rowsOf(ui)
+      expect(rows.some(r => r.includes('b: budget'))).toBe(true)
+      for (const r of rows) expect(r.length <= cols).toBe(true)
+      await ui.unmount()
+    }
+  }
+})

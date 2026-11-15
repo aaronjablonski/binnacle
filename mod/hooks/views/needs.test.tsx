@@ -484,3 +484,17 @@ test("a workflow agent's finish toasts its result, not its last step", async ($,
   await clock.advance(3000)
   expect(toasts).toEqual(['workflow-subagent finished: verdict: ok · files: 3'])
 })
+
+test('focused, every row of Now with NEEDS YOU, footer included, fits 32 and 40 columns', async ($, on) => {
+  world(on, waiting())
+  for (const columns of [32, 40]) {
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...FOCUSED(columns), surface })
+      const rows = await rowsOf(ui)
+      expect(rows.some(r => r.includes('NEEDS YOU'))).toBe(true)
+      expect(rows.some(r => r.includes('esc') || r.includes('b: budget') || r.includes('p: prev'))).toBe(true)
+      for (const r of rows) expect(r.length <= columns).toBe(true)
+      await ui.unmount()
+    }
+  }
+})

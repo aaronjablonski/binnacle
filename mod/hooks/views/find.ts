@@ -67,3 +67,31 @@ export async function showInChat($: EngineInterface, stepId: string): Promise<vo
     $.ui.toast(`Not shown in chat: ${errText(err)}`)
   }
 }
+
+/** The find field's key: `f` focuses it. */
+export const FIND_KEY = 'timeline-find'
+
+/**
+ * `f`: moves the pane's focus ring onto the find field. A press only; a
+ * refusal (the pane does not hold the keys) is logged, not shown.
+ */
+export async function focusFind($: EngineInterface, requestId: string): Promise<void> {
+  try {
+    const got = await $.ui.focus({ requestId, key: FIND_KEY })
+    if (got.deny !== undefined) debug($, `find focus refused: ${got.deny}`)
+  } catch (err) {
+    debug($, `find focus failed: ${errText(err)}`)
+  }
+}
+
+/**
+ * The step `n` (dir 1) or `p` (dir -1) goes to: the one after (before)
+ * `current` in `ids`, wrapping at the ends. With no current step, `n` takes
+ * the first and `p` the last. Nothing when `ids` is empty.
+ */
+export function stepTarget(ids: readonly string[], current: string | undefined, dir: 1 | -1): string | undefined {
+  if (ids.length === 0) return undefined
+  const at = current === undefined ? -1 : ids.indexOf(current)
+  if (at < 0) return dir === 1 ? ids[0] : ids[ids.length - 1]
+  return ids[(at + dir + ids.length) % ids.length]
+}

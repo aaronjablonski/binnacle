@@ -155,24 +155,31 @@ test('a missing body says so', async ($, on) => {
   }
 })
 
-test('Pin toggles to Unpin and writes the pin', async ($, on) => {
+test('Keep toggles to Unkeep and writes the pin; keeping toasts what it means', async ($, on) => {
   const stored = world(on, tl(step('s1', 'Edit a.ts')), DETAIL(bodyOf()))
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
   for (const surface of SURFACES) {
     stored.set('timeline', tl(step('s1', 'Edit a.ts')))
+    toasts.length = 0
     const ui = await mount($, surface)
-    expect((await ui.find({ key: 'detail-pin' }))?.text).toContain('Pin')
-    await ui.press({ key: 'detail-pin' })
+    expect((await ui.find({ key: 'detail-keep' }))?.text).toBe('Keep (k)')
+    await ui.press({ key: 'detail-keep' })
     expect((stored.get('timeline') as Timeline).steps[0]?.pin).toBe('')
+    expect(toasts).toEqual(['Kept: never trimmed, exported in full'])
     await ui.unmount()
     const again = await mount($, surface)
-    expect((await again.find({ key: 'detail-pin' }))?.text).toContain('Unpin')
-    await again.press({ key: 'detail-pin' })
+    expect((await again.find({ key: 'detail-keep' }))?.text).toBe('Unkeep (k)')
+    await again.press({ key: 'detail-keep' })
     expect((stored.get('timeline') as Timeline).steps[0]?.pin).toBeUndefined()
     await again.unmount()
   }
 })
 
-test('a pinned step shows its note under the header', async ($, on) => {
+test('a kept step shows its note under the header', async ($, on) => {
   world(on, tl(step('s1', 'Edit a.ts', { pin: 'the limiter itself' })), DETAIL(bodyOf()))
   const ui = await mount($, 'terminal')
   expect(await allText(ui)).toContain('★ the limiter itself')
@@ -235,7 +242,8 @@ test('the buttons are labelled for surfaces with no hotkeys', async ($, on) => {
   world(on, tl(step('s1', 'Edit a.ts')), DETAIL(bodyOf()))
   const ui = await mount($, 'vscode')
   expect((await ui.find({ key: 'detail-back' }))?.text).toContain('(b)')
-  expect((await ui.find({ key: 'detail-pin' }))?.text).toContain('(p)')
+  expect((await ui.find({ key: 'detail-keep' }))?.text).toContain('(k)')
+  expect((await ui.find({ key: 'detail-quote' }))?.text).toContain('(q)')
   expect((await ui.find({ key: 'detail-copy' }))?.text).toContain('(c)')
   await ui.unmount()
 })
@@ -344,7 +352,7 @@ test('Copy as Markdown and Quote in prompt do nothing on mount, and only copy or
     fills.length = 0
     const ui = await mount($, surface)
     expect((await ui.find({ key: 'detail-md' }))?.text).toBe('Copy as Markdown')
-    expect((await ui.find({ key: 'detail-quote' }))?.text).toBe('Quote in prompt')
+    expect((await ui.find({ key: 'detail-quote' }))?.text).toBe('Quote in prompt (q)')
     expect(copies.length + fills.length).toBe(0)
     await ui.press({ key: 'detail-md' })
     expect(copies.length).toBe(1)
@@ -367,5 +375,14 @@ test('the new buttons are absent when the body is not kept', async ($, on) => {
   const ui = await mount($, 'terminal')
   expect(await ui.find({ key: 'detail-md' })).toBeUndefined()
   expect(await ui.find({ key: 'detail-quote' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the full step arms b, k, c and q as hotkeys', async ($, on) => {
+  world(on, tl(step('s1', 'Edit a.ts')), DETAIL(bodyOf()))
+  const ui = await mount($, 'terminal')
+  for (const [key, hotkey] of [['detail-back', 'b'], ['detail-keep', 'k'], ['detail-copy', 'c'], ['detail-quote', 'q']] as const) {
+    expect((await ui.find({ key }))?.props).toMatchObject({ hotkey })
+  }
   await ui.unmount()
 })

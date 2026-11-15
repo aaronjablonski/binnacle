@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow } from '../../types'
-import { agentGroups, problems, runBoard } from '../model/select'
+import { agentGroups, runBoard } from '../model/select'
 import { debug, errText, updateUi } from '../state'
 import { EMPTY, RUN_GLYPH, agentOpened, agentRow, jumpToProblem, tokensOf } from './agentmeta'
 import type { Jump } from './agentmeta'
@@ -11,7 +11,7 @@ import { blank, deck, footer, more, row, section } from './parts'
 import type { DeckCell, Run } from './parts'
 import { runBoardView } from './runboard'
 import type { ViewCtx } from './shell'
-import { waitStates } from './needs'
+import { needsYou, waitStates } from './needs'
 import { C, DECK, GRID, HULL, cellCol, podOf, roleOf } from './style'
 import type { PodState, Role } from './style'
 import { treeView } from './tree'
@@ -228,7 +228,9 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { t, u, cols, now } = ctx
   try {
     if (u.run !== undefined) return runBoardView(ctx, u.run, $)
-    const ids = new Set(problems(t, now, u.dismissed).map(p => p.agent))
+    // The `!` marks and the n/p targets follow the rule `waitStates` does: an
+    // ask counts from ASK_MS, and a dismissed problem marks nothing.
+    const ids = new Set(needsYou(t, u, now).map(p => p.agent))
     const states = waitStates(ctx.t, ctx.u, ctx.now)
     const body = u.agentsMode === 'tree' ? treeView(ctx, $, ids, states) : listView(ctx, $, ids, states)
     const jump = (dir: 1 | -1) => () => void jumpToProblem($, body.targets, dir)

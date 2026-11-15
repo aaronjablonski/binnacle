@@ -21,10 +21,10 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 
 ## Next: Neo restyle (`plans/2026-11-15-mission-control-neo.md`)
 
-- [ ] N2: Now deck, NEEDS YOU bracket, budget view, slim head, strip
-- [ ] N3: Agents CREW/ROLES/MODELS deck, hulls, tethered tree
-- [ ] N4: Tasks deck with tethered agents, Steps FIND/SHOW deck, Artifacts HANDOFF/KEPT deck
-- [ ] N5: three-row / compact / all-done band
+- [x] N2: Now deck, NEEDS YOU bracket, budget view, slim head, strip
+- [x] N3: Agents CREW/ROLES/MODELS deck, hulls, tethered tree
+- [x] N4: Tasks deck with tethered agents, Steps FIND/SHOW deck, Artifacts HANDOFF/KEPT deck
+- [x] N5: three-row / compact / all-done band
 - [ ] Opus review of N1–N5
 
 ## Then: navigation pass (`plans/2026-11-15-mission-control-navigation.md`)

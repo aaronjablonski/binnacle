@@ -308,7 +308,9 @@ for (const cols of [31, 28, 24, 20]) {
       }
       expect(await ui.find({ type: 'Box', key: 'tabs' })).toBe(undefined)
       const rows = screen(await ui.drawn())
-      expect(rows[0]?.startsWith('▍ Grouping')).toBe(true)
+      // the Neo slim head: a left bracket holding the state pill, then the focus line
+      expect(rows[0]?.startsWith('┏  IDLE')).toBe(true)
+      expect(rows[1]?.startsWith('┃ Grouping')).toBe(true)
       for (const r of rows) expect(r.length <= cols).toBe(true)
       await ui.unmount()
     }

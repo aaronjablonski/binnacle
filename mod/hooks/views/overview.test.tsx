@@ -429,7 +429,7 @@ test('session.start without autoOpen opens nothing, and registers /mc as immedia
   await start($)
 
   expect(opened.length).toBe(0)
-  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[close | pin <note>]' })
+  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | tab | close | pin <note>]' })
 })
 
 test('the clock invalidates only while a subagent or step runs, and main never counts', async ($, on) => {

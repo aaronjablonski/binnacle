@@ -119,6 +119,16 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
   }
 }
 
+/** The tab a `/mc` word names: its number, its name, or a 3-letter prefix of it. */
+function tabFor(word: string): { tab: Tab; label: string } | undefined {
+  const w = word.toLowerCase()
+  for (const x of TABS) {
+    if (w === x.hotkey || w === x.tab) return x
+    if (w.length === 3 && x.tab.startsWith(w)) return x
+  }
+  return undefined
+}
+
 /** The answer of `/mc`, `/mc close` and `/mc pin`. */
 export async function runMc($: EngineInterface, args: string): Promise<{ text: string }> {
   const word = args.trim().split(/\s+/)[0] ?? ''
@@ -141,6 +151,18 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not close Mission Control: ${errText(err)}` }
     }
   }
+  const target = tabFor(word)
+  if (word !== 'pin' && target !== undefined) {
+    try {
+      await updateUi($, cur => ({ ...leaveDetail(cur), tab: target.tab }))
+      const opened = await $.ui.open(paneArgs(true))
+      if (!opened.isPlaced) return { text: `Mission Control: ${target.label}. It waits for a wider terminal.` }
+      return { text: `Mission Control: ${target.label}.` }
+    } catch (err) {
+      debug($, `tab failed: ${errText(err)}`)
+      return { text: `Could not open Mission Control: ${errText(err)}` }
+    }
+  }
   if (word === 'pin') {
     try {
       const note = args.trim().slice('pin'.length).trim()
@@ -150,7 +172,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not pin: ${errText(err)}` }
     }
   }
-  return { text: 'Usage: /mc, /mc close or /mc pin <note>.' }
+  return { text: 'Unknown tab. Try /mc 1-5 or a tab name.' }
 }
 
 // The one timer of this module instance; a reload starts a fresh module.

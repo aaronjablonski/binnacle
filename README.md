@@ -36,10 +36,9 @@ from the config menu:
 | --- | --- | --- |
 | `autoOpen` | `false` | Open the pane when a session starts. |
 | `guide` | `true` | Give Claude the update tool and one system-prompt section so it keeps the panel current. |
-| `probe` | `false` | Developer probe: record raw hook events to `.mc-probe/` in the working directory. |
 
 For a one-off headless run, pass them with `--settings`:
 
 ```sh
-claude -p "..." --plugin-dir ./mod --settings '{"pluginConfigs":{"mission-control":{"options":{"probe":true}}}}'
+claude -p "..." --plugin-dir ./mod --settings '{"pluginConfigs":{"mission-control":{"options":{"guide":false}}}}'
 ```

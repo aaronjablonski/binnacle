@@ -1,0 +1,11 @@
+{
+  "name": "mission-control-local",
+  "owner": { "name": "local" },
+  "plugins": [
+    {
+      "name": "mission-control",
+      "source": "./mod",
+      "description": "Tasks, agents, every step and what the session produced, in a pane and band beside the chat."
+    }
+  ]
+}

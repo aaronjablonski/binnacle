@@ -9,7 +9,10 @@ const SEPARATOR = ' │ '
 const MIN_FOCUS = 8
 
 // A part of the band: an optional glyph in a theme colour, then plain text.
-type Part = { glyph?: string; color?: string; text: string }
+type Part = { id: 'tasks' | 'agents' | 'focus' | 'hint'; glyph?: string; color?: string; text: string }
+
+// What gives way when the row is too wide, first to last. The focus is cut instead.
+const DROP_ORDER: Part['id'][] = ['agents', 'tasks', 'hint']
 
 const widthOf = (p: Part): number => (p.glyph !== undefined ? p.glyph.length + 1 : 0) + p.text.length
 
@@ -21,19 +24,31 @@ export function registerBand(on: On): void {
       const s = summary(await readTimeline($))
       const cols = e.props.bodyColumns
       const parts: Part[] = []
-      if (s.total > 0) parts.push({ glyph: '▣', color: C.accent, text: `${s.done}/${s.total} tasks` })
+      if (s.total > 0) parts.push({ id: 'tasks', glyph: '▣', color: C.accent, text: `${s.done}/${s.total} tasks` })
       if (s.running.length > 0) {
-        parts.push({ glyph: '●', color: C.running, text: `${s.running.length} ${s.running.length === 1 ? 'agent' : 'agents'}` })
+        parts.push({ id: 'agents', glyph: '●', color: C.running, text: `${s.running.length} ${s.running.length === 1 ? 'agent' : 'agents'}` })
       }
       if (parts.length === 0 && !s.focus) return next(e)
-      parts.push({ text: '/mc' })
+      parts.push({ id: 'hint', text: '/mc' })
+      const rowWidth = (): number => parts.reduce((n, p) => n + widthOf(p), 0) + SEPARATOR.length * (parts.length - 1)
+      // Drop the agents, then the tasks, then the hint, until the row fits.
+      for (const id of DROP_ORDER) {
+        if (rowWidth() <= cols) break
+        const at = parts.findIndex(p => p.id === id)
+        if (at >= 0 && parts.length > 1) parts.splice(at, 1)
+      }
+      // One part left and still too long: cut its text.
+      const only = parts[0]
+      if (parts.length === 1 && only && widthOf(only) > cols) {
+        parts[0] = { ...only, glyph: undefined, text: fit(only.text, cols) }
+      }
       if (s.focus) {
-        // The focus is the part that gives way, so the rest and /mc stay whole.
-        const others = parts.reduce((n, p) => n + widthOf(p), 0) + SEPARATOR.length * (parts.length - 1)
+        // The focus is the part that gives way, so what is left stays whole.
+        const others = rowWidth()
         const room = cols - others - SEPARATOR.length
         if (room >= MIN_FOCUS) {
           const at = s.total > 0 ? 1 : 0
-          parts.splice(at, 0, { glyph: '▶', color: C.running, text: fit(s.focus, room - 2) })
+          parts.splice(at, 0, { id: 'focus', glyph: '▶', color: C.running, text: fit(s.focus, room - 2) })
         }
       }
       const { Box, Text } = $.ui.resolve(e)

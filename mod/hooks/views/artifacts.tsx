@@ -2,7 +2,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { ArtifactKind, ArtifactRow } from '../../types'
 import { debug, errText } from '../state'
-import { elapsed, fit, fitLeft, splitRow } from './fit'
+import { elapsed, fit, fitLeft, splitRow, wrap } from './fit'
 import { openStep } from './openstep'
 import { flushRight, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
@@ -41,8 +41,8 @@ function detailLine(a: ArtifactRow, cols: number): string {
 /**
  * One artifact as one Button: glyph, bold title and a dim `<kind> · <elapsed>`
  * flush right; then the dim second line, a `Text` child that begins with a
- * newline (C7). The key is the step's id when it is unique among the rows,
- * else the row's own id: identity, never the position (C8).
+ * newline (C7). The key is the row's own id: identity, never the position, and
+ * not the step id, which moves each time the artifact is written again (C8).
  */
 function artifactRow(ctx: ViewCtx, a: ArtifactRow, key: string, hasStep: boolean, $: EngineInterface): RenderElement {
   const { Text, Button } = $.ui.resolve(ctx.e)
@@ -99,23 +99,15 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, cols, e } = ctx
   try {
-    if (t.artifacts.length === 0) return <Text dimColor>{EMPTY}</Text>
+    if (t.artifacts.length === 0) return <Text dimColor>{wrap(EMPTY, cols).join('\n')}</Text>
     const rows = [...t.artifacts].sort((a, b) => b.updatedAt - a.updatedAt)
     const stepIds = new Set(t.steps.map(s => s.id))
-    const uses = new Map<string, number>()
-    for (const a of rows) {
-      if (a.stepId !== undefined) uses.set(a.stepId, (uses.get(a.stepId) ?? 0) + 1)
-    }
-    const keyOf = (a: ArtifactRow): string => {
-      if (a.stepId !== undefined && uses.get(a.stepId) === 1) return `art-${a.stepId}`
-      return `art-${a.id}`
-    }
     const n = t.changed.length
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box flexDirection="column">
           {sectionHeader('ARTIFACTS', String(rows.length), cols, e, $)}
-          {rows.map(a => artifactRow(ctx, a, keyOf(a), a.stepId !== undefined && stepIds.has(a.stepId), $))}
+          {rows.map(a => artifactRow(ctx, a, `art-${a.id}`, a.stepId !== undefined && stepIds.has(a.stepId), $))}
         </Box>
         <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
           {KINDS.map(k => (
@@ -125,7 +117,9 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
             </Text>
           ))}
         </Box>
-        <Text dimColor>{`Code edits are not listed here; they are steps in the Timeline (${n} ${n === 1 ? 'file' : 'files'} changed).`}</Text>
+        <Text dimColor>
+          {wrap(`Code edits are not listed here; they are steps in the Timeline (${n} ${n === 1 ? 'file' : 'files'} changed).`, cols).join('\n')}
+        </Text>
       </Box>
     )
   } catch (err) {

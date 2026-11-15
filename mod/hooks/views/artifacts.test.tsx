@@ -111,7 +111,7 @@ test('lists a page, a document, a result and a link with their glyphs', async ($
     expect(page).toContain('Rate limit design')
     expect(page).toContain('page · 9m')
     expect(page).toContain('claude.ai/artifact/x')
-    const doc = await textOf(ui, 'art-s1')
+    const doc = await textOf(ui, 'art-document:docs/plan.md')
     expect(doc).toContain('▤')
     expect(doc).toContain('document · 12m')
     expect(doc).toContain('Implementation plan')
@@ -120,7 +120,7 @@ test('lists a page, a document, a result and a link with their glyphs', async ($
     const keys = (await ui.findAll({ type: 'Button' }))
       .map(b => String(b.key))
       .filter(k => k.startsWith('art-'))
-    expect(keys).toEqual(['art-link:PR #41', 'art-result:Review findings', 'art-page:Rate limit design', 'art-s1'])
+    expect(keys).toEqual(['art-link:PR #41', 'art-result:Review findings', 'art-page:Rate limit design', 'art-document:docs/plan.md'])
     await ui.unmount()
   }
 })
@@ -142,7 +142,7 @@ test('pressing a document opens the step that wrote it', async ($, on) => {
   )
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    await ui.press({ key: 'art-s1' })
+    await ui.press({ key: 'art-document:a.md' })
     const u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
     expect(u.detail?.stepId).toBe('s1')
@@ -192,7 +192,7 @@ test('a step no longer in the timeline falls back to copying', async ($, on) => 
   on('ui.toast', () => ({ value: undefined }))
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    await ui.press({ key: 'art-gone' })
+    await ui.press({ key: 'art-document:a.md' })
     expect(copies[copies.length - 1]).toBe('a.md')
     expect((stored.get('ui') as UiState).tab).toBe('artifacts')
     await ui.unmount()
@@ -204,9 +204,10 @@ test('the footer counts changed files', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '').join('\n')
+    const flat = all.replace(/\s+/g, ' ')
     expect(all).toContain('page')
     expect(all).toContain('link')
-    expect(all).toContain('Code edits are not listed here; they are steps in the Timeline (4 files changed).')
+    expect(flat).toContain('Code edits are not listed here; they are steps in the Timeline (4 files changed).')
     await ui.unmount()
   }
 })
@@ -231,10 +232,58 @@ test('empty state', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '').join('\n')
-    expect(all).toContain(
+    expect(all.replace(/\s+/g, ' ')).toContain(
       'No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.',
     )
     expect(await ui.find({ key: 'tab-artifacts' })).toBeDefined()
     await ui.unmount()
+  }
+})
+
+test('keys are the artifact id: rewriting one document keeps the keys of both that shared a step', async ($, on) => {
+  const a = (extra: Partial<ArtifactRow> = {}): ArtifactRow =>
+    art('document', 'a.md', { id: 'doc:a.md', ref: 'a.md', stepId: 's1', ...extra })
+  const b = (extra: Partial<ArtifactRow> = {}): ArtifactRow =>
+    art('document', 'b.md', { id: 'doc:b.md', ref: 'b.md', stepId: 's1', updatedAt: NOW - 90_000, ...extra })
+  const steps = [step('s1', 1, 'Write a.md and b.md'), step('s7', 7, 'Write a.md')]
+  const stored = seed(on, tl([a(), b()], { steps }), ART_UI)
+  const keysOf = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =>
+    (await ui.findAll({ type: 'Button' })).map(x => String(x.key)).filter(k => k.startsWith('art-')).sort()
+  for (const surface of SURFACES) {
+    stored.set('timeline', tl([a(), b()], { steps }))
+    const before = await mount($, surface)
+    const keysBefore = await keysOf(before)
+    await before.unmount()
+    // The reducer rewrote a.md in step s7: the count and the stepId move, the id does not.
+    stored.set('timeline', tl([a({ stepId: 's7', count: 2, updatedAt: NOW - 1000 }), b()], { steps }))
+    const after = await mount($, surface)
+    const keysAfter = await keysOf(after)
+    await after.unmount()
+    expect(keysBefore).toEqual(['art-doc:a.md', 'art-doc:b.md'])
+    expect(keysAfter).toEqual(keysBefore)
+  }
+})
+
+test('narrow: every line of every Text within 24', async ($, on) => {
+  const long = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
+  const full = tl(
+    [
+      art('page', 'A page with a title that is far too long', { ref: 'claude.ai/artifact/abcdef0123456789', stepId: 's1' }),
+      art('document', long, { ref: long, count: 12, summary: 'A summary that is also far too long to fit' }),
+      art('result', 'Review findings', { summary: 'from workflow review' }),
+      art('link', 'PR #41', { ref: 'github.com/x/pull/41' }),
+    ],
+    { steps: [step('s1', 1, 'Publish')], changed: ['a.ts', 'b.ts'] },
+  )
+  const stored = seed(on, full, ART_UI)
+  for (const timeline of [full, empty]) {
+    stored.set('timeline', timeline)
+    for (const surface of SURFACES) {
+      const ui = await mount($, surface, 24)
+      const found = await ui.findAll({ type: 'Text' })
+      expect(found.length >= 1).toBe(true)
+      for (const f of found) for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+      await ui.unmount()
+    }
   }
 })

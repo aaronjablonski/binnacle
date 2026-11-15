@@ -2,7 +2,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { ArtifactKind, ArtifactRow, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
-import { clock, elapsed, fitLeft, shortPaths, wrapWords } from './fit'
+import { clock, elapsed, fitLeft, growLists, listSplit, shortPaths, wrapWords } from './fit'
 import { showInChat } from './find'
 import { openInEditor } from './editor'
 import { digestParts, exportDigest } from './handoff'
@@ -10,7 +10,7 @@ import type { DigestParts } from './handoff'
 import { paneState } from './needs'
 import { openStep, openStepInline } from './openstep'
 import { openPage } from './pagenav'
-import { blank, footer, inst, more, opened, page, richDeck, row, section } from './parts'
+import { blank, footer, heightOf, inst, more, opened, page, richDeck, row, section } from './parts'
 import type { Action, Detail, Hint, InstSpec, Run } from './parts'
 import { stack } from './raster'
 import type { Hue } from './raster'
@@ -21,7 +21,7 @@ const GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', resu
 const COLOR: Record<ArtifactKind, string> = { page: C.accent, document: C.doc, result: C.result, link: C.accent }
 const KIND: Record<ArtifactKind, string> = { page: 'page', document: 'doc', result: 'result', link: 'link' }
 const EMPTY = 'No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.'
-// Rows each list shows before its `+ n more` line.
+// Rows each list shows however short the pane, before its `+ n more` line (binding rule 2 grows them).
 const ARTIFACT_CAP = 6
 const FILES_CAP = 3
 /** The DIGEST stack's width: the gauge. */
@@ -308,6 +308,18 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const noArtifactOpen = openId === undefined || openId === ''
     const fileSel = noArtifactOpen ? (files.find(f => f.path === fileOpen) ?? (rows.length === 0 ? files[0] : undefined))?.path : undefined
 
+    // Binding rule 2: ARTIFACTS and FILES CHANGED share the rows the deck, the opened artifact and the footer leave, never fewer than their old caps.
+    const openRow = rows.find(a => a.id === openId)
+    const openExtra =
+      openRow !== undefined ? heightOf(opened(ctx, $, detailsOf(t, openRow, cols, openRow.stepId !== undefined ? stepSeq.get(openRow.stepId) : undefined), [])) + 3 : 0
+    const fixed = (handoff !== null ? heightOf(handoff) + 1 : 0) + openExtra + heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2
+    const grown = growLists((ctx.bodyRows ?? 40) - fixed, [
+      { key: 'artifacts', count: rows.length, least: ARTIFACT_CAP },
+      { key: 'files', count: files.length, least: FILES_CAP },
+    ])
+    const artSplit = listSplit(rows.length, grown.get('artifacts') ?? 0)
+    const fileSplit = listSplit(files.length, grown.get('files') ?? 0)
+
     const list: RenderElement[] = [section(ctx, $, 'ARTIFACTS', 'kind', 'age')]
     if (rows.length === 0) {
       wrapWords(EMPTY, Math.max(1, cols - COL.glyph), 5).forEach((l, i) => {
@@ -316,7 +328,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         )
       })
     }
-    rows.slice(0, ARTIFACT_CAP).forEach((a, i) => {
+    rows.slice(0, artSplit.shown).forEach((a, i) => {
       const seq = a.stepId !== undefined ? stepSeq.get(a.stepId) : undefined
       const isOpen = a.id === openId
       if (isOpen && i > 0) list.push(blank(ctx, $, `above-${a.id}`))
@@ -350,9 +362,9 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         actions.push({ hotkey: 'g', label: 'chat', key: `act-g-${a.id}`, onPress: () => showInChat($, stepId) })
       }
       list.push(opened(ctx, $, detailsOf(t, a, cols, seq), []), actionLine(ctx, $, actions, `actions-${a.id}`))
-      if (i < Math.min(rows.length, ARTIFACT_CAP) - 1 || rows.length > ARTIFACT_CAP) list.push(blank(ctx, $, `below-${a.id}`))
+      if (i < artSplit.shown - 1 || artSplit.more > 0) list.push(blank(ctx, $, `below-${a.id}`))
     })
-    if (rows.length > ARTIFACT_CAP) list.push(more(ctx, $, rows.length - ARTIFACT_CAP))
+    if (artSplit.more > 0) list.push(more(ctx, $, artSplit.more))
     blocks.push(list)
 
     if (files.length > 0) {
@@ -361,7 +373,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const tc = tableCols(cols)
       // The edit bar sits between the count and the time: only where both columns exist.
       const barred = tc.metric === DECK.value && tc.time === DECK.aside
-      files.slice(0, FILES_CAP).forEach((f, i) => {
+      files.slice(0, fileSplit.shown).forEach((f, i) => {
         const select = () => {
           fileOpen = f.path
           return updateUi($, s => ({ ...s, artifactOpen: '' })).then(() => {
@@ -411,7 +423,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           ),
         )
       })
-      if (files.length > FILES_CAP) out.push(more(ctx, $, files.length - FILES_CAP))
+      if (fileSplit.more > 0) out.push(more(ctx, $, fileSplit.more))
       blocks.push(out)
     }
 

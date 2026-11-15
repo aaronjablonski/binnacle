@@ -642,9 +642,10 @@ export function beadCount(pct: number, n: number): number {
 /**
  * One section a page or tab stacks under its deck: how many rows its list
  * holds (`count`), the rows it takes before any other grows (`floor`,
- * default 1) and the most it takes (`cap`, default no limit).
+ * default 1) and the most it takes (`cap`, default no limit). `per` is the
+ * terminal rows one of its items takes (default 1; a rich agent row is 2).
  */
-export type SectionCount = { key: string; count: number; floor?: number; cap?: number }
+export type SectionCount = { key: string; count: number; floor?: number; cap?: number; per?: number }
 
 /** Now's sections by height (spec "Now by height"), in the order spare rows are dealt. */
 export const NOW_SECTIONS = {
@@ -680,7 +681,8 @@ export function sectionRows(bodyRows: number, counts: SectionCount[]): { key: st
   let left = Math.max(0, Math.floor(bodyRows))
   let shown = 0
   const deal = (i: number): boolean => {
-    const cost = got[i] === 0 ? 2 + (shown > 0 ? 1 : 0) : 1
+    const per = Math.max(1, Math.floor(counts[i]!.per ?? 1))
+    const cost = got[i] === 0 ? 1 + per + (shown > 0 ? 1 : 0) : per
     if (cost > left) return false
     if (got[i] === 0) shown += 1
     got[i] = got[i]! + 1
@@ -700,6 +702,41 @@ export function sectionRows(bodyRows: number, counts: SectionCount[]): { key: st
     }
   }
   return counts.map((c, i) => ({ key: c.key, rows: got[i]! })).filter(g => g.rows > 0)
+}
+
+/** One list of a tab for `growLists`: its items, and how many it shows however short the pane (its old fixed cap). */
+export type GrowList = { key: string; count: number; least: number; per?: number }
+
+/** The rows a list of `count` takes to show `least` items: those, and a more line when there are more. */
+const leastRows = (count: number, least: number): number => (count <= least ? count : least + 1)
+
+/**
+ * Binding rule 2 on a tab: the rows each list takes in the `spare` rows its
+ * deck and fixed parts leave (a list's rows include its more line). Each
+ * shows at least `least` items, as it did with a fixed cap; the height rule
+ * (`sectionRows`) deals the rest in turn, up to every item. Lists with no
+ * items take none.
+ *
+ * @example growLists(bodyRows - fixed, [{ key: 'queued', count: 12, least: 5 }, { key: 'done', count: 9, least: 3 }])
+ */
+export function growLists(spare: number, lists: GrowList[]): Map<string, number> {
+  const dealt = sectionRows(
+    spare,
+    lists.map(l => ({ key: l.key, count: l.count, floor: Math.max(1, leastRows(l.count, l.least)), ...(l.per !== undefined ? { per: l.per } : {}) })),
+  )
+  const out = new Map<string, number>()
+  for (const l of lists) {
+    if (l.count <= 0) continue
+    out.set(l.key, Math.max(dealt.find(d => d.key === l.key)?.rows ?? 0, leastRows(l.count, l.least)))
+  }
+  return out
+}
+
+/** What a list of `count` draws in `rows` rows: every item when they fit, else `rows - 1` and a more line for the rest. */
+export function listSplit(count: number, rows: number): { shown: number; more: number } {
+  if (count <= rows) return { shown: count, more: 0 }
+  const shown = Math.max(1, rows - 1)
+  return { shown, more: count - shown }
 }
 
 /** The gap between strip compartments: three clear columns, or two where three would drop one. */

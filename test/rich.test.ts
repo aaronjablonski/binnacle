@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { beadCount, compartments, levels, NOW_SECTIONS, rowsUsed, sectionRows, wrapFull } from '../mod/hooks/views/fit'
+import { beadCount, compartments, growLists, levels, listSplit, NOW_SECTIONS, rowsUsed, sectionRows, wrapFull } from '../mod/hooks/views/fit'
 import type { SectionCount } from '../mod/hooks/views/fit'
 import { SPRITE } from '../mod/hooks/views/raster'
 import { DECK, lookOf, RICH, spriteOf } from '../mod/hooks/views/style'
@@ -229,4 +229,26 @@ test('wrapFull wraps every word, breaks a word wider than the line, keeps paragr
   expect(wrapFull('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij'])
   expect(wrapFull('one\n\ntwo', 10)).toEqual(['one', '', 'two'])
   expect(wrapFull('', 10)).toEqual([])
+})
+
+test('sectionRows: an item of `per` rows costs that many, its header one more', () => {
+  // 1 header + 2 a row: 7 rows hold 3 two-row items.
+  expect(sectionRows(7, [{ key: 'agents', count: 10, per: 2 }])).toEqual([{ key: 'agents', rows: 3 }])
+  // A second section pays its blank too: 1 + 2 = 3 for agents, 1 + 1 + 1 = 3 for runs, then one more agent.
+  expect(sectionRows(8, [{ key: 'agents', count: 10, per: 2 }, { key: 'runs', count: 4 }])).toEqual([{ key: 'agents', rows: 2 }, { key: 'runs', rows: 1 }])
+})
+
+test('growLists: never fewer than the old cap, more as the pane grows, every item once they fit', () => {
+  const lists = (q: number, d: number) => [{ key: 'queued', count: q, least: 5 }, { key: 'done', count: d, least: 3 }]
+  // A short pane keeps the old caps: 5 queued and a more line, 3 done and a more line.
+  expect([...growLists(4, lists(12, 9))]).toEqual([['queued', 6], ['done', 4]])
+  // A tall pane grows both, dealt in turn.
+  const tall = growLists(30, lists(12, 9))
+  expect(tall.get('queued')! > 6 && tall.get('done')! > 4).toBe(true)
+  // Room for everything: every item, so no more line.
+  expect([...growLists(60, lists(12, 9))]).toEqual([['queued', 12], ['done', 9]])
+  expect(listSplit(12, 12)).toEqual({ shown: 12, more: 0 })
+  expect(listSplit(12, 6)).toEqual({ shown: 5, more: 7 })
+  // An empty list takes nothing.
+  expect([...growLists(30, lists(0, 2))]).toEqual([['done', 2]])
 })

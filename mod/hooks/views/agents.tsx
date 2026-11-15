@@ -20,9 +20,9 @@ import {
 import type { AgentFile, Jump } from './agentmeta'
 import { modelName, modelTotals, tokenText } from './budget'
 import { crewNode, openedAgent } from './crewnode'
-import { bar, clock, crewRow, elapsed, fit, wrapWords } from './fit'
+import { bar, clock, crewRow, elapsed, fit, growLists, listSplit, wrapWords } from './fit'
 import { openInEditor } from './editor'
-import { blank, footer, more, page, richDeck, row, section } from './parts'
+import { blank, footer, heightOf, more, page, richDeck, row, section } from './parts'
 import type { Action, DeckCell, FrameSpec, InstSpec, PageField, Run } from './parts'
 import { openPage } from './pagenav'
 import { Grid, SPRITE, drawSprite, stack } from './raster'
@@ -219,14 +219,13 @@ function emptyNote(ctx: ViewCtx, $: EngineInterface): RenderElement {
 }
 
 /** The `┌ AGENTS` section: main, then live, failed and done; the opened row always shows. */
-function agentsSection(ctx: ViewCtx, $: EngineInterface, agents: AgentRow[], ids: Set<string>, states: Map<string, PodState>, targets: Jump[]): RenderElement {
+function agentsSection(ctx: ViewCtx, $: EngineInterface, ordered: AgentRow[], room: number, ids: Set<string>, states: Map<string, PodState>, targets: Jump[]): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
-  const main = ctx.t.agents.main
-  const ordered = [...(main ? [main] : []), ...agents]
-  let shown = ordered.slice(0, LIST_MAX)
+  const fits = listSplit(ordered.length, room).shown
+  let shown = ordered.slice(0, fits)
   const open = ctx.u.agentOpen
   const pinned = open !== undefined ? ordered.find(a => a.id === open) : undefined
-  if (pinned !== undefined && !shown.includes(pinned)) shown = [...shown.slice(0, LIST_MAX - 1), pinned]
+  if (pinned !== undefined && !shown.includes(pinned)) shown = [...shown.slice(0, fits - 1), pinned]
   const hidden = ordered.filter(a => !shown.includes(a))
   const what = hidden.every(a => a.status === 'done') ? 'more done' : 'more'
   const rows = shown.map((a, i) => {
@@ -266,11 +265,12 @@ function runsSection(
   ctx: ViewCtx,
   $: EngineInterface,
   runs: { run: { runId: string; name: string }; agents: AgentRow[] }[],
+  room: number,
   ids: Set<string>,
   targets: Jump[],
 ): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
-  const shown = runs.slice(0, LIST_MAX)
+  const shown = runs.slice(0, listSplit(runs.length, room).shown)
   const rows = shown.map(g => {
     const id = g.run.runId
     const failed = g.agents.filter(a => a.status === 'error').length
@@ -297,7 +297,12 @@ function runsSection(
   )
 }
 
-function listView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Map<string, PodState>): { el: RenderElement; targets: Jump[] } {
+/**
+ * The list: AGENTS, then RUNS. Binding rule 2: they share the `spare` rows
+ * the deck, the toggles and the footer leave, each at least LIST_MAX long
+ * as before (a rich agent row is two rows tall).
+ */
+function listView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Map<string, PodState>, spare: number): { el: RenderElement; targets: Jump[] } {
   const { Box } = $.ui.resolve(ctx.e)
   const { t, u } = ctx
   const groups = agentGroups(t)
@@ -306,10 +311,16 @@ function listView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Ma
     .flatMap(g => (g.run !== undefined ? [{ run: g.run, agents: g.agents }] : []))
     .filter(g => !u.runningOnly || g.agents.some(a => a.status === 'running'))
   const targets: Jump[] = []
-  const sections: RenderElement[] = [agentsSection(ctx, $, [...runless].sort(byRank), ids, states, targets)]
+  const main = t.agents.main
+  const ordered = [...(main ? [main] : []), ...[...runless].sort(byRank)]
+  const grown = growLists(spare, [
+    { key: 'agents', count: ordered.length, least: LIST_MAX, per: ctx.look === 'rich' ? 2 : 1 },
+    { key: 'runs', count: runs.length, least: LIST_MAX },
+  ])
+  const sections: RenderElement[] = [agentsSection(ctx, $, ordered, grown.get('agents') ?? 0, ids, states, targets)]
   const nothing = groups.length === 0 && t.steps.length === 0
   if (nothing) sections.push(blank(ctx, $, 'gap-empty'), emptyNote(ctx, $))
-  if (runs.length > 0) sections.push(blank(ctx, $, 'gap-runs'), runsSection(ctx, $, runs, ids, targets))
+  if (runs.length > 0) sections.push(blank(ctx, $, 'gap-runs'), runsSection(ctx, $, runs, grown.get('runs') ?? 0, ids, targets))
   return { el: <Box key="list" flexDirection="column">{sections}</Box>, targets }
 }
 
@@ -326,7 +337,10 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     // ask counts from ASK_MS, and a dismissed problem marks nothing.
     const ids = new Set(needsYou(t, u, now).map(p => p.agent))
     const states = waitStates(ctx.t, ctx.u, ctx.now)
-    const body = u.agentsMode === 'tree' ? treeView(ctx, $, ids, states) : listView(ctx, $, ids, states)
+    const head = agentsDeck(ctx, $, states)
+    const modes = toggles(ctx, $)
+    const spare = (ctx.bodyRows ?? 40) - (head !== null ? heightOf(head) + 1 : 0) - heightOf(modes) - 1 - heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2
+    const body = u.agentsMode === 'tree' ? treeView(ctx, $, ids, states) : listView(ctx, $, ids, states, spare)
     const jump = (dir: 1 | -1) => () => void jumpToProblem($, body.targets, dir)
     const foot = footer(ctx, $, [
       { text: '↵ open' },
@@ -337,12 +351,11 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           ]
         : []),
     ])
-    const head = agentsDeck(ctx, $, states)
     return (
       <Box flexDirection="column">
         {head}
         {head !== null ? blank(ctx, $, 'gap-readout') : null}
-        {toggles(ctx, $)}
+        {modes}
         {blank(ctx, $, 'gap-toggles')}
         {body.el}
         {foot !== null ? blank(ctx, $, 'gap-footer') : null}

@@ -8,13 +8,13 @@ import { budgetMeters, budgetView, exportLedger, isBudgetOpen, setBudgetOpen, to
 import { buckets, clock, crewRow, elapsed, GAUGE, pips, sectionRows, shortPaths, spark, typeShort, wordFit, NOW_SECTIONS } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
-import { crewPods, moveNeed, needsFrameRows, needsLimits, needsSection, needsYou, paneState, podFor, waitStates } from './needs'
+import { crewPods, moveNeed, needsCap, needsFrameRows, needsLimits, needsSection, needsYou, paneState, podFor, waitStates } from './needs'
 import { isOnScreen } from './onscreen'
 import { openStep } from './openstep'
 import { clearCountdown, setCountdown } from './countdown'
 import { openAgentPage } from './agentmeta'
 import { openPage } from './pagenav'
-import { blank, deck, deckRows, footer, hero, inst, more, row, section } from './parts'
+import { blank, deck, deckRows, footer, heightOf, hero, inst, more, row, section } from './parts'
 import type { DeckCell, DeckRow, Hint, InstSpec } from './parts'
 import { barsSpec, deckRowEl, lintelSpec, ringsSpec, sillSpec, toneOf } from './richkit'
 import type { DeckRowSpec, Ring } from './richkit'
@@ -404,9 +404,12 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   }
   const svgDeck = deckSvg(ctx, $)
   if (svgDeck === null && ctx.cols >= STRIP) return stripView(ctx, $, count)
+  const deckEl = svgDeck ?? deck(ctx, $, nowRows(ctx, $, false, count), { key: 'now' })
+  // NEEDS YOU lists what waits in the rows the deck leaves (binding rule 2): its head and opened item take 4, the gaps 2.
+  const needsRoom = (ctx.bodyRows ?? 40) - heightOf(deckEl) - 6
   const blocks = [
-    needsSection(ctx, $),
-    svgDeck ?? deck(ctx, $, nowRows(ctx, $, false, count), { key: 'now' }),
+    needsSection(ctx, $, needsCap(ctx, needsRoom)),
+    deckEl,
     agentsBlock(ctx, $),
     latestBlock(ctx, $),
     keptBlock(ctx, $),
@@ -912,11 +915,14 @@ function richNow(ctx: ViewCtx, $: EngineInterface, count: number): RenderElement
   const waiting = needsYou(ctx.t, ctx.u, ctx.now).length
   const parts: FrameParts = { cols: ctx.cols, count, focus: waiting === 0, keep: { ...deckKeep(bodyRows), tasks: true } }
   const bar = footer(ctx, $, hints($, count, false))
-  const used = needsFrameRows(Math.min(waiting, MAX_LIST)) + (waiting > 0 ? 1 : 0) + frameRows(ctx.t, ctx.now, parts) + 1 + (bar !== null ? 2 : 0)
+  // NEEDS YOU first (binding rule 2): it lists what waits in the rows the frame and footer leave; the sections share the rest.
+  const frameH = frameRows(ctx.t, ctx.now, parts)
+  const cap = needsCap(ctx, bodyRows - frameH - 1 - (bar !== null ? 2 : 0) - 6)
+  const used = needsFrameRows(waiting, cap) + (waiting > 0 ? 1 : 0) + frameH + 1 + (bar !== null ? 2 : 0)
   const give = nowSections(ctx, Math.max(0, bodyRows - used))
   const rowsOf = (key: string): number => give.find(g => g.key === key)?.rows ?? 0
   const blocks = [
-    needsSection(ctx, $),
+    needsSection(ctx, $, cap),
     nowFrame(ctx, $, parts),
     tasksBlockN(ctx, $, rowsOf('tasks')),
     agentsBlockN(ctx, $, rowsOf('agents')),

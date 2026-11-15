@@ -10,11 +10,11 @@ import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
-import { bar, clock, elapsed, fit, meter, shortPaths, wordFit } from './fit'
+import { bar, clock, elapsed, fit, growLists, listSplit, meter, shortPaths, wordFit } from './fit'
 import { laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { podFor, waitStates } from './needs'
-import { blank, deck, inst, more, section } from './parts'
+import { blank, deck, heightOf, inst, more, section } from './parts'
 import type { DeckCell, DeckRow, InstSpec, ReadoutCell, Run } from './parts'
 import { Grid } from './raster'
 import type { Ink } from './raster'
@@ -180,6 +180,21 @@ export function modelCells(t: Timeline): ReadoutCell[] {
 }
 
 const MAX_LIST = 6
+// THIS WEEK's rows under the shares: its gap, header, sparkline and weekdays.
+const WEEK_ROWS = 4
+
+/**
+ * Binding rule 2 in the budget view: how many MODELS and AGENTS rows show in
+ * the rows the deck above (`above` rows) and THIS WEEK leave, each at least
+ * MAX_LIST as before. Answers the items each lists before its more line.
+ */
+function shareCaps(ctx: ViewCtx, above: number, models: number, agents: number): { models: number; agents: number } {
+  const grown = growLists((ctx.bodyRows ?? 40) - above - 1 - WEEK_ROWS, [
+    { key: 'models', count: models, least: MAX_LIST },
+    { key: 'agents', count: agents, least: MAX_LIST },
+  ])
+  return { models: listSplit(models, grown.get('models') ?? 0).shown, agents: listSplit(agents, grown.get('agents') ?? 0).shown }
+}
 
 /** One row of a share table: a hull or `▪`, a name, the tokens at 38 and a 10-cell bar at 50. */
 type Share = { key: string; glyph: Run; name: string; tokens: number; color: string; dim?: boolean; onPress?: () => void | Promise<void> }
@@ -332,9 +347,11 @@ function textBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   out.push(deck(ctx, $, deckRows, { key: 'budget', side: slim ? 'left' : 'both' }))
 
   const totals = modelTotals(t)
+  const reportedCount = Object.values(t.agents).filter(a => a.tokensIn !== undefined || a.tokensOut !== undefined).length
+  const caps = shareCaps(ctx, heightOf(out), totals.length, reportedCount)
   if (totals.length > 0) {
     const all = totals.reduce((n, x) => n + x.tokens, 0)
-    const items: Share[] = totals.slice(0, MAX_LIST).map(x => ({
+    const items: Share[] = totals.slice(0, caps.models).map(x => ({
       key: `model-${x.model}`,
       glyph: { text: '▪', color: C.model },
       name: x.model,
@@ -350,7 +367,7 @@ function textBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     .sort((x, y) => y.tokens - x.tokens || x.a.id.localeCompare(y.a.id))
   if (reported.length > 0) {
     const all = reported.reduce((n, x) => n + x.tokens, 0)
-    const items: Share[] = reported.slice(0, MAX_LIST).map(({ a, tokens }) => {
+    const items: Share[] = reported.slice(0, caps.agents).map(({ a, tokens }) => {
       const pod = podFor(a, waits, now)
       const id = a.id
       return {
@@ -709,8 +726,10 @@ function richBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   ]
   const totals = modelTotals(t)
   const all = totals.reduce((n, x) => n + x.tokens, 0)
+  const reportedCount = Object.values(t.agents).filter(a => a.tokensIn !== undefined || a.tokensOut !== undefined).length
+  const caps = shareCaps(ctx, heightOf(out), totals.length, reportedCount)
   if (totals.length > 0) {
-    const items: Share[] = totals.slice(0, MAX_LIST).map(x => ({ key: `model-${x.model}`, glyph: { text: '◆', color: C.model }, name: x.model, tokens: x.tokens, color: C.model }))
+    const items: Share[] = totals.slice(0, caps.models).map(x => ({ key: `model-${x.model}`, glyph: { text: '◆', color: C.model }, name: x.model, tokens: x.tokens, color: C.model }))
     out.push(
       blank(ctx, $, 'budget-gap-1'),
       section(ctx, $, 'MODELS', 'tokens', 'share'),
@@ -725,7 +744,7 @@ function richBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     .sort((x, y) => y.tokens - x.tokens || x.a.id.localeCompare(y.a.id))
   if (reported.length > 0) {
     const sum = reported.reduce((n, x) => n + x.tokens, 0)
-    const items: Share[] = reported.slice(0, MAX_LIST).map(({ a, tokens }) => {
+    const items: Share[] = reported.slice(0, caps.agents).map(({ a, tokens }) => {
       const pod = podFor(a, waits, now)
       const id = a.id
       return {

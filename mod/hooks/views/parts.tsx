@@ -1258,3 +1258,27 @@ export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderEleme
     </Box>
   )
 }
+
+/**
+ * The terminal rows a drawn element takes, laid out as the pane lays it: a
+ * column Box stacks its children, a row Box (the default) is as tall as its
+ * tallest child, a Box with a `height` is that tall, `display: 'none'` takes
+ * none, and anything else (a Text, a Button, a Raster by its `rows`) is one
+ * row or its own size. A tab measures its deck and fixed parts with it, so
+ * its lists get the rest (binding rule 2).
+ */
+export function heightOf(node: unknown): number {
+  if (node === null || node === undefined || typeof node === 'boolean') return 0
+  if (typeof node === 'string' || typeof node === 'number') return String(node).split('\n').length
+  if (Array.isArray(node)) return node.reduce((n: number, k) => n + heightOf(k), 0)
+  const el = node as { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+  const props = el.props ?? {}
+  if (typeof props.height === 'number') return props.height
+  if (typeof props.rows === 'number' && el.type === 'Raster') return props.rows
+  if (el.type !== 'Box') return 1
+  if (props.display === 'none') return 0
+  const raw = el.children ?? props.children
+  const kids = (Array.isArray(raw) ? raw.flat(Infinity) : [raw]).filter(k => k !== null && k !== undefined && typeof k !== 'boolean')
+  if (props.flexDirection === 'column' || props.flexDirection === 'column-reverse') return kids.reduce((n: number, k) => n + heightOf(k), 0)
+  return kids.reduce((n: number, k) => Math.max(n, heightOf(k)), 0)
+}

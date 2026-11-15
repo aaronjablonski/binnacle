@@ -13,7 +13,7 @@ export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as c
 
 export const initialUi: UiState = {
   tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false, paneOpen: false,
 }
 
 export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-4' })
@@ -39,10 +39,12 @@ const isEmpty = (t: Timeline): boolean => JSON.stringify(t) === JSON.stringify(e
 
 /**
  * The pane's own state: tab, filter, detail. A partial value (one an earlier
- * write left short) reads with its missing fields at their defaults.
+ * write left short) reads with its missing fields at their defaults;
+ * `paneOpen` always reads as a boolean (false when absent).
  */
 export async function readUi($: EngineInterface): Promise<UiState> {
-  return boundUi(await read($, ui))
+  const u = boundUi(await read($, ui))
+  return { ...u, paneOpen: u.paneOpen === true }
 }
 
 /**

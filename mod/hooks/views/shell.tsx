@@ -63,7 +63,42 @@ function tabLabel(x: (typeof TABS)[number], t: Exclude<Tier, 'slim'>): string {
   return t === 'wide' ? x.label : t === 'mid' ? x.short : x.icon
 }
 
+/**
+ * Writes `ui.paneOpen`: the band reads it to pick its compact form. Press
+ * handlers and commands only, never ui.render. Never throws.
+ */
+async function setPaneOpen($: EngineInterface, open: boolean): Promise<void> {
+  try {
+    await updateUi($, cur => (cur.paneOpen === open ? cur : { ...cur, paneOpen: open }))
+  } catch (err) {
+    debug($, `paneOpen write failed: ${errText(err)}`)
+  }
+}
+
+/**
+ * Takes `ui.paneOpen` from the engine's own record of this plugin's panes
+ * (`$.ui.panes()`): a session start, a /clear that reset the state, a resume.
+ * Never throws; where the record cannot be read the flag keeps its value.
+ */
+export async function syncPaneOpen($: EngineInterface): Promise<void> {
+  try {
+    const panes = await $.ui.panes()
+    await setPaneOpen($, panes.some(p => p.id === PANE && p.isPlaced))
+  } catch (err) {
+    debug($, `panes read failed: ${errText(err)}`)
+  }
+}
+
 export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: boolean }): void {
+  // Observes every close of the pane (the person's own, /mc close, a press): the
+  // flag follows what the hooks beneath settled. The one ui.close hook of the
+  // module; it answers exactly what next(e) answered.
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    const settled = await next(e)
+    await setPaneOpen($, false)
+    return settled
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
     const { Box, Text } = $.ui.resolve(e)
@@ -215,6 +250,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
     try {
       await seedBudget($, { skipIfFresh: true })
       const opened = await $.ui.open(paneArgs(true, await isSlim($)))
+      await setPaneOpen($, opened.isPlaced)
       if (!opened.isPlaced) return { text: 'Mission Control is open and waits for a wider terminal.' }
       return { text: 'Mission Control opened.' }
     } catch (err) {
@@ -225,6 +261,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   if (word === 'close') {
     try {
       await $.ui.close({ id: PANE })
+      await setPaneOpen($, false)
       return { text: 'Mission Control closed.' }
     } catch (err) {
       debug($, `close failed: ${errText(err)}`)
@@ -238,6 +275,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       await seedBudget($, { skipIfFresh: true })
       await updateUi($, cur => ({ ...leaveDetail(cur), tab: target.tab }))
       const opened = await $.ui.open(paneArgs(true, await isSlim($)))
+      await setPaneOpen($, opened.isPlaced)
       if (!opened.isPlaced) return { text: `Mission Control: ${target.label}. It waits for a wider terminal.` }
       return { text: `Mission Control: ${target.label}.` }
     } catch (err) {
@@ -260,6 +298,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       await updateUi($, cur => ({ ...cur, slim: !cur.slim }))
       const slim = await isSlim($)
       const opened = await $.ui.open(paneArgs(true, slim))
+      await setPaneOpen($, opened.isPlaced)
       const said = slim ? `Mission Control: slim, ${COLUMNS_SLIM} columns.` : `Mission Control: full width, ${COLUMNS_DOCK} columns.`
       if (!opened.isPlaced) return { text: `${said} It waits for a wider terminal.` }
       return { text: said }
@@ -298,6 +337,8 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
       debug($, `autoOpen failed: ${errText(err)}`)
     }
   }
+  // A restored or reloaded session starts with the flag false until the engine says the pane is up.
+  await syncPaneOpen($)
   try {
     if (ticker) ticker.cancel()
     ticker = $.clock.every(1000, () => {

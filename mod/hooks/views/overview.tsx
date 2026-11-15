@@ -46,7 +46,12 @@ export function overviewView({ e, t, cols, now }: ViewCtx, $: EngineInterface): 
   }
 
   // NOW
-  const fromClaude = s.fromClaude && s.focusAt !== undefined ? `from Claude · ${elapsed(s.focusAt, now)} ago` : ''
+  // With no focus from Claude or a task, NOW shows the step in flight, else the newest one.
+  const bySeq = [...t.steps].sort((a, b) => b.seq - a.seq)
+  const stepNow = s.focus ? undefined : bySeq.find(x => x.status === 'running') ?? bySeq[0]
+  let fromClaude = ''
+  if (s.fromClaude && s.focusAt !== undefined) fromClaude = `from Claude · ${elapsed(s.focusAt, now)} ago`
+  if (stepNow) fromClaude = 'latest step'
   sections.push(
     <Box key="now" flexDirection="column">
       {fromClaude !== '' && cols >= 'NOW '.length + fromClaude.length ? (
@@ -60,7 +65,9 @@ export function overviewView({ e, t, cols, now }: ViewCtx, $: EngineInterface): 
       {fromClaude !== '' && cols < 'NOW '.length + fromClaude.length ? (
         <Text dimColor>{fit(fromClaude, cols)}</Text>
       ) : null}
-      {s.focus ? <Text bold>{fit(s.focus, cols)}</Text> : <Text dimColor>Idle. Nothing running yet.</Text>}
+      {s.focus ? <Text bold>{fit(s.focus, cols)}</Text> : null}
+      {stepNow ? <Text bold>{fit(`${STEP_GLYPH[stepNow.status]} ${stepNow.label}`, cols)}</Text> : null}
+      {!s.focus && !stepNow ? <Text dimColor>{fit('Idle. Nothing running yet.', cols)}</Text> : null}
       {s.next ? (
         <Text>
           <Text dimColor>Next </Text>

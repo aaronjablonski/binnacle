@@ -2,7 +2,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, TaskItem, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
-import { buckets10, elapsed, spark10, wrapWords } from './fit'
+import { buckets10, elapsed, spark10, typeShort, wrapWords } from './fit'
 import { exportDigest } from './handoff'
 import { barCell, blank, footer, more, opened, readout, row, section } from './parts'
 import type { Detail, Hint, ReadoutCell, Run } from './parts'
@@ -125,7 +125,8 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     if (queued.length > 0) {
       const lines: RenderElement[] = [section(ctx, $, 'QUEUED')]
       for (const x of queued.slice(0, QUEUED_CAP)) {
-        const owner = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
+        const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
+        const owner = ownerType !== undefined ? typeShort(ownerType) : undefined
         lines.push(
           row(ctx, $, { key: `task-${keyOf(x)}`, glyph: '○', name: x.subject, ...(owner !== undefined ? { metric: owner } : {}) }),
         )

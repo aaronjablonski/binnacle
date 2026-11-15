@@ -926,3 +926,17 @@ test('focused, every row of Steps, footer included, fits 32 and 40 columns', asy
     }
   }
 })
+
+test('a general-purpose agent shows general in the metric cell at 62, never general-p…', async ($, on) => {
+  const t = twoTurns()
+  world(
+    on,
+    { ...t, agents: { ...t.agents, a1: agent('a1', 'general-purpose') }, steps: t.steps.map(x => (x.id === 's4' ? { ...x, agent: 'a1' } : x)) },
+    TL_UI,
+  )
+  const ui = await mount($, 'terminal', 62)
+  const row = (await drawnRows(ui)).find(r => r.includes('npm test')) ?? ''
+  expect(colOf(row, 'general')).toBe(38)
+  expect(row).not.toContain('general-')
+  await ui.unmount()
+})

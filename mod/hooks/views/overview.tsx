@@ -4,7 +4,7 @@ import type { Step, Tab, Timeline } from '../../types'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { budgetCells, budgetView, isBudgetOpen, setBudgetOpen, tokenText } from './budget'
-import { buckets10, clock, elapsed, shortPaths, wordFit } from './fit'
+import { buckets10, clock, elapsed, shortPaths, typeShort, wordFit } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { moveNeed, needsSection, needsYou } from './needs'
@@ -119,7 +119,8 @@ function latestSteps(t: Timeline): Step[] {
   return error !== undefined && error.id !== first.id ? [first, error] : [first]
 }
 
-const who = (t: Timeline, agent: string): string => (agent === 'main' ? 'main' : t.agents[agent]?.type ?? agent)
+// The agent as a metric cell: its type in a short form (`general-purpose` is `general`).
+const who = (t: Timeline, agent: string): string => (agent === 'main' ? 'main' : typeShort(t.agents[agent]?.type ?? agent))
 
 function latestBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const { t, now, e } = ctx

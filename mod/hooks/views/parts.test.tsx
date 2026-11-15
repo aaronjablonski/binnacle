@@ -314,3 +314,25 @@ test('fitHints: with no text left it drops from the end, and always keeps one', 
 test('fitHints: only 3 hints are ever kept', () => {
   expect(fitHints([key('a', 'a'), key('b', 'b'), key('c', 'c'), key('d', 'd')], 80)).toHaveLength(3)
 })
+
+test('row: a metric or time cell that does not fit is cut at a word, never inside one, at 62, 40 and 32', async ($, on) => {
+  const metric = 'doc ×12 more runs'
+  const time = 'about 12m ago now'
+  draws(on, (ctx, $) => row(ctx, $, { key: 'r', glyph: '▸', name: 'write timeline tests', metric, time }))
+  const wholeWords = (cell: string, source: string): boolean => {
+    const stem = cell.endsWith('…') ? cell.slice(0, -1) : cell
+    return source.startsWith(stem) && (stem === source || source[stem.length] === ' ')
+  }
+  for (const surface of SURFACES) {
+    const at62 = (await rows($, surface, 62))[0] ?? ''
+    expect(wholeWords(at62.slice(38, 50).trimEnd(), metric)).toBe(true)
+    expect(at62.slice(38, 50).trimEnd().endsWith('…')).toBe(true)
+    expect(wholeWords(at62.slice(50).trimEnd(), time)).toBe(true)
+    const at40 = (await rows($, surface, 40))[0] ?? ''
+    expect(wholeWords(at40.slice(26).trimEnd(), time)).toBe(true)
+    expect(at40.slice(26).trimEnd().endsWith('…')).toBe(true)
+    const at32 = (await rows($, surface, 32))[0] ?? ''
+    expect(at32.length <= 32).toBe(true)
+    expect(at32).not.toContain('doc')
+  }
+})

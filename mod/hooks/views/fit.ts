@@ -265,6 +265,28 @@ export function wordFit(text: string, cols: number): string {
   return `${out}…`
 }
 
+/**
+ * An agent type as a metric cell: `general-purpose` is `general`; any other
+ * type is its longest leading part, cut at a hyphen or a space, that fits
+ * `room` (a metric cell is 10 wide). When even the first part is too wide it
+ * is cut with `…`, as `fit` does.
+ *
+ * @example typeShort('general-purpose') // 'general'
+ * @example typeShort('code-reviewer')   // 'code'
+ */
+export function typeShort(type: string, room = 10): string {
+  if (room <= 0) return ''
+  if (type === 'general-purpose') return fit('general', room)
+  if (type.length <= room) return type
+  let best = ''
+  for (const m of type.matchAll(/[- ]/g)) {
+    const head = type.slice(0, m.index)
+    if (head.length > room) break
+    best = head
+  }
+  return best !== '' ? best : fit(type, room)
+}
+
 /** One wrapped line's words as text; a lone word wider than the line is cut. */
 const joinLine = (words: string[], cols: number): string => (words.length === 1 ? fit(words[0] ?? '', cols) : words.join(' '))
 

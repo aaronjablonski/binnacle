@@ -205,7 +205,7 @@ export type RowSpec = {
 const cellRoom = (cols: number, col: number): number => Math.min(GRID.content, cols - col)
 
 const cellText = (v: string | Run, room: number): Run =>
-  typeof v === 'string' ? { text: fit(v, room), dim: true } : { ...v, text: fit(v.text, room) }
+  typeof v === 'string' ? { text: wordFit(v, room), dim: true } : { ...v, text: wordFit(v.text, room) }
 
 /**
  * A table row: `flag` at 0, `glyph` at 2, `tool` at 4 and the name at 10 (or

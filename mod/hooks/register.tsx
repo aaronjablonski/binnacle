@@ -4,10 +4,14 @@ import { registerCapture } from './capture'
 import { registerGuide, startGuide } from './guide'
 import { restore, restoreAfterClear, saveForClear } from './journal'
 import { debug, errText } from './state'
+import { registerBand } from './views/band'
+import { registerShell, runMc, startShell } from './views/shell'
 
 export const register: Register = (on, options) => {
   registerCapture(on)
   registerGuide(on, options)
+  registerShell(on, options)
+  registerBand(on)
 
   // The module's one session.start hook: every task's session-start work is
   // a helper called from here (validate refuses a second unmatched hook).
@@ -17,6 +21,8 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'mc',
         description: 'Open Mission Control',
+        argumentHint: '[close | pin <note>]',
+        immediate: true,
       })
     } catch (err) {
       debug($, `command.register failed: ${errText(err)}`)
@@ -28,6 +34,7 @@ export const register: Register = (on, options) => {
     }
     // Before next(e), so the tool is listed by the first prompt (Finding i).
     await startGuide($, options)
+    await startShell($, options)
     return next(e)
   })
 
@@ -59,7 +66,7 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  on('command.run', { command: 'mc' }, async () => {
-    return { text: 'Mission Control: not built yet.' }
+  on('command.run', { command: 'mc' }, async ($, e) => {
+    return runMc($, e.args)
   })
 }

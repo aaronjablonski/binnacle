@@ -11,6 +11,7 @@ import type { Placed } from './lay'
 import { crewPods, moveNeed, needsFrameRows, needsLimits, needsSection, needsYou, paneState, podFor, waitStates } from './needs'
 import { isOnScreen } from './onscreen'
 import { openStep } from './openstep'
+import { clearCountdown, setCountdown } from './countdown'
 import { openAgentPage } from './agentmeta'
 import { openPage } from './pagenav'
 import { blank, deck, deckRows, footer, hero, inst, more, row, section } from './parts'
@@ -698,9 +699,15 @@ export function nowFrame(ctx: ViewCtx, $: EngineInterface, p: FrameParts): Rende
     }
   }
   const tone = state.word === 'WAITING' ? ('warning' as const) : ('accent' as const)
+  const lintelAt = (right: string | undefined, amber: boolean): InstSpec =>
+    lintelSpec(`${key}-lintel`, cols, { tone, pill: state.word, pillTone: toneOf(state.color), ...(right !== undefined ? { right, rightAmber: amber } : {}) })
+  // While idle and warm the readout is the countdown: the clock blits this lintel alone (countdown.ts), not the pane.
+  const site = ctx.site ?? 'mission-control'
+  if (cacheReadout(t, now) !== undefined && ro.right !== undefined) setCountdown(site, `${key}-lintel`, at => lintelAt(cacheReadout(t, at), false))
+  else clearCountdown(site, `${key}-lintel`)
   return (
     <Box key={key} flexDirection="column">
-      {inst(sub, $, lintelSpec(`${key}-lintel`, cols, { tone, pill: state.word, pillTone: toneOf(state.color), ...(ro.right !== undefined ? { right: ro.right, rightAmber: ro.amber } : {}) }))}
+      {inst(sub, $, lintelAt(ro.right, ro.amber))}
       {heroEl}
       {rows.map(r => deckRowEl(sub, $, cols, r, p.strip !== true))}
       {inst(sub, $, sillSpec(`${key}-sill`, cols, { tone }))}

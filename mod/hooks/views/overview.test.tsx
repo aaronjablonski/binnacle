@@ -132,6 +132,31 @@ test('with no update, NOW shows the in-progress task and no "from Claude"', asyn
   }
 })
 
+test('with no update and no tasks, NOW shows the latest step', async ($, on) => {
+  seed(on, {
+    ...empty,
+    steps: [step('s1', 1, 'Read a.ts', 'done'), step('s2', 2, 'Edit b.ts', 'done'), step('s0', 0, 'Bash ls', 'running')],
+  })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const all = (await texts(ui)).join('\n')
+    expect(all).toContain('· Bash ls')
+    expect(all).toContain('latest step')
+    expect(all).not.toContain('Idle.')
+    expect(all).not.toContain('from Claude')
+    await ui.unmount()
+  }
+})
+
+test('with no running step, NOW shows the newest step by seq', async ($, on) => {
+  seed(on, { ...empty, steps: [step('s1', 1, 'Read a.ts', 'done'), step('s2', 2, 'Edit b.ts', 'error')] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    expect((await texts(ui)).join('\n')).toContain('✖ Edit b.ts')
+    await ui.unmount()
+  }
+})
+
 test('an empty session says Idle and No tasks yet. and draws no other section', async ($, on) => {
   seed(on, empty)
   for (const surface of SURFACES) {
@@ -271,6 +296,17 @@ test('the tab labels shorten below 56 columns', async ($, on) => {
     expect(label).toContain('Ove')
     expect(label).not.toContain('Overview')
     await narrow.unmount()
+  }
+})
+
+test('an empty session at bodyColumns 24 keeps Idle within 24', async ($, on) => {
+  seed(on, empty)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 24)
+    const found = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
+    expect(found.some(f => (f.text ?? '').startsWith('Idle'))).toBe(true)
+    for (const f of found) expect((f.text ?? '').length <= 24).toBe(true)
+    await ui.unmount()
   }
 })
 

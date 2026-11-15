@@ -311,14 +311,52 @@ async function isSlim($: EngineInterface): Promise<boolean> {
   }
 }
 
-/** The commands, and nothing else: `/mc`, `/mc 1-5`, `/mc keep <note>`, `/mc export`, `/mc close`, `/mc slim`. */
+/** Whether the person asked for the strip in the band; false when the state cannot be read. */
+async function isStrip($: EngineInterface): Promise<boolean> {
+  try {
+    return (await readUi($)).strip === true
+  } catch (err) {
+    debug($, `strip read failed: ${errText(err)}`)
+    return false
+  }
+}
+
+/**
+ * Turns the strip off and opens the pane the way `/mc` does, at the slim
+ * width while `ui.slim`. Throws what the open throws.
+ */
+async function openPane($: EngineInterface): Promise<{ isPlaced: boolean }> {
+  await updateUi($, cur => (cur.strip === true ? { ...cur, strip: false } : cur))
+  const opened = await $.ui.open(paneArgs(true, await isSlim($)))
+  await setPaneOpen($, opened.isPlaced)
+  return opened
+}
+
+/**
+ * What a press in the band's strip does after its own write (the tab, the
+ * agent or step it opens): the strip goes and the pane opens on that.
+ * Never throws.
+ */
+export async function leaveStrip($: EngineInterface): Promise<void> {
+  try {
+    await openPane($)
+  } catch (err) {
+    debug($, `leave strip failed: ${errText(err)}`)
+  }
+}
+
+/**
+ * The commands, and nothing else: `/mc`, `/mc 1-5`, `/mc keep <note>`,
+ * `/mc export`, `/mc close`, `/mc slim`, `/mc strip`. `/mc`, `/mc 1-5` and
+ * `/mc slim` open the pane and so turn the strip off; `/mc strip` closes it:
+ * whichever ran last wins.
+ */
 export async function runMc($: EngineInterface, args: string): Promise<{ text: string }> {
   const word = args.trim().split(/\s+/)[0] ?? ''
   if (word === '') {
     try {
       await seedBudget($, { skipIfFresh: true })
-      const opened = await $.ui.open(paneArgs(true, await isSlim($)))
-      await setPaneOpen($, opened.isPlaced)
+      const opened = await openPane($)
       if (!opened.isPlaced) return { text: 'Mission Control is open and waits for a wider terminal.' }
       return { text: 'Mission Control opened.' }
     } catch (err) {
@@ -342,8 +380,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
     try {
       await seedBudget($, { skipIfFresh: true })
       await updateUi($, cur => ({ ...leaveDetail(cur), tab: target.tab }))
-      const opened = await $.ui.open(paneArgs(true, await isSlim($)))
-      await setPaneOpen($, opened.isPlaced)
+      const opened = await openPane($)
       if (!opened.isPlaced) return { text: `Mission Control: ${target.label}. It waits for a wider terminal.` }
       return { text: `Mission Control: ${target.label}.` }
     } catch (err) {
@@ -363,10 +400,11 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   }
   if (word === 'slim') {
     try {
-      await updateUi($, cur => ({ ...cur, slim: !cur.slim }))
+      // From the strip, slim is asked for, not toggled: the last command wins.
+      const fromStrip = await isStrip($)
+      await updateUi($, cur => ({ ...cur, slim: fromStrip ? true : !cur.slim }))
       const slim = await isSlim($)
-      const opened = await $.ui.open(paneArgs(true, slim))
-      await setPaneOpen($, opened.isPlaced)
+      const opened = await openPane($)
       const said = slim ? `Mission Control: slim, ${COLUMNS_SLIM} columns.` : `Mission Control: full width, ${COLUMNS_DOCK} columns.`
       if (!opened.isPlaced) return { text: `${said} It waits for a wider terminal.` }
       return { text: said }
@@ -375,7 +413,23 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not resize Mission Control: ${errText(err)}` }
     }
   }
-  return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close or slim.' }
+  if (word === 'strip') {
+    try {
+      if (await isStrip($)) {
+        const opened = await openPane($)
+        if (!opened.isPlaced) return { text: 'Mission Control is open and waits for a wider terminal.' }
+        return { text: 'Mission Control opened.' }
+      }
+      await updateUi($, cur => ({ ...cur, strip: true }))
+      await $.ui.close({ id: PANE })
+      await setPaneOpen($, false)
+      return { text: 'Mission Control: strip, above the prompt.' }
+    } catch (err) {
+      debug($, `strip failed: ${errText(err)}`)
+      return { text: `Could not switch the strip: ${errText(err)}` }
+    }
+  }
+  return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim or strip.' }
 }
 
 // The one timer of this module instance; a reload starts a fresh module.
@@ -397,7 +451,8 @@ async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise
 
 /** Session-start work, called from register.tsx's one session.start hook. Never throws. */
 export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode }): Promise<void> {
-  if (options.autoOpen === true) {
+  // The strip stands in for the pane: a reload or a resumed session keeps it.
+  if (options.autoOpen === true && !(await isStrip($))) {
     try {
       const opened = await $.ui.open(paneArgs(false, await isSlim($)))
       if (!opened.isPlaced) debug($, `pane waits: ${opened.reason}`)

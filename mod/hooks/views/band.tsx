@@ -6,8 +6,10 @@ import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi } from '../state'
 import { bar, crewRow, elapsed, fit, fitRuns, meter, pillRun, pips } from './fit'
 import { needsYou, problemText, waitStates } from './needs'
+import { stripBandView } from './overview'
 import { deck, runText } from './parts'
 import type { DeckCell, DeckRow } from './parts'
+import { leaveStrip } from './shell'
 import type { ViewCtx } from './shell'
 import { C, cellCol, podOf } from './style'
 import type { Pod, PodState, Run } from './style'
@@ -269,6 +271,11 @@ function doneRow(ctx: ViewCtx, $: EngineInterface, crew: { agent: AgentRow; pod:
  * the pane is open or the band is narrower, it is one compact row that drops
  * the CTX dial, then `/mc`, then cuts the focus at a word. All done is one dim
  * row. The band holds no Button: nothing lives only here.
+ *
+ * While `ui.strip` (`/mc strip`) the band draws the strip in place of the
+ * pane: overview.tsx's strip halves over the compact row (or the all-done
+ * row), even when there is nothing to say. Its rows are plain Buttons with
+ * no hotkey; a press opens the pane on what it names and ends the strip.
  */
 export function registerBand(on: On): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -280,16 +287,21 @@ export function registerBand(on: On): void {
       const s = summary(t)
       const needs = needsYou(t, u, now)
       const live = s.running.length
-      if (needs.length === 0 && s.total === 0 && live === 0 && !s.focus) return next(e)
+      const isStrip = u.strip === true
+      if (!isStrip && needs.length === 0 && s.total === 0 && live === 0 && !s.focus) return next(e)
 
       const cols = e.props.bodyColumns
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now }
       const allDone = needs.length === 0 && s.total > 0 && s.done === s.total && live === 0
       // The pods and the pill answer to the same rule: `waitStates` is built on `needsYou`.
       const crew = podsOf(t, waitStates(t, u, now), now, allDone)
+      const word: Word = needs.length > 0 ? 'WAITING' : live > 0 || e.props.isWorking || t.steps.some(x => x.status === 'running') ? 'WORKING' : 'IDLE'
+      if (isStrip) {
+        const line = allDone ? doneRow(ctx, $, crew) : compactRow(ctx, $, word, needs, crew)
+        return stripBandView(ctx, $, { maxRows: e.props.maxRows, line, after: () => leaveStrip($) })
+      }
       if (allDone) return doneRow(ctx, $, crew)
 
-      const word: Word = needs.length > 0 ? 'WAITING' : live > 0 || e.props.isWorking || t.steps.some(x => x.status === 'running') ? 'WORKING' : 'IDLE'
       const compact = u.paneOpen === true || cols < THREE_ROWS_FROM || e.props.maxRows < 3
       if (!compact) {
         const rows = threeRows(ctx, $, word, needs, crew)

@@ -37,6 +37,7 @@ All of these work in the middle of a turn. These are the only commands.
 | `/mc export` | Writes the digest to the journal and copies it. |
 | `/mc close` | Closes the pane. |
 | `/mc slim` | Switches between the slim pane (28 columns) and the full one (62). |
+| `/mc strip` | Closes the pane and draws the strip in the band above the prompt; run again, it restores the band and reopens the pane. |
 
 ## Keys
 
@@ -82,6 +83,26 @@ to bottom it shows the focus, NEEDS YOU, tasks, agents, budget and the latest
 step and kept step. Each label opens that tab's list; `/mc 1` to `/mc 5` still
 work. `/mc slim` asks for a 28-column pane and, run again, restores 62. A pane
 you resize yourself keeps the width you give it, and the layout follows it.
+
+## Strip mode
+
+`/mc strip` closes the pane and draws the strip in the band above the prompt
+instead: the Now deck (focus, next, crew, tasks, steps, budget) beside AGENTS
+and LATEST, with the band's one-row summary under it. From 96 columns the two
+halves sit side by side in 7 rows; narrower, they stack in 14. The band may
+take at most half the terminal's height, the prompt's rows included, so in a
+short terminal AGENTS and LATEST are cut first, then the deck from the
+bottom; the summary row always stays.
+
+Each strip row opens what it names, as it does in the pane: pressing it (a
+click, or Ctrl+X Tab to focus the band and then Enter) turns the strip off and
+opens the pane there. The strip has no hotkeys, because a bare digit typed in
+an empty prompt can press a band button.
+
+`/mc`, `/mc 1` to `/mc 5` and `/mc slim` open the pane and so turn the strip
+off. `/mc strip` and `/mc slim` do not fight: whichever ran last wins, and
+`/mc slim` run from the strip always gives the slim pane. `/mc close` leaves
+the strip as it is. A `/clear` turns it off.
 
 ## Options
 

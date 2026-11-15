@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 
 import type { AgentRow, Run, Step, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -20,7 +20,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -138,14 +139,29 @@ test('LOOK: the board: hulls at 2, head on the grid, rows in spawn order on the 
   }
 })
 
-test('a press on an agent row opens it: result and agent lines, then s: steps  v: transcript  g: chat', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
+test('Enter on a run agent row opens its page; b returns to the list with the row focused', async ($, on) => {
+  const stored = seed(on, board(), UI)
+  for (const surface of SURFACES) {
+    stored.set('ui', UI)
+    LOGS.length = 0
+    const ui = await mount($, surface)
+    await ui.press({ key: 'run-agent-w0' })
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'w0', from: 'run-agent-w0' })
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['run-agent-w0'])
+    await ui.unmount()
+  }
+})
+
+test('an agent opened in place (agentOpen) shows result and agent lines, then s: steps  v: transcript  g: chat', async ($, on) => {
   const stored = seed(on, board(), UI)
   for (const surface of SURFACES) {
     stored.set('ui', UI)
     let ui = await mount($, surface)
     expect((await rows(ui)).join('\n')).not.toContain('found 3 bugs')
-    await ui.press({ key: 'run-agent-w0' })
-    expect((stored.get('ui') as UiState).agentOpen).toBe('w0')
     await ui.unmount()
     stored.set('ui', { ...UI, agentOpen: 'w0' })
     ui = await mount($, surface)
@@ -158,8 +174,6 @@ test('a press on an agent row opens it: result and agent lines, then s: steps  v
     const agent = detail.find(r => r.includes('workflow-subagent')) ?? ''
     expect(colOf(agent, 'agent')).toBe(6)
     expect(detail).toContain('      s: steps   v: transcript   g: chat')
-    await ui.press({ key: 'run-agent-w0' })
-    expect((stored.get('ui') as UiState).agentOpen).toBeUndefined()
     await ui.unmount()
   }
 })

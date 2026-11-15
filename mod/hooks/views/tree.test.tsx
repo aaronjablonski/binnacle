@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 
 import type { AgentRow, Run, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 /** The text look on every surface: the layout the Raster-free tables keep (hull glyphs in the characters' boxes). */
 const TEXT = { options: { look: 'text' } } as const
@@ -22,7 +22,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -194,17 +195,21 @@ test('a stored fold of an agent key is ignored: only runs fold', async ($, on) =
   await ui.unmount()
 })
 
-test('pressing an agent row opens it in place; pressing it again closes it', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
+test('Enter on a crew node opens its page; b returns to the map with the node focused', async ($, on) => {
   const stored = seed(on, branchy(), TREE_UI)
   for (const surface of SURFACES) {
     put(stored, branchy(), TREE_UI)
+    LOGS.length = 0
     const ui = await mount($, surface)
     await ui.press({ key: 'node-g1' })
     const u = stored.get('ui') as UiState
-    expect(u.agentOpen).toBe('g1')
+    expect(u.page).toEqual({ kind: 'agent', id: 'g1', from: 'node-g1' })
     expect(u.tab).toBe('agents')
-    await ui.press({ key: 'node-g1' })
-    expect((stored.get('ui') as UiState).agentOpen).toBeUndefined()
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['node-g1'])
     await ui.unmount()
   }
 })
@@ -571,7 +576,8 @@ test('pressing a branch folds it and shows its agent count; pressing again unfol
   }
 })
 
-test('an opened node: its details, action line and e: page follow its two rows', TEXT, async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): the opened node (n/p move it) has no e: page line; Enter on the node opens the page.
+test('an opened node: its details and action line follow its two rows', TEXT, async ($, on) => {
   seed(on, branchy(), { ...TREE_UI, agentOpen: 'g1' })
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 62)
@@ -583,20 +589,12 @@ test('an opened node: its details, action line and e: page follow its two rows',
     expect(colOf(all[at + 2], 'Read')).toBe(14)
     expect(colOf(all[at + 3], 'agent')).toBe(6)
     expect(all[at + 4]).toBe('      s: steps   v: transcript   g: chat')
-    expect(all[at + 5]).toBe('      e: page')
+    expect(all[at + 5] ?? '').not.toContain('e: page')
     expect(all.join('\n')).not.toContain('View')
     const found = await ui.findAll({ type: 'Text' })
     expect(found.some(f => f.text === 'review hooks' && propsOf(f).bold === true)).toBe(true)
     await ui.unmount()
   }
-})
-
-test('e: page on an opened node opens the agent page', async ($, on) => {
-  const stored = seed(on, branchy(), { ...TREE_UI, agentOpen: 'g1' })
-  const ui = await mount($, 'terminal')
-  await ui.press({ key: 'agent-page-g1' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'g1' })
-  await ui.unmount()
 })
 
 test('LOOK: an agent whose parent never spawned hangs from main, under the no task branch', async ($, on) => {

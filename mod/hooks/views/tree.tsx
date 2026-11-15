@@ -4,7 +4,7 @@ import type { AgentRow, TaskItem } from '../../types'
 import { agentTree, hasProblemIn, runningOnlyTree } from '../model/select'
 import type { TreeNode } from '../model/select'
 import { debug, errText, updateUi } from '../state'
-import { EMPTY, RUN_GLYPH, signalFlag, tokensOf, toggleOpen } from './agentmeta'
+import { EMPTY, RUN_GLYPH, openAgentPage, signalFlag, tokensOf } from './agentmeta'
 import type { Jump } from './agentmeta'
 import { tokenText } from './budget'
 import { crewNode, factsOf, openedAgent } from './crewnode'
@@ -281,7 +281,7 @@ function mainNode(ctx: ViewCtx, $: EngineInterface, agent: AgentRow, state: PodS
         {inst(ctx, $, { key: 'who-main', ...spriteOf(agent, ctx.now, state) })}
       </Box>
       <Box key="map-main-text" flexDirection="column">
-        <Button key="node-main" plain onPress={() => toggleOpen($, 'main')}>
+        <Button key="node-main" plain onPress={() => openAgentPage($, 'main', 'node-main')}>
           <Text bold>main</Text>
         </Button>
         <Text key="map-main-facts" dimColor wrap="truncate-end">{wordFit(factsOf(ctx, agent, state, true), room)}</Text>

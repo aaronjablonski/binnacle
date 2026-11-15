@@ -8,7 +8,8 @@ import { STEP_GLYPH } from './agentmeta'
 import { openInEditor } from './editor'
 import { showInChat } from './find'
 import { clock, elapsed, fit, packParts, shortPaths } from './fit'
-import { bodyOfOpen } from './openstep'
+import { bodyOfOpen, openStep } from './openstep'
+import { pageOf } from './pagenav'
 import { glyphLine, page, sectionHeader } from './parts'
 import type { Action, PageBlock, RowSpec } from './parts'
 import type { ViewCtx } from './shell'
@@ -265,8 +266,9 @@ const PILL: Record<Step['status'], string> = { error: 'FAILED', running: 'RUNNIN
 type PageLines = { text: string; color?: string; dim?: boolean }[][]
 
 /**
- * The step page (`ui.page = { kind: 'step', id: <step id> }`; the second press
- * on a step in Steps, `openStep`): the full step with nothing cut. TOOL, AGENT,
+ * The step page (`ui.page = { kind: 'step', id: <step id> }`; Enter on a step
+ * row anywhere, through `openStep`): the full step with nothing cut. `n`/`p`
+ * step to the next and previous step; the lintel says `step k of n`. TOOL, AGENT,
  * STATUS, TIME; INPUT wrapped in full; CHANGE for Edit, MultiEdit and Write
  * (a diff: added green, removed red); RESULT in full (the pane scrolls);
  * FILES, every path the step names with `o: open` (a press on a row opens that
@@ -347,10 +349,18 @@ export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
     { hotkey: 'c', label: 'copy as Markdown', key: 'step-page-copy', onPress: () => copyResult($, stepMarkdown(s, body), surface) },
     { hotkey: 'q', label: 'quote', key: 'step-page-quote', onPress: () => quoteInPrompt($, quoteOf(s, body)) },
   )
+  // n and p step to the next and the previous step (in the order they started), keeping where `b` returns to.
+  const order = [...t.steps].sort((a, b) => a.seq - b.seq)
+  const at = order.findIndex(x => x.id === s.id)
+  const from = pageOf(u)?.from
+  const nextStep = order[at + 1]
+  const prevStep = at > 0 ? order[at - 1] : undefined
+  if (nextStep !== undefined) actions.push({ hotkey: 'n', label: 'next', key: 'step-page-next', onPress: () => openStep($, nextStep.id, from) })
+  if (prevStep !== undefined) actions.push({ hotkey: 'p', label: 'previous', key: 'step-page-prev', onPress: () => openStep($, prevStep.id, from) })
   const status = statusColor(s.status)
   return page(ctx, $, {
     key: 'step-page',
-    frame: { pill: PILL[s.status], ...(s.status === 'error' ? { pillColor: C.fail } : {}) },
+    frame: { pill: PILL[s.status], ...(s.status === 'error' ? { pillColor: C.fail } : {}), right: `step ${at + 1} of ${order.length}` },
     title: s.label,
     fields: [
       { label: 'TOOL', value: [{ text: s.tool, bold: true }] },

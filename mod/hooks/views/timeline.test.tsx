@@ -7,7 +7,7 @@ import { bodyOf } from '../journal'
 import { empty } from '../model/reduce'
 import { filesOf } from './detail'
 import { decode, PALETTE } from './raster'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 import { mapBuckets } from './timeline'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -36,7 +36,8 @@ function world(
   clock = mock.clock(on, { now: NOW })
   reads.length = 0
   mock.env(on, { USERPROFILE: HOME, OS: 'Windows_NT' })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('session.id', () => ({ value: 'sess-1' }))
   on('fs.read', async (_, e) => {
     reads.push(e.path.replaceAll('\\', '/'))
@@ -598,16 +599,24 @@ test('f: Find is on the find row as an armed hotkey; pressing it asks for the fi
 
 const BODY_S4 = fileFor('s4', 'FAIL mod/hooks/views/timeline.test.tsx\n  x groups steps\nthird line\nfourth', { isError: true })
 
-test('a press opens the step in place: at most 3 detail lines, then g: chat  k: keep  c: copy', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "a press opens the step in place; a second press opens its page".
+test('Enter on a step row opens its page; b returns to the list with the step focused, still marked in place: 3 detail lines, then g: chat  k: keep  c: copy', async ($, on) => {
   const stored = world(on, twoTurns(), TL_UI, new Map([BODY_S4]))
   for (const surface of SURFACES) {
     put(stored, twoTurns(), TL_UI)
+    LOGS.length = 0
     const ui = await mount($, surface, 62)
     await ui.press({ key: 'step-s4' })
-    const u = stored.get('ui') as UiState & { stepBody?: { stepId: string } }
+    const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; body?: { isError: boolean } } }
+    expect(u.page).toEqual({ kind: 'step', id: 's4', from: 'step-s4' })
     expect(u.stepOpen).toBe('s4')
     expect(u.detail).toBeUndefined()
-    expect(u.stepBody?.stepId).toBe('s4')
+    expect(u.stepBody?.body?.isError).toBe(true)
+    await ui.redraw()
+    expect(await ui.find({ key: 'step-page-keep' })).toBeDefined()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['step-s4'])
     await ui.unmount()
     const open = await mount($, surface, 62)
     const rows = await drawnRows(open)
@@ -629,29 +638,27 @@ test('a press opens the step in place: at most 3 detail lines, then g: chat  k: 
   }
 })
 
-// BEHAVIOUR TEST (rewritten for Neo Rich: the second press opens the step's page, not the old detail view).
-// Replaces "a second press on the opened step opens the full step with its body".
-test('a second press on the opened step opens its page with the body, and b comes back to the step open in place', async ($, on) => {
-  const stored = world(on, twoTurns(), TL_UI, new Map([BODY_S4]))
-  const ui = await mount($, 'terminal')
-  await ui.press({ key: 'step-s4' })
+test('on a step page n and p step to the next and previous step, the body loading each time, and b still returns to the row it came from', async ($, on) => {
+  const stored = world(on, twoTurns(), { ...TL_UI, page: { kind: 'step', id: 's3', from: 'step-s3' } } as UiState, new Map([BODY_S4]))
+  // The desktop draws the lintel as text (the terminal's Raster lays out blank here).
+  const ui = await mount($, 'desktop')
+  expect((await drawnRows(ui)).join('\n')).toContain('step 3 of 4')
+  await ui.press({ key: 'step-page-next' })
+  const next = stored.get('ui') as UiState & { stepBody?: { stepId: string; body?: { isError: boolean } } }
+  expect(next.page).toEqual({ kind: 'step', id: 's4', from: 'step-s3' })
+  expect(next.stepBody?.body?.isError).toBe(true)
   await ui.unmount()
-  const open = await mount($, 'terminal')
-  await open.press({ key: 'step-s4' })
-  const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; body?: { isError: boolean } } }
-  expect(u.page).toEqual({ kind: 'step', id: 's4' })
-  expect(u.detail).toBeUndefined()
-  expect(u.stepBody?.body?.isError).toBe(true)
-  await open.unmount()
-  const full = await mount($, 'terminal')
-  expect(await full.find({ key: 'step-page-open' })).toBeUndefined()
-  expect(await full.find({ key: 'step-page-keep' })).toBeDefined()
-  expect(await full.find({ key: 'page-back' })).toBeDefined()
-  await full.press({ key: 'page-back' })
-  const back = stored.get('ui') as UiState
-  expect(back.page).toBeUndefined()
-  expect(back.stepOpen).toBe('s4')
-  await full.unmount()
+  const last = await mount($, 'desktop')
+  // s4 is the last step: no n, and p goes back to s3.
+  expect(await last.find({ key: 'step-page-next' })).toBeUndefined()
+  await last.press({ key: 'step-page-prev' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'step', id: 's3', from: 'step-s3' })
+  await last.unmount()
+  stored.set('ui', { ...TL_UI, page: { kind: 'step', id: 's1' } })
+  const first = await mount($, 'terminal')
+  expect(await first.find({ key: 'step-page-prev' })).toBeUndefined()
+  expect(await first.find({ key: 'step-page-next' })).toBeDefined()
+  await first.unmount()
 })
 
 test('an opened row that is not first in its section has a blank row above and below', async ($, on) => {

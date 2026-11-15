@@ -10,7 +10,8 @@ import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { crewPods, moveNeed, needsFrameRows, needsLimits, needsSection, needsYou, paneState, podFor, waitStates } from './needs'
 import { isOnScreen } from './onscreen'
-import { openStepInline } from './openstep'
+import { openStep } from './openstep'
+import { openAgentPage } from './agentmeta'
 import { openPage } from './pagenav'
 import { blank, deck, deckRows, footer, hero, inst, more, row, section } from './parts'
 import type { DeckCell, DeckRow, Hint, InstSpec } from './parts'
@@ -127,7 +128,7 @@ function agentsBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       name: shortPaths(a.description || a.type),
       metric: agentTokens(a),
       time: elapsed(a.startedAt, ctx.now),
-      onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })),
+      onPress: () => openAgentPage($, a.id, `agent-${a.id}`),
     })
   })
   return [section(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows, ...(live.length > MAX_LIST ? [more(ctx, $, live.length - MAX_LIST)] : [])]
@@ -159,7 +160,7 @@ function latestBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       name: argOf(x.tool, x.label),
       metric: who(t, x.agent),
       time: x.status === 'running' ? 'now' : elapsed(x.endedAt ?? x.startedAt, now),
-      onPress: () => openStepInline($, x.id),
+      onPress: () => openStep($, x.id, `step-${x.id}`),
     }),
   )
   return [section(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
@@ -177,7 +178,7 @@ function keptBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       name: x.pin !== undefined && x.pin !== '' ? x.pin : argOf(x.tool, x.label),
       metric: x.tool,
       time: clock(x.startedAt),
-      onPress: () => openStepInline($, x.id),
+      onPress: () => openStep($, x.id, `kept-${x.id}`),
     }),
   )
   const note =
@@ -303,7 +304,7 @@ function stripBlocks(ctx: ViewCtx, $: EngineInterface, after?: () => Promise<voi
       name: shortPaths(a.description || a.type),
       metric: agentTokens(a),
       time: elapsed(a.startedAt, now),
-      onPress: andThen(() => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })), after),
+      onPress: andThen(() => openAgentPage($, a.id, `agent-${a.id}`), after),
     })
   }
   if (live.length > 0) {
@@ -325,7 +326,7 @@ function stripBlocks(ctx: ViewCtx, $: EngineInterface, after?: () => Promise<voi
         name: argOf(x.tool, x.label),
         metric: who(t, x.agent),
         time: x.status === 'running' ? 'now' : elapsed(x.endedAt ?? x.startedAt, now),
-        onPress: andThen(() => openStepInline($, x.id), after),
+        onPress: andThen(() => openStep($, x.id, `step-${x.id}`), after),
       }),
     )
   }
@@ -600,17 +601,17 @@ export function nowFrame(ctx: ViewCtx, $: EngineInterface, p: FrameParts): Rende
       { text: `  ${x.status === 'running' ? 'now' : elapsed(x.endedAt ?? x.startedAt, now)}`, dim: true },
     ]
   }
-  const openStep = (x: Step) => press(() => openPage($, 'step', x.id))
+  const openHero = (x: Step) => press(() => openStep($, x.id, 'hero-step'))
   const lines: { key?: string; runs: string | Run[]; onPress?: () => void | Promise<void>; lines?: 1 | 2 }[] = []
   if (stale !== undefined && running !== undefined) {
     // The latest activity leads; who and how long, and how far the focus is behind.
-    lines.push({ key: 'hero-step', runs: stepRuns(running, true), onPress: openStep(running) })
+    lines.push({ key: 'hero-step', runs: stepRuns(running, true), onPress: openHero(running) })
     lines.push({ key: 'hero-who', runs: [{ text: `${who(t, running.agent)} · ${running.status === 'running' ? 'running' : elapsed(running.endedAt ?? running.startedAt, now)}`, dim: true }] })
     lines.push({ key: 'hero-since', runs: [{ text: `${stale.since} ${stale.since === 1 ? 'step' : 'steps'} since the focus`, dim: true }] })
   } else {
     if (hl.isIdle) lines.push({ key: 'hero-focus', runs: [{ text: hl.text, dim: true }] })
     else lines.push({ key: 'hero-focus', runs: hl.text, lines: 2 })
-    if (running !== undefined) lines.push({ key: 'hero-step', runs: stepRuns(running, false), onPress: openStep(running) })
+    if (running !== undefined) lines.push({ key: 'hero-step', runs: stepRuns(running, false), onPress: openHero(running) })
     if (p.strip === true && s.next !== undefined) lines.push({ key: 'hero-next', runs: [{ text: 'next  ', dim: true }, { text: s.next, dim: true }] })
   }
   const rings = p.strip === true ? [] : ringsOf(t, now)
@@ -752,7 +753,7 @@ function agentsBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElemen
       name: shortPaths(a.description || a.type),
       metric: agentTokens(a),
       time: a.status === 'error' ? { text: 'failed', color: C.fail } : elapsed(a.startedAt, ctx.now),
-      onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })),
+      onPress: () => openAgentPage($, a.id, `agent-${a.id}`),
     })
   })
   return [section(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows]
@@ -775,7 +776,7 @@ function latestBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElemen
       name: argOf(x.tool, x.label),
       metric: who(t, x.agent),
       time: x.status === 'running' ? 'now' : elapsed(x.endedAt ?? x.startedAt, now),
-      onPress: () => openStepInline($, x.id),
+      onPress: () => openStep($, x.id, `step-${x.id}`),
     }),
   )
   return [section(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
@@ -824,7 +825,7 @@ function tasksBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement
       ...(x.status === 'completed' ? { dim: true } : {}),
       ...(m !== undefined && m.tokens > 0 ? { metric: tokenText(m.tokens) } : {}),
       ...(m !== undefined && m.ms + m.agentMs > 0 ? { time: elapsed(0, m.ms + m.agentMs) } : {}),
-      onPress: () => openPage($, 'task', `${x.owner}:${x.id}`),
+      onPress: () => openPage($, 'task', `${x.owner}:${x.id}`, `task-${x.owner}-${x.id}`),
     })
   })
   return [section(ctx, $, 'TASKS', 'tokens', 'time'), ...rows]
@@ -844,7 +845,7 @@ function keptBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement[
       name: x.pin !== undefined && x.pin !== '' ? x.pin : argOf(x.tool, x.label),
       metric: x.tool,
       time: clock(x.startedAt),
-      onPress: () => openStepInline($, x.id),
+      onPress: () => openStep($, x.id, `kept-${x.id}`),
     }),
   )
   const extra: RenderElement[] = []

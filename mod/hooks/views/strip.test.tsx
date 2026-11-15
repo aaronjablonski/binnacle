@@ -294,7 +294,8 @@ test('pressing CREW in the band strip turns the strip off and opens the pane on 
   expect(w.opened[0]).toMatchObject({ id: 'mission-control', focus: true })
 })
 
-test('pressing a step in the band strip opens it on Steps in the pane', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "opens it in place on Steps"; Enter on a step row opens its page.
+test('pressing a step in the band strip opens its page in the pane', async ($, on) => {
   const w = world(on, BUSY, { ...initialUi, strip: true })
   on('fs.read', () => {
     throw new Error('ENOENT')
@@ -302,8 +303,8 @@ test('pressing a step in the band strip opens it on Steps in the pane', async ($
   const ui = await $.ui.mount({ ...BAND(110, 20), surface: 'terminal' })
   await ui.press({ key: 'step-s1' })
   await ui.unmount()
-  expect(uiOf(w).tab).toBe('timeline')
-  expect(uiOf(w).stepOpen).toBe('s1')
+  expect(uiOf(w).page).toEqual({ kind: 'step', id: 's1', from: 'step-s1' })
+  expect((uiOf(w) as UiState & { stepBody?: { stepId: string } }).stepBody?.stepId).toBe('s1')
   expect(uiOf(w).strip).toBe(false)
   expect(w.opened.length).toBe(1)
 })

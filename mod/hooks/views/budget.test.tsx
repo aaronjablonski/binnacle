@@ -6,7 +6,7 @@ import type { AgentRow, Budget, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { modelCells, modelName, resetClock, resetText, tokenText, windowName } from './budget'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -22,7 +22,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
   mock.env(on, {})
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -210,13 +211,16 @@ test('text form: MODELS and AGENTS are tables with tokens at 38 and a 10-cell sh
   }
 })
 
-test('pressing an agent row of the budget view opens that agent', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "opens the agent in place on the Agents tab"
+test('Enter on an agent row of the budget view opens its page; b returns to the list with the row focused', async ($, on) => {
   const { stored } = world(on, withBudget(budget(), { agents: { main, a1: agent('a1', { model: 'claude-sonnet-5-5', tokensIn: 40_000, tokensOut: 0 }) } }))
   const m = await openBudget($, 'terminal', 62)
   await m.press({ key: 'budget-agent-a1' })
-  const u = stored.get('ui') as UiState
-  expect(u.tab).toBe('agents')
-  expect(u.agentOpen).toBe('a1')
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'a1', from: 'budget-agent-a1' })
+  await m.redraw()
+  await m.press({ key: 'page-back' })
+  expect((stored.get('ui') as UiState).page).toBeUndefined()
+  expect(backTo()).toEqual(['budget-agent-a1'])
   await m.unmount()
 })
 

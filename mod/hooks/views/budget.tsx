@@ -9,6 +9,7 @@ import type { Pace, PaceRow } from '../model/meter'
 import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
+import { openAgentPage } from './agentmeta'
 import { bar, clock, elapsed, fit, meter, shortPaths, wordFit } from './fit'
 import { laid, runsLine } from './lay'
 import type { Placed } from './lay'
@@ -359,7 +360,7 @@ function textBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         tokens,
         color: C.live,
         ...(pod.state === 'done' || pod.state === 'queued' ? { dim: true } : {}),
-        ...(id !== 'main' ? { onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: id })) } : {}),
+        ...(id !== 'main' ? { onPress: () => openAgentPage($, id, `budget-agent-${id}`) } : {}),
       }
     })
     out.push(blank(ctx, $, 'budget-gap-2'), ...shareTable(ctx, $, 'AGENTS', items, all, reported.length - items.length))
@@ -734,7 +735,7 @@ function richBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         tokens,
         color: C.live,
         ...(pod.state === 'done' || pod.state === 'queued' ? { dim: true } : {}),
-        ...(id !== 'main' ? { onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: id })) } : {}),
+        ...(id !== 'main' ? { onPress: () => openAgentPage($, id, `budget-agent-${id}`) } : {}),
       }
     })
     out.push(

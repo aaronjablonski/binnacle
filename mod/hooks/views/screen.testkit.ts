@@ -161,3 +161,26 @@ function linesOf(node: Node): Line[] {
 export function stops(drawn: unknown): { key: string; row: number; col: number }[] {
   return linesOf(drawn as Node).flatMap((l, row) => l.at.map(a => ({ key: a.key, row, col: a.col })))
 }
+
+// ---------- where `b` sends the ring ----------
+
+/** Every debug line the mod logged in this test file (the `world` helpers push here). */
+export const LOGS: string[] = []
+
+/** A `ui.log` hook that keeps each line in `LOGS`. */
+export const keepLog = (_: unknown, e: unknown): { value: undefined } => {
+  LOGS.push(String((e as { text?: unknown }).text ?? ''))
+  return { value: undefined }
+}
+
+/**
+ * The keys `b` (closePage) asked the focus ring back onto. The kit has no
+ * ring, so `$.ui.focus` from a press cannot land; its debug line names the
+ * row the press asked for, as the tab-switch tests read it.
+ */
+export function backTo(): string[] {
+  return LOGS.flatMap(l => {
+    const m = /back: focus (.+) (?:failed|denied):/.exec(l)
+    return m !== null && m[1] !== undefined ? [m[1]] : []
+  })
+}

@@ -5,9 +5,12 @@ import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-cod
 import type { UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { barCell, blank, fitHints, footer, more, opened, readout, row, section, sparkCell, stackCell } from './parts'
+import { meter, pillRun, pips, spark } from './fit'
+import { barCell, blank, deck, fitHints, footer, more, opened, pill, readout, row, section, sparkCell, stackCell } from './parts'
+import type { DeckRow } from './parts'
 import type { ReadoutCell } from './parts'
 import { colOf, screen } from './screen.testkit'
+import { cellCol, DECK } from './style'
 import type { ViewCtx } from './shell'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -335,4 +338,217 @@ test('row: a metric or time cell that does not fit is cut at a word, never insid
     expect(at32.length <= 32).toBe(true)
     expect(at32).not.toContain('doc')
   }
+})
+
+// ---------- Neo: deck, pill, row tethers ----------
+
+const NOW_DECK: (DeckRow | null)[] = [
+  { label: 'FOCUS', cells: [{ col: DECK.gauge, runs: [{ text: 'Grouping timeline steps by agent', bold: true }] }, { col: DECK.aside, runs: [{ text: '20s', dim: true }] }] },
+  { label: 'NEXT', cells: [{ col: DECK.gauge, runs: 'Humanise step labels' }] },
+  null,
+  {
+    label: 'TASKS',
+    cells: [
+      { col: DECK.gauge, runs: pips(9, 14), whole: true },
+      { col: DECK.value, runs: [{ text: '9', bold: true }, { text: '/14', dim: true }] },
+      { col: DECK.aside, runs: [{ text: '1h23', dim: true }] },
+    ],
+  },
+  {
+    label: 'STEPS',
+    cells: [
+      { col: DECK.gauge, runs: spark([2, 1, 2, 3, 2, 3, 5, 4, 3, 2, 5, 7, 6, 5, 3, 2, 2, 3, 4, 5, 3, 5], 22), narrow: spark([5, 7, 6, 5, 3, 2, 2, 3, 4, 5], 10), whole: true },
+      { col: DECK.value, runs: [{ text: '52', bold: true }] },
+      { col: DECK.aside, runs: [{ text: '✖ 1', color: 'error' }] },
+    ],
+  },
+  { label: 'BUDGET', cells: [{ col: DECK.gauge, runs: meter('CTX', 9), whole: true }, { col: cellCol(2), runs: meter('5H', 78), whole: true }, { col: DECK.value, runs: meter('7D', 22), whole: true }] },
+]
+
+test('deck: rails in column 0 and the last column, a bracket that opens also closes, at 62, 40 and 32', async ($, on) => {
+  draws(on, (ctx, $) => deck(ctx, $, NOW_DECK, { key: 'now' }))
+  for (const cols of [62, 40, 32]) {
+    for (const surface of SURFACES) {
+      const r = await rows($, surface, cols)
+      expect(r).toHaveLength(NOW_DECK.length)
+      expect(r[0]?.[0]).toBe('┏')
+      expect(r[r.length - 1]?.[0]).toBe('┗')
+      for (const mid of r.slice(1, -1)) expect(mid[0]).toBe('┃')
+      expect(r[0]?.[cols - 1]).toBe('┓')
+      expect(r[r.length - 1]?.[cols - 1]).toBe('┛')
+      for (const mid of r.slice(1, -1)) expect(mid[cols - 1]).toBe('┃')
+      for (const row of r) expect(row.length).toBe(cols)
+      // the blank rail row holds its rails and nothing else
+      expect(r[2]?.slice(1, cols - 1).trim()).toBe('')
+    }
+  }
+})
+
+test('deck: the label at 2, the gauge at 14, the value at 38 and the aside at 50 at 62 columns; nothing past 59', async ($, on) => {
+  draws(on, (ctx, $) => deck(ctx, $, NOW_DECK, { key: 'now' }))
+  for (const surface of SURFACES) {
+    const r = await rows($, surface, 62)
+    expect(colOf(r[0], 'FOCUS')).toBe(2)
+    expect(colOf(r[0], 'Grouping timeline')).toBe(14)
+    expect(colOf(r[0], '20s')).toBe(50)
+    expect(colOf(r[1], 'NEXT')).toBe(2)
+    expect(colOf(r[1], 'Humanise')).toBe(14)
+    expect(colOf(r[3], 'TASKS')).toBe(2)
+    expect(colOf(r[3], '▪▪▪▪▪▪▪▪▪▸▫▫▫▫')).toBe(14)
+    expect(colOf(r[3], '9/14')).toBe(38)
+    expect(colOf(r[3], '1h23')).toBe(50)
+    expect((r[4] ?? '')[13]).toBe(' ')
+    expect((r[4] ?? '').slice(14, 36)).toMatch(/^[▁▂▃▄▅▆▇█]{22}$/)
+    expect(colOf(r[4], '52')).toBe(38)
+    expect(colOf(r[5], 'CTX ◔ 9%')).toBe(14)
+    expect(colOf(r[5], '5H ◕ 78%')).toBe(26)
+    expect(colOf(r[5], '7D ◔ 22%')).toBe(38)
+    for (const row of r) expect(row.slice(60, 61)).toBe(' ')
+  }
+})
+
+test('deck: below 62 the aside goes; below 50 the value goes too; a gauge that does not fit takes its narrow form or goes', async ($, on) => {
+  draws(on, (ctx, $) => deck(ctx, $, NOW_DECK, { key: 'now' }))
+  const at55 = await rows($, 'terminal', 55)
+  expect(at55[0]).not.toContain('20s')
+  expect(at55[3]).not.toContain('1h23')
+  expect(colOf(at55[3], '9/14')).toBe(38)
+  expect(colOf(at55[4], '52')).toBe(38)
+  expect(colOf(at55[5], '7D ◔ 22%')).toBe(38)
+  const at40 = await rows($, 'terminal', 40)
+  expect(at40[3]).not.toContain('9/14')
+  expect(at40[4]).not.toContain('52')
+  expect(at40[5]).not.toContain('7D')
+  expect(colOf(at40[3], '▪▪▪▪▪▪▪▪▪▸▫▫▫▫')).toBe(14)
+  expect((at40[4] ?? '').slice(14, 36)).toMatch(/^[▁▂▃▄▅▆▇█]{22}$/)
+  expect(colOf(at40[5], '5H ◕ 78%')).toBe(26)
+  const at32 = await rows($, 'terminal', 32)
+  // the 22-wide trace does not fit 14 to 29: its 10-wide narrow form does
+  expect((at32[4] ?? '').slice(14, 24)).toMatch(/^[▁▂▃▄▅▆▇█]{10}$/)
+  expect((at32[4] ?? '').slice(24, 31).trim()).toBe('')
+  // a whole cell with no narrow form is left out, never cut
+  expect(at32[5]).not.toContain('5H')
+  expect(colOf(at32[5], 'CTX ◔ 9%')).toBe(14)
+  // text is cut at a word with …
+  const focus = (at32[0] ?? '').slice(14, 31).trimEnd()
+  expect(focus.endsWith('…')).toBe(true)
+  expect('Grouping timeline steps by agent'.startsWith(focus.slice(0, -1))).toBe(true)
+  expect(focus.length).toBeLessThanOrEqual(16)
+})
+
+test('deck: corners in the accent and rails in subtle; the warning tone turns corners and rails warning', async ($, on) => {
+  draws(on, (ctx, $) => (
+    <>
+      {deck(ctx, $, [{ label: 'A' }, { label: 'B' }, { label: 'C' }], { key: 'calm' })!}
+      {deck(ctx, $, [{ label: 'D' }, { label: 'E' }, { label: 'F' }], { key: 'hot', tone: 'warning' })!}
+    </>
+  ))
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  const colour = async (re: RegExp) => (await ui.findAll({ type: 'Text', text: re })).map(f => f.props.color)
+  expect(await colour(/^┏ $/)).toEqual(['suggestion', 'warning'])
+  expect(await colour(/^┓$/)).toEqual(['suggestion', 'warning'])
+  expect(await colour(/^┗ $/)).toEqual(['suggestion', 'warning'])
+  expect(await colour(/^┛$/)).toEqual(['suggestion', 'warning'])
+  expect(await colour(/^┃ $/)).toEqual(['subtle', 'warning'])
+  expect(await colour(/^┃$/)).toEqual(['subtle', 'warning'])
+  expect((await ui.find({ type: 'Text', text: /^A$/ }))?.props).toMatchObject({ dimColor: true })
+  await ui.unmount()
+})
+
+test('deck: the left-only variant draws no right rail; a one-row deck folds to two rails in the tone', async ($, on) => {
+  draws(on, (ctx, $) => (
+    <>
+      {deck(ctx, $, [{ label: 'CREW', cells: [{ col: DECK.gauge, runs: 'pods' }, { col: DECK.value, runs: '2 live' }] }, { label: 'TASKS' }], { key: 'strip', side: 'left', cols: 50 })!}
+      {deck(ctx, $, [{ label: [pillRun('WORKING', 'suggestion')], cells: [{ col: DECK.gauge, runs: 'focus' }] }], { key: 'band' })!}
+    </>
+  ))
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  const r = screen(await ui.drawn())
+  expect(r[0]?.[0]).toBe('┏')
+  expect(colOf(r[0], '2 live')).toBe(38)
+  expect(r[0]?.endsWith('2 live')).toBe(true)
+  expect(r[1]).toBe('┗ TASKS')
+  expect(r[2]?.[0]).toBe('┃')
+  expect(r[2]?.[61]).toBe('┃')
+  expect(colOf(r[2], ' WORKING ')).toBe(2)
+  const folded = await ui.findAll({ type: 'Text', text: /^┃ ?$/ })
+  expect(folded.map(f => f.props.color)).toEqual(['suggestion', 'suggestion'])
+  await ui.unmount()
+})
+
+test('deck: a row with onPress is one plain Button keyed by the row (the press target), holding only strings and Texts', async ($, on) => {
+  draws(on, (ctx, $) =>
+    deck(ctx, $, [{ key: 'crew', label: 'CREW', cells: [{ col: DECK.gauge, runs: 'pods' }], onPress: () => {} }, { label: 'TASKS' }], { key: 'now' }),
+  )
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  const buttons = await ui.findAll({ type: 'Button' })
+  expect(buttons).toHaveLength(1)
+  expect(buttons[0]?.props).toMatchObject({ plain: true })
+  expect(await ui.find({ type: 'Button', key: 'crew' })).not.toBe(undefined)
+  const hasBox = (n: unknown): boolean => {
+    if (n === null || typeof n !== 'object') return false
+    if (Array.isArray(n)) return n.some(hasBox)
+    const el = n as { type?: unknown; props?: { children?: unknown }; children?: unknown }
+    if (el.type === 'Box') return true
+    return hasBox(el.children ?? el.props?.children)
+  }
+  const findButton = (n: unknown): unknown => {
+    if (n === null || typeof n !== 'object') return undefined
+    if (Array.isArray(n)) {
+      for (const k of n) {
+        const f = findButton(k)
+        if (f !== undefined) return f
+      }
+      return undefined
+    }
+    const el = n as { type?: unknown; props?: { children?: unknown }; children?: unknown }
+    if (el.type === 'Button') return el
+    return findButton(el.children ?? el.props?.children)
+  }
+  const button = findButton(await ui.drawn()) as { children?: unknown; props?: { children?: unknown } }
+  expect(hasBox(button.children ?? button.props?.children)).toBe(false)
+  const r = screen(await ui.drawn())
+  expect(r[0]?.[61]).toBe('┓')
+  expect(colOf(r[0], 'pods')).toBe(14)
+  await ui.unmount()
+})
+
+test('pill: a Text with backgroundColor and inverseText, one space each side, bold', async ($, on) => {
+  draws(on, (ctx, $) => pill('NEEDS YOU', 'warning', ctx.e, $, 'pill-needs'))
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE(62), surface })
+    const t = await ui.find({ type: 'Text', text: ' NEEDS YOU ' })
+    expect(t?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText', bold: true })
+    expect(screen(await ui.drawn())[0]).toBe(' NEEDS YOU')
+    await ui.unmount()
+  }
+})
+
+test('row: a tether prefix puts ├╌ at 2 and the hull at 4; two deep, ┆ at 2, the tether at 4 and the hull at 6', async ($, on) => {
+  draws(on, (ctx, $) => (
+    <>
+      {row(ctx, $, { key: 't1', glyph: '◉', glyphColor: 'suggestion', depth: 1, tether: { last: false }, name: 'find every caller', metric: '72k', time: '1m' })}
+      {row(ctx, $, { key: 't2', glyph: '◬', depth: 2, tether: { last: false, outer: true }, name: 'review the hooks', metric: '64k', time: '1m' })}
+      {row(ctx, $, { key: 't3', glyph: '▣', depth: 2, tether: { last: true }, name: 'write tests', time: '9s' })}
+      {row(ctx, $, { key: 't4', glyph: '■', depth: 1, tether: { last: true }, name: 'last child' })}
+    </>
+  ))
+  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  const [a, b, c, d] = screen(await ui.drawn())
+  expect(colOf(a, '├╌')).toBe(2)
+  expect(colOf(a, '◉')).toBe(4)
+  expect(colOf(a, 'find every caller')).toBe(6)
+  expect(colOf(a, '72k')).toBe(38)
+  expect(colOf(b, '┆')).toBe(2)
+  expect(colOf(b, '├╌')).toBe(4)
+  expect(colOf(b, '◬')).toBe(6)
+  expect(colOf(b, 'review the hooks')).toBe(8)
+  expect(colOf(c, '┆')).toBe(-1)
+  expect(colOf(c, '╰╌')).toBe(4)
+  expect(colOf(c, '▣')).toBe(6)
+  expect(colOf(d, '╰╌')).toBe(2)
+  expect(colOf(d, '■')).toBe(4)
+  const tethers = await ui.findAll({ type: 'Text', text: /^(├╌|┆ ├╌|  ╰╌|╰╌)$/ })
+  expect(tethers.map(t => t.props.color)).toEqual(['subtle', 'subtle', 'subtle', 'subtle'])
+  await ui.unmount()
 })

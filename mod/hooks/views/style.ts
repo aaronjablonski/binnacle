@@ -14,6 +14,12 @@ import type { AgentRow, StepStatus, TaskItem } from '../../types'
  * - `result` (`success`): artifact results only.
  * - `subtle` / `rule` (`subtle`): a bar's rest, the tab track, tree guides.
  * - Meta is `dimColor`, not a key.
+ *
+ * Neo adds (spec "Palette"): `lead` / `spark` (`claude`) for the lead's
+ * working hull and the kept `★`, and `inverse` (`inverseText`) for the text
+ * on a pill. Brackets, working hulls, bars and dials under 70 % are `live`;
+ * rails, tethers and a bar's rest are `subtle`; waiting and stalled hulls,
+ * `?` and `z` are `wait`; failed hulls and `!` are `fail`.
  */
 export const C = {
   accent: 'suggestion',
@@ -32,7 +38,19 @@ export const C = {
   done: 'success',
   /** @deprecated HUD v1: the filled tab. v2 draws the open tab bold in the accent. */
   tabFg: 'inverseText',
+  /** Neo: the lead's hull while it works (`podOf`). */
+  lead: 'claude',
+  /** Neo (spec `C.spark`): the kept `★`. The sparkline itself stays in the accent. */
+  spark: 'claude',
+  /** Neo: the text on a pill (`pillRun`, `pill`). */
+  inverse: 'inverseText',
 } as const
+
+/**
+ * A styled piece of one line. Colours are theme keys from `C`; `dim` is
+ * `dimColor`; `bg` is the Text's `backgroundColor` (a pill).
+ */
+export type Run = { text: string; color?: string; bold?: boolean; dim?: boolean; underline?: boolean; bg?: string }
 
 /**
  * The character grid. One column is one character; a cell is 12 columns,
@@ -66,6 +84,14 @@ export const COL = {
   metric: 38,
   time: 50,
 } as const
+
+/**
+ * A deck row's stops at 62 columns (spec "Label column"): the rail at 0, a dim
+ * caps label at 2 (to 11), the gauge at 14 (22 wide, to 35), the value at 38
+ * (10 wide), the aside at 50 (ends by 59), the right rail at the last column
+ * (61). The same stops as a table's name, metric and time.
+ */
+export const DECK = { rail: 0, label: 2, gauge: 14, value: 38, aside: 50 } as const
 
 /** The start column of cell `i` (0-based): 2, 14, 26, 38, 50, … */
 export function cellCol(i: number): number {
@@ -150,4 +176,188 @@ export function glyphColor(status: StepStatus | AgentRow['status'] | TaskItem['s
     default:
       return undefined
   }
+}
+
+// ---------- Neo: the identity (spec "Identity") ----------
+
+/** A crew member's role: the shape of its hull. */
+export type Role = 'lead' | 'scout' | 'build' | 'check'
+
+/**
+ * A crew member's state: the fill of its hull, its colour and its signal.
+ * `waiting` (on the person) and `stalled` come from the model's problems
+ * (`asking`, `stalled`); the others follow `AgentRow.status`.
+ */
+export type PodState = 'queued' | 'working' | 'waiting' | 'stalled' | 'failed' | 'done'
+
+/** Every structural glyph Neo draws, so one constant can swap the whole set. */
+export type GlyphSet = {
+  /** Per role: [outline (queued, failed), lit core (working, waiting, stalled), solid (done)]. */
+  hull: Record<Role, readonly [string, string, string]>
+  /** The signal cell after a hull. */
+  signal: { waiting: string; stalled: string; failed: string }
+  /** A dial for 0, up to 25, up to 50, under 100, and 100 %. */
+  dial: readonly [string, string, string, string, string]
+  /** A bar's lit and resting cells. */
+  bar: { lit: string; rest: string }
+  /** Task pips: done, current, queued. */
+  pip: readonly [string, string, string]
+  /** Eight sparkline levels, lowest first. */
+  sparks: readonly [string, string, string, string, string, string, string, string]
+  /** A deck's twin bracket. */
+  rail: { top: string; mid: string; bottom: string; topRight: string; bottomRight: string }
+  /** A tree's dashed tethers (2 wide) and its outer guide (1 wide). */
+  tether: { mid: string; last: string; guide: string }
+}
+
+/** The Neo glyphs: every hull in Geometric Shapes (U+25A0 to U+25FF). */
+export const UNICODE: GlyphSet = {
+  hull: {
+    lead: ['◇', '◈', '◆'],
+    scout: ['○', '◉', '●'],
+    build: ['□', '▣', '■'],
+    check: ['△', '◬', '▲'],
+  },
+  signal: { waiting: '?', stalled: 'z', failed: '!' },
+  dial: ['○', '◔', '◑', '◕', '●'],
+  bar: { lit: '▮', rest: '▯' },
+  pip: ['▪', '▸', '▫'],
+  sparks: ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
+  rail: { top: '┏', mid: '┃', bottom: '┗', topRight: '┓', bottomRight: '┛' },
+  tether: { mid: '├╌', last: '╰╌', guide: '┆' },
+}
+
+/**
+ * The fallback for terminals whose font lacks the shapes (spec: `<> () [] /\`,
+ * state by colour and signal). A hull's outline is the role's opening
+ * character and its lit and solid forms the closing one; colour, bold, dim
+ * and the signal cell tell the states apart. Not wired to an option yet:
+ * point `GLYPHS` at it to use it.
+ */
+export const ASCII: GlyphSet = {
+  hull: {
+    lead: ['<', '>', '>'],
+    scout: ['(', ')', ')'],
+    build: ['[', ']', ']'],
+    check: ['/', '\\', '\\'],
+  },
+  signal: { waiting: '?', stalled: 'z', failed: '!' },
+  dial: ['.', ':', '+', '*', '#'],
+  bar: { lit: '#', rest: '.' },
+  pip: ['*', '>', '.'],
+  sparks: ['_', '.', ',', '-', '~', '=', '+', '#'],
+  rail: { top: '+', mid: '|', bottom: '+', topRight: '+', bottomRight: '+' },
+  tether: { mid: '|-', last: '`-', guide: ':' },
+}
+
+/** The glyph set every Neo primitive draws with. The one switch for the ASCII fallback. */
+export const GLYPHS: GlyphSet = UNICODE
+
+/** Role to its three hulls: [outline, lit core, solid] (spec "Crew: pods"). */
+export const HULL = GLYPHS.hull
+
+/** A deck's bracket: `┏ ┃ ┗` in column 0, `┓ ┃ ┛` in the last column. */
+export const RAIL = GLYPHS.rail
+
+/** A tree's tethers: `├╌` and `╰╌` (2 wide), and `┆` as the outer guide two deep. */
+export const TETHER = GLYPHS.tether
+
+/**
+ * The role of an agent type, matched case-insensitively on substrings:
+ * `main` (the main conversation) and any type holding `plan` lead;
+ * `explore`, `search` (and so `research`) scout; `review`, `test` or `verif`
+ * check; everything else, `general-purpose`, workflow agents and unknown
+ * types included, builds. Checked in that order.
+ *
+ * @example roleOf('Explore')         // 'scout'
+ * @example roleOf('code-reviewer')   // 'check'
+ * @example roleOf('general-purpose') // 'build'
+ */
+export function roleOf(agentType: string): Role {
+  const t = agentType.toLowerCase()
+  if (t === 'main' || t.includes('plan')) return 'lead'
+  if (t.includes('explore') || t.includes('search')) return 'scout'
+  if (t.includes('review') || t.includes('test') || t.includes('verif')) return 'check'
+  return 'build'
+}
+
+/**
+ * What `podOf` reads of an agent: an `AgentRow` fits. `subagentType`, where a
+ * caller has it, wins over `type` for the role; `state` (from the model's
+ * problems: `waiting`, `stalled`; or `queued`) wins over `status`.
+ */
+export type PodAgent = Pick<AgentRow, 'id' | 'type' | 'status'> & { subagentType?: string; state?: PodState }
+
+/** The state of a pod: `agent.state` when given, else running works, error fails, done is done. */
+export function podStateOf(agent: PodAgent): PodState {
+  if (agent.state !== undefined) return agent.state
+  if (agent.status === 'error') return 'failed'
+  if (agent.status === 'done') return 'done'
+  return 'working'
+}
+
+/**
+ * One crew member: its hull (a one-cell Run) and, when it has one, its
+ * signal (a one-cell Run: `?`, `z` or `!`).
+ */
+export type Pod = { role: Role; state: PodState; hull: Run; signal?: Run }
+
+/** The pulse: bold on even seconds of the existing 1 s clock (`ctx.now`), plain on odd ones. */
+export function pulseOn(now: number): boolean {
+  return Math.floor(now / 1000) % 2 === 0
+}
+
+/**
+ * An agent as a pod (spec "Crew: pods"): the hull's shape is the role, its
+ * fill the state, its colour the urgency.
+ * - queued: outline, dim
+ * - working: lit core in the accent (the lead in `claude`), bold on the even
+ *   second and plain on the odd one (`pulseOn(now)`; no timer of its own)
+ * - waiting: lit core, bold, in `warning`; signal `?` bold in `warning`
+ * - stalled: lit core in `warning`; signal `z` in `warning`
+ * - failed: outline in `error`; signal `!` bold in `error`
+ * - done: solid, dim
+ * The role is `roleOf(subagentType ?? type)`; `main` is always the lead.
+ * Hull glyphs come only from here.
+ *
+ * @example
+ * const p = podOf(agent, ctx.now) // { role: 'scout', state: 'working', hull: { text: '◉', color: 'suggestion', bold: true } }
+ * const q = podOf({ ...agent, state: 'waiting' }, ctx.now) // q.signal: { text: '?', color: 'warning', bold: true }
+ * row(ctx, $, { key, flag: q.signal !== undefined ? 'problem' : undefined, glyph: p.hull.text, glyphColor: p.hull.color, name })
+ */
+export function podOf(agent: PodAgent, now: number): Pod {
+  const role = agent.id === 'main' ? 'lead' : roleOf(agent.subagentType ?? agent.type)
+  const state = podStateOf(agent)
+  const [outline, lit, solid] = GLYPHS.hull[role]
+  const sig = GLYPHS.signal
+  switch (state) {
+    case 'queued':
+      return { role, state, hull: { text: outline, dim: true } }
+    case 'working': {
+      const color = role === 'lead' ? C.lead : C.live
+      return { role, state, hull: pulseOn(now) ? { text: lit, color, bold: true } : { text: lit, color } }
+    }
+    case 'waiting':
+      return { role, state, hull: { text: lit, color: C.wait, bold: true }, signal: { text: sig.waiting, color: C.wait, bold: true } }
+    case 'stalled':
+      return { role, state, hull: { text: lit, color: C.wait }, signal: { text: sig.stalled, color: C.wait } }
+    case 'failed':
+      return { role, state, hull: { text: outline, color: C.fail }, signal: { text: sig.failed, color: C.fail, bold: true } }
+    case 'done':
+      return { role, state, hull: { text: solid, dim: true } }
+  }
+}
+
+/**
+ * A one-cell dial for `pct`: `○` at 0 or less, `◔` up to 25, `◑` up to 50,
+ * `◕` under 100, `●` at 100 or more; in `rateColor(pct)`.
+ *
+ * @example dialOf(9)  // { text: '◔', color: 'suggestion' }
+ * @example dialOf(78) // { text: '◕', color: 'warning' }
+ */
+export function dialOf(pct: number): Run {
+  const d = GLYPHS.dial
+  const p = Number.isFinite(pct) ? pct : 0
+  const text = p <= 0 ? d[0] : p <= 25 ? d[1] : p <= 50 ? d[2] : p < 100 ? d[3] : d[4]
+  return { text, color: rateColor(p) }
 }

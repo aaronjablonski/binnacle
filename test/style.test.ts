@@ -17,6 +17,9 @@ test('the palette names theme keys only', () => {
     doc: 'merged',
     rule: 'subtle',
     tabFg: 'inverseText',
+    lead: 'claude',
+    spark: 'claude',
+    inverse: 'inverseText',
   })
 })
 

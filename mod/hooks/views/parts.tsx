@@ -1,5 +1,6 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
+import { debug, errText } from '../state'
 import { fit, headerParts } from './fit'
 import type { ViewCtx } from './shell'
 import { C } from './style'
@@ -96,4 +97,15 @@ export function glyphText(glyph: string, color: string | undefined, e: RenderInp
 /** The dim gap and right text that push `right` to the edge of `cols` after `used` cells; ' right' when it cannot be flush. */
 export function flushRight(used: number, right: string, cols: number): string {
   return `${' '.repeat(Math.max(1, cols - used - right.length))}${right}`
+}
+
+/** A press only: the engine refuses `$.ui.view` outside one. A refusal is toasted. */
+export async function viewAgent($: EngineInterface, agentId: string): Promise<void> {
+  try {
+    const shown = await $.ui.view({ agentId })
+    if (shown.deny !== undefined && shown.deny !== '') $.ui.toast(shown.deny)
+  } catch (err) {
+    debug($, `view failed: ${errText(err)}`)
+    $.ui.toast(errText(err))
+  }
 }

@@ -320,3 +320,202 @@ test('a tree row has its meta flush right and the running agent doing line is di
     await ui.unmount()
   }
 })
+
+// ---- F7: agent tree upgrade ----
+
+const stalledFamily = (): Timeline =>
+  busy({
+    agents: {
+      main: withMainWork,
+      a1: at(agent('a1', 'Explore', 'map the upload path', 'Read up.ts', 'done'), 400_000),
+      g1: at(agent('g1', 'Explore', 'find test helpers', 'Grep helpers'), 300_000, { parent: 'a1' }),
+      a2: at(agent('a2', 'general-purpose', 'limiter tests', 'Edit limiter.test.ts', 'done'), 30_000),
+    },
+  })
+
+test('a node with a problem shows ! in the error colour, and so does its folded ancestor', async ($, on) => {
+  const stored = seed(on, stalledFamily(), TREE_UI)
+  for (const surface of SURFACES) {
+    put(stored, stalledFamily(), TREE_UI)
+    let ui = await mount($, surface)
+    let bangs = (await ui.findAll({ type: 'Text' })).filter(f => f.text === '!')
+    expect(bangs.length).toBe(1)
+    expect(props2(bangs[0]).color).toBe('error')
+    expect((await ui.find({ key: 'node-g1' }))?.text).toContain('!')
+    expect((await ui.find({ key: 'node-a1' }))?.text).not.toContain('!')
+    await ui.unmount()
+    put(stored, stalledFamily(), { ...TREE_UI, folded: ['a1'] })
+    ui = await mount($, surface)
+    expect(await ui.find({ key: 'node-g1' })).toBeUndefined()
+    expect((await ui.find({ key: 'node-a1' }))?.text).toContain('!')
+    expect((await ui.find({ key: 'node-a2' }))?.text).not.toContain('!')
+    bangs = (await ui.findAll({ type: 'Text' })).filter(f => f.text === '!')
+    expect(bangs.map(b => props2(b).color)).toEqual(['error'])
+    await ui.unmount()
+  }
+})
+
+test('a dismissed problem leaves no !', async ($, on) => {
+  seed(on, stalledFamily(), { ...TREE_UI, dismissed: ['stalled:g1'] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    expect((await ui.findAll({ type: 'Text' })).filter(f => f.text === '!').length).toBe(0)
+    await ui.unmount()
+  }
+})
+
+test('a folded branch shows its agent count and running count, never counting main', async ($, on) => {
+  seed(on, stalledFamily(), { ...TREE_UI, folded: ['a1'] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const text = (await ui.find({ key: 'node-a1' }))?.text ?? ''
+    expect(text).toContain('1 agents · 1 running')
+    await ui.unmount()
+  }
+})
+
+test('a folded main counts every agent and only the running ones', async ($, on) => {
+  seed(on, stalledFamily(), { ...TREE_UI, folded: ['main'] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const text = (await ui.find({ key: 'node-main' }))?.text ?? ''
+    expect(text).toContain('3 agents · 1 running')
+    await ui.unmount()
+  }
+})
+
+test('an expanded node does not show the branch count', async ($, on) => {
+  seed(on, family(), TREE_UI)
+  const ui = await mount($, 'terminal')
+  expect((await ui.find({ key: 'node-a1' }))?.text).not.toContain('agents ·')
+  await ui.unmount()
+})
+
+test('node meta carries model and tokens', async ($, on) => {
+  const t = busy({
+    agents: {
+      main,
+      a1: at(agent('a1', 'Explore', 'map', 'x', 'done'), 60_000, { model: 'claude-sonnet-5', tokensIn: 40_000, tokensOut: 1_000, endedAt: NOW - 1000 }),
+    },
+  })
+  seed(on, t, TREE_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const first = ((await ui.find({ key: 'node-a1' }))?.text ?? '').split('\n')[0] ?? ''
+    expect(first).toMatch(/sonnet 41k/)
+    await ui.unmount()
+  }
+})
+
+test('every non-main agent row has a View button that acts only on press', async ($, on) => {
+  const calls: unknown[] = []
+  on('ui.view', (_, e) => {
+    calls.push(e)
+    return { value: {} }
+  })
+  seed(on, family(), TREE_UI)
+  for (const surface of SURFACES) {
+    calls.length = 0
+    const ui = await mount($, surface)
+    for (const id of ['a1', 'a2', 'g1']) expect(await ui.find({ key: `view-${id}` })).toBeDefined()
+    expect(await ui.find({ key: 'view-main' })).toBeUndefined()
+    expect(calls.length).toBe(0)
+    await ui.press({ key: 'view-g1' })
+    expect(JSON.stringify(calls)).toContain('g1')
+    await ui.unmount()
+  }
+})
+
+test('a refused View is toasted', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(String((e as { text?: string }).text))
+    return { value: undefined }
+  })
+  on('ui.view', () => ({ value: { deny: 'no such agent' } }))
+  seed(on, family(), TREE_UI)
+  const ui = await mount($, 'terminal')
+  await ui.press({ key: 'view-a2' })
+  expect(toasts.join('|')).toContain('no such agent')
+  await ui.unmount()
+})
+
+test('the running only toggle writes ui.runningOnly', async ($, on) => {
+  const stored = seed(on, family(), TREE_UI)
+  for (const surface of SURFACES) {
+    put(stored, family(), TREE_UI)
+    const ui = await mount($, surface)
+    expect(await ui.find({ key: 'running-only' })).toBeDefined()
+    await ui.press({ key: 'running-only' })
+    expect((stored.get('ui') as UiState).runningOnly).toBe(true)
+    await ui.unmount()
+    put(stored, family(), { ...TREE_UI, runningOnly: true })
+    const again = await mount($, surface)
+    await again.press({ key: 'running-only' })
+    expect((stored.get('ui') as UiState).runningOnly).toBe(false)
+    await again.unmount()
+  }
+})
+
+test('running only hides finished branches but keeps the ancestors of running nodes', async ($, on) => {
+  seed(on, stalledFamily(), { ...TREE_UI, runningOnly: true })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    expect(await ui.find({ key: 'node-main' })).toBeDefined()
+    // a1 is done but its child g1 is running: a1 stays.
+    expect(await ui.find({ key: 'node-a1' })).toBeDefined()
+    expect(await ui.find({ key: 'node-g1' })).toBeDefined()
+    expect(await ui.find({ key: 'node-a2' })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('running only drops a finished branch with nothing running under it', async ($, on) => {
+  seed(on, family(), { ...TREE_UI, runningOnly: true })
+  const ui = await mount($, 'terminal')
+  expect(await ui.find({ key: 'node-a1' })).toBeUndefined()
+  expect(await ui.find({ key: 'node-g1' })).toBeUndefined()
+  expect(await ui.find({ key: 'node-a2' })).toBeDefined()
+  await ui.unmount()
+})
+
+const fits = async (ui: Awaited<ReturnType<typeof mount>>, columns: number): Promise<void> => {
+  for (const type of ['Text', 'Button'] as const) {
+    for (const f of await ui.findAll({ type })) {
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= columns).toBe(true)
+    }
+  }
+}
+
+test('at 24 columns the meta goes before the description, and every line fits', async ($, on) => {
+  const t = busy({
+    agents: {
+      main: withMainWork,
+      a1: at(agent('a1', 'Explore', 'map it', 'Read up.ts'), 60_000),
+      a2: at(agent('a2', 'general-purpose', 'write the limiter tests now', 'Edit x'), 50_000, {
+        model: 'claude-sonnet-5',
+        tokensIn: 5000,
+      }),
+      a3: at(agent('a3', 'Explore', 'x'.repeat(60), 'y'), 40_000, { parent: 'a1' }),
+    },
+  })
+  seed(on, t, TREE_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 24)
+    const a1 = ((await ui.find({ key: 'node-a1' }))?.text ?? '').split('\n')[0] ?? ''
+    expect(a1).toContain('map it')
+    expect(a1).not.toContain('1m')
+    await fits(ui, 24)
+    await ui.unmount()
+  }
+})
+
+test('a bang and a folded count still fit at 24 columns', async ($, on) => {
+  seed(on, stalledFamily(), { ...TREE_UI, folded: ['a1'] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 24)
+    await fits(ui, 24)
+    expect((await ui.find({ key: 'node-a1' }))?.text).toContain('!')
+    await ui.unmount()
+  }
+})

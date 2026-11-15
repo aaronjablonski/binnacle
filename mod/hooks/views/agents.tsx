@@ -6,7 +6,7 @@ import { debug, errText, leaveDetail, updateUi } from '../state'
 import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, WORKFLOW_TYPE, metaOf } from './agentmeta'
 import { modelsSection } from './budget'
 import { fit, splitRow } from './fit'
-import { flushRight, glyphText, sectionHeader } from './parts'
+import { flushRight, glyphText, sectionHeader, viewAgent } from './parts'
 import { glyphColor } from './style'
 import { runBoardView } from './runboard'
 import { treeView } from './tree'
@@ -71,17 +71,6 @@ ${fit(`${' '.repeat(prefix.length)}└ ${agent.doing}`, cols)}`}</Text>)
       </Box>
     </Box>
   )
-}
-
-// A press only: the engine refuses `$.ui.view` outside one. A refusal is toasted.
-async function viewAgent($: EngineInterface, agentId: string): Promise<void> {
-  try {
-    const shown = await $.ui.view({ agentId })
-    if (shown.deny !== undefined && shown.deny !== '') $.ui.toast(shown.deny)
-  } catch (err) {
-    debug($, `view failed: ${errText(err)}`)
-    $.ui.toast(errText(err))
-  }
 }
 
 /** A run's section header as one Button that opens its board. */

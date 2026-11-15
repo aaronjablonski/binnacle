@@ -2,8 +2,8 @@ import type { Register } from 'claude-code'
 
 import { registerCapture } from './capture'
 import { registerGuide, startGuide } from './guide'
-import { restore, restoreAfterClear, saveForClear } from './journal'
-import { debug, errText } from './state'
+import { END_RESERVE_MS, restore, restoreAfterClear, saveForClear } from './journal'
+import { debug, errText, saveLedger } from './state'
 import { registerBand } from './views/band'
 import { seedBudget } from './views/budget'
 import { registerShell, runMc, startShell, syncPaneOpen } from './views/shell'
@@ -43,14 +43,22 @@ export const register: Register = (on, options) => {
 
   // A /clear resets $.state and goes on under a new session id with no
   // session.start: save the snapshot and leave a mark naming its folder for
-  // the classic.SessionStart{clear} that follows. The exit's bound is shared
-  // with core, so the work reads next.budget.
+  // the classic.SessionStart{clear} that follows. Any end then writes the
+  // session's ledger row. The exit's bound is shared with core, so the work
+  // reads next.budget.
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       try {
         await saveForClear($, e.sessionId, () => next.budget.remainingMs)
       } catch {
         // saveForClear reports its own failures
+      }
+    }
+    if (next.budget.remainingMs >= END_RESERVE_MS) {
+      try {
+        await saveLedger($, await $.clock.now(), () => next.budget.remainingMs >= END_RESERVE_MS)
+      } catch {
+        // saveLedger reports its own failures
       }
     }
     return next(e)

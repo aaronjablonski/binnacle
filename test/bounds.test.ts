@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Ev, Timeline } from '../mod/types'
 import {
   MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
-  MAX_SIG, MAX_STEP_ID, MAX_WINDOW_NAME, MAX_WINDOWS,
+  MAX_SAMPLES, MAX_SIG, MAX_STEP_ID, MAX_WINDOW_NAME, MAX_WINDOWS,
 } from '../mod/hooks/model/limits'
 import { empty, reduce } from '../mod/hooks/model/reduce'
 
@@ -37,18 +37,25 @@ function* everyListPastItsBound(opts: { finish: boolean } = { finish: true }): G
     yield { kind: 'update', at: at(), agent: agentId(i), update: { focus: long(`f${i}`) } }
     yield { kind: 'step.start', at: at(), id: toolId(200_000 + i), agent: agentId(i), tool: 'StructuredOutput', input: { result: long('r') } }
     yield { kind: 'step.end', at: at(), id: toolId(200_000 + i), status: 'done' }
-    yield { kind: 'usage', at: at(), agent: agentId(i), model: long('used-model'), tokensIn: HUGE, tokensOut: HUGE }
+    yield { kind: 'usage', at: at(), agent: agentId(i), model: long('used-model'), tokensIn: HUGE, tokensOut: HUGE, cacheRead: HUGE, cacheWrite: HUGE, ms: HUGE }
     if (i >= 10) yield { kind: 'turn.end', at: at(), turnId: turnId(i), agent: agentId(i), answer: long('answer'), failed: false }
   }
-  yield { kind: 'usage', at: at(), agent: 'main', model: long('used-model'), tokensIn: HUGE, tokensOut: HUGE }
-  // Turns with long prompts, each but the newest ended failed.
+  yield { kind: 'usage', at: at(), agent: 'main', model: long('used-model'), tokensIn: HUGE, tokensOut: HUGE, cacheRead: HUGE, cacheWrite: HUGE, ms: HUGE }
+  // Budgets past their window bound, every name at its longest, a minute
+  // apart so the pace ring fills; each sample carries every window.
+  const windows = Array.from({ length: MAX_WINDOWS + 4 }, (_, i) => ({ name: long(`w${i}`), pct: 100.5, resetsAt: HUGE }))
+  for (let i = 0; i < MAX_SAMPLES + 10; i++) {
+    clock += 61_000
+    yield { kind: 'measure', at: at(), budget: { contextPct: 100.5, contextTokens: HUGE, windows, costUsd: 123456.789, at: 0 } }
+  }
+  // Turns with long prompts, each but the newest ended failed and interrupted;
+  // the newest holds a cost share.
   for (let i = 0; i < MAX_TURNS + 50; i++) {
     yield { kind: 'turn.start', at: at(), turnId: turnId(i), agent: 'main', prompt: long(`p${i}`) }
-    if (i < MAX_TURNS + 49) yield { kind: 'turn.end', at: at(), turnId: turnId(i), agent: 'main', answer: '', failed: true }
+    if (i < MAX_TURNS + 49) yield { kind: 'turn.end', at: at(), turnId: turnId(i), agent: 'main', answer: '', failed: true, aborted: true }
   }
-  // A budget past its window bound, every name at its longest.
-  const windows = Array.from({ length: MAX_WINDOWS + 4 }, (_, i) => ({ name: long(`w${i}`), pct: 100.5, resetsAt: HUGE }))
-  yield { kind: 'measure', at: at(), budget: { contextPct: 100, windows, costUsd: 123456.789, at: 0 } }
+  yield { kind: 'measure', at: at(), budget: { contextPct: 100.5, contextTokens: HUGE, windows, costUsd: 999_999.999, at: 0 } }
+  yield { kind: 'export', at: at(), path: long('C:/export') }
   // Notes, and declared artifacts with every string at its longest.
   for (let i = 0; i < MAX_NOTES + 20; i++) yield { kind: 'update', at: at(), agent: 'main', update: { note: long(`n${i}`) } }
   for (let i = 0; i < MAX_ARTIFACTS + 50; i++) {
@@ -80,6 +87,12 @@ function* everyListPastItsBound(opts: { finish: boolean } = { finish: true }): G
   if (opts.finish) yield { kind: 'turn.end', at: at(), turnId: turnId(MAX_TURNS + 49), agent: 'main', answer: long('done'), failed: false }
 }
 
+/**
+ * Every task with the most a main-loop turn can attribute to it. A turn goes
+ * to one task, so the events above give it to a few; the worst case is all.
+ */
+const attributed = (t: Timeline): Timeline => ({ ...t, tasks: t.tasks.map((x) => ({ ...x, tokens: HUGE, ms: HUGE })) })
+
 /** The checks both worst cases share: every list at its bound, every new field at its cap. */
 function atBounds(t: Timeline) {
   expect(t.steps).toHaveLength(MAX_STEPS)
@@ -106,6 +119,15 @@ function atBounds(t: Timeline) {
   expect(t.turns.filter((x) => x.failed === true)).toHaveLength(MAX_TURNS - 1)
   expect(t.budget!.windows).toHaveLength(MAX_WINDOWS)
   for (const w of t.budget!.windows) expect(w.name.length).toBe(MAX_WINDOW_NAME)
+  for (const a of subs) expect([a.cacheRead, a.cacheWrite, a.ms]).toEqual([HUGE, HUGE, HUGE])
+  expect(t.turns.filter((x) => x.aborted === true)).toHaveLength(MAX_TURNS - 1)
+  expect(t.samples!.list).toHaveLength(MAX_SAMPLES)
+  expect(t.samples!.names).toHaveLength(MAX_WINDOWS)
+  for (const s of t.samples!.list) expect(s.w).toHaveLength(MAX_WINDOWS)
+  expect(t.turnCost!.to).toBe(999_999.999)
+  expect(t.lastExport!.path.length).toBe(MAX_REF)
+  expect(t.cache).toBeDefined()
+  for (const x of t.tasks) expect([x.tokens, x.ms]).toEqual([HUGE, HUGE])
 }
 
 describe('bounds', () => {
@@ -121,8 +143,14 @@ describe('bounds', () => {
   // cases back to about 2.41 MB. A sig on every step (≤ 16) and a spawning
   // step id on every agent (≤ 64) add about 0.07 MB: about 2.48 MB, a margin
   // of about 17 KB under the bound.
+  // The distilled fields (cache read and write and turn time on every agent,
+  // tokens and time on every task, an aborted mark on every turn, the pace
+  // ring of 30 samples by 8 windows, the turn's cost share, the cache clock
+  // and the last export) took it to about 2.54 MB; MAX_TASKS went from 500
+  // to 400 (about 56 KB) and MAX_AGENTS from 400 to 380 (about 21 KB): about
+  // 2.47 MB, a margin of about 35 KB.
   it('a timeline with every list at its bound and every string at its longest stays under 2,500,000 characters', () => {
-    const t = fold(everyListPastItsBound())
+    const t = attributed(fold(everyListPastItsBound()))
 
     atBounds(t)
     // The steps kept are the interrupted ones; the newest still carry their pending.
@@ -138,7 +166,7 @@ describe('bounds', () => {
   })
 
   it('the same with every kept step still running and asked stays under 2,500,000 characters', () => {
-    const t = fold(everyListPastItsBound({ finish: false }))
+    const t = attributed(fold(everyListPastItsBound({ finish: false })))
 
     atBounds(t)
     expect(t.steps.every((s) => s.status === 'running' && s.asking !== undefined)).toBe(true)

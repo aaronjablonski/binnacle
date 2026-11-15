@@ -2,9 +2,10 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { Ev } from '../types'
 import { bodyOf, claimJournal, saveSnapshot, writeBody } from './journal'
+import { LEDGER_EVERY_MS } from './model/limits'
 import { promptedStep } from './model/select'
 import { budgetOf, usageOf } from './model/usage'
-import { apply, debug, errText, readTimeline } from './state'
+import { apply, debug, errText, readTimeline, saveLedger } from './state'
 
 // The capture hooks only observe: each calls `next(e)` exactly once and
 // returns what it resolved to. The mod's own work sits in try/catch and
@@ -43,6 +44,9 @@ function inputOf(e: Record<string, unknown>): Record<string, unknown> {
 }
 
 export function registerCapture(on: On): void {
+  // When session.measure last wrote the ledger; a reload starts it over.
+  let ledgerAt = -Infinity
+
   on('tool.call', async ($, e, next) => {
     if (e.tool === UPDATE_TOOL) return next(e)
     let id = ''
@@ -116,13 +120,17 @@ export function registerCapture(on: On): void {
     return answer
   }).catch(($, e, next) => next(e))
 
-  // The session's context fill, rate-limit windows and cost, whenever a unit moved.
+  // The session's context fill, rate-limit windows and cost, whenever a unit
+  // moved; the ledger's row follows at most once every LEDGER_EVERY_MS.
   on('session.measure', async ($, e, next) => {
     const out = await next(e)
     await safely($, 'measure', async () => {
       if (!Array.isArray(e.changed) || e.changed.length === 0) return
       const at = await now($)
       await apply($, { kind: 'measure', at, budget: budgetOf(e, at) })
+      if (at - ledgerAt < LEDGER_EVERY_MS) return
+      ledgerAt = at
+      later($, 'ledger', async () => saveLedger($, at))
     })
     return out
   }).catch(($, e, next) => next(e))
@@ -138,11 +146,18 @@ export function registerCapture(on: On): void {
   on('turn.complete', async ($, e, next) => {
     await safely($, 'turn.end', async () => {
       const failed = e.reason === 'error' || e.reason === 'refusal'
+      const aborted = e.isAborted === true || e.reason === 'aborted'
       const agent = e.agentId ?? 'main'
       const at = await now($)
-      await apply($, { kind: 'turn.end', at, turnId: e.turnId, agent, answer: e.answer, failed })
+      await apply($, { kind: 'turn.end', at, turnId: e.turnId, agent, answer: e.answer, failed, aborted })
+      // An interrupt reports no usage: its length still counts.
       const used = usageOf(e.usage)
-      if (used !== undefined) await apply($, { kind: 'usage', at, agent, ...used })
+      const ms = typeof e.durationMs === 'number' && Number.isFinite(e.durationMs) && e.durationMs >= 0 ? e.durationMs : undefined
+      if (used !== undefined || ms !== undefined) {
+        const ev: Extract<Ev, { kind: 'usage' }> = { kind: 'usage', at, agent, ...used, turnId: e.turnId }
+        if (ms !== undefined) ev.ms = ms
+        await apply($, ev)
+      }
       if (agent === 'main') {
         later($, 'saveSnapshot', async () => {
           const journal = await claimJournal($)

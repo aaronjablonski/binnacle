@@ -11,22 +11,22 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 /** A finite, non-negative number, or undefined. */
 const count = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
 
-export type Usage = { model?: string; tokensIn: number; tokensOut: number }
+export type Usage = { model?: string; tokensIn: number; tokensOut: number; cacheRead: number; cacheWrite: number }
 
 /**
  * A turn's `usage` (TurnUsage: ModelUsage plus `model`) as the counts the
  * Agents tab shows. `tokensIn` is the whole input side: uncached input, cache
- * reads and cache writes. Undefined when it carries neither count.
+ * reads and cache writes; `cacheRead` and `cacheWrite` are those two parts.
+ * Undefined when it carries neither count.
  */
 export function usageOf(u: unknown): Usage | undefined {
   if (!isObj(u)) return undefined
   const input = count(u.input_tokens)
   const output = count(u.output_tokens)
   if (input === undefined && output === undefined) return undefined
-  const out: Usage = {
-    tokensIn: (input ?? 0) + (count(u.cache_read_input_tokens) ?? 0) + (count(u.cache_creation_input_tokens) ?? 0),
-    tokensOut: output ?? 0,
-  }
+  const cacheRead = count(u.cache_read_input_tokens) ?? 0
+  const cacheWrite = count(u.cache_creation_input_tokens) ?? 0
+  const out: Usage = { tokensIn: (input ?? 0) + cacheRead + cacheWrite, tokensOut: output ?? 0, cacheRead, cacheWrite }
   if (typeof u.model === 'string' && u.model.trim() !== '') out.model = u.model
   return out
 }
@@ -61,12 +61,15 @@ export function windowsOf(list: unknown): BudgetWindow[] {
  * A `session.measure` input (SessionMeasureInput) as a Budget measured at
  * `at`: `context.percent`, each `rateLimits[]` window by its `kind` with
  * `percentUsed` and `resetsAt` (ISO 8601, kept as ms), and `cost.usd`.
+ * `context.tokens` is kept too: what a cold cache makes the next prompt re-send.
  */
 export function budgetOf(e: unknown, at: number): Budget {
   const m = isObj(e) ? e : {}
   const b: Budget = { windows: windowsOf(m.rateLimits), at }
   const pct = isObj(m.context) ? m.context.percent : undefined
   if (typeof pct === 'number' && Number.isFinite(pct)) b.contextPct = pct
+  const tokens = isObj(m.context) ? count(m.context.tokens) : undefined
+  if (tokens !== undefined) b.contextTokens = tokens
   const usd = isObj(m.cost) ? count(m.cost.usd) : undefined
   if (usd !== undefined) b.costUsd = usd
   return b

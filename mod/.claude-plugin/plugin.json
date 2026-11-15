@@ -19,8 +19,8 @@
     "notify": {
       "type": "string",
       "title": "Notifications",
-      "description": "Raise a native notification when Claude has waited on you for 20 seconds (waits), also when a turn fails (all), or never (off).",
-      "options": ["off", "waits", "all"],
+      "description": "Raise a native notification when Claude has waited on you for 20 seconds (waits), also when a turn over 60 seconds finishes (done), also when a turn fails (all), or never (off).",
+      "options": ["off", "waits", "done", "all"],
       "default": "waits"
     },
     "showCost": {
@@ -28,6 +28,18 @@
       "title": "Show cost",
       "description": "Add a COST row with the session's dollar cost to the budget view. Off by default: Mission Control otherwise draws no dollar figure.",
       "default": false
+    },
+    "agentLimitMin": {
+      "type": "number",
+      "title": "Agent time limit (minutes)",
+      "description": "A subagent still working after this many minutes is flagged once as a long run in NEEDS YOU. It only reports; it never stops an agent. 0 turns it off.",
+      "default": 20
+    },
+    "turnLimitMin": {
+      "type": "number",
+      "title": "Turn time limit (minutes)",
+      "description": "A main turn still running after this many minutes is flagged once as a long run in NEEDS YOU. 0 turns it off.",
+      "default": 60
     }
   }
 }

@@ -25,16 +25,20 @@ export type AgentRow = {
   result?: string                        // a workflow agent's StructuredOutput input on one line (≤ 200)
   lastStepAt?: number                    // when it last started a step
   spawnStep?: string                     // the tool_use_id of the Agent or Workflow call that spawned it (≤ 64)
+  cacheRead?: number; cacheWrite?: number // of tokensIn, summed over its turns: input read from and written to the prompt cache; absent on rows an earlier version stored
+  ms?: number                            // its turns' wall-clock length, summed (turn.complete's durationMs)
 }
 export type Run = { runId: string; name: string; parent: AgentKey; startedAt: number }
 export type TaskItem = {
   id: string; subject: string; activeForm?: string
   status: 'pending' | 'in_progress' | 'completed'
   owner: AgentKey; updatedAt: number
+  tokens?: number; ms?: number           // the main loop's turns attributed to it (tokens in + out, wall-clock ms): each goes to the task in progress at the turn's end; its agents' own are on their rows
 }
 export type TurnRow = {
   id: string; agent: AgentKey; prompt: string; startedAt: number; endedAt?: number
   failed?: true                          // it ended with an error or a refusal
+  aborted?: true                         // the person interrupted it
 }
 export type Now = { focus: string; next?: string; at: number }
 export type Note = { text: string; agent: AgentKey; at: number }
@@ -45,7 +49,17 @@ export type ArtifactRow = {
   agent: AgentKey; count: number; updatedAt: number
 }
 export type BudgetWindow = { name: string; pct: number; resetsAt?: number }   // name: the window's kind (≤ 40); resetsAt in ms
-export type Budget = { contextPct?: number; windows: BudgetWindow[]; costUsd?: number; at: number }   // windows ≤ 8
+export type Budget = { contextPct?: number; contextTokens?: number; windows: BudgetWindow[]; costUsd?: number; at: number }   // windows ≤ 8
+/** One measurement kept for pace: the context fill and each window's pct, `w[i]` for `Samples.names[i]` (null: not reported then). */
+export type Sample = { at: number; ctx?: number; w: (number | null)[] }
+/** The pace ring: at most 30 samples, consecutive ones at least a minute apart (the newest replaces the last while it is not). */
+export type Samples = { names: string[]; list: Sample[] }   // names ≤ 8, each ≤ 40
+/** The cache clock: the last main-loop reply, and whether the cache was seen to outlive 5 minutes this session. */
+export type CacheClock = { at: number; hour?: true }
+/** The cost of the newest main turn: the session's cost at its start, and at its end (or the latest measure while it runs). */
+export type TurnCost = { turnId: string; from: number; to?: number }
+/** What `/mc export` wrote last. */
+export type LastExport = { at: number; path: string }  // path ≤ 1000
 export type Timeline = {
   seq: number; turns: TurnRow[]; steps: Step[]
   agents: Record<AgentKey, AgentRow>; runs: Record<string, Run>
@@ -53,6 +67,10 @@ export type Timeline = {
   artifacts: ArtifactRow[]; changed: string[]   // distinct code paths written or edited
   journal?: string                       // the session id whose journal folder holds this timeline's bodies and snapshot; set at the first write, kept across /clear
   budget?: Budget                        // the last session.measure
+  samples?: Samples                      // the measure ring pace reads
+  cache?: CacheClock
+  turnCost?: TurnCost
+  lastExport?: LastExport
 }
 export type Update = {
   focus?: string; next?: string; note?: string
@@ -60,7 +78,7 @@ export type Update = {
 }
 export type Ev =
   | { kind: 'turn.start'; at: number; turnId: string; agent: AgentKey; prompt: string }
-  | { kind: 'turn.end'; at: number; turnId: string; agent: AgentKey; answer: string; failed: boolean }
+  | { kind: 'turn.end'; at: number; turnId: string; agent: AgentKey; answer: string; failed: boolean; aborted?: boolean }
   | { kind: 'step.start'; at: number; id: string; agent: AgentKey; tool: string; input: Record<string, unknown> }
   | { kind: 'step.end'; at: number; id: string; status: 'done' | 'error' | 'denied'; result?: unknown }
   | { kind: 'agent.start'; at: number; id: AgentKey; parent: AgentKey; type: string; description: string; runId?: string; agentIndex?: number; spawnStep?: string }
@@ -69,9 +87,14 @@ export type Ev =
   | { kind: 'unpin'; id: string }
   | { kind: 'step.ask'; at: number; id: string }
   | { kind: 'step.unask'; id: string }
-  | { kind: 'usage'; at: number; agent: AgentKey; model?: string; tokensIn: number; tokensOut: number }
+  | { kind: 'usage'; at: number; agent: AgentKey; model?: string; tokensIn?: number; tokensOut?: number; cacheRead?: number; cacheWrite?: number; ms?: number; turnId?: string }
   | { kind: 'measure'; at: number; budget: Budget }
   | { kind: 'agent.model'; id: AgentKey; model: string }
+  | { kind: 'export'; at: number; path: string }
+/** When to raise a native notification: never; on waits; on waits and long turns that finished; on those and failed turns too. */
+export type NotifyMode = 'off' | 'waits' | 'done' | 'all'
+/** One session's row in the ledger (`$.store`, at most 400): its local day (YYYY-MM-DD, of its first write), tokens in + out by model (≤ 6 models), and cost when the host reports one. */
+export type LedgerRow = { day: string; session: string; tokens: Record<string, number>; usd?: number; at: number }
 export type StepFilter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'errors' } | { kind: 'agent'; id: AgentKey }
 export type StepBody = { input: Record<string, unknown>; text: string; cut: number; isError: boolean }
 export type Tab = 'overview' | 'tasks' | 'agents' | 'timeline' | 'artifacts'

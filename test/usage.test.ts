@@ -73,8 +73,8 @@ describe('usage', () => {
 
   it('usageOf sums the input side of a TurnUsage, caches included', () => {
     expect(usageOf({ input_tokens: 6, output_tokens: 1530, cache_read_input_tokens: 118293, cache_creation_input_tokens: 43295, model: 'claude-haiku-5-5' }))
-      .toEqual({ model: 'claude-haiku-5-5', tokensIn: 161594, tokensOut: 1530 })
-    expect(usageOf({ input_tokens: 3, output_tokens: 4 })).toEqual({ tokensIn: 3, tokensOut: 4 })
+      .toEqual({ model: 'claude-haiku-5-5', tokensIn: 161594, tokensOut: 1530, cacheRead: 118293, cacheWrite: 43295 })
+    expect(usageOf({ input_tokens: 3, output_tokens: 4 })).toEqual({ tokensIn: 3, tokensOut: 4, cacheRead: 0, cacheWrite: 0 })
     expect(usageOf(undefined)).toBeUndefined()
     expect(usageOf({ model: 'x' })).toBeUndefined()
   })
@@ -137,6 +137,7 @@ describe('measure', () => {
     }
     expect(budgetOf(e, 99)).toEqual({
       contextPct: 4,
+      contextTokens: 43437,
       windows: [{ name: 'seven_day', pct: 21, resetsAt: Date.parse('2026-11-19T09:00:00.000Z') }, { name: 'five_hour', pct: 7.5 }],
       costUsd: 0.0058,
       at: 99,

@@ -123,8 +123,10 @@ from the config menu:
 | --- | --- | --- |
 | `guide` | `true` | Give Claude the update tool and one system-prompt section so it keeps the panel current. |
 | `autoOpen` | `false` | Open the pane when a session starts. In a narrow terminal the pane waits for more room. |
-| `notify` | `waits` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn fails (`all`), or never (`off`). |
+| `notify` | `waits` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn over 60 seconds finishes (`done`), also when a turn fails (`all`), or never (`off`). |
 | `showCost` | `false` | Show the session's dollar cost in the budget view. |
+| `agentLimitMin` | `20` | Flag a subagent still working after this many minutes, once, as a long run in NEEDS YOU. It only reports. `0` turns it off. |
+| `turnLimitMin` | `60` | Flag a main turn still running after this many minutes, once, as a long run. `0` turns it off. |
 
 For a one-off headless run, pass them with `--settings`:
 

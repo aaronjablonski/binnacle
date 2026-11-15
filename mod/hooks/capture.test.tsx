@@ -1,10 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { Timeline, UiState } from '../types'
+import type { LedgerRow, Timeline, UiState } from '../types'
 import { ASK_MS, needsYou } from './views/needs'
 
-type Box = { timeline?: Timeline; writes: Timeline[] }
+type Box = { timeline?: Timeline; writes: Timeline[]; clock: ReturnType<typeof mock.clock> }
 
 const UI = { dismissed: [] } as unknown as UiState
 // No hook beneath answers the request: the prompt is the person's.
@@ -15,8 +15,7 @@ const AGENT_INPUT = { subagent_type: 'Explore', description: 'look', prompt: 'p'
 // quiet), a debug log that goes nowhere, and a recorder of the timeline the
 // mod writes (the test's `$` has no `state` noun of its own).
 function world(on: On, opts: { failState?: boolean } = {}): Box {
-  const box: Box = { writes: [] }
-  mock.clock(on, { now: 1000 })
+  const box: Box = { writes: [], clock: mock.clock(on, { now: 1000 }) }
   mock.env(on, {})
   on('ui.log', () => ({ value: undefined }))
   on('state.set', async (_, e, next) => {
@@ -290,6 +289,7 @@ test('session.measure records the budget and returns the engine answer unchanged
   expect(got).toEqual({ changed: ['context', 'rateLimits', 'cost'] })
   expect(box.timeline?.budget).toEqual({
     contextPct: 4,
+    contextTokens: 43437,
     windows: [{ name: 'seven_day', pct: 21, resetsAt: Date.parse('2026-11-19T09:00:00.000Z') }],
     costUsd: 0.0058,
     at: 1000,
@@ -405,4 +405,108 @@ test('a denied spawn clears nothing', async ($, on) => {
   await $.tool.call({ tool: 'Agent', ...AGENT_INPUT, tool_use_id: 'toolu_agent' } as never)
 
   expect(during?.steps.find(s => s.id === 'toolu_agent')?.asking).toBe(1000)
+})
+
+test('turn.complete keeps cache counts and turn time on the agent, and marks an interrupted turn', async ($, on) => {
+  const box = world(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const usage = { input_tokens: 4, output_tokens: 193, cache_read_input_tokens: 33638, cache_creation_input_tokens: 40757, model: 'm' }
+
+  await $.turn.complete({ answer: '', durationMs: 7000, isAborted: false, turnId: 'w-t', agentId: 'w1', reason: 'answer', usage })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  // An interrupt reports no usage; its time still counts.
+  await $.turn.complete({ answer: '', durationMs: 3000, isAborted: true, turnId: 't1', reason: 'aborted' })
+
+  const t = box.timeline
+  expect(t?.agents.w1).toMatchObject({ tokensIn: 74399, tokensOut: 193, cacheRead: 33638, cacheWrite: 40757, ms: 7000 })
+  expect(t?.agents.main?.ms).toBe(3000)
+  expect(t?.agents.main?.tokensIn).toBe(undefined)
+  expect(t?.turns.find(x => x.id === 't1')?.aborted).toBe(true)
+})
+
+// The ledger lives in $.store; these hooks keep it and record each write.
+function ledgerStore(on: On, start?: unknown): { writes: unknown[]; value: () => unknown } {
+  const box: { writes: unknown[]; value: unknown } = { writes: [], value: start }
+  on('store.get', (_, e) => ({ value: e.key === 'mission-control:ledger' ? box.value : undefined }))
+  on('store.set', (_, e) => {
+    if (e.key === 'mission-control:ledger') {
+      box.value = e.value
+      box.writes.push(e.value)
+    }
+    return { value: undefined }
+  })
+  on('store.delete', () => ({ value: undefined }))
+  return { writes: box.writes, value: () => box.value }
+}
+const MEASURE = { context: { tokens: 1, window: 100, percent: 1 }, rateLimits: [], cost: { usd: 0.5 }, changed: ['context', 'cost'] as ('context' | 'cost')[] }
+const rowsOf = (v: unknown): LedgerRow[] => (v as { rows: LedgerRow[] }).rows
+
+test("session.measure writes the session's ledger row, at most once a minute", async ($, on) => {
+  const box = world(on)
+  const store = ledgerStore(on)
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('turn.complete', () => ({ text: '' }))
+  const usage = { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'opus' }
+  await $.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer', usage })
+
+  await $.session.measure(MEASURE)
+  await box.clock.advance(1)
+  expect(store.writes.length).toBe(1)
+  const row = rowsOf(store.value())[0]
+  expect(row).toMatchObject({ session: 'sess-1', tokens: { opus: 15 }, usd: 0.5 })
+
+  await $.session.measure(MEASURE)
+  await box.clock.advance(30_000)
+  expect(store.writes.length).toBe(1)
+  await $.session.measure(MEASURE)
+  await box.clock.advance(1)
+  expect(store.writes.length).toBe(1)
+  await box.clock.advance(31_000)
+  await $.session.measure(MEASURE)
+  await box.clock.advance(1)
+  expect(store.writes.length).toBe(2)
+  expect(rowsOf(store.value())).toHaveLength(1)
+})
+
+test('session.end writes the ledger row', async ($, on) => {
+  const box = world(on)
+  const store = ledgerStore(on)
+  on('session.id', () => ({ value: 'sess-2' }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('turn.complete', () => ({ text: '' }))
+  const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'sonnet' }
+  await $.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer', usage })
+
+  await $.session.end({ reason: 'other', sessionId: 'sess-2', resume: { id: 'sess-2' } } as never)
+
+  expect(box.timeline).toBeDefined()
+  expect(rowsOf(store.value()).map(r => [r.session, r.tokens])).toEqual([['sess-2', { sonnet: 2 }]])
+})
+
+test('a ledger stored in an old shape is read as empty and replaced', async ($, on) => {
+  const box = world(on)
+  const store = ledgerStore(on, [{ day: '2026-01-01', session: 'old', tokens: { x: 1 }, at: 1 }])
+  on('session.id', () => ({ value: 'sess-3' }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('turn.complete', () => ({ text: '' }))
+  const usage = { input_tokens: 1, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'opus' }
+  await $.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer', usage })
+
+  await $.session.measure(MEASURE)
+  await box.clock.advance(1)
+
+  expect(store.value()).toMatchObject({ v: 1 })
+  expect(rowsOf(store.value()).map(r => r.session)).toEqual(['sess-3'])
+})
+
+test('an empty timeline writes no ledger row', async ($, on) => {
+  const box = world(on)
+  const store = ledgerStore(on)
+  on('session.id', () => ({ value: 'sess-4' }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  await $.session.end({ reason: 'other', sessionId: 'sess-4', resume: { id: 'sess-4' } } as never)
+  await box.clock.advance(1)
+  expect(store.writes.length).toBe(0)
 })

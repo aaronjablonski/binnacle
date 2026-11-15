@@ -46,14 +46,14 @@ describe('fromFixture', () => {
     const usage = { input_tokens: 4, output_tokens: 193, cache_read_input_tokens: 33638, cache_creation_input_tokens: 40757, model: 'claude-sonnet-5-5' }
     expect(fromFixture({ at: 10, event: 'turn.complete', e: { answer: '', turnId: 't', agentId: 'w', isAborted: false, reason: 'answer', usage } })).toEqual([
       { kind: 'turn.end', at: 10, turnId: 't', agent: 'w', answer: '', failed: false },
-      { kind: 'usage', at: 10, agent: 'w', model: 'claude-sonnet-5-5', tokensIn: 74399, tokensOut: 193 },
+      { kind: 'usage', at: 10, agent: 'w', model: 'claude-sonnet-5-5', tokensIn: 74399, tokensOut: 193, cacheRead: 33638, cacheWrite: 40757, turnId: 't' },
     ])
     expect(fromFixture({ at: 11, event: 'agent.spawned', e: { tool_use_id: 'u5' }, r: { model: 'claude-sonnet-5-5', agentId: 'z' } })).toEqual([
       { kind: 'agent.start', at: 11, id: 'z', parent: 'main', type: 'unknown', description: '' },
       { kind: 'agent.model', id: 'z', model: 'claude-sonnet-5-5' },
     ])
     expect(fromFixture({ at: 12, event: 'session.measure', e: { context: { tokens: 1, window: 100, percent: 1 }, rateLimits: [], changed: ['context'] }, r: { changed: ['context'] } }))
-      .toEqual([{ kind: 'measure', at: 12, budget: { contextPct: 1, windows: [], at: 12 } }])
+      .toEqual([{ kind: 'measure', at: 12, budget: { contextPct: 1, contextTokens: 1, windows: [], at: 12 } }])
     // A check's ask is not a prompt (auto mode asks before its classifier decides): no step.ask.
     expect(fromFixture({ at: 13, event: 'tool.check', e: { tool: 'Bash', input: {}, tool_use_id: 'u6' }, r: { decision: 'ask', reason: 'r' } }))
       .toEqual([])
@@ -134,6 +134,7 @@ describe('fixtures fold through reduce', () => {
     expect(t.agents.ad5bac7d22f131785).toMatchObject({ type: 'Explore', model: 'claude-sonnet-5-5', tokensIn: 71886, tokensOut: 1746 })
     expect(t.budget).toEqual({
       contextPct: 6,
+      contextTokens: 63629,
       windows: [{ name: 'seven_day', pct: 21, resetsAt: Date.parse('2026-11-19T09:00:00.000Z') }],
       costUsd: 0.25038801,
       at: 1794748046451,

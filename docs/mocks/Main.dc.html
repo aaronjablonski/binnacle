@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Whole terminal with band and docked pane on the Overview tab</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#7aa2f7}a:hover{color:#a9c1fa}
+</style>
+</helmet>
+<div style="width: 1280px; height: 860px; box-sizing: border-box; background: #16181d; color: #d6d9e0; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 22px; display: flex; flex-direction: row">
+
+<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; padding: 16px 20px; box-sizing: border-box">
+<div style="flex-grow: 1; overflow: hidden; display: flex; flex-direction: column; gap: 0px; white-space: pre">
+<div><span style="color: #9aa3b5">&gt; </span>add rate limiting to the upload endpoint and cover it with tests</div>
+<div> </div>
+<div><span style="color: #e0af68">●</span> I'll map the upload path first, then add the limiter.</div>
+<div> </div>
+<div><span style="color: #9ece6a">●</span> <span style="font-weight: 700">Read</span>(src/server/upload.ts)</div>
+<div><span style="color: #9aa3b5">  ⎿ Read 412 lines</span></div>
+<div><span style="color: #9ece6a">●</span> <span style="font-weight: 700">Bash</span>(cat src/server/middleware/index.ts)</div>
+<div><span style="color: #9aa3b5">  ⎿ import { cors } from './cors'</span></div>
+<div><span style="color: #9aa3b5">    import { auth } from './auth'</span></div>
+<div><span style="color: #9aa3b5">    import { bodyLimit } from './bodyLimit'</span></div>
+<div><span style="color: #9aa3b5">    export const chain = [cors(), auth(), bodyLimit(…</span></div>
+<div><span style="color: #9aa3b5">    … +186 lines (ctrl+o to expand)</span></div>
+<div><span style="color: #9ece6a">●</span> <span style="font-weight: 700">Agent</span>(Explore · find every caller of upload())</div>
+<div><span style="color: #9aa3b5">  ⎿ Running in background</span></div>
+<div><span style="color: #9ece6a">●</span> <span style="font-weight: 700">Agent</span>(general-purpose · write limiter tests)</div>
+<div><span style="color: #9aa3b5">  ⎿ Running in background</span></div>
+<div><span style="color: #9aa3b5">◆ Mission Control updated: Wiring the limiter into the chain</span></div>
+<div><span style="color: #9ece6a">●</span> <span style="font-weight: 700">Edit</span>(src/server/middleware/rateLimit.ts)</div>
+<div><span style="color: #9aa3b5">  ⎿ Added 38 lines</span></div>
+<div> </div>
+<div><span style="color: #e0af68">✳</span> <span style="color: #e0af68">Wiring the limiter into the chain…</span> <span style="color: #9aa3b5">(2m 14s · esc to interrupt)</span></div>
+</div>
+
+<div style="white-space: pre; padding: 4px 0px; display: flex; flex-direction: row; gap: 16px">
+<span><span style="color: #7aa2f7">▣</span> 2/6 tasks</span>
+<span><span style="color: #e0af68">▶</span> Wiring the limiter into the chain</span>
+<span><span style="color: #9ece6a">2 agents</span></span>
+<span style="color: #9aa3b5">/mc</span>
+</div>
+<div style="border: 1px solid #4a5165; border-radius: 6px; padding: 6px 12px; white-space: pre"><span style="color: #9aa3b5">&gt; </span><span style="background: #d6d9e0; color: #16181d"> </span></div>
+<div style="color: #9aa3b5; white-space: pre; padding-top: 4px">  ctrl+x tab focus pane · ctrl+x x close pane</div>
+</div>
+
+<div style="width: 540px; flex-shrink: 0; border-left: 1px solid #4a5165; padding: 16px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-direction: row; gap: 4px">
+<button style="font: inherit; background: #7aa2f7; color: #16181d; border: 0; border-radius: 3px; padding: 0px 6px; font-weight: 700">1 Overview</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 6px">2 Tasks</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 6px">3 Agents</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 6px">4 Timeline</button>
+<button style="font: inherit; background: transparent; color: #d6d9e0; border: 0; padding: 0px 6px">5 Artifacts</button>
+</div>
+<div style="border-top: 1px solid #4a5165"></div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7; font-weight: 700">NOW</span>                              <span style="color: #9aa3b5">from Claude · 20s ago</span></div>
+<div style="font-weight: 700">Wiring the limiter into the chain</div>
+<div><span style="color: #9aa3b5">Next  </span>Return 429 with Retry-After</div>
+</div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7; font-weight: 700">TASKS</span> 2/6  <span style="color: #9ece6a">━━━━━━━━━━━━</span><span style="color: #4a5165">━━━━━━━━━━━━━━━━━━━━━━━━</span></div>
+<div><span style="color: #e0af68">▶</span> Wiring limiter into chain                    <span style="color: #9aa3b5">2m</span></div>
+<div>☐ Return 429 with Retry-After</div>
+<div><span style="color: #9aa3b5">  ✔ 2 done · ☐ 2 more</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7; font-weight: 700">AGENTS</span> 2 running · 1 done</div>
+<div><span style="color: #e0af68">▶</span> Explore · find callers    <span style="color: #9aa3b5">Grep "upload\(" src/</span></div>
+<div><span style="color: #e0af68">▶</span> general-purpose · tests   <span style="color: #9aa3b5">Edit test/rateLimit…</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7; font-weight: 700">LATEST</span> 14 steps · 1 error · 4 files changed</div>
+<div><span style="color: #e0af68">·</span> Edit src/server/middleware/index.ts</div>
+<div><span style="color: #9ece6a">✔</span> Edit test/rateLimit.test.ts       <span style="color: #9aa3b5">general-purpose</span></div>
+<div><span style="color: #f7768e">✖</span> Bash npm test -- rateLimit</div>
+<div><span style="color: #9ece6a">✔</span> <span style="color: #e0af68">★</span> Edit rateLimit.ts <span style="color: #9aa3b5">· the limiter itself</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7; font-weight: 700">NOTES</span>                                  <span style="color: #9aa3b5">from Claude</span></div>
+<div>• upload() is reached from 3 routes</div>
+<div>• bodyLimit must run before the limiter</div>
+</div>
+
+<div style="display: flex; flex-direction: column; white-space: pre">
+<div><span style="color: #7aa2f7; font-weight: 700">ARTIFACTS</span> 2</div>
+<div><span style="color: #7aa2f7">↗</span> Rate limit design                 <span style="color: #9aa3b5">page · 9m</span></div>
+<div><span style="color: #bb9af7">▤</span> docs/rate-limit-plan.md           <span style="color: #9aa3b5">doc · 12m</span></div>
+</div>
+
+<div style="flex-grow: 1"></div>
+<div style="color: #9aa3b5; white-space: pre">each heading opens its tab · enter on a row opens it</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

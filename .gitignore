@@ -1,0 +1,7 @@
+node_modules/
+CLAUDE.local.md
+.claude/settings.local.json
+mod/.claude-plugin/types/
+mod-debug.log
+.mc-probe/
+.superpowers/

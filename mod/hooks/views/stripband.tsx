@@ -5,7 +5,7 @@ import { summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { resetClock, setBudgetOpen } from './budget'
-import { elapsed, meter, shortPaths, wordFit } from './fit'
+import { elapsed, layOut, meter, shortPaths, wordFit } from './fit'
 import { argOf, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { needsYou, podFor, problemText, waitStates } from './needs'
@@ -24,8 +24,6 @@ const STRIP_ROWS = 6
 const THREE_FROM = 140
 /** From this width it adds NEEDS YOU (or TASKS) and BUDGET. */
 const FIVE_FROM = 180
-/** The gap between compartments: 3 columns, or 2 where 3 would drop one. */
-const GAPS = [3, 2]
 /** Deck rows the strip gives up first when it is short of rows; FOCUS goes last. */
 const DECK_DROP = ['deck-budget', 'deck-steps', 'deck-next', 'deck-tasks', 'deck-crew', 'deck-wait']
 /** Under this many columns the stacked strip has no room for the right half's time column. */
@@ -289,29 +287,6 @@ function budgetRows(ctx: ViewCtx, $: EngineInterface, w: number, h: number, afte
 
 /** One compartment: its key, the narrowest it is drawn, whether it takes spare width, and its rows. */
 type Comp = { key: string; min: number; grows: boolean; rows: (w: number, h: number) => RenderElement[] }
-
-/**
- * The compartments' widths across `cols`: the gap is 3, or 2 where 3 would
- * drop one; compartments that still do not fit are dropped from the right.
- * Spare columns go evenly to those that grow, the remainder to the first.
- */
-export function layOut(mins: { min: number; grows: boolean }[], cols: number): { widths: number[]; gap: number } {
-  for (let n = mins.length; n >= 1; n--) {
-    const kept = mins.slice(0, n)
-    const sum = kept.reduce((a, c) => a + c.min, 0)
-    for (const gap of GAPS) {
-      const used = sum + gap * (n - 1)
-      if (used > cols) continue
-      const growers = kept.map((c, i) => (c.grows ? i : -1)).filter(i => i >= 0)
-      const spare = cols - used
-      const each = growers.length > 0 ? Math.floor(spare / growers.length) : 0
-      const widths = kept.map((c, i) => c.min + (growers.includes(i) ? each : 0))
-      if (growers.length > 0) widths[growers[0]!] = widths[growers[0]!]! + (spare - each * growers.length)
-      return { widths, gap }
-    }
-  }
-  return { widths: [Math.max(1, cols)], gap: GAPS[0]! }
-}
 
 /**
  * The strip in the band (`/mc strip`), then the band's compact line under

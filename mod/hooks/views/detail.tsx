@@ -7,7 +7,7 @@ import { apply, debug, errText, leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { showInChat } from './find'
 import { clock, elapsed, fit, packParts } from './fit'
-import { glyphLine, sectionHeader } from './parts'
+import { glyphLine, page, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
 import { glyphColor } from './style'
 
@@ -179,4 +179,25 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     debug($, `detail view failed: ${errText(err)}`)
     return <Text dimColor>{fit(`Detail: ${errText(err)}`, cols)}</Text>
   }
+}
+
+/**
+ * The step page (`ui.page = { kind: 'step', id: <step id> }`). A stub from
+ * R1b so page routing has a body: the tool, the label and the input kept
+ * while it runs. R4 replaces it with the spec's page (INPUT, CHANGE,
+ * RESULT, FILES with `o: open`).
+ */
+export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderElement {
+  const s = ctx.t.steps.find(x => x.id === id)
+  if (s === undefined) return page(ctx, $, { key: 'step-page', title: 'This step is gone.' })
+  const input = s.pending !== undefined ? JSON.stringify(s.pending) : undefined
+  return page(ctx, $, {
+    key: 'step-page',
+    frame: { pill: s.status === 'error' ? 'FAILED' : s.status === 'running' ? 'RUNNING' : 'OK' },
+    fields: [
+      { label: 'TOOL', value: [{ text: s.tool, bold: true }] },
+      { label: 'STEP', value: s.label },
+    ],
+    blocks: input !== undefined ? [{ key: 'input', label: 'INPUT', text: input }] : [],
+  })
 }

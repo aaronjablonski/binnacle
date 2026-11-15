@@ -4,9 +4,10 @@ import type { ArtifactKind, ArtifactRow, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
 import { clock, elapsed, fitLeft, shortPaths, wrapWords } from './fit'
 import { showInChat } from './find'
+import { openInEditor } from './editor'
 import { exportDigest } from './handoff'
 import { openStepInline } from './openstep'
-import { blank, deck, footer, more, opened, row, section } from './parts'
+import { blank, deck, footer, more, opened, page, row, section } from './parts'
 import type { Action, Detail, Hint, Run } from './parts'
 import type { ViewCtx } from './shell'
 import { C, COL, DECK } from './style'
@@ -174,4 +175,38 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     debug($, `artifacts view failed: ${errText(err)}`)
     return <Text dimColor>{`Artifacts: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
   }
+}
+
+/**
+ * The artifact page (`ui.page = { kind: 'artifact', id: <artifact id> }`). A
+ * stub from R1b so page routing has a body: the full title, the kind, the
+ * ref and the summary. R5 replaces it with the spec's page.
+ */
+export function artifactPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderElement {
+  const a = ctx.t.artifacts.find(x => x.id === id)
+  if (a === undefined) return page(ctx, $, { key: 'artifact-page', title: 'This artifact is gone.' })
+  return page(ctx, $, {
+    key: 'artifact-page',
+    frame: { pill: a.kind.toUpperCase() },
+    fields: [
+      { label: 'TITLE', value: [{ text: a.title, bold: true }] },
+      { label: 'KIND', value: a.kind },
+      ...(a.ref !== undefined ? [{ label: 'REF', value: a.ref }] : []),
+      ...(a.summary !== undefined ? [{ label: 'SUMMARY', value: a.summary }] : []),
+    ],
+    // A document's ref is the file it wrote: o opens it in the editor.
+    actions:
+      a.kind === 'document' && a.ref !== undefined
+        ? [
+          {
+            hotkey: 'o',
+            label: 'open',
+            key: 'artifact-page-open',
+            onPress: async () => {
+              await openInEditor($, a.ref ?? '', undefined, ctx.e.surface)
+            },
+          },
+        ]
+        : [],
+  })
 }

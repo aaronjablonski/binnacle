@@ -1,4 +1,6 @@
 import type { AgentRow, StepStatus, TaskItem } from '../../types'
+import { SPRITE, sprite } from './raster'
+import type { Grid, Hue, Neutral, Size, State } from './raster'
 
 /**
  * The palette: theme keys only, so the pane follows the person's theme.
@@ -89,9 +91,10 @@ export const COL = {
  * A deck row's stops at 62 columns (spec "Label column"): the rail at 0, a dim
  * caps label at 2 (to 11), the gauge at 14 (22 wide, to 35), the value at 38
  * (10 wide), the aside at 50 (ends by 59), the right rail at the last column
- * (61). The same stops as a table's name, metric and time.
+ * (61). The same stops as a table's name, metric and time. `ring` (39) is
+ * where the Now hero's three rings start (23 wide, to 61; Neo Rich).
  */
-export const DECK = { rail: 0, label: 2, gauge: 14, value: 38, aside: 50 } as const
+export const DECK = { rail: 0, label: 2, gauge: 14, value: 38, aside: 50, ring: 39 } as const
 
 /** The start column of cell `i` (0-based): 2, 14, 26, 38, 50, … */
 export function cellCol(i: number): number {
@@ -360,4 +363,127 @@ export function dialOf(pct: number): Run {
   const p = Number.isFinite(pct) ? pct : 0
   const text = p <= 0 ? d[0] : p <= 25 ? d[1] : p <= 50 ? d[2] : p < 100 ? d[3] : d[4]
   return { text, color: rateColor(p) }
+}
+
+// ---------- Neo Rich: the look and the crew as Rasters (rich spec) ----------
+
+/**
+ * Raster hues for the theme roles of `C`: the colour a Raster cell takes
+ * where a Text would take the theme key beside it. Raster backgrounds are
+ * always the terminal default, so only these hues and neutrals are drawn.
+ */
+export const RICH = {
+  live: 'iris',
+  accent: 'iris',
+  lead: 'ember',
+  spark: 'ember',
+  wait: 'amber',
+  fail: 'red',
+  error: 'red',
+  result: 'mint',
+  model: 'orchid',
+  doc: 'orchid',
+  subtle: 'rest',
+  rule: 'rest',
+  dim: 'mute',
+} as const satisfies Record<string, Hue | Neutral>
+
+/**
+ * How a surface draws (spec "Surfaces and fallbacks"): `rich` with Rasters
+ * (the terminal), `svg` with one Svg deck (desktop, VS Code, mobile; R6),
+ * `text` the Neo text form. Until R6 lands, `svg` draws the text form.
+ */
+export type Look = 'rich' | 'svg' | 'text'
+
+/** What `lookOf` reads of the options: `look: 'text'` asks for the text form everywhere. */
+export type LookOptions = { look?: string }
+
+/** One cell at the terminal's default colours, as `RasterProps.cells` takes it. */
+const PROBE_CELL = 'IAAAAAAAAAEAAAAB'
+
+/**
+ * Whether `table` really draws `name`: the engine hands out every surface's
+ * table completed with every element name, an element the surface lacks
+ * constructing a Box (a fragment there), so a key being present says
+ * nothing. The constructor is a pure function from props to a plain
+ * element; one throwaway element tells.
+ */
+function draws(table: object, name: string, props: Record<string, unknown>): boolean {
+  const make: unknown = (table as Record<string, unknown>)[name]
+  if (typeof make !== 'function') return false
+  try {
+    const el: unknown = make(props)
+    return typeof el === 'object' && el !== null && (el as { type?: unknown }).type === name
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The look for a surface, from its element table (`$.ui.resolve(e)`), never
+ * from its name: a table whose `Raster` makes a Raster is rich, one whose
+ * `Svg` makes an Svg is svg, any other text. The option `look: 'text'` wins
+ * on every table; any other value follows the table. Call it once per draw.
+ *
+ * @example const look = lookOf($.ui.resolve(e), { look: options.look })
+ */
+export function lookOf(table: object, options: LookOptions = {}): Look {
+  if (options.look === 'text') return 'text'
+  if (draws(table, 'Raster', { key: 'look-probe', columns: 1, rows: 1, cells: PROBE_CELL })) return 'rich'
+  if (draws(table, 'Svg', { source: '<svg xmlns="http://www.w3.org/2000/svg"/>', alt: 'look probe' })) return 'svg'
+  return 'text'
+}
+
+/**
+ * One crew member as an instrument: what `inst` mounts. `frames` draws the
+ * sprite (two frames, lamp on and dim, while working; one otherwise);
+ * `fallback` is its text form in the same box (hull and signal on the first
+ * row, from `podOf`); `sig` changes only with role, state and size, so the
+ * paint clock re-encodes it only then.
+ */
+export type SpriteArgs = {
+  role: Role
+  state: State
+  size: Size
+  columns: number
+  rows: number
+  sig: string
+  frames: () => Grid[]
+  fallback: Run[][]
+}
+
+/**
+ * An agent as a sprite (the rich form of `podOf`, which stays the text form):
+ * role from `roleOf` (`main` is the lead), state from `state` when given,
+ * else the agent's own (`podStateOf`). Size `L` is 9 x 4 cells, `S` 5 x 2
+ * (the badge column included).
+ *
+ * @example
+ * const s = spriteOf(agent, ctx.now)
+ * inst(ctx, $, { key: `who-${agent.id}`, ...s })
+ */
+export function spriteOf(agent: PodAgent, now: number, state?: PodState, size: Size = 'L'): SpriteArgs {
+  const pod = podOf(state !== undefined ? { ...agent, state } : agent, now)
+  const box = SPRITE[size]
+  const role = pod.role
+  const st: State = pod.state
+  const first: Run[] = [pod.hull]
+  if (pod.signal !== undefined) first.push(pod.signal)
+  const used = first.reduce((n, r) => n + r.text.length, 0)
+  first.push({ text: ' '.repeat(Math.max(0, box.columns - used)) })
+  const fallback: Run[][] = [first]
+  for (let i = 1; i < box.rows; i++) fallback.push([{ text: ' '.repeat(box.columns) }])
+  return {
+    role,
+    state: st,
+    size,
+    columns: box.columns,
+    rows: box.rows,
+    sig: `sprite:${role}:${st}:${size}`,
+    frames: () =>
+      st === 'working'
+        ? [sprite(role, st, size, { lamp: 'on' }), sprite(role, st, size, { lamp: 'dim' })]
+        : [sprite(role, st, size)],
+    fallback,
+  }
 }

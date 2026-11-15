@@ -98,6 +98,8 @@ export type LedgerRow = { day: string; session: string; tokens: Record<string, n
 export type StepFilter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'errors' } | { kind: 'agent'; id: AgentKey }
 export type StepBody = { input: Record<string, unknown>; text: string; cut: number; isError: boolean }
 export type Tab = 'overview' | 'tasks' | 'agents' | 'timeline' | 'artifacts'
+/** The kinds of detail page (`UiState.page`). */
+export type PageKind = 'task' | 'agent' | 'step' | 'artifact'
 export type UiState = {
   tab: Tab; filter: StepFilter
   agentsMode: 'list' | 'tree'; folded: string[]        // folded tree node keys
@@ -118,6 +120,7 @@ export type UiState = {
   slim: boolean                                        // `/mc slim` asked for the 28-column pane; the layout itself reads only bodyColumns
   paneOpen?: boolean                                   // the pane is open (set by /mc open, 1-5, slim and close, and by ui.close for the person's own close); the band is compact while true. Optional so a value an earlier version stored, and test fixtures, still type; readUi always answers a boolean
   strip?: boolean                                      // `/mc strip` asked for the strip in the band in place of the pane; set false by /mc, /mc 1-5, /mc slim and a press in the strip. Optional as paneOpen is: readUi always answers a boolean
+  page?: { kind: PageKind; id: string }               // the detail page that replaces the open tab's list (id ≤ 200; a task's is `<owner>:<id>`); cleared by b, a tab switch and /mc 1-5. Optional: a value stored before it existed reads as no page
 }
 
 declare module 'claude-code' {

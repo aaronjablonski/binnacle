@@ -6,7 +6,7 @@ import { buckets, elapsed, pips, spark, typeShort, wrapWords } from './fit'
 import { signalFlag } from './agentmeta'
 import { exportDigest } from './handoff'
 import { podFor, waitStates } from './needs'
-import { blank, deck, footer, more, opened, row, section } from './parts'
+import { blank, deck, footer, more, opened, page, row, section } from './parts'
 import type { Detail, Hint } from './parts'
 import type { ViewCtx } from './shell'
 import { DECK, GLYPHS, statusColor } from './style'
@@ -234,4 +234,23 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     debug($, `tasks view failed: ${errText(err)}`)
     return <Text dimColor>{`Tasks: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
   }
+}
+
+/**
+ * The task page (`ui.page = { kind: 'task', id: '<owner>:<id>' }`). A stub
+ * from R1b so page routing has a body: the full subject and the active form.
+ * R4 replaces it with the spec's page (status, time against the usual,
+ * tokens by agent, its agents, its steps).
+ */
+export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderElement {
+  const task = ctx.t.tasks.find(x => `${x.owner}:${x.id}` === id)
+  if (task === undefined) return page(ctx, $, { key: 'task-page', title: 'This task is gone.' })
+  return page(ctx, $, {
+    key: 'task-page',
+    frame: { pill: task.status === 'in_progress' ? 'ACTIVE' : task.status === 'completed' ? 'DONE' : 'QUEUED' },
+    fields: [
+      { label: 'TASK', value: [{ text: task.subject, bold: true }] },
+      ...(task.activeForm !== undefined ? [{ label: 'NOW', value: task.activeForm }] : []),
+    ],
+  })
 }

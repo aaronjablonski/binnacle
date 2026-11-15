@@ -1,10 +1,12 @@
 import type { Register } from 'claude-code'
 
 import { registerCapture } from './capture'
+import { registerGuide, startGuide } from './guide'
 import { restore } from './journal'
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   registerCapture(on)
+  registerGuide(on, options)
 
   // The module's one session.start hook: every task's session-start work is
   // a helper called from here (validate refuses a second unmatched hook).
@@ -18,6 +20,8 @@ export const register: Register = on => {
     } catch {
       // restore reports its own failures
     }
+    // Before next(e), so the tool is listed by the first prompt (Finding i).
+    await startGuide($, options)
     return next(e)
   })
 

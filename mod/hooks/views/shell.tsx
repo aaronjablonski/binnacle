@@ -4,7 +4,9 @@ import type { Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
 import { agentsView } from './agents'
 import { detailView } from './detail'
+import { rule } from './fit'
 import { overviewView } from './overview'
+import { C } from './style'
 import { tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
 
@@ -48,19 +50,36 @@ export function registerShell(on: On, _options: { autoOpen?: boolean }): void {
       const now = await $.clock.now()
       const short = cols < NARROW
       return (
-        <Box flexDirection="column" rowGap={1}>
+        <Box flexDirection="column">
           <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-            {TABS.map(x => (
-              <Button
-                key={`tab-${x.tab}`}
-                label={short ? x.label.slice(0, 3) : x.label}
-                hotkey={x.hotkey}
-                plain
-                dimColor={x.tab !== u.tab}
-                onPress={() => updateUi($, cur => ({ ...leaveDetail(cur), tab: x.tab }))}
-              />
-            ))}
+            {TABS.flatMap((x, i) => {
+              const label = short ? x.label.slice(0, 3) : x.label
+              const isOpen = x.tab === u.tab
+              const tab = (
+                <Button
+                  key={`tab-${x.tab}`}
+                  hotkey={x.hotkey}
+                  plain
+                  dimColor={!isOpen}
+                  onPress={() => updateUi($, cur => ({ ...leaveDetail(cur), tab: x.tab }))}
+                >
+                  {isOpen ? (
+                    <Text backgroundColor={C.accent} color={C.tabFg} bold>{` ${label} `}</Text>
+                  ) : (
+                    <Text>{label}</Text>
+                  )}
+                </Button>
+              )
+              if (i === 0) return [tab]
+              return [
+                <Text key={`sep-${x.tab}`} dimColor>
+                  │
+                </Text>,
+                tab,
+              ]
+            })}
           </Box>
+          <Text color={C.rule}>{rule(cols)}</Text>
           {body($, e, { t, u, cols, now })}
         </Box>
       )

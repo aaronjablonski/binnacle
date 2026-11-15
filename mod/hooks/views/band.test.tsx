@@ -66,7 +66,15 @@ test('summarises tasks, focus and running agents', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND(), surface })
     const row = (await ui.find({ type: 'Text' }))?.text
-    expect(row).toBe('▣ 2/4 tasks · ▶ Wiring the limiter · 2 agents · /mc')
+    expect(row).toBe('▣ 2/4 tasks │ ▶ Wiring the limiter │ ● 2 agents │ /mc')
+    const parts = await ui.findAll({ type: 'Text' })
+    const bars = parts.filter(f => f.text === '│')
+    expect(bars.length).toBe(3)
+    for (const b of bars) expect((b.props as { dimColor?: boolean }).dimColor).toBe(true)
+    const color = (glyph: string): string | undefined => (parts.find(f => f.text === glyph)?.props as { color?: string }).color
+    expect(color('▣')).toBe('suggestion')
+    expect(color('▶')).toBe('warning')
+    expect(color('●')).toBe('warning')
     await ui.unmount()
   }
 })

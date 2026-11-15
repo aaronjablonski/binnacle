@@ -4,69 +4,82 @@ import type { ArtifactKind, Tab } from '../../types'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
-import { elapsed, fit } from './fit'
+import { blockBar, elapsed, fit } from './fit'
 import { openStep } from './openstep'
+import { sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
+import { C, glyphColor } from './style'
 
 const ARTIFACT_GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', result: '◆', link: '⎇' }
+const ARTIFACT_COLOR: Record<ArtifactKind, string | undefined> = {
+  page: C.accent,
+  document: C.doc,
+  result: C.done,
+  link: undefined,
+}
 const MIN_SPLIT = 8
+// From this width the Overview draws two columns.
+const WIDE = 96
+const COLUMN_GAP = 2
 
-/** The Overview tab: what is happening now, in six short sections. */
-export function overviewView({ e, t, cols, now }: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text, Button, Progress } = $.ui.resolve(e)
-  const s = summary(t)
-  const sections: RenderElement[] = []
-
-  // A heading that opens its tab.
-  const go = (tab: Tab, text: string): RenderElement => (
-    <Button key={`go-${tab}`} plain onPress={() => updateUi($, u => ({ ...leaveDetail(u), tab }))}>
-      <Text bold>{fit(text, cols)}</Text>
-    </Button>
+/** A glyph in its status colour (dim when it has none), a space and the text; the whole fits `cols`. */
+function glyphLine(ctx: ViewCtx, $: EngineInterface, glyph: string, color: string | undefined, text: string, bold = false): RenderElement {
+  const { Text } = $.ui.resolve(ctx.e)
+  const body = fit(text, Math.max(0, ctx.cols - glyph.length - 1))
+  return (
+    <Text>
+      {color !== undefined ? <Text color={color}>{glyph}</Text> : <Text dimColor>{glyph}</Text>}
+      {bold ? <Text bold>{` ${body}`}</Text> : ` ${body}`}
+    </Text>
   )
-  // A heading with nothing to open.
-  const title = (text: string): RenderElement => <Text bold>{fit(text, cols)}</Text>
-  // Left text and a dim right text on one row, or two rows when they do not fit.
-  const split = (left: string, right: string): RenderElement => {
-    const room = cols - right.length - 1
-    if (right === '') return <Text>{fit(left, cols)}</Text>
-    if (room < MIN_SPLIT) {
-      return (
-        <Box flexDirection="column">
-          <Text>{fit(left, cols)}</Text>
-          <Text dimColor>{fit(right, cols)}</Text>
-        </Box>
-      )
-    }
+}
+
+// Left text and a dim right text on one row, or two rows when they do not fit.
+function splitLine(ctx: ViewCtx, $: EngineInterface, glyph: string, color: string | undefined, left: string, right: string): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const room = ctx.cols - right.length - 1
+  if (right === '') return glyphLine(ctx, $, glyph, color, left)
+  if (room < MIN_SPLIT) {
     return (
-      <Box flexDirection="row" columnGap={1}>
-        <Text>{fit(left, room)}</Text>
-        <Text dimColor>{right}</Text>
+      <Box flexDirection="column">
+        {glyphLine(ctx, $, glyph, color, left)}
+        <Text dimColor>{fit(right, ctx.cols)}</Text>
       </Box>
     )
   }
+  return (
+    <Box flexDirection="row" justifyContent="space-between">
+      {glyphLine({ ...ctx, cols: room }, $, glyph, color, left)}
+      <Text dimColor>{right}</Text>
+    </Box>
+  )
+}
 
-  // NOW
-  // With no focus from Claude or a task, NOW shows the step in flight, else the newest one.
+// A header that opens its tab.
+function goHeader(ctx: ViewCtx, $: EngineInterface, tab: Tab, label: string, meta: string): RenderElement {
+  const { Button } = $.ui.resolve(ctx.e)
+  return (
+    <Button key={`go-${tab}`} plain onPress={() => updateUi($, u => ({ ...leaveDetail(u), tab }))}>
+      {sectionHeader(label, meta, ctx.cols, ctx.e, $)}
+    </Button>
+  )
+}
+
+// NOW: with no focus from Claude or a task, the step in flight, else the newest one.
+function nowSection(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const { t, cols, now } = ctx
+  const s = summary(t)
   const bySeq = [...t.steps].sort((a, b) => b.seq - a.seq)
   const stepNow = s.focus ? undefined : bySeq.find(x => x.status === 'running') ?? bySeq[0]
-  let fromClaude = ''
-  if (s.fromClaude && s.focusAt !== undefined) fromClaude = `from Claude · ${elapsed(s.focusAt, now)} ago`
-  if (stepNow) fromClaude = 'latest step'
-  sections.push(
+  let meta = ''
+  if (s.fromClaude && s.focusAt !== undefined) meta = `from Claude · ${elapsed(s.focusAt, now)} ago`
+  if (stepNow) meta = 'latest step'
+  return (
     <Box key="now" flexDirection="column">
-      {fromClaude !== '' && cols >= 'NOW '.length + fromClaude.length ? (
-        <Box flexDirection="row" columnGap={1}>
-          {title('NOW')}
-          <Text dimColor>{fromClaude}</Text>
-        </Box>
-      ) : (
-        title('NOW')
-      )}
-      {fromClaude !== '' && cols < 'NOW '.length + fromClaude.length ? (
-        <Text dimColor>{fit(fromClaude, cols)}</Text>
-      ) : null}
+      {sectionHeader('NOW', meta, cols, ctx.e, $)}
       {s.focus ? <Text bold>{fit(s.focus, cols)}</Text> : null}
-      {stepNow ? <Text bold>{fit(`${STEP_GLYPH[stepNow.status]} ${stepNow.label}`, cols)}</Text> : null}
+      {stepNow ? glyphLine(ctx, $, STEP_GLYPH[stepNow.status], glyphColor(stepNow.status), stepNow.label, true) : null}
       {!s.focus && !stepNow ? <Text dimColor>{fit('Idle. Nothing running yet.', cols)}</Text> : null}
       {s.next ? (
         <Text>
@@ -74,88 +87,161 @@ export function overviewView({ e, t, cols, now }: ViewCtx, $: EngineInterface): 
           {fit(s.next, Math.max(0, cols - 'Next '.length))}
         </Text>
       ) : null}
-    </Box>,
+    </Box>
   )
+}
 
-  // TASKS
+// TASKS: the count in the header, a block bar, the task in progress and the next one.
+function tasksSection(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const { t, cols, now } = ctx
+  const s = summary(t)
   const more = Math.max(0, t.tasks.filter(x => x.status === 'pending').length - (s.upcoming ? 1 : 0))
-  sections.push(
+  const blocks = blockBar(s.done, s.total, cols)
+  return (
     <Box key="tasks" flexDirection="column">
-      {s.total > 0 ? go('tasks', `TASKS ${s.done}/${s.total}`) : go('tasks', 'TASKS')}
+      {goHeader(ctx, $, 'tasks', 'TASKS', s.total > 0 ? `${s.done}/${s.total}` : '')}
       {s.total > 0 ? (
-        <Progress label="Tasks" value={s.done} max={s.total} valueText={`${s.done} of ${s.total}`} />
+        <Text>
+          <Text color={C.done}>{blocks.filled}</Text>
+          <Text color={C.rule}>{blocks.rest}</Text>
+        </Text>
       ) : (
         <Text dimColor>No tasks yet.</Text>
       )}
-      {s.current ? split(`▶ ${s.current.subject}`, elapsed(s.current.updatedAt, now)) : null}
-      {s.upcoming ? <Text>{fit(`☐ ${s.upcoming.subject}`, cols)}</Text> : null}
-      {s.done > 0 || more > 0 ? <Text dimColor>{fit(`  ✔ ${s.done} done · ☐ ${more} more`, cols)}</Text> : null}
-    </Box>,
+      {s.current ? splitLine(ctx, $, '▶', glyphColor('in_progress'), s.current.subject, elapsed(s.current.updatedAt, now)) : null}
+      {s.upcoming ? glyphLine(ctx, $, '○', undefined, s.upcoming.subject) : null}
+      {s.done > 0 || more > 0 ? (
+        <Text>
+          <Text color={C.done}>✔</Text>
+          <Text dimColor>{fit(` ${s.done} done · ○ ${more} more`, Math.max(0, cols - 1))}</Text>
+        </Text>
+      ) : null}
+    </Box>
   )
+}
 
-  // AGENTS
-  if (s.running.length > 0 || s.finished > 0) {
-    sections.push(
-      <Box key="agents" flexDirection="column">
-        {go('agents', `AGENTS ${s.running.length} running · ${s.finished} done`)}
-        {s.running.map(a => (
-          <Box key={`agent-${a.id}`} flexDirection="column">
-            <Text>{fit(`▶ ${a.type} · ${a.description}`, cols)}</Text>
-            {a.doing !== '' ? <Text dimColor>{fit(`  ${a.doing}`, cols)}</Text> : null}
+// AGENTS: each running agent, its doing line second.
+function agentsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const s = summary(ctx.t)
+  if (s.running.length === 0 && s.finished === 0) return null
+  return (
+    <Box key="agents" flexDirection="column">
+      {goHeader(ctx, $, 'agents', 'AGENTS', `${s.running.length} running · ${s.finished} done`)}
+      {s.running.map(a => (
+        <Box key={`agent-${a.id}`} flexDirection="column">
+          {glyphLine(ctx, $, '▶', glyphColor('running'), `${a.type} · ${a.description}`)}
+          {a.doing !== '' ? <Text dimColor>{fit(`└ ${a.doing}`, ctx.cols)}</Text> : null}
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+// LATEST: the newest steps, each one opens its detail.
+function latestSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  const { Box, Button, Text } = $.ui.resolve(ctx.e)
+  const { t, cols } = ctx
+  const s = summary(t)
+  if (s.steps === 0) return null
+  return (
+    <Box key="latest" flexDirection="column">
+      {goHeader(ctx, $, 'timeline', 'LATEST', `${s.steps} steps · ${s.errors} errors · ${s.changed} files changed`)}
+      {s.latest.map(x => {
+        const star = x.pin !== undefined ? '★ ' : ''
+        const note = x.pin ? ` · ${x.pin}` : ''
+        const who = x.agent !== 'main' ? ` · ${t.agents[x.agent]?.type ?? x.agent}` : ''
+        const glyph = STEP_GLYPH[x.status]
+        const color = glyphColor(x.status)
+        const text = fit(`${star}${x.label}${note}${who}`, Math.max(0, cols - glyph.length - 1))
+        return (
+          <Button key={`step-${x.id}`} plain label={fit(`${glyph} ${text}`, cols)} onPress={() => openStep($, x.id)}>
+            {color !== undefined ? <Text color={color}>{glyph}</Text> : <Text dimColor>{glyph}</Text>}
+            <Text>{` ${text}`}</Text>
+          </Button>
+        )
+      })}
+    </Box>
+  )
+}
+
+// NOTES, one bullet each.
+function notesSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const { t, cols } = ctx
+  const s = summary(t)
+  if (s.notes.length === 0) return null
+  return (
+    <Box key="notes" flexDirection="column">
+      {sectionHeader('NOTES', '', cols, ctx.e, $)}
+      {s.notes.map((n, i) => {
+        const who = n.agent !== 'main' ? ` · ${t.agents[n.agent]?.type ?? n.agent}` : ''
+        return <Text key={`note-${i}`}>{fit(`• ${n.text}${who}`, cols)}</Text>
+      })}
+    </Box>
+  )
+}
+
+// ARTIFACTS: the newest few, kind and age on the right.
+function artifactsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  const { Box } = $.ui.resolve(ctx.e)
+  const { t, now } = ctx
+  if (t.artifacts.length === 0) return null
+  return (
+    <Box key="artifacts" flexDirection="column">
+      {goHeader(ctx, $, 'artifacts', 'ARTIFACTS', String(t.artifacts.length))}
+      {summary(t).artifacts.map(a => (
+        <Box key={`artifact-${a.id}`} flexDirection="column">
+          {splitLine(ctx, $, ARTIFACT_GLYPH[a.kind], ARTIFACT_COLOR[a.kind], a.title, `${a.kind} · ${elapsed(a.updatedAt, now)}`)}
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+function keep(list: (RenderElement | null)[]): RenderElement[] {
+  return list.filter((x): x is RenderElement => x !== null)
+}
+
+/** The Overview tab: what is happening now, in short sections; two columns when wide. */
+export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  if (ctx.cols >= WIDE) {
+    const width = Math.floor((ctx.cols - COLUMN_GAP) / 2)
+    const half = { ...ctx, cols: width }
+    const left = keep([nowSection(half, $), tasksSection(half, $)])
+    const right = keep([agentsSection(half, $), latestSection(half, $)])
+    const notes = ctx.t.notes.length
+    const artifacts = ctx.t.artifacts.length
+    const counts = [notes > 0 ? `notes ${notes}` : '', artifacts > 0 ? `artifacts ${artifacts}` : ''].filter(x => x !== '')
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        <Box flexDirection="row" columnGap={COLUMN_GAP}>
+          <Box key="col-left" flexDirection="column" rowGap={1} width={width}>
+            {left}
           </Box>
-        ))}
-      </Box>,
+          {right.length > 0 ? (
+            <Box key="col-right" flexDirection="column" rowGap={1} width={width}>
+              {right}
+            </Box>
+          ) : null}
+        </Box>
+        {counts.length > 0 ? <Text dimColor>{fit(`↓ ${counts.join(' · ')}`, ctx.cols)}</Text> : null}
+      </Box>
     )
   }
-
-  // LATEST
-  if (s.steps > 0) {
-    sections.push(
-      <Box key="latest" flexDirection="column">
-        {go('timeline', `LATEST ${s.steps} steps · ${s.errors} errors · ${s.changed} files changed`)}
-        {s.latest.map(x => {
-          const star = x.pin !== undefined ? '★ ' : ''
-          const note = x.pin ? ` · ${x.pin}` : ''
-          const who = x.agent !== 'main' ? ` · ${t.agents[x.agent]?.type ?? x.agent}` : ''
-          return (
-            <Button
-              key={`step-${x.id}`}
-              plain
-              label={fit(`${STEP_GLYPH[x.status]} ${star}${x.label}${note}${who}`, cols)}
-              onPress={() => openStep($, x.id)}
-            />
-          )
-        })}
-      </Box>,
-    )
-  }
-
-  // NOTES
-  if (s.notes.length > 0) {
-    sections.push(
-      <Box key="notes" flexDirection="column">
-        {title('NOTES')}
-        {s.notes.map((n, i) => {
-          const who = n.agent !== 'main' ? ` · ${t.agents[n.agent]?.type ?? n.agent}` : ''
-          return <Text key={`note-${i}`}>{fit(`• ${n.text}${who}`, cols)}</Text>
-        })}
-      </Box>,
-    )
-  }
-
-  // ARTIFACTS
-  if (t.artifacts.length > 0) {
-    sections.push(
-      <Box key="artifacts" flexDirection="column">
-        {go('artifacts', `ARTIFACTS ${t.artifacts.length}`)}
-        {s.artifacts.map(a => (
-          <Box key={`artifact-${a.id}`} flexDirection="column">
-            {split(`${ARTIFACT_GLYPH[a.kind]} ${a.title}`, `${a.kind} · ${elapsed(a.updatedAt, now)}`)}
-          </Box>
-        ))}
-      </Box>,
-    )
-  }
-
-  return <Box flexDirection="column" rowGap={1}>{sections}</Box>
+  const sections = keep([
+    nowSection(ctx, $),
+    tasksSection(ctx, $),
+    agentsSection(ctx, $),
+    latestSection(ctx, $),
+    notesSection(ctx, $),
+    artifactsSection(ctx, $),
+  ])
+  return (
+    <Box flexDirection="column" rowGap={1}>
+      {sections}
+    </Box>
+  )
 }

@@ -182,7 +182,9 @@ test('lists a running agent with its doing line', async ($, on) => {
     const all = (await texts(ui)).join('\n')
     expect(all).toContain('▶ Explore · find callers')
     expect(all).toContain('Grep upload')
-    expect((await ui.find({ key: 'go-agents' }))?.text).toContain('AGENTS 1 running · 0 done')
+    const header = (await ui.find({ key: 'go-agents' }))?.text ?? ''
+    expect(header).toContain('AGENTS')
+    expect(header).toContain('1 running · 0 done')
     await ui.unmount()
   }
 })
@@ -194,7 +196,9 @@ test('shows an error step and a pinned step under LATEST', async ($, on) => {
   })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    expect((await ui.find({ key: 'go-timeline' }))?.text).toContain('LATEST 2 steps · 1 errors · 0 files changed')
+    const header = (await ui.find({ key: 'go-timeline' }))?.text ?? ''
+    expect(header).toContain('LATEST')
+    expect(header).toContain('2 steps · 1 errors · 0 files changed')
     expect((await ui.find({ key: 'step-s1' }))?.text).toContain('✖ Bash npm test')
     const pinned = (await ui.find({ key: 'step-s2' }))?.text ?? ''
     expect(pinned).toContain('★')
@@ -212,7 +216,9 @@ test('shows a note and an artifact', async ($, on) => {
     expect(all).toContain('• bodyLimit must run first')
     expect(all).toContain('↗ Rate limit design')
     expect(all).toContain('page · 9m')
-    expect((await ui.find({ key: 'go-artifacts' }))?.text).toContain('ARTIFACTS 1')
+    const header = (await ui.find({ key: 'go-artifacts' }))?.text ?? ''
+    expect(header).toContain('ARTIFACTS')
+    expect(header.endsWith(' 1')).toBe(true)
     await ui.unmount()
   }
 })
@@ -230,11 +236,13 @@ test('the TASKS section counts and shows the current and upcoming task', async (
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = (await texts(ui)).join('\n')
-    expect((await ui.find({ key: 'go-tasks' }))?.text).toContain('TASKS 1/4')
+    const header = (await ui.find({ key: 'go-tasks' }))?.text ?? ''
+    expect(header).toContain('TASKS')
+    expect(header.endsWith(' 1/4')).toBe(true)
     expect(all).toContain('▶ Wire the limiter')
     expect(all).toContain('2m')
-    expect(all).toContain('☐ Return 429')
-    expect(all).toContain('✔ 1 done · ☐ 1 more')
+    expect(all).toContain('○ Return 429')
+    expect(all).toContain('✔ 1 done · ○ 1 more')
     await ui.unmount()
   }
 })
@@ -448,4 +456,99 @@ test('the clock invalidates only while a subagent or step runs, and main never c
   stored.set('timeline', { ...empty, agents: { main, a1: agent('a1', 'Explore', 'x', 'y') } })
   await clock.advance(3000)
   expect(invalidated > 0).toBe(true)
+})
+
+type Mounted = Awaited<ReturnType<typeof mount>>
+type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
+
+const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; backgroundColor?: string } =>
+  (f?.props ?? {}) as { color?: string; dimColor?: boolean; backgroundColor?: string }
+
+test('the tab bar has a dim │ between every two tabs and fills the open tab', async ($, on) => {
+  seed(on, empty, { tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] })
+  for (const surface of SURFACES) {
+    for (const columns of [62, 24]) {
+      const ui = await mount($, surface, columns)
+      const found = await ui.findAll({ type: 'Text' })
+      const bars = found.filter(f => f.text === '│' && propsOf(f).dimColor === true)
+      expect(bars.length).toBe(4)
+      const filled = found.filter(f => propsOf(f).backgroundColor === 'suggestion')
+      expect(filled.length).toBe(1)
+      expect(propsOf(filled[0]).color).toBe('inverseText')
+      expect(filled[0]?.text).toContain(columns === 62 ? 'Tasks' : 'Tas')
+      const tab = await ui.find({ key: 'tab-tasks' })
+      expect(tab?.props).toMatchObject({ hotkey: '2', plain: true })
+      await ui.unmount()
+    }
+  }
+})
+
+test('a section header draws label, rule and meta that sum to the columns', async ($, on) => {
+  seed(on, { ...empty, tasks: [task('1', 'Map', 'completed'), task('2', 'Wire', 'in_progress')] })
+  for (const surface of SURFACES) {
+    for (const columns of [62, 24]) {
+      const ui = await mount($, surface, columns)
+      const header = await ui.find({ key: 'go-tasks' })
+      expect((header?.text ?? '').length).toBe(columns)
+      const found = await ui.findAll({ type: 'Text' })
+      expect(propsOf(found.find(f => f.text === 'TASKS')).color).toBe('suggestion')
+      expect(propsOf(found.find(f => (f.text ?? '').startsWith(' ─'))).color).toBe('subtle')
+      if (columns === 62) expect(propsOf(found.find(f => f.text === '1/2')).dimColor).toBe(true)
+      await ui.unmount()
+    }
+  }
+})
+
+test('progress is a block bar and status glyphs carry their theme colours', async ($, on) => {
+  seed(on, {
+    ...empty,
+    tasks: [task('1', 'Map', 'completed'), task('2', 'Wire', 'in_progress'), task('3', 'Docs', 'pending')],
+    steps: [step('s1', 1, 'Bash npm test', 'error')],
+    agents: { main, a1: agent('a1', 'Explore', 'find callers', 'Grep upload') },
+  })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const found = await ui.findAll({ type: 'Text' })
+    const filled = found.find(f => /^█+$/.test(f.text ?? ''))
+    const rest = found.find(f => /^░+$/.test(f.text ?? ''))
+    expect(propsOf(filled).color).toBe('success')
+    expect(propsOf(rest).color).toBe('subtle')
+    expect((filled?.text ?? '').length + (rest?.text ?? '').length).toBe(62)
+    const glyph = (g: string): (string | undefined)[] => found.filter(f => f.text === g).map(f => propsOf(f).color)
+    expect(glyph('▶')).toContain('warning')
+    expect(glyph('✖')).toContain('error')
+    expect(glyph('✔')).toContain('success')
+    expect(propsOf(found.find(f => f.text === '○')).dimColor).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('at 96 columns the Overview draws two columns and a one-line notes and artifacts summary', async ($, on) => {
+  const art: ArtifactRow = { id: 'r1', kind: 'page', title: 'Design', agent: 'main', count: 1, updatedAt: NOW }
+  seed(on, {
+    ...empty,
+    now: { focus: 'Wiring', at: NOW },
+    tasks: [task('1', 'Map', 'completed'), task('2', 'Wire', 'in_progress')],
+    agents: { main, a1: agent('a1', 'Explore', 'find callers', 'Grep upload') },
+    steps: [step('s1', 1, 'Edit a.ts', 'done')],
+    notes: [
+      { text: 'n1', agent: 'main', at: NOW },
+      { text: 'n2', agent: 'main', at: NOW },
+    ],
+    artifacts: [art],
+  })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 100)
+    expect(await ui.find({ key: 'col-left' })).toBeDefined()
+    expect(await ui.find({ key: 'col-right' })).toBeDefined()
+    const all = (await texts(ui)).join('\n')
+    expect(all).toContain('↓ notes 2 · artifacts 1')
+    expect(all).not.toContain('• n1')
+    expect(await ui.find({ key: 'go-artifacts' })).toBe(undefined)
+    await ui.unmount()
+    const narrow = await mount($, surface, 62)
+    expect(await narrow.find({ key: 'col-left' })).toBe(undefined)
+    expect((await texts(narrow)).join('\n')).toContain('• n1')
+    await narrow.unmount()
+  }
 })

@@ -63,7 +63,7 @@ One press: CREW opens Agents, TASKS opens Tasks, STEPS opens Steps, BUDGET opens
 
 **Now, waiting.** A `warning` bracket comes first: the ` NEEDS YOU ` pill, the count, `why` and `waiting` heads; the first item opened (`asks`, then `g: chat  x: dismiss  n: next`); the other items as rows. The deck follows; the crew shows who asks (`?`) and who stalled (`z`).
 
-**Budget view.** A deck with `used` and `resets` heads and one row per window: CTX, 5H, 7D, each a 22-cell bar, the percentage, and the reset time (for CTX the token count). `┌ MODELS tokens share` and `┌ AGENTS tokens share` put a 10-cell bar in the time column. No dollar figure is drawn. `esc` goes back.
+**Budget view.** A deck with `used` and `resets` heads and one row per window: CTX, 5H, 7D, each a 22-cell bar, the percentage, and the reset time (for CTX the token count). `┌ MODELS tokens share` and `┌ AGENTS tokens share` put a 10-cell bar in the time column. No dollar figure is drawn, with one exception: the `showCost` option, the person's explicit opt-in, adds a `COST` row (the session's dollar cost, on the value column). `esc` goes back.
 
 **Tasks.** Deck: TASKS (pips, done/total, elapsed) and PACE (completions trace, average, queued count). `┌ ACTIVE`: the task in bold with its agents tethered under it, one row each, tokens and time. `┌ QUEUED` with `▫`, `┌ DONE` with `▪`, newest 3 and `+ n more`. One press: a task opens or folds its agents; `d` unfolds done.
 

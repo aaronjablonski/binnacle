@@ -247,7 +247,32 @@ test('every budget row fits the width, down to 32, and below 42 the reset drops 
   }
 })
 
-test('showCost draws no dollar figure either: the budget view has none', { options: { showCost: true } }, async ($, on) => {
+// showCost is the person's explicit opt-in: a documented exception to Neo's "no dollar figure" default.
+test('showCost on: the budget view has a COST row with the session cost, under the windows', { options: { showCost: true } }, async ($, on) => {
+  world(on, withBudget(budget({ costUsd: 0.5 })))
+  for (const cols of [62, 40, 32]) {
+    const a = await openBudget($, 'terminal', cols)
+    const rows = screen(await a.drawn())
+    const cost = rows.find(r => r.includes('COST'))
+    expect(cost).toBeDefined()
+    expect(cost).toContain('$0.50')
+    expect(colOf(cost ?? '', 'COST')).toBe(2)
+    for (const l of rows) expect(l.length).toBeLessThanOrEqual(cols)
+    if (cols >= 62) expect(colOf(cost ?? '', '$0.50')).toBe(38)
+    await a.press({ key: 'budget-back' })
+    await a.unmount()
+  }
+})
+
+test('showCost on with no cost reading draws no COST row', { options: { showCost: true } }, async ($, on) => {
+  world(on, withBudget(budget({})))
+  const a = await openBudget($, 'terminal', 62)
+  expect(screen(await a.drawn()).join('\n')).not.toContain('COST')
+  await a.press({ key: 'budget-back' })
+  await a.unmount()
+})
+
+test('showCost off (the default): no COST row and no dollar figure, though a cost was read', async ($, on) => {
   world(on, withBudget(budget({ costUsd: 0.5 })))
   const a = await openBudget($, 'terminal', 62)
   const all = screen(await a.drawn()).join('\n')
@@ -256,7 +281,6 @@ test('showCost draws no dollar figure either: the budget view has none', { optio
   await a.press({ key: 'budget-back' })
   await a.unmount()
 })
-
 
 test('with no budget the budget view says so', async ($, on) => {
   world(on, withBudget(undefined))

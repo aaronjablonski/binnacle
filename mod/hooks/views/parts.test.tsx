@@ -552,3 +552,21 @@ test('row: a tether prefix puts ├╌ at 2 and the hull at 4; two deep, ┆ at 
   expect(tethers.map(t => t.props.color)).toEqual(['subtle', 'subtle', 'subtle', 'subtle'])
   await ui.unmount()
 })
+
+test('row: the waiting and stalled flags draw ? and z in the gutter, in the warning colour', async ($, on) => {
+  draws(on, (ctx, $) => (
+    <>
+      {row(ctx, $, { key: 'asks', flag: 'waiting', glyph: '◉', name: 'asks the person', onPress: () => {} })}
+      {row(ctx, $, { key: 'stuck', flag: 'stalled', glyph: '◉', name: 'has gone quiet', onPress: () => {} })}
+    </>
+  ))
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE(62), surface })
+    const all = screen(await ui.drawn())
+    expect(all.find(r => r.includes('asks the person'))?.slice(0, 3)).toBe('? ◉')
+    expect(all.find(r => r.includes('has gone quiet'))?.slice(0, 3)).toBe('z ◉')
+    expect((await ui.find({ type: 'Text', text: /^\? $/ }))?.props).toMatchObject({ color: 'warning' })
+    expect((await ui.find({ type: 'Text', text: /^z $/ }))?.props).toMatchObject({ color: 'warning' })
+    await ui.unmount()
+  }
+})

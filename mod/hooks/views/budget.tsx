@@ -220,7 +220,8 @@ function shareTable(ctx: ViewCtx, $: EngineInterface, label: string, items: Shar
  * The budget view (spec "Budget view"): a deck with `used` and `resets` heads
  * and one row per window, CTX first, each a 22-cell bar, the percentage at
  * 38 and when it resets at 50; `┌ MODELS tokens share` and `┌ AGENTS tokens
- * share` with a 10-cell bar in the time column. No dollar figure is drawn.
+ * share` with a 10-cell bar in the time column. No dollar figure is drawn,
+ * except a `COST` row (the value on 38) when the person turned `showCost` on.
  * Pressing the head row (or `b`, from the footer) goes back; an agent row
  * opens that agent.
  *
@@ -280,6 +281,10 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     if (!inline && r.at !== undefined) {
       deckRows.push({ key: `budget-${r.label}-reset`, cells: [{ col: 8, runs: [{ text: resetText(r.at, now), dim: true }] }] })
     }
+  }
+  // The person's explicit opt-in (`showCost`): the one exception to Neo's "no dollar figure".
+  if (ctx.showCost === true && b?.costUsd !== undefined) {
+    deckRows.push({ key: 'budget-cost', label: 'COST', cells: [{ col: wide ? DECK.value : 8, runs: [{ text: dollars(b.costUsd), bold: true }] }] })
   }
   out.push(deck(ctx, $, deckRows, { key: 'budget', side: slim ? 'left' : 'both' }))
 

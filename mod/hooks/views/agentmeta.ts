@@ -1,7 +1,6 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, Step } from '../../types'
-import { problems } from '../model/select'
 import { debug, errText, leaveDetail, readUi, updateUi } from '../state'
 import { modelName, tokenText } from './budget'
 import { clock, elapsed } from './fit'
@@ -9,7 +8,7 @@ import { opened, row, viewAgent } from './parts'
 import type { Action, Detail, Flag, Run } from './parts'
 import type { ViewCtx } from './shell'
 import { podOf, roleOf } from './style'
-import type { PodState } from './style'
+import type { Pod, PodState } from './style'
 
 export const STEP_GLYPH: Record<Step['status'], string> = {
   running: '·',
@@ -78,37 +77,10 @@ export async function toggleOpen($: EngineInterface, id: string): Promise<void> 
   })
 }
 
-/**
- * The pod states the model's problems give an agent: `asking` is `waiting`
- * (signal `?`), `stalled:<id>` is `stalled` (signal `z`); asking wins. Other
- * agents follow their status (failed shows `!`). A dismissed problem gives none.
- */
-export function podStates(ctx: ViewCtx): Map<string, PodState> {
-  const out = new Map<string, PodState>()
-  for (const p of problems(ctx.t, ctx.now, ctx.u.dismissed)) {
-    if (p.kind === 'asking') out.set(p.agent, 'waiting')
-    else if (p.kind === 'stalled' && out.get(p.agent) !== 'waiting') out.set(p.agent, 'stalled')
-  }
-  return out
-}
-
-/** `row`'s gutter Text (its first child) redrawn as the pod's signal: `?` or `z` (`row` itself only knows `!`). */
-function withGutter(el: RenderElement, s: Run): RenderElement {
-  // The element's children sit in `props.children` (JSX) or beside `props` (a drawn tree).
-  const box = el as unknown as { props?: { children?: unknown }; children?: unknown }
-  const inProps = Array.isArray(box.props?.children)
-  const kids = inProps ? box.props?.children : box.children
-  if (!Array.isArray(kids)) return el
-  const first = kids[0] as { props?: Record<string, unknown>; children?: unknown } | undefined
-  if (first === undefined || (first as { type?: unknown }).type !== 'Text') return el
-  const text = `${s.text} `
-  const style = { color: s.color, ...(s.bold === true ? { bold: true } : {}) }
-  const gutter =
-    'children' in first
-      ? { ...first, props: { ...first.props, ...style }, children: [text] }
-      : { ...first, props: { ...first.props, ...style, children: text } }
-  const next = [gutter, ...kids.slice(1)]
-  return (inProps ? { ...box, props: { ...box.props, children: next } } : { ...box, children: next }) as unknown as RenderElement
+/** The gutter flag a pod's signal is: `!` problem, `?` waiting, `z` stalled; none without a signal. */
+export function signalFlag(pod: Pod): Flag | undefined {
+  const text = pod.signal?.text
+  return text === '!' ? 'problem' : text === '?' ? 'waiting' : text === 'z' ? 'stalled' : undefined
 }
 
 /** What `row` draws for an agent, and what its press does (open it). */
@@ -116,7 +88,7 @@ export type AgentRowOpts = {
   key: string
   /** A problem the pod has no signal for (a repeat or a loop) shows `!`. */
   flag?: Flag
-  /** `waiting` or `stalled` (see `podStates`); absent, the pod follows the agent's status. */
+  /** `waiting` or `stalled` (see `waitStates`); absent, the pod follows the agent's status. */
   state?: PodState
   depth?: 0 | 1 | 2
   /** The tethered tree's prefix (`├╌ ╰╌ ┆`), in place of a guide. */
@@ -133,11 +105,9 @@ export type AgentRowOpts = {
 export function agentRow(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: AgentRowOpts): RenderElement {
   const isMain = a.id === 'main'
   const pod = podOf(o.state !== undefined ? { ...a, state: o.state } : a, ctx.now)
-  const sig = pod.signal
-  const mark = sig !== undefined && sig.text !== '!'
-  const flag: Flag | undefined = mark ? undefined : sig !== undefined ? 'problem' : o.flag
+  const flag: Flag | undefined = signalFlag(pod) ?? o.flag
   const name = o.name ?? (isMain ? 'main' : a.description !== '' ? a.description : a.type)
-  const line = row(ctx, $, {
+  return row(ctx, $, {
     key: o.key,
     glyph: pod.hull.text,
     ...(pod.hull.color !== undefined ? { glyphColor: pod.hull.color } : {}),
@@ -150,7 +120,6 @@ export function agentRow(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: Agent
     ...(o.tether !== undefined ? { tether: o.tether } : {}),
     onPress: () => toggleOpen($, a.id),
   })
-  return mark ? withGutter(line, sig) : line
 }
 
 /** The `result` (or what it is doing, or did last) and `agent` lines of an opened row. */

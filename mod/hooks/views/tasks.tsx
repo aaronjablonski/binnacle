@@ -3,11 +3,13 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow, TaskItem, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
 import { buckets, elapsed, pips, spark, typeShort, wrapWords } from './fit'
+import { signalFlag } from './agentmeta'
 import { exportDigest } from './handoff'
+import { podFor, waitStates } from './needs'
 import { blank, deck, footer, more, opened, row, section } from './parts'
 import type { Detail, Hint } from './parts'
 import type { ViewCtx } from './shell'
-import { DECK, GLYPHS, podOf, statusColor } from './style'
+import { DECK, GLYPHS, statusColor } from './style'
 
 const EMPTY = 'No tasks yet. They appear when Claude writes a task list.'
 // Rows each section shows before its `+ n more` line.
@@ -72,6 +74,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const queued = t.tasks.filter(x => x.status === 'pending')
     const done = t.tasks.filter(x => x.status === 'completed').sort(byNewest)
     const start = startOf(t, now)
+    const waits = waitStates(t, u, now)
 
     const activeCount = active.length > 0 ? 1 : 0
     const doneTimes = done.map(x => x.updatedAt)
@@ -139,11 +142,13 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         const shown = agents.slice(0, TETHERED_AGENTS)
         const hidden = agents.length - shown.length
         shown.forEach((a, i) => {
-          const pod = podOf(a, now)
+          const pod = podFor(a, waits, now)
+          const flag = signalFlag(pod)
           const tok = tokensOf(a)
           lines.push(
             row(ctx, $, {
               key: `task-agent-${a.id}`,
+              ...(flag !== undefined ? { flag } : {}),
               glyph: pod.hull.text,
               ...(pod.hull.color !== undefined ? { glyphColor: pod.hull.color } : {}),
               name: a.description,

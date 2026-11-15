@@ -3,10 +3,11 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow, Step } from '../../types'
 import { runBoard } from '../model/select'
 import { updateUi } from '../state'
-import { agentOpened, agentRow, podStates } from './agentmeta'
+import { agentOpened, agentRow } from './agentmeta'
 import { elapsed } from './fit'
 import { openStepInline } from './openstep'
 import { blank, section } from './parts'
+import { waitStates } from './needs'
 import { COL, GRID, statusColor } from './style'
 import type { ViewCtx } from './shell'
 import type { PodState } from './style'
@@ -136,7 +137,7 @@ export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): R
   }
   const total = b.agents.reduce((n, a) => n + Math.min(STRIP_MAX, b.steps[a.id]?.length ?? 0), 0)
   const perBlock = total <= BLOCK_BUDGET
-  const states = podStates(ctx)
+  const states = waitStates(ctx.t, ctx.u, ctx.now)
   const stats = `${b.done}/${b.agents.length} done · ${b.failed} failed · ${elapsed(0, b.elapsed)}`
   return (
     <Box flexDirection="column">

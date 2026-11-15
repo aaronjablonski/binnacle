@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { debug, errText } from '../state'
-import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, pillRun, placed, spark10, stack10, tether, wordFit, wrapFull, wrapWords } from './fit'
+import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapFull, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
 import { lintel, lintelRoom, sill } from './raster'
@@ -47,7 +47,7 @@ export function glyphLine(
   indent = '',
 ): RenderElement {
   const { Text } = $.ui.resolve(ctx.e)
-  const body = fit(text, Math.max(0, ctx.cols - indent.length - glyph.length - 1))
+  const body = wordFit(text, Math.max(0, ctx.cols - indent.length - glyph.length - 1))
   return (
     <Text>
       {indent !== '' ? indent : null}
@@ -78,7 +78,7 @@ export function splitLine(
     return (
       <Box flexDirection="column">
         {glyphLine(ctx, $, glyph, color, left, bold, indent)}
-        <Text dimColor>{fit(right, ctx.cols)}</Text>
+        <Text dimColor>{wordFit(right, ctx.cols)}</Text>
       </Box>
     )
   }
@@ -251,7 +251,7 @@ export function row(ctx: ViewCtx, $: EngineInterface, r: RowSpec): RenderElement
     segs.push({ col: COL.glyph + lead, text: text.trimStart(), color: C.subtle })
   }
   segs.push({ col: glyphCol, text: r.glyph, ...(r.glyphColor !== undefined ? { color: r.glyphColor } : { dim: true }) })
-  if (r.tool !== undefined) segs.push({ col: toolCol, text: fit(r.tool, 5), dim: true })
+  if (r.tool !== undefined) segs.push({ col: toolCol, text: toolCell(r.tool, 5), dim: true })
   const nameStyle: Omit<Run, 'text'> = { ...(r.bold === true ? { bold: true } : {}), ...dim }
   const name = fitRuns(asRuns(r.name, nameStyle), Math.max(0, nameEnd - nameCol))
   let col = nameCol
@@ -315,10 +315,10 @@ export function section(
   const tone = opts.tone === 'wait' ? C.wait : C.accent
   const heads: (Run & { col: number })[] = []
   if (metricHead !== undefined && tc.metric !== undefined) {
-    heads.push({ col: tc.metric, text: fit(metricHead, cellRoom(cols, tc.metric)), dim: true })
+    heads.push({ col: tc.metric, text: wordFit(metricHead, cellRoom(cols, tc.metric)), dim: true })
   }
   if (timeHead !== undefined && tc.time !== undefined) {
-    heads.push({ col: tc.time, text: fit(timeHead, cellRoom(cols, tc.time)), dim: true })
+    heads.push({ col: tc.time, text: wordFit(timeHead, cellRoom(cols, tc.time)), dim: true })
   }
   const labelEnd = heads.length > 0 ? (heads[0]?.col ?? cols) - 2 : cols
   const segs: (Run & { col: number })[] = [
@@ -366,7 +366,7 @@ export function opened(ctx: ViewCtx, $: EngineInterface, details: Detail[], acti
   const lines = details.slice(0, 3).map((d, i) => {
     const value = fitRuns(asRuns(d.value), Math.max(0, cols - COL.detailValue))
     const segs: (Run & { col: number })[] = [
-      { col: COL.detailKey, text: fit(d.key, COL.detailValue - COL.detailKey - 1), dim: true },
+      { col: COL.detailKey, text: wordFit(d.key, COL.detailValue - COL.detailKey - 1), dim: true },
     ]
     let col = COL.detailValue
     for (const v of value) {
@@ -447,10 +447,10 @@ export function readout(ctx: ViewCtx, $: EngineInterface, cells: ReadoutCell[]):
       {cellRow('label', c =>
         c.onPress !== undefined ? (
           <Button key={c.key ?? `cell-${c.label}`} plain dimColor onPress={c.onPress}>
-            {fit(c.label, GRID.content)}
+            {wordFit(c.label, GRID.content)}
           </Button>
         ) : (
-          <Text dimColor>{fit(c.label, GRID.content)}</Text>
+          <Text dimColor>{wordFit(c.label, GRID.content)}</Text>
         ),
       )}
       {cellRow('value', (c, i) => <Text>{clip(asRuns(c.value, { bold: true })).map((r, j) => runText(r, ctx.e, $, `v${i}-${j}`))}</Text>)}
@@ -768,18 +768,16 @@ export type InstSpec = {
   fallback: Run[][]
 }
 
-/** The text form of an instrument: `rows` rows, each exactly `columns` wide. */
+/** The text form of an instrument: `rows` rows, each exactly `columns` wide; a row too long is cut on a word (`fitRuns`). */
 function fallbackRows(s: { columns: number; rows: number; fallback: Run[][] }): Run[][] {
   const out: Run[][] = []
   for (let i = 0; i < s.rows; i++) {
     const row: Run[] = []
     let used = 0
-    for (const r of s.fallback[i] ?? []) {
-      if (used >= s.columns) break
-      const text = r.text.slice(0, s.columns - used)
-      if (text === '') continue
-      row.push({ ...r, text })
-      used += text.length
+    for (const r of fitRuns(s.fallback[i] ?? [], s.columns)) {
+      if (r.text === '') continue
+      row.push(r as Run)
+      used += r.text.length
     }
     if (used < s.columns) row.push({ text: ' '.repeat(s.columns - used) })
     out.push(row)

@@ -108,7 +108,8 @@ test('inst: the text look draws the fallback on the terminal too; a fallback row
   const drawn = await ui.drawn()
   expect(count(drawn, 'Raster')).toBe(0)
   const rows = screen(drawn)
-  expect(rows).toEqual(['CTX 9% ', ''].map(r => r.trimEnd()))
+  // BEHAVIOUR CHANGE (binding rule 1): a too-long fallback row was cut at the 7th character; it is now cut on a word, with …
+  expect(rows).toEqual(['CTX 9%…', ''])
   await ui.unmount()
 })
 

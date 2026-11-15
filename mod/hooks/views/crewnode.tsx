@@ -4,7 +4,7 @@ import type { AgentRow } from '../../types'
 import { STATE_WORD, agentOpened, openAgentPage, signalFlag, timeCell, tokensCell } from './agentmeta'
 import type { AgentRowOpts } from './agentmeta'
 import { modelName } from './budget'
-import { placed, wordFit } from './fit'
+import { placed, nameFit, wordFit } from './fit'
 import { inst, runText } from './parts'
 import type { Flag, Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -63,7 +63,7 @@ export function crewNode(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: CrewN
   const nameEnd = o.columns === true ? Math.min(tc.nameEnd, ctx.cols) : ctx.cols
   const label = o.name ?? (isMain ? 'main' : a.description !== '' ? a.description : a.type)
   const labelText = typeof label === 'string' ? label : label.map(r => r.text).join('')
-  const name = wordFit(labelText, Math.max(1, nameEnd - nameCol))
+  const name = nameFit(labelText, Math.max(1, nameEnd - nameCol))
   const bold = ctx.u.agentOpen === a.id
   const segs: (Run & { col: number })[] = [{ col: nameCol, text: name, ...(bold ? { bold: true } : {}) }]
   if (o.columns === true) {

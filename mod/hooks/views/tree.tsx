@@ -8,7 +8,7 @@ import { EMPTY, RUN_GLYPH, openAgentPage, signalFlag, tokensOf } from './agentme
 import type { Jump } from './agentmeta'
 import { tokenText } from './budget'
 import { crewNode, factsOf, openedAgent } from './crewnode'
-import { elapsed, fit, placed, wordFit, wrapWords } from './fit'
+import { elapsed, placed, wordFit, wrapWords } from './fit'
 import { inst, runText, section } from './parts'
 import type { Flag, Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -240,8 +240,8 @@ function branchLine(ctx: ViewCtx, $: EngineInterface, o: LineOpts): RenderElemen
     { col: nameCol, text: wordFit(o.label, Math.max(1, nameEnd - nameCol - suffix.length)), bold: true },
   ]
   if (suffix !== '') segs.push({ col: nameCol + segs[1]!.text.length, text: suffix, dim: true })
-  if (tc.metric !== undefined) segs.push({ col: tc.metric, text: fit(o.tokens, Math.min(10, ctx.cols - tc.metric)), dim: true })
-  if (tc.time !== undefined && o.time !== '') segs.push({ col: tc.time, text: fit(o.time, Math.min(10, ctx.cols - tc.time)), dim: true })
+  if (tc.metric !== undefined) segs.push({ col: tc.metric, text: wordFit(o.tokens, Math.min(10, ctx.cols - tc.metric)), dim: true })
+  if (tc.time !== undefined && o.time !== '') segs.push({ col: tc.time, text: wordFit(o.time, Math.min(10, ctx.cols - tc.time)), dim: true })
   const body = placed(segs, start).flatMap((p, i) => [p.gap, runText(p.seg, ctx.e, $, `${o.key}-s${i}`)])
   return (
     <Box key={`row-${o.key}`} flexDirection="row">
@@ -260,7 +260,7 @@ function doneLine(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'd
   return (
     <Text key={`done-${it.key}`} wrap="truncate-end">
       {first.map((r, i) => runText(r, ctx.e, $, `done-${it.key}-p${i}`))}
-      {runText({ text: fit(`+ ${it.n} done`, Math.max(1, ctx.cols - tetherCol(it.level) - 2)), dim: true }, ctx.e, $, `done-${it.key}-t`)}
+      {runText({ text: wordFit(`+ ${it.n} done`, Math.max(1, ctx.cols - tetherCol(it.level) - 2)), dim: true }, ctx.e, $, `done-${it.key}-t`)}
     </Text>
   )
 }
@@ -405,7 +405,7 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, sta
     }
   } catch (err) {
     debug($, `tree view failed: ${errText(err)}`)
-    return { el: <Text dimColor>{fit(`Agents map: ${errText(err)}`, cols)}</Text>, targets: [] }
+    return { el: <Text dimColor>{wordFit(`Agents map: ${errText(err)}`, cols)}</Text>, targets: [] }
   }
 }
 

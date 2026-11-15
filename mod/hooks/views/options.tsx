@@ -13,6 +13,7 @@
 import type { ConfigValue, EngineInterface, PluginOptions, RenderElement } from 'claude-code'
 
 import { debug, errText } from '../state'
+import { nameFit, wordFit } from './fit'
 import { closePage, openPage } from './pagenav'
 import { richDeck, runText, section } from './parts'
 import type { InstSpec } from './parts'
@@ -266,14 +267,14 @@ function previewInst(now: number): InstSpec {
 /** Where a row's parts start at `cols`: the name at 4, the value at 38, when it applies at 50 (from 62 columns). */
 function rowRuns(cols: number, name: Run, value: Run, applies: string): Run[] {
   if (cols >= 50) {
-    const out: Run[] = [{ ...name, text: name.text.slice(0, 32).padEnd(34) }, { ...value, text: value.text.slice(0, 10) }]
+    const out: Run[] = [{ ...name, text: nameFit(name.text, 32).padEnd(34) }, { ...value, text: wordFit(value.text, 10) }]
     if (cols >= 62 && applies !== '') {
-      out.push({ text: ' '.repeat(12 - Math.min(10, value.text.length)) }, { text: applies.slice(0, cols - 50), dim: true })
+      out.push({ text: ' '.repeat(12 - Math.min(10, value.text.length)) }, { text: wordFit(applies, cols - 50), dim: true })
     }
     return out
   }
   const room = Math.max(4, cols - 4 - 2 - value.text.length)
-  return [{ ...name, text: name.text.slice(0, room).padEnd(room + 2) }, value]
+  return [{ ...name, text: nameFit(name.text, room).padEnd(room + 2) }, value]
 }
 
 function optionRow(ctx: ViewCtx, $: EngineInterface, f: Field, isOpen: boolean): RenderElement {

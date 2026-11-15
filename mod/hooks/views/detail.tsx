@@ -7,7 +7,7 @@ import { apply, debug, errText, leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { openInEditor } from './editor'
 import { showInChat } from './find'
-import { clock, elapsed, fit, packParts, shortPaths } from './fit'
+import { clock, elapsed, packParts, shortPaths, wordFit } from './fit'
 import { bodyOfOpen, openStep } from './openstep'
 import { pageOf } from './pagenav'
 import { glyphLine, page, sectionHeader } from './parts'
@@ -134,7 +134,7 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       [s.agent === 'main' ? 'main' : (t.agents[s.agent]?.type ?? s.agent), clock(s.startedAt, true), elapsed(s.startedAt, end), s.status],
       cols,
     )
-    const pinLine = isKept ? fit(s.pin === '' ? '★ kept' : `★ ${s.pin}`, cols) : ''
+    const pinLine = isKept ? wordFit(s.pin === '' ? '★ kept' : `★ ${s.pin}`, cols) : ''
     const header = (
       <Box key="header" flexDirection="column">
         {sectionHeader('STEP', s.status, cols, ctx.e, $)}
@@ -162,26 +162,26 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         <Box key="input" flexDirection="column">
           {sectionHeader('INPUT', '', cols, ctx.e, $)}
           <Code source={code.input.text} language="json" />
-          {code.input.cut > 0 ? <Text dimColor>{fit(`… ${code.input.cut} more lines not shown`, cols)}</Text> : null}
+          {code.input.cut > 0 ? <Text dimColor>{wordFit(`… ${code.input.cut} more lines not shown`, cols)}</Text> : null}
         </Box>
         {code.change.source !== '' ? (
           <Box key="change" flexDirection="column">
             {sectionHeader('CHANGE', '', cols, ctx.e, $)}
             <Code source={code.change.source} format="diff" wrap="truncate-end" />
-            {code.change.cut > 0 ? <Text dimColor>{fit(`… ${code.change.cut} more lines not shown`, cols)}</Text> : null}
+            {code.change.cut > 0 ? <Text dimColor>{wordFit(`… ${code.change.cut} more lines not shown`, cols)}</Text> : null}
           </Box>
         ) : null}
         <Box key="result" flexDirection="column">
           {sectionHeader('RESULT', body.isError ? 'error' : '', cols, ctx.e, $)}
           {code.result.text !== '' ? <Code source={code.result.text} /> : <Text dimColor>(empty)</Text>}
-          {code.result.cut > 0 ? <Text dimColor>{fit(`… ${code.result.cut} more characters not shown`, cols)}</Text> : null}
-          {body.cut > 0 ? <Text dimColor>{fit(`… ${body.cut} more characters not kept`, cols)}</Text> : null}
+          {code.result.cut > 0 ? <Text dimColor>{wordFit(`… ${code.result.cut} more characters not shown`, cols)}</Text> : null}
+          {body.cut > 0 ? <Text dimColor>{wordFit(`… ${body.cut} more characters not kept`, cols)}</Text> : null}
         </Box>
       </Box>
     )
   } catch (err) {
     debug($, `detail view failed: ${errText(err)}`)
-    return <Text dimColor>{fit(`Detail: ${errText(err)}`, cols)}</Text>
+    return <Text dimColor>{wordFit(`Detail: ${errText(err)}`, cols)}</Text>
   }
 }
 

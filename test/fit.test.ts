@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { bar, blockBar, elapsed, fit, fitLeft, headerParts, rule, wrap } from '../mod/hooks/views/fit'
+import { bar, blockBar, elapsed, fit, fitLeft, headerParts, rule, typeShort, wrap } from '../mod/hooks/views/fit'
 
 test('fit cuts with an ellipsis and never exceeds the columns', () => {
   expect(fit('abcdef', 4)).toBe('abc…')
@@ -72,4 +72,21 @@ test('wrap cuts a word wider than a line and keeps every line within the columns
   expect(wrap('see supercalifragilistic now', 8)).toEqual(['see', 'superca…', 'now'])
   const text = 'Code edits are not listed here; they are steps in the Timeline (4 files changed).'
   for (const columns of [1, 5, 24, 62]) for (const line of wrap(text, columns)) expect(line.length <= columns).toBe(true)
+})
+
+test('typeShort: general-purpose is general; otherwise the longest leading part that fits', () => {
+  expect(typeShort('general-purpose')).toBe('general')
+  expect(typeShort('Explore')).toBe('Explore')
+  expect(typeShort('code-reviewer')).toBe('code')
+  expect(typeShort('workflow-subagent')).toBe('workflow')
+  expect(typeShort('plugin-dev reviewer', 14)).toBe('plugin-dev')
+  expect(typeShort('statusline-setup', 10)).toBe('statusline')
+  expect(typeShort('abc-defghijklmnop', 12)).toBe('abc')
+  expect(typeShort('a b c d', 3)).toBe('a b')
+})
+
+test('typeShort: a first part wider than the room is cut with an ellipsis', () => {
+  expect(typeShort('claude-code-guide', 4)).toBe('cla…')
+  expect(typeShort('Explore', 10)).toBe('Explore')
+  expect(typeShort('x', 0)).toBe('')
 })

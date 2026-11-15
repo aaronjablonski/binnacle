@@ -7,7 +7,7 @@ import { findSteps, stepGroups } from '../model/select'
 import { windowRows } from '../model/window'
 import { apply, debug, errText, readTimeline, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
-import { at, clock, elapsed, fit, line, promptTitle, shortPaths, wordFit } from './fit'
+import { at, clock, elapsed, fit, line, promptTitle, shortPaths, typeShort, wordFit } from './fit'
 import { deepSearch, FIND_KEY, focusFind, setQuery, showInChat, stepTarget } from './find'
 import { isOnScreen } from './onscreen'
 import { copyResult, quoteInPrompt, toggleKeep } from './detail'
@@ -287,7 +287,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       })
     }
     if (f.kind === 'agent') {
-      chipList.push({ key: 'filter-agent', name: fit(`${agentName(t, f.id)} ✕`, GRID.content), on: true, onPress: () => setFilter($, requestId, { kind: 'all' }) })
+      chipList.push({ key: 'filter-agent', name: `${typeShort(agentName(t, f.id), GRID.content - 2)} ✕`, on: true, onPress: () => setFilter($, requestId, { kind: 'all' }) })
     }
     if (inView > 0) chipList.push({ key: 'chip-inview', name: 'In view', count: String(inView), on: false })
     const chipCell = (c: Chip): RenderElement => {
@@ -382,7 +382,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         tool: s.tool,
         name: marked(nameOf(s), find.query),
         bold: isOpen,
-        metric: hit ? { text: 'in result', color: C.accent } : s.agent === 'main' ? 'main' : agentName(t, s.agent),
+        metric: hit ? { text: 'in result', color: C.accent } : s.agent === 'main' ? 'main' : typeShort(agentName(t, s.agent)),
         time: s.status === 'running' ? 'now' : elapsed(s.startedAt, end),
         onPress: () => (isOpen ? openStep($, s.id) : openStepInline($, s.id)),
       })

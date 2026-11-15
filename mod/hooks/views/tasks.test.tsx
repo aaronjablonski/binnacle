@@ -332,7 +332,8 @@ test('a task owned by an agent is listed flat with the agent type as its metric'
   )
   const ui = await mount($, 'terminal')
   const r = rowWith(await drawnRows(ui), 'Cover burst')
-  expect([colOf(r, '○'), colOf(r, 'Cover burst'), colOf(r, 'general-p')]).toEqual([2, 4, 38])
+  expect([colOf(r, '○'), colOf(r, 'Cover burst'), colOf(r, 'general')]).toEqual([2, 4, 38])
+  expect(r).not.toContain('general-')
   await ui.unmount()
 })
 

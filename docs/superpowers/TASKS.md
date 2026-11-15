@@ -27,6 +27,10 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [ ] N5: three-row / compact / all-done band
 - [ ] Opus review of N1–N5
 
+## Then: navigation pass (`plans/2026-11-15-mission-control-navigation.md`)
+
+- [ ] V1: focus starts in the content, keyboard skips the tab bar (tabs by 1–5 / click), Down walks the active tab top to bottom
+
 ## Then: distilled features (`plans/2026-11-15-mission-control-distilled.md`)
 
 - [ ] D1: data (pace samples, cache usage, per-task tokens, long run, done turns, ledger)

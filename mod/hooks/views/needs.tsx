@@ -1,17 +1,18 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { Timeline, UiState } from '../../types'
-import { dismissKey, problems } from '../model/select'
+import type { AgentRow, Timeline, UiState } from '../../types'
+import { dismissKey, problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, promptTitle, shortPaths } from './fit'
+import { elapsed, fit, pillRun, promptTitle, shortPaths, wordFit } from './fit'
 import { showInChat } from './find'
-import { argOf } from './lay'
+import { argOf, laid } from './lay'
+import type { Placed } from './lay'
 import { openStepInline } from './openstep'
-import { blank, more, opened, row, section, viewAgent } from './parts'
-import type { Action, Detail } from './parts'
+import { viewAgent } from './parts'
 import type { ViewCtx } from './shell'
-import { C } from './style'
+import { C, COL, podOf, RAIL, tableCols } from './style'
+import type { Pod, PodState } from './style'
 
 /** An ask counts as "waiting on you" only once it has run this long: in auto mode the classifier settles most within seconds. */
 export const ASK_MS = 20_000
@@ -148,60 +149,215 @@ export function needName(t: Timeline, p: Problem): string {
 // Rows the section draws; the rest become one dim line.
 const MAX_LIST = 6
 
+// ---------- the crew: who asks, who stalled ----------
+
+/** The agents the problems point at: an ask is `waiting` (the hull's `?`), a stall `stalled` (`z`). Waiting wins. */
+export function waitStates(t: Timeline, u: UiState, now: number): Map<string, PodState> {
+  const out = new Map<string, PodState>()
+  for (const p of needsYou(t, u, now)) {
+    if (p.kind === 'asking') out.set(p.agent, 'waiting')
+    else if (p.kind === 'stalled' && !out.has(p.agent)) out.set(p.agent, 'stalled')
+  }
+  return out
+}
+
+/** An agent as a pod, with its state taken from `waits` (else from its status). */
+export function podFor(a: AgentRow, waits: Map<string, PodState>, now: number): Pod {
+  const state = waits.get(a.id)
+  return podOf({ id: a.id, type: a.type, status: a.status, ...(state !== undefined ? { state } : {}) }, now)
+}
+
+const LEAD: AgentRow = { id: 'main', parent: 'main', type: 'main', description: '', status: 'running', startedAt: 0, doing: '', stepCount: 0 }
+
 /**
- * NEEDS YOU (spec "Now"): `┌ NEEDS YOU why waiting` in warning, then one row
- * per problem. The opened item (the first until `n` or `p` moves it) is bold
- * with an `asks` or `why` line, an `agent` line and `g: chat  x: dismiss  n:
- * next`; the first row takes the pane's focus. Null when nothing waits.
+ * The crew of a session: the lead first, then the live agents (oldest
+ * first), the failed ones, and the finished ones. Their states come from
+ * `needsYou`, so an ask or a stall shows on the hull.
+ */
+export function crewPods(ctx: ViewCtx): Pod[] {
+  const { t, u, now } = ctx
+  const waits = waitStates(t, u, now)
+  const subs = Object.values(t.agents).filter(a => a.id !== 'main')
+  const rank = { running: 0, error: 1, done: 2 } as const
+  subs.sort((a, b) => rank[a.status] - rank[b.status] || a.startedAt - b.startedAt)
+  return [podFor(t.agents.main ?? LEAD, waits, now), ...subs.map(a => podFor(a, waits, now))]
+}
+
+/** The state pill's word and colour: waiting on the person, working, all done, or idle. */
+export function paneState(ctx: ViewCtx): { word: string; color: string } {
+  const { t, u, now } = ctx
+  if (needsYou(t, u, now).length > 0) return { word: 'WAITING', color: C.wait }
+  const working =
+    t.steps.some(x => x.status === 'running') ||
+    t.tasks.some(x => x.status === 'in_progress') ||
+    Object.values(t.agents).some(a => a.id !== 'main' && a.status === 'running')
+  if (working) return { word: 'WORKING', color: C.live }
+  const s = summary(t)
+  if (s.total > 0 && s.done === s.total) return { word: 'ALL DONE', color: C.subtle }
+  return { word: 'IDLE', color: C.subtle }
+}
+
+// ---------- the warning bracket ----------
+//
+// `deck` lays out label-and-cell rows only, and the opened item and its action
+// line are free rows, so NEEDS YOU keeps its own small wrapper: each piece is
+// the children of one row drawn from column 2 (`end` is its last column + 1);
+// the bracket puts a rail before it and one on the last column after it.
+
+type Piece = { key: string; els: (RenderElement | string)[]; end: number }
+
+const endOf = (segs: Placed[]): number => segs.reduce((n, s) => Math.max(n, s.col + s.text.length), 2)
+
+/** The room a cell at `col` has before the right rail: 10, or less at the edge. */
+const roomAt = (cols: number, col: number): number => Math.min(10, cols - 2 - col)
+
+function textPiece(ctx: ViewCtx, $: EngineInterface, key: string, segs: Placed[]): Piece {
+  const { Text } = $.ui.resolve(ctx.e)
+  const live = segs.filter(s => s.text !== '')
+  return {
+    key,
+    end: endOf(live),
+    els: [
+      <Text key={key} wrap="truncate-end">
+        {laid(live, 2, ctx.e, $, `${key}-`)}
+      </Text>,
+    ],
+  }
+}
+
+function blankPiece(ctx: ViewCtx, $: EngineInterface, key: string): Piece {
+  const { Text } = $.ui.resolve(ctx.e)
+  return { key, end: 3, els: [<Text key={key}>{' '}</Text>] }
+}
+
+/** The pieces in twin warning rails: `┏ … ┓`, `┃ … ┃`, `┗ … ┛`, the right rail on the last column. */
+function bracket(ctx: ViewCtx, $: EngineInterface, pieces: Piece[]): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const n = pieces.length
+  return (
+    <Box key="needs" flexDirection="column">
+      {pieces.map((p, i) => {
+        const first = i === 0
+        const last = i === n - 1
+        const left = first ? RAIL.top : last ? RAIL.bottom : RAIL.mid
+        const right = first ? RAIL.topRight : last ? RAIL.bottomRight : RAIL.mid
+        const pad = ' '.repeat(Math.max(0, ctx.cols - 1 - p.end))
+        return (
+          <Box key={`needs-${p.key}`} flexDirection="row">
+            <Text color={C.wait}>{`${left} `}</Text>
+            {p.els}
+            {pad !== '' ? <Text>{pad}</Text> : null}
+            <Text color={C.wait}>{right}</Text>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+/**
+ * NEEDS YOU (spec "Now, waiting"): a `warning` bracket of its own, first on
+ * Now. Its head row is the ` NEEDS YOU ` pill, the count, and dim `why` and
+ * `waiting` heads on the table columns; then one row per problem. The opened
+ * item (the first until `n` or `p` moves it) is bold with an `asks` or `why`
+ * line, an `agent` line and `g: chat  x: dismiss  n: next`; the first row
+ * takes the pane's focus. Null when nothing waits.
  */
 export function needsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  const { Box } = $.ui.resolve(ctx.e)
-  const { t, u, now } = ctx
+  const { Button, Box } = $.ui.resolve(ctx.e)
+  const { t, u, now, cols } = ctx
   const list = needsYou(t, u, now)
   if (list.length === 0) return null
   const shown = list.slice(0, MAX_LIST)
   const at = openedNeed(shown.length)
-  const parts: RenderElement[] = [section(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })]
+  const tc = tableCols(cols)
+  const nameEnd = Math.min(tc.nameEnd, cols - 2)
+  const pieces: Piece[] = []
+
+  const heads: Placed[] = [
+    { col: 2, ...pillRun('NEEDS YOU', C.wait) },
+    { col: 14, text: String(list.length), color: C.wait, bold: true },
+  ]
+  if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) heads.push({ col: tc.metric, text: fit('why', roomAt(cols, tc.metric)), dim: true })
+  if (tc.time !== undefined && roomAt(cols, tc.time) > 0) heads.push({ col: tc.time, text: fit('waiting', roomAt(cols, tc.time)), dim: true })
+  pieces.push(textPiece(ctx, $, 'needs-head', heads))
+
   shown.forEach((p, i) => {
     const s = stepOf(t, p)
     const mark = needGlyph(p)
     const isOpen = i === at
-    if (isOpen && i > 0) parts.push(blank(ctx, $, `need-gap-${i}`))
-    parts.push(
-      row(ctx, $, {
-        key: `open-${p.key}`,
-        glyph: mark.glyph,
-        glyphColor: mark.color,
-        ...(s !== undefined ? { tool: s.tool } : {}),
-        name: needName(t, p),
-        bold: isOpen,
-        metric: needWhy(p),
-        time: elapsed(p.since, now),
-        onPress: () => openProblem($, p),
-        ...(i === 0 ? { autoFocus: true } : {}),
-      }),
-    )
+    if (isOpen && i > 0) pieces.push(blankPiece(ctx, $, `need-gap-${i}`))
+    const toolCol = COL.name
+    const nameCol = s !== undefined ? toolCol + 6 : toolCol
+    const tint = isOpen && p.kind !== 'failed-turn' && p.kind !== 'repeat' && p.kind !== 'loop' ? { color: C.wait } : { dim: true }
+    const segs: Placed[] = [{ col: COL.glyph, text: mark.glyph, color: mark.color }]
+    if (s !== undefined) segs.push({ col: toolCol, text: fit(s.tool, 5), dim: true })
+    segs.push({ col: nameCol, text: wordFit(needName(t, p), Math.max(0, nameEnd - nameCol)), ...(isOpen ? { bold: true } : {}) })
+    if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) segs.push({ col: tc.metric, text: wordFit(needWhy(p), roomAt(cols, tc.metric)), ...tint })
+    if (tc.time !== undefined && roomAt(cols, tc.time) > 0) segs.push({ col: tc.time, text: wordFit(elapsed(p.since, now), roomAt(cols, tc.time)), ...tint })
+    const live = segs.filter(x => x.text !== '')
+    const key = `open-${p.key}`
+    pieces.push({
+      key,
+      end: endOf(live),
+      els: [
+        <Button key={key} plain onPress={() => openProblem($, p)} autoFocus={i === 0 ? true : undefined}>
+          {laid(live, 2, ctx.e, $, `${key}-`)}
+        </Button>,
+      ],
+    })
     if (!isOpen) return
     const who = p.agent !== 'main' ? t.agents[p.agent]?.type ?? p.agent : 'main'
-    const details: Detail[] =
+    const details: { key: string; value: string }[] =
       p.kind === 'asking'
         ? [{ key: 'asks', value: `to run ${shortPaths(oneLine(p.label))}` }]
         : [{ key: 'why', value: shortPaths(problemText(p)) }]
     details.push({ key: 'agent', value: who })
+    details.forEach((d, j) => {
+      pieces.push(
+        textPiece(ctx, $, `need-detail-${j}`, [
+          { col: COL.detailKey, text: fit(d.key, COL.detailValue - COL.detailKey - 1), dim: true },
+          { col: COL.detailValue, text: wordFit(d.value, Math.max(0, cols - 2 - COL.detailValue)) },
+        ]),
+      )
+    })
     const chat = chatFor($, p)
-    const actions: Action[] = []
+    const actions: { hotkey: string; label: string; key: string; onPress: () => void | Promise<void> }[] = []
     if (chat !== undefined) actions.push({ hotkey: 'g', label: 'chat', key: `chat-${p.key}`, onPress: chat })
     actions.push({ hotkey: 'x', label: 'dismiss', key: `dismiss-${p.key}`, onPress: () => dismissNeed($, p) })
     if (shown.length > 1) actions.push({ hotkey: 'n', label: 'next', key: 'need-next', onPress: () => moveNeed($, 1, shown.length) })
-    parts.push(opened(ctx, $, details, actions))
-    if (i < shown.length - 1) parts.push(blank(ctx, $, `need-after-${i}`))
+    const kept: typeof actions = []
+    let used = COL.action
+    for (const a of actions) {
+      const w = (kept.length > 0 ? 3 : 0) + a.hotkey.length + 2 + a.label.length
+      if (used + w > cols - 2) break
+      kept.push(a)
+      used += w
+    }
+    pieces.push({
+      key: 'need-actions',
+      end: used,
+      els: [
+        <Box key="need-actions" flexDirection="row" paddingLeft={COL.action - 2} columnGap={3}>
+          {kept.map(a => (
+            <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
+              {a.label}
+            </Button>
+          ))}
+        </Box>,
+      ],
+    })
+    if (i < shown.length - 1) pieces.push(blankPiece(ctx, $, `need-after-${i}`))
   })
-  if (list.length > shown.length) parts.push(more(ctx, $, list.length - shown.length))
-  return (
-    <Box key="needs" flexDirection="column">
-      {parts}
-    </Box>
-  )
+  if (list.length > shown.length) {
+    pieces.push(
+      textPiece(ctx, $, 'need-more', [
+        { col: COL.glyph, text: '+', dim: true },
+        { col: COL.name, text: wordFit(`${list.length - shown.length} more`, cols - 2 - COL.name), dim: true },
+      ]),
+    )
+  }
+  return bracket(ctx, $, pieces)
 }
 
 /**

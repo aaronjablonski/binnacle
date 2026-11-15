@@ -100,7 +100,7 @@ const WORDS = new Set(
   [
     FOCUS, 'Humanise step labels', 'find every caller of stepRow', 'write timeline tests', 'npm test -- timeline', 'the label helper',
     'rm -rf build --dry-run', 'NEEDS YOU TASKS AGENTS BUDGET LATEST CTX 5H 7D 9% 18% 22% 1/3 2 live ✖ 1 g: chat x: dismiss',
-    'STEPS ARTIFACTS Map Group Nothing yet. ↵ open esc prompt b: back › ┌ ▍ ▸ ○ ✖ ★ ? ✓',
+    'STEPS ARTIFACTS Map Group Nothing yet. ↵ open esc prompt b: back › ┌ ▍ ▸ ○ ✖ ★ ? ✓ WAITING WORKING IDLE CREW',
   ]
     .join(' ')
     .split(/\s+/),
@@ -109,20 +109,26 @@ const WORDS = new Set(
 // The last token of a row is a whole word, or a whole word and `…`.
 function endsInWord(r: string): boolean {
   const last = r.trim().split(/\s+/).pop() ?? ''
-  if (last === '' || /^[━─▁-█]+$/.test(last)) return true
+  if (last === '' || /^[━─▁-█▮▯▪▸▫◇◈◆○◉●□▣■△◬▲!?z+0-9]+$/.test(last)) return true
   const bare = last.endsWith('…') ? last.slice(0, -1) : last
   return WORDS.has(bare) || /^\d+%$/.test(bare)
 }
 
-test('slim at 22: the focus wraps to 2 lines and every section label is drawn below it', async ($, on) => {
+test('slim at 22: a left-only bracket holds the state pill and the focus wrapped to 2 lines, and every section label is drawn below it', async ($, on) => {
   world(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 22)
     const rows = await rowsOf(ui)
-    expect(rows[0]).toBe('▍ Grouping timeline')
-    expect(rows[1]).toBe('  steps by agent')
-    const at = ['NEEDS YOU', 'TASKS', 'AGENTS', 'BUDGET', 'LATEST'].map(l => rows.findIndex(r => r.startsWith(`┌ ${l}`)))
-    expect(at.every(i => i > 1)).toBe(true)
+    // busy() has an ask waiting 30 s: the pill says so and the bracket is warning.
+    expect(rows[0]).toBe('┏  WAITING')
+    expect(rows[1]).toBe('┃ Grouping timeline')
+    expect(rows[2]).toBe('┗ steps by agent')
+    expect(rows.slice(0, 3).some(r => r.includes('┓') || r.includes('┛'))).toBe(false)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(found.find(f => f.text === ' WAITING ' && (f.props as { backgroundColor?: string }).backgroundColor !== undefined)?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText', bold: true })
+    expect((found.find(f => f.text === '┏ ')?.props as { color?: string }).color).toBe('warning')
+    const at = ['NEEDS YOU', 'CREW', 'TASKS', 'BUDGET', 'LATEST'].map(l => rows.findIndex(r => r.startsWith(`┌ ${l}`)))
+    expect(at.every(i => i > 2)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     // No tab bar: nothing to press but the slim parts.
     expect(await ui.find({ key: 'tab-overview' })).toBe(undefined)
@@ -133,6 +139,150 @@ test('slim at 22: the focus wraps to 2 lines and every section label is drawn be
     await ui.unmount()
   }
 })
+
+test('the slim pill is WORKING in the accent while nothing waits, with the bracket in the accent', async ($, on) => {
+  world(on, busy({ steps: [step('s1', 1, 'Bash npm test -- timeline', 'error', { endedAt: NOW - 4000 })] }))
+  const ui = await mount($, 'terminal', 24)
+  const rows = await rowsOf(ui)
+  expect(rows[0]).toBe('┏  WORKING')
+  const found = await ui.findAll({ type: 'Text' })
+  expect(found.find(f => f.text === ' WORKING ' && (f.props as { backgroundColor?: string }).backgroundColor !== undefined)?.props).toMatchObject({ backgroundColor: 'suggestion', color: 'inverseText' })
+  expect((found.find(f => f.text === '┏ ')?.props as { color?: string }).color).toBe('suggestion')
+  await ui.unmount()
+})
+
+test('slim grid: a label row has ┌ at 0, the label at 2, the value at 14 and › in the last column', async ($, on) => {
+  world(on, busy())
+  for (const surface of SURFACES) {
+    for (const cols of [24, 28]) {
+      const ui = await mount($, surface, cols)
+      const rows = await rowsOf(ui)
+      for (const [label, value] of [['TASKS', '1/3'], ['CREW', '2 live'], ['NEEDS YOU', '1'], ['LATEST', '✖ 1']] as const) {
+        const r = rows.find(x => x.startsWith(`┌ ${label}`))!
+        expect(colOf(r, label)).toBe(2)
+        expect(colOf(r, value)).toBe(14)
+        expect(r.length).toBe(cols)
+        expect(r.endsWith('›')).toBe(true)
+      }
+      // Budget rows: label 2, value 8, a 10-cell bar at 14.
+      const ctx = rows.find(r => r.startsWith('  CTX'))!
+      expect(colOf(ctx, '9%')).toBe(8)
+      expect(ctx.slice(14, 24)).toMatch(/^[▮▯]{10}$/)
+      expect(ctx.slice(14, 24).startsWith('▮')).toBe(true)
+      await ui.unmount()
+    }
+    // Under 24 the value drops when it would touch › and the bar goes: bars are 10 or 22 cells, never in between.
+    const narrow = await mount($, surface, 20)
+    const rows = await rowsOf(narrow)
+    const agents = rows.find(r => r.startsWith('┌ CREW'))!
+    expect(agents).not.toContain('live')
+    expect(agents.length).toBe(20)
+    const ctx = rows.find(r => r.startsWith('  CTX'))!
+    expect(ctx.slice(14)).toBe('')
+    expect(colOf(ctx, '9%')).toBe(8)
+    await narrow.unmount()
+  }
+})
+
+test('slim CREW is one row of pods and the live names with their hulls, at 20, 24 and 28', async ($, on) => {
+  world(on, busy())
+  for (const cols of [20, 24, 28]) {
+    const ui = await mount($, 'terminal', cols)
+    const rows = await rowsOf(ui)
+    const head = rows.findIndex(r => r.startsWith('┌ CREW'))
+    // the lead (asking, so it carries a ?), then the live agents: a pitch of 3 from column 2.
+    expect(rows[head + 1]!.slice(2, 9)).toBe('◈? ◉  ◉')
+    expect(colOf(rows[head + 2], '◉')).toBe(2)
+    expect(colOf(rows[head + 2], 'find')).toBe(4)
+    expect(colOf(rows[head + 3], '◉')).toBe(2)
+    for (const r of rows) expect(r.length).toBeLessThanOrEqual(cols)
+    await ui.unmount()
+  }
+})
+
+test('slim CREW takes as many pods as fit and then +n', async ($, on) => {
+  const many: Record<string, AgentRow> = { main }
+  for (let i = 1; i <= 9; i++) many[`a${i}`] = agent(`a${i}`, `agent number ${i}`)
+  world(on, busy({ agents: many, steps: [] }))
+  const ui = await mount($, 'terminal', 20)
+  const rows = await rowsOf(ui)
+  const crew = rows[rows.findIndex(r => r.startsWith('┌ CREW')) + 1]!
+  expect(crew.length).toBeLessThanOrEqual(20)
+  expect(crew).toMatch(/\+\d$/)
+  await ui.unmount()
+})
+
+test('with nothing waiting there is no NEEDS YOU, and the stack starts at CREW under the head bracket', async ($, on) => {
+  world(on, busy({ steps: [step('s1', 1, 'Bash npm test -- timeline', 'error', { endedAt: NOW - 4000 })] }))
+  const ui = await mount($, 'terminal', 24)
+  const rows = await rowsOf(ui)
+  expect(rows.some(r => r.includes('NEEDS YOU'))).toBe(false)
+  // pill, two focus lines, a blank, then the first block.
+  expect(rows.findIndex(r => r.startsWith('┌ CREW'))).toBe(4)
+  await ui.unmount()
+})
+
+test('TASKS shows the pips, then the next task when the current one is the focus, else the current one', async ($, on) => {
+  const stored = world(on, busy())
+  const a = await mount($, 'terminal', 28)
+  let rows = await rowsOf(a)
+  const t = rows.findIndex(r => r.startsWith('┌ TASKS'))
+  expect(colOf(rows[t + 1], '▪▸▫')).toBe(2)
+  expect(colOf(rows[t + 2], '▫')).toBe(2)
+  expect(colOf(rows[t + 2], 'Humanise step labels')).toBe(4)
+  await a.unmount()
+  stored.set('timeline', busy({ now: { focus: 'Something else entirely', at: NOW }, tasks: [task('2', 'Group', 'in_progress')] }))
+  const b = await mount($, 'terminal', 28)
+  rows = await rowsOf(b)
+  const t2 = rows.findIndex(r => r.startsWith('┌ TASKS'))
+  expect(colOf(rows[t2 + 1], '▸')).toBe(2)
+  expect(colOf(rows[t2 + 2], '▸')).toBe(2)
+  expect(colOf(rows[t2 + 2], 'Group')).toBe(4)
+  await b.unmount()
+})
+
+test('slim pips over the limit are a bar: 10 cells at 20 columns, 22 where they fit', async ($, on) => {
+  const tasks = Array.from({ length: 30 }, (_, i) => task(String(i), `Task ${i}`, i < 12 ? 'completed' : 'pending'))
+  world(on, busy({ tasks }))
+  for (const cols of [20, 24, 28]) {
+    const ui = await mount($, 'terminal', cols)
+    const rows = await rowsOf(ui)
+    const row = rows[rows.findIndex(r => r.startsWith('┌ TASKS')) + 1]!
+    expect(row.slice(2)).toMatch(cols === 20 ? /^[▮▯]{10}$/ : /^[▮▯]{22}$/)
+    await ui.unmount()
+  }
+})
+
+test('CREW lists up to 3 live names, LATEST the newest error and the newest kept step', async ($, on) => {
+  world(on, busy({ agents: { main, a1: agent('a1', 'find every caller of stepRow'), a2: agent('a2', 'write timeline tests'), a3: agent('a3', 'one'), a4: agent('a4', 'two'), a5: agent('a5', 'old one', 'done') } }))
+  const ui = await mount($, 'terminal', 28)
+  const rows = await rowsOf(ui)
+  const a = rows.findIndex(r => r.startsWith('┌ CREW'))
+  expect(colOf(rows[a], '4 live')).toBe(14)
+  expect(rows.slice(a + 2, a + 5).every(r => colOf(r, '◉') === 2)).toBe(true)
+  expect(rows[a + 5]).toBe('')
+  const l = rows.findIndex(r => r.startsWith('┌ LATEST'))
+  expect(colOf(rows[l + 1], '✖')).toBe(2)
+  expect(colOf(rows[l + 1], 'npm test -- timeline')).toBe(4)
+  expect(colOf(rows[l + 2], '★')).toBe(2)
+  expect(colOf(rows[l + 2], 'the label helper')).toBe(4)
+  const star = (await ui.findAll({ type: 'Text' })).find(f => f.text === '★')
+  expect((star?.props as { color?: string }).color).toBe('claude')
+  await ui.unmount()
+})
+
+test('an empty session is one idle pill and line and nothing else but a hint', async ($, on) => {
+  world(on, empty)
+  const ui = await mount($, 'terminal', 24)
+  const rows = await rowsOf(ui)
+  expect(rows[0]).toBe('┏  IDLE')
+  expect(rows[1]).toBe('┃ Idle. Nothing running')
+  expect(rows[2]).toBe('┗ yet.')
+  expect(rows.some(r => r.startsWith('┌ '))).toBe(false)
+  for (const r of rows) expect(r.length).toBeLessThanOrEqual(24)
+  await ui.unmount()
+})
+
 
 test('slim at 20, 24 and 28: no row is wider than the pane and none ends inside a word', async ($, on) => {
   world(on, busy())
@@ -151,44 +301,13 @@ test('slim at 20, 24 and 28: no row is wider than the pane and none ends inside 
   }
 })
 
-test('slim grid: a label row has ┌ at 0, the label at 2, the value at 14 and › in the last column', async ($, on) => {
-  world(on, busy())
-  for (const surface of SURFACES) {
-    for (const cols of [24, 28]) {
-      const ui = await mount($, surface, cols)
-      const rows = await rowsOf(ui)
-      for (const [label, value] of [['TASKS', '1/3'], ['AGENTS', '2 live'], ['NEEDS YOU', '1'], ['LATEST', '✖ 1']] as const) {
-        const r = rows.find(x => x.startsWith(`┌ ${label}`))!
-        expect(colOf(r, label)).toBe(2)
-        expect(colOf(r, value)).toBe(14)
-        expect(r.length).toBe(cols)
-        expect(r.endsWith('›')).toBe(true)
-      }
-      // Budget rows: label 2, value 8, bar 14, 10 wide.
-      const ctx = rows.find(r => r.startsWith('  CTX'))!
-      expect(colOf(ctx, '9%')).toBe(8)
-      expect(ctx.slice(14, 24)).toMatch(/^[━─]{10}$/)
-      await ui.unmount()
-    }
-    // Under 24 the value drops when it would touch › and the bar shortens.
-    const narrow = await mount($, surface, 20)
-    const rows = await rowsOf(narrow)
-    const agents = rows.find(r => r.startsWith('┌ AGENTS'))!
-    expect(agents).not.toContain('live')
-    expect(agents.length).toBe(20)
-    const ctx = rows.find(r => r.startsWith('  CTX'))!
-    expect(ctx.slice(14)).toMatch(/^[━─]{6}$/)
-    await narrow.unmount()
-  }
-})
-
 test('NEEDS YOU is first and in warning, its first item focused with g: chat and x: dismiss', async ($, on) => {
   world(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 24)
     const rows = await rowsOf(ui)
     const head = rows.findIndex(r => r.startsWith('┌ NEEDS YOU'))
-    expect(head).toBe(3)
+    expect(head).toBe(4)
     const found = await ui.findAll({ type: 'Text' })
     const color = (t: string): string | undefined => (found.find(f => f.text === t)?.props as { color?: string } | undefined)?.color
     expect(color('┌')).toBe('warning')
@@ -210,48 +329,6 @@ test('NEEDS YOU is first and in warning, its first item focused with g: chat and
   }
 })
 
-test('with nothing waiting there is no NEEDS YOU, and the stack starts at TASKS under the focus', async ($, on) => {
-  world(on, busy({ steps: [step('s1', 1, 'Bash npm test -- timeline', 'error', { endedAt: NOW - 4000 })] }))
-  const ui = await mount($, 'terminal', 24)
-  const rows = await rowsOf(ui)
-  expect(rows.some(r => r.includes('NEEDS YOU'))).toBe(false)
-  expect(rows.findIndex(r => r.startsWith('┌ TASKS'))).toBe(3)
-  await ui.unmount()
-})
-
-test('TASKS shows the next task when the current one is the focus, else the current one', async ($, on) => {
-  const stored = world(on, busy())
-  const a = await mount($, 'terminal', 28)
-  let rows = await rowsOf(a)
-  const t = rows.findIndex(r => r.startsWith('┌ TASKS'))
-  expect(colOf(rows[t + 1], '○')).toBe(2)
-  expect(colOf(rows[t + 1], 'Humanise step labels')).toBe(4)
-  await a.unmount()
-  stored.set('timeline', busy({ now: { focus: 'Something else entirely', at: NOW }, tasks: [task('2', 'Group', 'in_progress')] }))
-  const b = await mount($, 'terminal', 28)
-  rows = await rowsOf(b)
-  const t2 = rows.findIndex(r => r.startsWith('┌ TASKS'))
-  expect(colOf(rows[t2 + 1], '▸')).toBe(2)
-  expect(colOf(rows[t2 + 1], 'Group')).toBe(4)
-  await b.unmount()
-})
-
-test('AGENTS lists up to 3 live names, LATEST the newest error and the newest kept step', async ($, on) => {
-  world(on, busy({ agents: { main, a1: agent('a1', 'find every caller of stepRow'), a2: agent('a2', 'write timeline tests'), a3: agent('a3', 'one'), a4: agent('a4', 'two'), a5: agent('a5', 'old one', 'done') } }))
-  const ui = await mount($, 'terminal', 28)
-  const rows = await rowsOf(ui)
-  const a = rows.findIndex(r => r.startsWith('┌ AGENTS'))
-  expect(colOf(rows[a], '4 live')).toBe(14)
-  expect(rows.slice(a + 1, a + 4).every(r => colOf(r, '▸') === 2)).toBe(true)
-  expect(rows[a + 4]).toBe('')
-  const l = rows.findIndex(r => r.startsWith('┌ LATEST'))
-  expect(colOf(rows[l + 1], '✖')).toBe(2)
-  expect(colOf(rows[l + 1], 'npm test -- timeline')).toBe(4)
-  expect(colOf(rows[l + 2], '★')).toBe(2)
-  expect(colOf(rows[l + 2], 'the label helper')).toBe(4)
-  await ui.unmount()
-})
-
 test('a name whose first word is wider than the room is dropped, never cut inside the word', async ($, on) => {
   const long = 'supercalifragilisticexpialidocious'
   world(on, busy({ agents: { main, a1: agent('a1', long), a2: agent('a2', 'write timeline tests') } }))
@@ -262,7 +339,7 @@ test('a name whose first word is wider than the room is dropped, never cut insid
   await ui.unmount()
 })
 
-test('a short pane drops whole parts from the bottom: LATEST, then 7D, then the agent names', async ($, on) => {
+test('a short pane drops whole parts from the bottom: LATEST, then 7D, then the crew names', async ($, on) => {
   world(on, busy())
   const rowsAt = async (bodyRows: number): Promise<string[]> => {
     const ui = await mount($, 'terminal', 24, bodyRows)
@@ -283,7 +360,7 @@ test('a short pane drops whole parts from the bottom: LATEST, then 7D, then the 
   expect(two.some(r => r.includes('find every caller'))).toBe(true)
   const three = await rowsAt(two.length - 1)
   expect(three.some(r => r.includes('find every caller'))).toBe(false)
-  expect(three.some(r => r.startsWith('┌ AGENTS'))).toBe(true)
+  expect(three.some(r => r.startsWith('┌ CREW'))).toBe(true)
   expect(three.some(r => r.startsWith('┌ NEEDS YOU'))).toBe(true)
 })
 
@@ -345,16 +422,5 @@ test('pressing BUDGET opens the budget view with b: back, and back returns', asy
   for (const r of rows) expect(r.length).toBeLessThanOrEqual(24)
   await ui.press({ key: 'budget-back' })
   expect((await rowsOf(ui)).some(r => r.startsWith('┌ LATEST'))).toBe(true)
-  await ui.unmount()
-})
-
-test('an empty session is one idle line and nothing else but a hint', async ($, on) => {
-  world(on, empty)
-  const ui = await mount($, 'terminal', 24)
-  const rows = await rowsOf(ui)
-  expect(rows[0]).toBe('▍ Idle. Nothing running')
-  expect(rows[1]).toBe('  yet.')
-  expect(rows.some(r => r.startsWith('┌ '))).toBe(false)
-  for (const r of rows) expect(r.length).toBeLessThanOrEqual(24)
   await ui.unmount()
 })

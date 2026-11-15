@@ -1,9 +1,15 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { Timeline } from '../types'
+import type { Timeline, UiState } from '../types'
+import { ASK_MS, needsYou } from './views/needs'
 
 type Box = { timeline?: Timeline; writes: Timeline[] }
+
+const UI = { dismissed: [] } as unknown as UiState
+// No hook beneath answers the request: the prompt is the person's.
+const unanswered = (on: On) => on('classic.PermissionRequest', () => ({}))
+const AGENT_INPUT = { subagent_type: 'Explore', description: 'look', prompt: 'p' }
 
 // The world beneath the mod: a clock, no home folder (so the journal stays
 // quiet), a debug log that goes nowhere, and a recorder of the timeline the
@@ -150,22 +156,114 @@ test('a failed subagent turn marks the agent error', async ($, on) => {
   expect(box.timeline?.agents.a9?.status).toBe('error')
 })
 
-test("a check that resolves ask marks the running step, and the engine's verdict comes back unchanged", async ($, on) => {
+// Auto mode's check resolves `ask` before its classifier decides, so an ask is
+// no prompt: nothing is marked and NEEDS YOU stays empty however long it runs.
+test("a check that resolves ask marks nothing and raises no need, and the engine's verdict comes back unchanged", async ($, on) => {
   const box = world(on)
   on('tool.check', () => ({ decision: 'ask', reason: 'needs a yes' }))
   on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
-  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  let during: Timeline | undefined
+  on('tool.call', () => {
+    during = box.timeline
+    return { result: {}, text: 'ok' }
+  })
 
-  await $.tool.call({ tool: 'Bash', command: 'rm -rf build', tool_use_id: 'toolu_ask' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_ask' } as never)
 
-  const asked = box.writes.find(t => t.steps.some(s => s.id === 'toolu_ask' && s.status === 'running' && s.asking === 1000))
-  expect(asked !== undefined).toBe(true)
-  const step = box.timeline?.steps.find(s => s.id === 'toolu_ask')
-  expect(step?.status).toBe('done')
-  expect(step?.asking).toBe(undefined)
+  expect(during?.steps.find(s => s.id === 'toolu_ask')?.status).toBe('running')
+  expect(box.writes.some(t => t.steps.some(s => s.asking !== undefined))).toBe(false)
+  expect(needsYou(during!, UI, 1000 + 5 * 60_000)).toEqual([])
 
-  const verdict = await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })
+  const verdict = await $.tool.check({ tool: 'Bash', input: { command: 'npm test' } })
   expect(verdict).toEqual({ decision: 'ask', reason: 'needs a yes' })
+})
+
+test('a permission request marks the running step with the same command; its need shows from 20 s and clears when the step ends', async ($, on) => {
+  const box = world(on)
+  unanswered(on)
+  let during: Timeline | undefined
+  on('tool.call', async () => {
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' } })
+    during = box.timeline
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_p' } as never)
+
+  const step = during?.steps.find(s => s.id === 'toolu_p')
+  expect(step?.status).toBe('running')
+  expect(step?.asking).toBe(1000)
+  expect(needsYou(during!, UI, 1000 + ASK_MS - 1)).toEqual([])
+  expect(needsYou(during!, UI, 1000 + ASK_MS).map(p => p.key)).toEqual(['asking:toolu_p'])
+  const ended = box.timeline?.steps.find(s => s.id === 'toolu_p')
+  expect(ended?.status).toBe('done')
+  expect(ended?.asking).toBe(undefined)
+  expect(needsYou(box.timeline!, UI, 1000 + 5 * 60_000)).toEqual([])
+})
+
+test("a permission request from a subagent marks that agent's step, not main's with the same command", async ($, on) => {
+  const box = world(on)
+  unanswered(on)
+  let during: Timeline | undefined
+  on('tool.call', async (_, e) => {
+    if (e.agentId === 'a1') {
+      await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' }, agent_id: 'a1' })
+      during = box.timeline
+      return { result: {}, text: 'ok' }
+    }
+    await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_sub', agentId: 'a1' } as never)
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_main' } as never)
+
+  expect(during?.steps.find(s => s.id === 'toolu_sub')?.asking).toBe(1000)
+  expect(during?.steps.find(s => s.id === 'toolu_main')?.asking).toBe(undefined)
+})
+
+test('a permission request with no matching running step changes nothing', async ($, on) => {
+  const box = world(on)
+  unanswered(on)
+  let before = 0
+  let after = 0
+  on('tool.call', async () => {
+    before = box.writes.length
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm run build' } })
+    await $.classic.PermissionRequest({ tool_name: 'PowerShell', tool_input: { command: 'npm test' } })
+    after = box.writes.length
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_n' } as never)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' } })
+
+  expect(after).toBe(before)
+  expect(box.writes.some(t => t.steps.some(s => s.asking !== undefined))).toBe(false)
+})
+
+test("a permission request returns the engine's answer unchanged, and a hook's answer marks nothing", async ($, on) => {
+  const box = world(on)
+  const deny = { decision: { behavior: 'deny', message: 'not today' } } as const
+  on('classic.PermissionRequest', () => deny)
+  let answer: unknown
+  on('tool.call', async () => {
+    answer = await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' } })
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'npm test', tool_use_id: 'toolu_h' } as never)
+
+  expect(answer).toEqual(deny)
+  expect(box.writes.some(t => t.steps.some(s => s.asking !== undefined))).toBe(false)
+})
+
+test('a permission request still answers when the state is down', async ($, on) => {
+  world(on, { failState: true })
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
+
+  const answer = await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' } })
+
+  expect(answer).toEqual({ decision: { behavior: 'allow' } })
 })
 
 test('a check that allows marks nothing', async ($, on) => {
@@ -272,18 +370,18 @@ const SPAWN = {
 
 test("an asked Agent call's mark clears when its agent spawns, and the agent keeps its spawning step", async ($, on) => {
   const box = world(on)
-  on('tool.check', () => ({ decision: 'ask' }))
-  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
+  unanswered(on)
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a7' }))
   let during: Timeline | undefined
   // The Agent call runs the whole subagent: it is still running when the agent spawns.
   on('tool.call', async () => {
+    await $.classic.PermissionRequest({ tool_name: 'Agent', tool_input: AGENT_INPUT })
     await $.agent.spawn({ ...SPAWN, tool_use_id: 'toolu_agent' })
     during = box.timeline
     return { result: {}, text: 'ok' }
   })
 
-  await $.tool.call({ tool: 'Agent', subagent_type: 'Explore', description: 'look', prompt: 'p', tool_use_id: 'toolu_agent' } as never)
+  await $.tool.call({ tool: 'Agent', ...AGENT_INPUT, tool_use_id: 'toolu_agent' } as never)
 
   expect(box.writes.some(t => t.steps.some(s => s.id === 'toolu_agent' && s.asking !== undefined))).toBe(true)
   const step = during?.steps.find(s => s.id === 'toolu_agent')
@@ -294,17 +392,17 @@ test("an asked Agent call's mark clears when its agent spawns, and the agent kee
 
 test('a denied spawn clears nothing', async ($, on) => {
   const box = world(on)
-  on('tool.check', () => ({ decision: 'ask' }))
-  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
+  unanswered(on)
   on('agent.spawn', () => ({ deny: 'no' }) as never)
   let during: Timeline | undefined
   on('tool.call', async () => {
+    await $.classic.PermissionRequest({ tool_name: 'Agent', tool_input: AGENT_INPUT })
     await $.agent.spawn({ ...SPAWN, tool_use_id: 'toolu_agent' })
     during = box.timeline
     return { result: {}, text: 'ok' }
   })
 
-  await $.tool.call({ tool: 'Agent', subagent_type: 'Explore', description: 'look', prompt: 'p', tool_use_id: 'toolu_agent' } as never)
+  await $.tool.call({ tool: 'Agent', ...AGENT_INPUT, tool_use_id: 'toolu_agent' } as never)
 
   expect(during?.steps.find(s => s.id === 'toolu_agent')?.asking).toBe(1000)
 })

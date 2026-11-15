@@ -173,19 +173,23 @@ export type TaskMeterRow = {
   agentMs: number        // its agents' turn time, summed (they may overlap)
   agents: number; running: number; runningTokens: number
 }
-export type TaskMeter = { rows: TaskMeterRow[]; heaviest?: string; total: number }   // heaviest: the id of the task with the most tokens
+export type TaskMeter = { rows: TaskMeterRow[]; heaviest?: string; total: number }   // heaviest: the key (`taskKey`) of the task with the most tokens
+
+/** A task's identity: its owner and id (ids repeat across owners: main and each subagent keep their own lists). */
+export const taskKey = (x: Pick<TaskItem, 'owner' | 'id'>): string => `${x.owner}:${x.id}`
 
 /**
  * Tokens and time per task, in the tasks' order: agents count toward the task
- * they spawned under (`taskId`); main-loop turns toward the task in progress at
- * their end (TaskItem.tokens and ms). A running agent's tokens arrive only when
- * its turn ends, so an active task lags.
+ * they spawned under, the one with id `taskId` owned by their parent (ids
+ * repeat across owners); main-loop turns toward the task in progress at their
+ * end (TaskItem.tokens and ms). A running agent's tokens arrive only when its
+ * turn ends, so an active task lags.
  */
 export function taskMeter(t: Timeline): TaskMeter {
   const rows: TaskMeterRow[] = t.tasks.map((task) => ({ task, tokens: task.tokens ?? 0, ms: task.ms ?? 0, agentMs: 0, agents: 0, running: 0, runningTokens: 0 }))
-  const at = new Map(rows.map((r, i) => [r.task.id, i]))
+  const at = new Map(rows.map((r, i) => [taskKey(r.task), i]))
   for (const a of subagents(t)) {
-    const i = a.taskId === undefined ? undefined : at.get(a.taskId)
+    const i = a.taskId === undefined ? undefined : at.get(taskKey({ owner: a.parent, id: a.taskId }))
     if (i === undefined) continue
     const r = rows[i]!
     r.tokens += tokensOf(a)
@@ -203,7 +207,7 @@ export function taskMeter(t: Timeline): TaskMeter {
     if (r.tokens > 0 && (heaviest === undefined || r.tokens > heaviest.tokens)) heaviest = r
   }
   const out: TaskMeter = { rows, total }
-  if (heaviest !== undefined) out.heaviest = heaviest.task.id
+  if (heaviest !== undefined) out.heaviest = taskKey(heaviest.task)
   return out
 }
 

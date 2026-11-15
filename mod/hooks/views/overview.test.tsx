@@ -586,6 +586,28 @@ test('Enter on a step in the strip opens its page; b returns to the strip with t
   }
 })
 
+test('TASKS rows read their own task meter row when main and a subagent both hold task 1', async ($, on) => {
+  const t: Timeline = {
+    ...empty,
+    tasks: [task('1', 'Main list item', 'in_progress'), task('1', 'Subagent list item', 'pending', { owner: 'a1' })],
+    agents: {
+      main,
+      a1: { ...agent('a1', 'Explore', 'keeps its own list', 'x', 'done'), taskId: '1', tokensIn: 3_000, tokensOut: 0 },
+      b1: { ...agent('b1', 'Explore', 'child of a1', 'x', 'done'), parent: 'a1', taskId: '1', tokensIn: 90_000, tokensOut: 0 },
+    },
+  }
+  seed(on, t)
+  const ui = await mount($, 'terminal')
+  const all = await rowsOf(ui)
+  const rows = all.slice(rowAt(all, '┌ TASKS'))
+  expect(rows.length).toBeGreaterThan(2)
+  expect(rows[rowAt(rows, 'Main list item')]).toContain('3.0k')
+  expect(rows[rowAt(rows, 'Main list item')]).not.toContain('90k')
+  expect(rows[rowAt(rows, 'Subagent list item')]).toContain('90k')
+  expect(rows[rowAt(rows, 'Subagent list item')]).not.toContain('93k')
+  await ui.unmount()
+})
+
 test('pressing tab-tasks writes ui.tab', async ($, on) => {
   const stored = seed(on, empty)
   for (const surface of SURFACES) {

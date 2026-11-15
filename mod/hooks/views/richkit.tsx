@@ -1,11 +1,11 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import { fitRuns, pillRun, wordFit } from './fit'
+import { fitRuns } from './fit'
 import { laid } from './lay'
 import type { Placed } from './lay'
-import { inst } from './parts'
+import { inst, lintelInst, sillInst } from './parts'
 import type { InstSpec } from './parts'
-import { Grid, beads as beadsGrid, drawBars, drawRing, drawStack, lintel, sill, stack as stackGrid } from './raster'
+import { Grid, beads as beadsGrid, drawBars, drawRing, drawStack, stack as stackGrid } from './raster'
 import type { Hue, Ink } from './raster'
 import type { ViewCtx } from './shell'
 import { C, DECK } from './style'
@@ -39,69 +39,26 @@ export type FrameOpts = {
   rightAmber?: boolean
 }
 
-const frameHue = (tone: FrameOpts['tone']): Hue => (tone === 'warning' ? 'amber' : 'iris')
-
-/** The lintel as an instrument: the Raster, and as text a `┏` with the pill and the readout. */
+/**
+ * The lintel as an instrument: `parts.lintelInst` (the one guard), with the
+ * pill's tone spelt as a `Tone`.
+ */
 export function lintelSpec(key: string, width: number, opts: FrameOpts = {}): InstSpec {
-  const pillWidth = opts.pill !== undefined ? [...opts.pill].length + 2 : 0
-  const pillEnd = (opts.pillCol ?? 13) + pillWidth
-  // A readout that would touch the pill is left out; so is a pill that does not fit.
-  const showRight = opts.right !== undefined && opts.right !== '' && width - 2 - [...opts.right].length - 1 > pillEnd + 1
-  const o: FrameOpts = { ...opts }
-  if (opts.pill !== undefined && pillEnd > width - 1) delete o.pill
-  if (!showRight) delete o.right
-  const hue = frameHue(o.tone)
-  const corner = o.tone === 'warning' ? C.wait : C.live
-  const pillTone = o.pillTone ?? (o.tone === 'warning' ? 'wait' : 'live')
-  const pillCol = o.pillCol ?? 13
-  const text: Run[] = [{ text: '┏', color: corner }]
-  let used = 1
-  if (o.pill !== undefined) {
-    const gap = Math.max(1, pillCol - used)
-    text.push({ text: ' '.repeat(gap) })
-    const pr = pillRun(o.pill, TONE_COLOR[pillTone])
-    text.push(pr)
-    used += gap + pr.text.length
-  }
-  if (o.right !== undefined && o.right !== '') {
-    const room = width - 1 - used - 1
-    if (room > 0) {
-      const r = wordFit(o.right, room)
-      text.push({ text: ' '.repeat(Math.max(1, width - 1 - used - r.length)) }, { text: r, dim: true })
-    }
-  }
-  const pillHue = TONE_HUE[pillTone]
-  return {
-    key,
-    columns: width,
-    rows: 1,
-    sig: `lintel:${width}:${hue}:${o.pill ?? ''}:${pillHue}:${pillCol}:${o.clamp ?? 3}:${o.right ?? ''}:${o.rightAmber === true}`,
-    frames: () =>
-      [
-        lintel(width, {
-          hue,
-          pillHue,
-          pillCol,
-          ...(o.clamp !== undefined ? { clamp: o.clamp } : {}),
-          ...(o.pill !== undefined ? { pill: o.pill } : {}),
-          ...(o.right !== undefined ? { right: o.right, rightHue: o.rightAmber === true ? 'amber' : 'mute' } : {}),
-        }),
-      ],
-    fallback: [text],
-  }
+  const pillTone = opts.pillTone ?? (opts.tone === 'warning' ? 'wait' : 'live')
+  return lintelInst(key, width, opts.tone, {
+    ...(opts.pill !== undefined ? { pill: opts.pill } : {}),
+    pillColor: TONE_COLOR[pillTone],
+    pillHue: TONE_HUE[pillTone] as Hue | 'mute',
+    ...(opts.pillCol !== undefined ? { pillCol: opts.pillCol } : {}),
+    ...(opts.clamp !== undefined ? { clamp: opts.clamp } : {}),
+    ...(opts.right !== undefined ? { right: opts.right } : {}),
+    ...(opts.rightAmber !== undefined ? { rightAmber: opts.rightAmber } : {}),
+  })
 }
 
-/** The sill as an instrument: the Raster, and as text a `┗`. */
+/** The sill as an instrument: `parts.sillInst`. */
 export function sillSpec(key: string, width: number, o: Pick<FrameOpts, 'tone' | 'clamp'> = {}): InstSpec {
-  const hue = frameHue(o.tone)
-  return {
-    key,
-    columns: width,
-    rows: 1,
-    sig: `sill:${width}:${hue}:${o.clamp ?? 3}`,
-    frames: () => [sill(width, { hue, ...(o.clamp !== undefined ? { clamp: o.clamp } : {}) })],
-    fallback: [[{ text: '┗', color: o.tone === 'warning' ? C.wait : C.live }]],
-  }
+  return sillInst(key, width, o.tone, o.clamp)
 }
 
 /** One blank-padded text row of `cols`. */

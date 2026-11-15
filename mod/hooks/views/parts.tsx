@@ -4,7 +4,7 @@ import { debug, errText } from '../state'
 import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, pillRun, placed, spark10, stack10, tether, wordFit, wrapFull, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
-import { lintel, sill } from './raster'
+import { lintel, lintelRoom, sill } from './raster'
 import type { Grid, Hue } from './raster'
 import type { ViewCtx } from './shell'
 import { C, cellsFor, COL, DECK, GRID, RAIL, tableCols } from './style'
@@ -822,7 +822,7 @@ export function inst(ctx: ViewCtx, $: EngineInterface, s: InstSpec): RenderEleme
 }
 
 /** The frame's colour: iris, amber while something waits (`tone: 'warning'`). */
-const frameHue = (tone: DeckOpts['tone']): Hue => (tone === 'warning' ? 'amber' : 'iris')
+export const frameHue = (tone: DeckOpts['tone']): Hue => (tone === 'warning' ? 'amber' : 'iris')
 
 /** What the rich deck's lintel carries: the state pill and one dim readout at the right. */
 export type FrameSpec = {
@@ -830,50 +830,83 @@ export type FrameSpec = {
   pill?: string
   /** The pill's colour as a theme key (`C.live`, `C.wait`, …) for the text form; the Raster takes `pillHue`. */
   pillColor?: string
-  pillHue?: Hue
+  pillHue?: Hue | 'mute'
+  /** The pill's first column: 13 (the gauge column, less its cap) when absent; 2 in a narrow compartment. */
+  pillCol?: number
+  /** Cells of the clamp after its corner: 3 when absent, 1 in a narrow compartment. */
+  clamp?: number
   /** One dim readout at the right (`turn 6 41m`, `agent 3 of 6`). */
   right?: string
+  /** The readout in amber rather than dim (the cache about to go cold). */
+  rightAmber?: boolean
 }
 
-/** The lintel as an instrument: the Raster `lintel`, and as text `┏` with the pill and the readout. */
-function lintelInst(key: string, width: number, tone: DeckOpts['tone'], f: FrameSpec): InstSpec {
+/**
+ * The one lintel guard (spec "Frame"): the pill and the readout a lintel of
+ * `width` can draw without either touching the other or the clamp. The pill
+ * is dropped when it does not fit; the readout is drawn whole in the room
+ * `lintelRoom` leaves after the pill, or left out (a readout is never cut).
+ * Both forms of `lintelInst` draw exactly what this returns, so a caller
+ * passes the whole readout and never guards it itself.
+ */
+export function frameFit(width: number, f: FrameSpec): { pill?: string; right?: string } {
+  const room = lintelRoom(width, f)
+  const right = f.right !== undefined && [...f.right].length <= room.right ? f.right : ''
+  return { ...(room.pill && f.pill !== undefined ? { pill: f.pill } : {}), ...(right !== '' ? { right } : {}) }
+}
+
+/**
+ * The lintel as an instrument: the Raster `lintel`, and as text `┏` with the
+ * pill and the readout, both through `frameFit` so they draw the same pieces.
+ */
+export function lintelInst(key: string, width: number, tone: DeckOpts['tone'], f: FrameSpec): InstSpec {
   const hue = frameHue(tone)
   const corner = tone === 'warning' ? C.wait : C.live
+  const pillCol = f.pillCol ?? DECK.gauge - 1
+  const clamp = f.clamp ?? 3
+  const got = frameFit(width, { ...f, pillCol, clamp })
   const text: Run[] = [{ text: '┏', color: corner }]
   let used = 1
-  if (f.pill !== undefined) {
-    const gap = Math.max(1, DECK.gauge - 1 - used)
+  if (got.pill !== undefined) {
+    const gap = Math.max(1, pillCol - used)
     text.push({ text: ' '.repeat(gap) })
-    const pr = pillRun(f.pill, f.pillColor ?? corner)
+    const pr = pillRun(got.pill, f.pillColor ?? corner)
     text.push(pr)
     used += gap + pr.text.length
   }
-  if (f.right !== undefined && f.right !== '') {
-    const room = width - 1 - used - 1
-    if (room > 0) {
-      const r = wordFit(f.right, room)
-      text.push({ text: ' '.repeat(Math.max(1, width - 1 - used - r.length)) }, { text: r, dim: true })
-    }
+  if (got.right !== undefined) {
+    const r = got.right
+    text.push({ text: ' '.repeat(Math.max(1, width - 1 - used - r.length)) }, { text: r, dim: true })
   }
+  const pillHue = f.pillHue ?? hue
   return {
     key,
     columns: width,
     rows: 1,
-    sig: `lintel:${width}:${hue}:${f.pill ?? ''}:${f.pillHue ?? ''}:${f.right ?? ''}`,
-    frames: () => [lintel(width, { hue, pill: f.pill, pillHue: f.pillHue ?? hue, right: f.right })],
+    sig: `lintel:${width}:${hue}:${got.pill ?? ''}:${pillHue}:${pillCol}:${clamp}:${got.right ?? ''}:${f.rightAmber === true}`,
+    frames: () => [
+      lintel(width, {
+        hue,
+        pillHue,
+        pillCol,
+        clamp,
+        ...(got.pill !== undefined ? { pill: got.pill } : {}),
+        ...(got.right !== undefined ? { right: got.right, rightHue: f.rightAmber === true ? 'amber' : 'mute' } : {}),
+      }),
+    ],
     fallback: [text],
   }
 }
 
 /** The sill as an instrument: the Raster `sill`, and as text a `┗` corner. */
-function sillInst(key: string, width: number, tone: DeckOpts['tone']): InstSpec {
+export function sillInst(key: string, width: number, tone: DeckOpts['tone'], clamp?: number): InstSpec {
   const hue = frameHue(tone)
   return {
     key,
     columns: width,
     rows: 1,
-    sig: `sill:${width}:${hue}`,
-    frames: () => [sill(width, { hue })],
+    sig: `sill:${width}:${hue}:${clamp ?? 3}`,
+    frames: () => [sill(width, { hue, ...(clamp !== undefined ? { clamp } : {}) })],
     fallback: [[{ text: '┗', color: tone === 'warning' ? C.wait : C.live }]],
   }
 }

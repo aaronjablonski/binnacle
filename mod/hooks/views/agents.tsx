@@ -56,19 +56,8 @@ function modelRuns(model: string, tokens: string, room = 10): Run[] {
   return [...(named ? [{ text: `${model} `, dim: true }] : []), { text: tokens, bold: true }]
 }
 
-/**
- * A frame the lintel can draw at `cols`: the pill hangs from column 13, and the
- * readout needs the columns between the pill and its own right edge, else it
- * is left out (and the pill with it when even that does not fit). The lintel
- * draws what it is given, so a collision must never reach it.
- */
-function frameFor(cols: number, pill: string | undefined, right: string): FrameSpec {
-  const pillEnd = pill !== undefined ? 13 + [...pill].length + 2 : 3
-  const withPill = pill !== undefined && cols >= pillEnd + 3
-  const edge = withPill ? pillEnd : 3
-  const withRight = right !== '' && cols >= edge + 4 + [...right].length
-  return { ...(withPill ? { pill } : {}), ...(withRight ? { right } : {}) }
-}
+/** The deck's frame: the pill and the readout, which `frameFit` (parts.tsx) guards. */
+const frameFor = (pill: string | undefined, right: string): FrameSpec => ({ ...(pill !== undefined ? { pill } : {}), ...(right !== '' ? { right } : {}) })
 
 /** One character's slot in the line-up: its large sprite (9 wide), tokens in words under it. */
 const SLOT = SPRITE.L.columns
@@ -186,7 +175,7 @@ function agentsDeck(ctx: ViewCtx, $: EngineInterface, states: Map<string, PodSta
         ? [{ label: 'MODELS', cells: models, ...(rich ? { inst: modelsInst(totals) } : {}) }]
         : []),
     ],
-    { key: 'agents-deck', frame: frameFor(ctx.cols, live > 0 ? 'WORKING' : undefined, right) },
+    { key: 'agents-deck', frame: frameFor(live > 0 ? 'WORKING' : undefined, right) },
   )
 }
 
@@ -525,7 +514,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   return page(ctx, $, {
     key: 'agent-page',
     frame: {
-      ...frameFor(ctx.cols, STATE_WORD[pod.state].toUpperCase().replace('ASKS PERMISSION', 'WAITING'), `agent ${index} of ${order.length}`),
+      ...frameFor(STATE_WORD[pod.state].toUpperCase().replace('ASKS PERMISSION', 'WAITING'), `agent ${index} of ${order.length}`),
       pillColor: pill.color,
       pillHue: pill.hue,
       ...(pod.state === 'waiting' || pod.state === 'stalled' ? { tone: 'warning' as const } : {}),

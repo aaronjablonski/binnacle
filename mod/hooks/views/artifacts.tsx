@@ -213,15 +213,6 @@ function actionLine(ctx: ViewCtx, $: EngineInterface, actions: Action[], key: st
   )
 }
 
-/**
- * The lintel's readout when it fits: the pill starts on the gauge column (14)
- * and the readout hangs from the right edge, so on a narrow pane the two
- * would meet and the Raster refuses the cell. Left out then.
- */
-function readout(cols: number, pill: string, right: string): { right?: string } {
-  return cols - 2 - [...right].length > DECK.gauge - 1 + pill.length + 2 + 1 ? { right } : {}
-}
-
 // The file whose actions are open (a press selects it). Ephemeral: a reload starts with none.
 let fileOpen: string | undefined
 
@@ -307,7 +298,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       {
         key: 'artifacts-deck',
         ...(word.word === 'WAITING' ? { tone: 'warning' as const } : {}),
-        frame: { pill: word.word, pillColor: word.color, ...(rows.length > 0 ? readout(cols, word.word, `${rows.length} made`) : {}) },
+        frame: { pill: word.word, pillColor: word.color, ...(rows.length > 0 ? { right: `${rows.length} made` } : {}) },
       },
     )
     if (handoff !== null) blocks.push([handoff])
@@ -504,7 +495,7 @@ export function artifactPage(ctx: ViewCtx, $: EngineInterface, id: string): Rend
   if (stepId !== undefined) actions.push({ hotkey: 'g', label: 'chat', key: 'artifact-page-chat', onPress: () => showInChat($, stepId) })
   return page(ctx, $, {
     key: 'artifact-page',
-    frame: { pill: KIND[a.kind].toUpperCase(), ...readout(ctx.cols, KIND[a.kind], `artifact ${at} of ${sorted.length}`) },
+    frame: { pill: KIND[a.kind].toUpperCase(), right: `artifact ${at} of ${sorted.length}` },
     fields,
     actions,
   })

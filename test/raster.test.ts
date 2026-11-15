@@ -16,6 +16,7 @@ import {
   decode,
   encode,
   lintel,
+  lintelRoom,
   quadGlyph,
   ring,
   RING,
@@ -403,6 +404,35 @@ describe('pill and frame', () => {
     expect(cellsOf(g)[0]![1]).toBe(N.iris)
     expect(cellsOf(lintel(30, { hue: 'amber' }))[0]![1]).toBe(N.amber)
     expect(rowText(lintel(10, {}), 0)).toBe('█▀▀▀▔▔▔▔▔▔')
+  })
+
+  test('lintel never collides: any width, pill, pill column and readout resolve to cells', () => {
+    for (let width = 4; width <= 80; width++) {
+      for (const pill of [undefined, 'WORKING', 'NEEDS YOU 12', 'ALL DONE']) {
+        for (const right of ['', 'turn 6 41m', 'artifact 12 of 30']) {
+          for (const pillCol of [2, 13]) {
+            for (const clamp of [1, 3]) {
+              const o = { pillCol, clamp, right, ...(pill !== undefined ? { pill } : {}) }
+              expect(() => cellsOf(lintel(width, o)), `width ${width} ${JSON.stringify(o)}`).not.toThrow()
+            }
+          }
+        }
+      }
+    }
+  })
+
+  test('lintelRoom: the pill only where it fits, the readout only where it clears the pill', () => {
+    // Pill WORKING at 13 ends at 22: it needs 23 columns; the readout needs 3 more than its length past 22.
+    expect(lintelRoom(22, { pill: 'WORKING' }).pill).toBe(false)
+    expect(lintelRoom(23, { pill: 'WORKING' }).pill).toBe(true)
+    expect(lintelRoom(35, { pill: 'WORKING' }).right).toBe(35 - 3 - 22)
+    // Without a pill the readout clears the clamp.
+    expect(lintelRoom(20, {}).right).toBe(20 - 4 - 3)
+    expect(lintelRoom(20, { clamp: 1 }).right).toBe(20 - 4 - 1)
+    // A readout too long for the room is left out of the drawing, the pill kept.
+    const s = rowText(lintel(30, { pill: 'WORKING', right: 'artifact 12 of 30' }), 0)
+    expect(s.slice(12, 22)).toBe(' ▐WORKING▌')
+    expect(s).not.toContain('artifact')
   })
 
   test('sill: a hairline that ends in the mirrored clamp; sweep brightens the cells near it', () => {

@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 
 import type { ArtifactRow, Step, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
+import { clock } from './fit'
 import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -140,7 +141,8 @@ test('a document written three times shows doc ×3 as its kind', async ($, on) =
   }
 })
 
-test('the newest artifact is open by default: link and from at 6 and 14, then o: step  c: copy link  g: chat', async ($, on) => {
+// LOOK TEST (edited for Rich): the action line gains `p: page`, which opens the artifact's page.
+test('the newest artifact is open by default: link and from at 6 and 14, then o: step  c: copy link  g: chat  p: page', async ($, on) => {
   seed(
     on,
     tl([art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', stepId: 's9' })], { steps: [step('s9', 9, 'Publish')] }),
@@ -153,7 +155,7 @@ test('the newest artifact is open by default: link and from at 6 and 14, then o:
     expect([colOf(link, 'link'), colOf(link, 'claude.ai/artifact/x')]).toEqual([6, 14])
     const from = rowWith(rows, 'from')
     expect(colOf(from, 'main · step 9 · ')).toBe(14)
-    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat')
+    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat   p: page')
     expect(colOf(rowWith(rows, 'o: step'), 'o: step')).toBe(6)
     await ui.unmount()
   }
@@ -246,6 +248,7 @@ test('c copies the link, or the title when there is no ref, and says when it fai
   }
 })
 
+// LOOK TEST (edited for Rich): the action line reads `c: copy   p: page`.
 test('c copies the title when the artifact has no ref', async ($, on) => {
   seed(on, tl([art('result', 'Findings')]), ART_UI)
   const copies: string[] = []
@@ -255,22 +258,24 @@ test('c copies the title when the artifact has no ref', async ($, on) => {
   })
   on('ui.toast', () => ({ value: undefined }))
   const bare = await mount($, 'terminal')
-  expect(rowWith(await drawnRows(bare), 'c: copy').trim()).toBe('c: copy')
+  expect(rowWith(await drawnRows(bare), 'c: copy').trim()).toBe('c: copy   p: page')
   await bare.press({ key: 'act-c-result:Findings' })
   expect(copies).toEqual(['Findings'])
   await bare.unmount()
 })
 
-test('a step no longer in the timeline leaves only c: no o and no g', async ($, on) => {
+// LOOK TEST (edited for Rich): the action line reads `c: copy link   p: page`.
+test('a step no longer in the timeline leaves only c and p: no o and no g', async ($, on) => {
   seed(on, tl([art('document', 'a.md', { ref: 'a.md', stepId: 'gone' })]), ART_UI)
   const ui = await mount($, 'terminal')
   const rows = await drawnRows(ui)
-  expect(rowWith(rows, 'c: copy link').trim()).toBe('c: copy link')
+  expect(rowWith(rows, 'c: copy link').trim()).toBe('c: copy link   p: page')
   expect(rows.some(r => r.includes('o: step') || r.includes('g: chat'))).toBe(false)
   expect(rowWith(rows, 'from')).not.toContain('step')
   await ui.unmount()
 })
 
+// LOOK TEST (rewritten for Rich): a changed file's glyph is ▪ (was ·); its name keeps column 4.
 test('FILES CHANGED shows the newest 3 and a more line', async ($, on) => {
   seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed: ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts'] }), ART_UI)
   for (const surface of SURFACES) {
@@ -278,17 +283,17 @@ test('FILES CHANGED shows the newest 3 and a more line', async ($, on) => {
     const rows = await drawnRows(ui)
     const at = rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))
     expect(at).toBeGreaterThan(-1)
-    expect(rows.slice(at + 1, at + 4).map(r => r.slice(2, 3))).toEqual(['·', '·', '·'])
-    expect(rows.slice(at + 1, at + 4).map(r => r.slice(4).trimEnd())).toEqual(['…/d.ts', 'c.ts', '…/b.ts'])
+    expect(rows.slice(at + 1, at + 4).map(r => r.slice(2, 3))).toEqual(['▪', '▪', '▪'])
+    expect(rows.slice(at + 1, at + 4).map(r => r.slice(4, 36).trimEnd())).toEqual(['…/d.ts', 'c.ts', '…/b.ts'])
     expect(rows[at + 4]).toBe('  + 1 more')
     await ui.unmount()
   }
 })
 
-// LOOK TEST (rewritten for Neo): HANDOFF is no longer a bottom section; it is the top row of the deck.
-test('the HANDOFF row of the deck: Export digest at 14, journal at 38, brackets on 0 and 61; a press exports', async ($, on) => {
-  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
-  mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+const EXPORT_ENV = { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' }
+
+function exportWorld(on: On): { writes: string[] } {
+  mock.env(on, EXPORT_ENV)
   const writes: string[] = []
   on('fs.read', () => {
     throw new Error('ENOENT')
@@ -299,16 +304,26 @@ test('the HANDOFF row of the deck: Export digest at 14, journal at 38, brackets 
   })
   on('ui.copy', () => ({ value: { isCopied: true as const } }))
   on('ui.toast', () => ({ value: undefined }))
-  for (const surface of SURFACES) {
+  return { writes }
+}
+
+// LOOK TEST (rewritten for Rich, text form): the Neo deck of the surfaces without Rasters. HANDOFF stays its top row; DIGEST and its legend now sit between it and KEPT.
+test('text form: the deck is HANDOFF, DIGEST, the legend and KEPT in one bracket; a press on HANDOFF exports', async ($, on) => {
+  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
+  const { writes } = exportWorld(on)
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
     const at = rows.findIndex(r => r.includes('HANDOFF'))
     expect(at).toBeGreaterThan(-1)
     const ex = rows[at] ?? ''
     expect(ex.startsWith('┏ HANDOFF')).toBe(true)
-    expect([colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal')]).toEqual([14, 16, 38])
+    // the first press records an export, so later surfaces show its time in place of `not yet`
+    expect([colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal'), ex.slice(50, 51) === ' ' ? -1 : 50]).toEqual([14, 16, 38, 50])
     expect(ex.length).toBe(62)
     expect(ex.endsWith('┓')).toBe(true)
+    expect(rows[at + 1]?.startsWith('┃ DIGEST')).toBe(true)
+    expect(rows[at + 3]?.startsWith('┗ KEPT')).toBe(true)
     expect(rows.some(r => r.startsWith('┌ HANDOFF'))).toBe(false)
     writes.length = 0
     await ui.press({ key: 'handoff-export' })
@@ -318,7 +333,29 @@ test('the HANDOFF row of the deck: Export digest at 14, journal at 38, brackets 
   }
 })
 
-// LOOK TEST (new for Neo): the KEPT row and the deck's place at the top.
+// LOOK TEST (new for Rich, rich form): the terminal's deck is a lintel Raster, the rows on the grid, a sill Raster; no rails.
+test('rich form: a lintel, HANDOFF, DIGEST with its legend, KEPT and a sill; a press on HANDOFF exports', async ($, on) => {
+  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
+  const { writes } = exportWorld(on)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  const at = rows.findIndex(r => r.includes('HANDOFF'))
+  expect(at).toBeGreaterThan(0)
+  expect(rows[at - 1]).toBe('')
+  const ex = rows[at] ?? ''
+  expect([colOf(ex, 'HANDOFF'), colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal'), colOf(ex, 'not yet')]).toEqual([2, 14, 16, 38, 50])
+  expect(colOf(rows[at + 1] ?? '', 'DIGEST')).toBe(2)
+  expect(colOf(rows[at + 2] ?? '', '▪ tasks')).toBe(14)
+  expect([colOf(rows[at + 3] ?? '', 'KEPT'), colOf(rows[at + 3] ?? '', '★')]).toEqual([2, 14])
+  const rasters = (await ui.findAll({ type: 'Raster' })).map(r => String(r.key))
+  expect(rasters).toEqual(expect.arrayContaining(['artifacts-deck-lintel', 'digest', 'artifacts-deck-sill']))
+  writes.length = 0
+  await ui.press({ key: 'handoff-export' })
+  expect(writes.length).toBe(1)
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for Rich): KEPT is the deck's last row, after DIGEST and the legend, then ARTIFACTS, then FILES CHANGED.
 test('the KEPT row counts the kept steps; the deck comes first, then ARTIFACTS, then FILES CHANGED', async ($, on) => {
   const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
   seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps: [kept, step('s2', 2, 'Write b.md')], changed: ['a.ts'] }), ART_UI)
@@ -326,14 +363,16 @@ test('the KEPT row counts the kept steps; the deck comes first, then ARTIFACTS, 
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
     const at = rows.findIndex(r => r.includes('HANDOFF'))
-    const k = rows[at + 1] ?? ''
-    expect(k.startsWith('┗ KEPT')).toBe(true)
+    const k = rows.find(r => r.includes('KEPT')) ?? ''
+    const kAt = rows.indexOf(k)
+    expect(kAt).toBe(at + 3)
     expect([colOf(k, '★'), colOf(k, '1 step goes in full'), colOf(k, 'the rest in brief')]).toEqual([14, 16, 38])
-    expect(k.length).toBe(62)
-    expect(k.endsWith('┛')).toBe(true)
-    expect(rows[at + 2]).toBe('')
-    expect(rows[at + 3]?.startsWith('┌ ARTIFACTS')).toBe(true)
-    expect(rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))).toBeGreaterThan(at + 3)
+    expect(k.length).toBe(surface === 'terminal' ? k.trimEnd().length : 62)
+    if (surface !== 'terminal') expect(k.endsWith('┛')).toBe(true)
+    const next = rows.findIndex((r, i) => i > kAt && r.includes('ARTIFACTS'))
+    expect(next).toBeGreaterThan(kAt + 1)
+    expect(rows[kAt + 1] === '' || rows[kAt + 2] === '').toBe(true)
+    expect(rows.findIndex(r => r.includes('FILES CHANGED'))).toBeGreaterThan(next)
     await ui.unmount()
   }
 })
@@ -467,4 +506,187 @@ test('focused, every row of Artifacts, footer included, fits 32 and 40 columns',
       await ui.unmount()
     }
   }
+})
+
+// ---------- Neo Rich: DIGEST, the last export, edit bars, open, the artifact page ----------
+
+test('the deck shows the last export from lastExport: its time, or "not yet"', async ($, on) => {
+  const exported = NOW - 3_600_000
+  const stored = seed(on, tl([art('link', 'PR', { ref: 'x' })], { lastExport: { at: exported, path: 'C:/j/export.md' } }), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const ex = rowWith(await drawnRows(ui), 'HANDOFF')
+    expect(colOf(ex, clock(exported))).toBe(50)
+    expect(ex).not.toContain('not yet')
+    await ui.unmount()
+  }
+  stored.set('timeline', tl([art('link', 'PR', { ref: 'x' })]))
+  const none = await mount($, 'terminal')
+  expect(colOf(rowWith(await drawnRows(none), 'HANDOFF'), 'not yet')).toBe(50)
+  await none.unmount()
+})
+
+test('DIGEST: a 22-cell stack Raster of the four parts, with its words and parts; text form a run of ▄', async ($, on) => {
+  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
+  const steps = [kept, ...[2, 3, 4, 5].map(n => step(`s${n}`, n, `Read f${n}`))]
+  const tasks = [1, 2].map(n => ({ id: String(n), subject: `task ${n}`, status: 'completed' as const, owner: 'main', updatedAt: NOW }))
+  seed(on, tl([art('result', 'Findings', { summary: 's' })], { steps, tasks, changed: ['a.ts'] }), ART_UI)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  const d = rowWith(rows, 'DIGEST')
+  expect(d).toMatch(/~\d+ words/)
+  expect(colOf(d, '4 parts')).toBe(50)
+  expect(colOf(d, '~')).toBe(38)
+  const raster = await ui.find({ type: 'Raster', key: 'digest' })
+  expect(raster?.props).toMatchObject({ columns: 22, rows: 1 })
+  expect(rowWith(rows, '▪ tasks')).toContain('▪ tasks  ▪ steps  ▪ kept  ▪ made')
+  await ui.unmount()
+  const text = await mount($, 'desktop')
+  expect(rowWith(await drawnRows(text), 'DIGEST')).toMatch(/DIGEST {6}▄{22}/)
+  await text.unmount()
+})
+
+test('DIGEST with nothing to hold is a rest line and 0 parts', async ($, on) => {
+  seed(on, tl([]), ART_UI)
+  const ui = await mount($, 'desktop')
+  const d = rowWith(await drawnRows(ui), 'DIGEST')
+  expect(d).toContain('─'.repeat(22))
+  expect(d).toContain('0 parts')
+  await ui.unmount()
+})
+
+// A world with an editor that records its runs.
+function runWorld(on: On): { runs: string[][]; toasts: string[]; copies: string[] } {
+  const copies: string[] = []
+  const runs: string[][] = []
+  const toasts: string[] = []
+  on('session.root', () => ({ value: 'C:/repo' }))
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.copy', (_, e) => {
+    copies.push(e.text)
+    return { value: { isCopied: true as const } }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  return { runs, toasts, copies }
+}
+
+const edit = (id: string, seq: number, label: string, ago: number): Step => ({ ...step(id, seq, label), tool: 'Edit', startedAt: NOW - ago })
+
+test('FILES CHANGED: each file has an edit bar sized by its edits, its count and its last edit', async ($, on) => {
+  const steps = [edit('e1', 1, 'Edit src/up.ts', 600_000), edit('e2', 2, 'Edit src/up.ts', 300_000), edit('e3', 3, 'Edit src/rl.ts', 60_000), edit('e4', 4, 'Edit src/rl.ts', 30_000), edit('e5', 5, 'Edit src/rl.ts', 12_000)]
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps, changed: ['src/up.ts', 'src/rl.ts'] }), ART_UI)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  const rl = rowWith(rows, '/rl.ts')
+  const up = rowWith(rows, '/up.ts')
+  expect([colOf(rl, '3'), colOf(rl, '12s')]).toEqual([38, 50])
+  expect([colOf(up, '2'), colOf(up, '5m')]).toEqual([38, 50])
+  const bars = (await ui.findAll({ type: 'Raster' })).filter(r => String(r.key).startsWith('edits-'))
+  expect(bars.map(b => b.props)).toEqual([expect.objectContaining({ columns: 6, rows: 1 }), expect.objectContaining({ columns: 6, rows: 1 })])
+  await ui.unmount()
+  const text = await mount($, 'mobile')
+  const t = await drawnRows(text)
+  expect(rowWith(t, '/rl.ts')).toContain('▮▮▮▮▮▮')
+  expect(rowWith(t, '/up.ts')).toContain('▮▮▮▮▯▯')
+  await text.unmount()
+})
+
+test('files changed: o calls openInEditor on a press only, for the file that was selected', async ($, on) => {
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed: ['src/up.ts', 'src/rl.ts'] }), { ...ART_UI, artifactOpen: '' })
+  const w = runWorld(on)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    await ui.drawn()
+    expect(w.runs).toEqual([])
+    await ui.unmount()
+  }
+  const ui = await mount($, 'terminal', 62, true)
+  expect((await drawnRows(ui)).some(r => r.includes('o: open'))).toBe(false)
+  await ui.press({ key: 'file-0' })
+  expect(w.runs).toEqual([])
+  expect((await drawnRows(ui)).some(r => r.includes('o: open   c: copy path'))).toBe(true)
+  await ui.press({ key: 'act-o-file-0' })
+  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/src/rl.ts']])
+  await ui.unmount()
+})
+
+test('p: page opens the artifact page', async ($, on) => {
+  const stored = seed(on, tl([art('document', 'plan', { ref: 'docs/plan.md' })]), ART_UI)
+  const ui = await mount($, 'terminal')
+  await ui.press({ key: 'act-p-document:plan' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'artifact', id: 'document:plan' })
+  await ui.unmount()
+})
+
+const LONG_TITLE = 'Rate limit design: a token bucket for each API key, with the burst case and the three callers that change'
+const LONG_REF = 'C:/Users/aaron/Documents/GitHub/mission-control-claude-mod/docs/superpowers/plans/2026-11-15-a-very-long-plan-name.md'
+const LONG_SUMMARY = 'Why the limiter moves before auth, how the bucket is keyed, what the 429 reply carries, and the three callers that change. Then the follow-up work.'
+const PAGE_ART = art('document', LONG_TITLE, { ref: LONG_REF, summary: LONG_SUMMARY, stepId: 's9', count: 2, updatedAt: NOW - 540_000 })
+
+test('the artifact page shows everything and never ends a line in …', async ($, on) => {
+  seed(on, tl([PAGE_ART, art('link', 'PR', { ref: 'x' })], { steps: [step('s9', 9, 'Write the plan')] }), { ...ART_UI, page: { kind: 'artifact', id: PAGE_ART.id } })
+  for (const surface of SURFACES) {
+    for (const columns of [62, 40, 32]) {
+      const ui = await mount($, surface, columns)
+      const rows = await drawnRows(ui)
+      for (const r of rows) {
+        expect([surface, columns, r, r.length <= columns]).toEqual([surface, columns, r, true])
+        expect([surface, columns, r, r.trimEnd().endsWith('…')]).toEqual([surface, columns, r, false])
+      }
+      // wrapped in full: every word of the title, the ref and the summary is on the page
+      const flat = rows.join('').replace(/\s+/g, '')
+      expect(flat).toContain(LONG_TITLE.replace(/\s+/g, ''))
+      expect(flat).toContain(LONG_REF.replace(/\s+/g, ''))
+      expect(flat).toContain(LONG_SUMMARY.replace(/\s+/g, ''))
+      await ui.unmount()
+    }
+  }
+})
+
+test('the artifact page: kind, made, path, step it came from, and o: open  c: copy  g: chat  b: back', async ($, on) => {
+  const a = art('document', 'Plan', { ref: 'docs/plan.md', summary: 'The plan.', stepId: 's9', updatedAt: NOW - 540_000 })
+  seed(on, tl([a, art('link', 'PR', { ref: 'x' })], { steps: [step('s9', 9, 'Write the plan')] }), { ...ART_UI, page: { kind: 'artifact', id: a.id } })
+  const ui = await mount($, 'terminal', 62, true)
+  const rows = await drawnRows(ui)
+  expect(rowWith(rows, 'TITLE')).toContain('Plan')
+  expect(rowWith(rows, 'KIND')).toContain('▤ doc')
+  expect([colOf(rowWith(rows, 'KIND'), 'made'), colOf(rowWith(rows, 'KIND'), '9m ago')]).toEqual([38, 50])
+  expect(rowWith(rows, 'PATH')).toContain('docs/plan.md')
+  expect(rowWith(rows, 'MADE BY')).toContain('▸ step 9  Write')
+  expect(rowWith(rows, 'o: open').trim()).toBe('o: open   c: copy   g: chat   b: back')
+  await ui.unmount()
+})
+
+test('the artifact page: o opens a file in the editor and a link in the opener, on a press only; c copies the ref', async ($, on) => {
+  const doc = art('document', 'Plan', { ref: 'docs/plan.md' })
+  const pg = art('page', 'Design', { ref: 'claude.ai/artifact/x' })
+  const stored = seed(on, tl([doc, pg]), { ...ART_UI, page: { kind: 'artifact', id: doc.id } })
+  const w = runWorld(on)
+  const ui = await mount($, 'terminal')
+  await ui.drawn()
+  expect(w.runs).toEqual([])
+  await ui.press({ key: 'artifact-page-open' })
+  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/docs/plan.md']])
+  await ui.press({ key: 'artifact-page-copy' })
+  expect(w.copies).toEqual(['docs/plan.md'])
+  await ui.unmount()
+  stored.set('ui', { ...ART_UI, page: { kind: 'artifact', id: pg.id } })
+  w.runs.length = 0
+  const link = await mount($, 'terminal')
+  await link.press({ key: 'artifact-page-open' })
+  expect(w.runs[0]).toEqual(['cmd', '/d', '/c', 'start', '', 'https://claude.ai/artifact/x'])
+  await link.unmount()
+})
+
+test('an artifact page for an artifact that is gone says so', async ($, on) => {
+  seed(on, tl([art('link', 'PR', { ref: 'x' })]), { ...ART_UI, page: { kind: 'artifact', id: 'nope' } })
+  const ui = await mount($, 'terminal')
+  expect((await drawnRows(ui)).join('\n')).toContain('This artifact is gone.')
+  await ui.unmount()
 })

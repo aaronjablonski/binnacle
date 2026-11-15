@@ -122,7 +122,8 @@ const rowAt = (rows: string[], text: string): number => rows.findIndex(r => r.in
 
 // ---------- the toggle ----------
 
-test('/mc strip closes the pane, writes ui.strip and the band draws the strip rows with the compact line under them', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: /mc strip closes the pane, writes ui.strip and the band draws the strip rows with the compact line under them', { options: { look: 'text' } }, async ($, on) => {
   const w = world(on, BUSY)
   await run($, '')
   expect(uiOf(w).paneOpen).toBe(true)
@@ -180,7 +181,8 @@ test('plain /mc and /mc 1-5 turn the strip off and open the pane', async ($, on)
   expect((await bandRows($, 110)).length).toBe(1)
 })
 
-test('/mc slim and /mc strip do not fight: the last one wins', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: /mc slim and /mc strip do not fight: the last one wins', { options: { look: 'text' } }, async ($, on) => {
   const w = world(on, BUSY)
   await run($, 'slim')
   expect(w.opened[0]).toMatchObject({ columns: 28 })
@@ -215,7 +217,8 @@ test('/mc close while the strip is on leaves the strip on: close is about the pa
 // ---------- fitting ----------
 
 for (const cols of [96, 80, 62]) {
-  test(`every strip row fits bodyColumns at ${cols}`, async ($, on) => {
+  // LOOK TEST (edited for Rich): the text strip's compartments; the rich strip is tested in rich2.test.tsx.
+  test(`text form: every strip row fits bodyColumns at ${cols}`, { options: { look: 'text' } }, async ($, on) => {
     world(on, BUSY, { ...initialUi, strip: true })
     for (const surface of SURFACES) {
       const rows = await bandRows($, cols, 20, surface)
@@ -322,7 +325,8 @@ test('the initial ui has strip false', () => {
   expect(initialUi.strip).toBe(false)
 })
 
-test('the strip draws even with nothing to say, where the normal band passes', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the strip draws even with nothing to say, where the normal band passes', { options: { look: 'text' } }, async ($, on) => {
   world(on, empty, { ...initialUi, strip: true })
   const rows = await bandRows($, 110)
   expect(rows[0]!.startsWith('┏ FOCUS')).toBe(true)
@@ -389,7 +393,8 @@ const COMPARTMENTS: [number, number[], string[]][] = [
 ]
 
 for (const [cols, at, labels] of COMPARTMENTS) {
-  test(`at ${cols} columns the strip is ${at.length} compartments starting at ${at.join(', ')}, none wider than the band, no cut inside a word`, async ($, on) => {
+  // LOOK TEST (edited for Rich): the text strip's compartments; the rich strip is tested in rich2.test.tsx.
+  test(`text form: at ${cols} columns the strip is ${at.length} compartments starting at ${at.join(', ')}, none wider than the band, no cut inside a word`, { options: { look: 'text' } }, async ($, on) => {
     world(on, WIDE, { ...initialUi, strip: true })
     for (const surface of SURFACES) {
       const rows = await bandRows($, cols, 20, surface)
@@ -404,7 +409,8 @@ for (const [cols, at, labels] of COMPARTMENTS) {
   })
 }
 
-test('at 150 the text takes the room it has: names and arguments are not cut', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: at 150 the text takes the room it has: names and arguments are not cut', { options: { look: 'text' } }, async ($, on) => {
   world(on, WIDE, { ...initialUi, strip: true })
   const rows = await bandRows($, 150)
   expect(rows.some(r => r.includes('find every caller of stepRow'))).toBe(true)
@@ -415,7 +421,8 @@ test('at 150 the text takes the room it has: names and arguments are not cut', a
   expect(rows.filter(r => r.slice(latest).match(/^ {2}[✖▸✓]/)).length).toBe(2)
 })
 
-test('at 190 BUDGET shows each window with its reset time, and NOW gives up its own BUDGET row', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: at 190 BUDGET shows each window with its reset time, and NOW gives up its own BUDGET row', { options: { look: 'text' } }, async ($, on) => {
   world(on, WIDE, { ...initialUi, strip: true })
   const rows = await bandRows($, 190)
   const budget = colOf(rows[0], '┌ BUDGET')
@@ -427,7 +434,8 @@ test('at 190 BUDGET shows each window with its reset time, and NOW gives up its 
   expect(rows.some(r => r.startsWith('┗ BUDGET') || r.startsWith('┃ BUDGET'))).toBe(false)
 })
 
-test('at 190 with something waiting, NEEDS YOU takes the second compartment in place of TASKS', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: at 190 with something waiting, NEEDS YOU takes the second compartment in place of TASKS', { options: { look: 'text' } }, async ($, on) => {
   const asked: Step = step('w1', 4, 'Bash rm -rf build', 'running', { tool: 'Bash', startedAt: NOW - 60_000, asking: NOW - 30_000 })
   world(on, { ...WIDE, steps: [...WIDE.steps, asked] }, { ...initialUi, strip: true })
   const rows = await bandRows($, 190)
@@ -436,7 +444,8 @@ test('at 190 with something waiting, NEEDS YOU takes the second compartment in p
   for (const r of rows) expect(r.length <= 190).toBe(true)
 })
 
-test('compartments drop from the right where the width runs out: at 180 BUDGET goes and NOW keeps its own BUDGET row', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: compartments drop from the right where the width runs out: at 180 BUDGET goes and NOW keeps its own BUDGET row', { options: { look: 'text' } }, async ($, on) => {
   world(on, WIDE, { ...initialUi, strip: true })
   const at180 = await bandRows($, 180)
   // Five need 180 and four gaps of 2: 188. Four: NOW 50 | TASKS 27 | AGENTS 47 | LATEST 47, gaps of 3.

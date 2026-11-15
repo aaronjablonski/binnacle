@@ -163,7 +163,8 @@ const GFX22 = /^[▮▯]{22}$/
 const SPARK22 = /^[▁▂▃▄▅▆▇█]{22}$/
 const topOf = (rows: string[]): number => rows.findIndex(r => r.startsWith('┏ FOCUS'))
 
-test('Now at 62: the deck comes first in the spec order, then the sections, each label on a ┌ at column 0', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: Now at 62: the deck comes first in the spec order, then the sections, each label on a ┌ at column 0', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -183,7 +184,8 @@ test('Now at 62: the deck comes first in the spec order, then the sections, each
   }
 })
 
-test('the deck is held by twin brackets: ┏ ┃ ┗ at 0 and ┓ ┃ ┛ on the last column, corners in the accent and rails subtle', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the deck is held by twin brackets: ┏ ┃ ┗ at 0 and ┓ ┃ ┛ on the last column, corners in the accent and rails subtle', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -203,7 +205,8 @@ test('the deck is held by twin brackets: ┏ ┃ ┗ at 0 and ┓ ┃ ┛ on the
   }
 })
 
-test('FOCUS is bold at 14 with the age at 50, and NEXT sits at 14', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: FOCUS is bold at 14 with the age at 50, and NEXT sits at 14', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -218,7 +221,8 @@ test('FOCUS is bold at 14 with the age at 50, and NEXT sits at 14', async ($, on
   }
 })
 
-test('CREW draws the lead and every agent as pods at a pitch of 3, with live and failed counts', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: CREW draws the lead and every agent as pods at a pitch of 3, with live and failed counts', { options: { look: 'text' } }, async ($, on) => {
   const failed = { ...agent('a3', 'Explore', 'broke', '', 'error'), startedAt: NOW - 30_000 }
   seed(on, busy({ agents: { ...busy().agents, a3: failed } }))
   for (const surface of SURFACES) {
@@ -236,7 +240,8 @@ test('CREW draws the lead and every agent as pods at a pitch of 3, with live and
   }
 })
 
-test('working pods pulse on the clock: bold on an even second, plain on an odd one', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: working pods pulse on the clock: bold on an even second, plain on an odd one', { options: { look: 'text' } }, async ($, on) => {
   const { clock } = world(on, busy())
   const ui = await mount($, 'terminal')
   const hull = (await ui.findAll({ type: 'Text' })).find(f => f.text === '◉')
@@ -250,7 +255,8 @@ test('working pods pulse on the clock: bold on an even second, plain on an odd o
   await again.unmount()
 })
 
-test('the lead working is drawn in the claude colour', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the lead working is drawn in the claude colour', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   const ui = await mount($, 'terminal')
   const lead = (await ui.findAll({ type: 'Text' })).find(f => f.text === '◈')
@@ -258,7 +264,8 @@ test('the lead working is drawn in the claude colour', async ($, on) => {
   await ui.unmount()
 })
 
-test('TASKS is pips at 14, done/total at 38 and the elapsed time at 50', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: TASKS is pips at 14, done/total at 38 and the elapsed time at 50', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -272,7 +279,8 @@ test('TASKS is pips at 14, done/total at 38 and the elapsed time at 50', async (
   }
 })
 
-test('STEPS is a 22-level trace at 14, the count at 38 and the errors at 50', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: STEPS is a 22-level trace at 14, the count at 38 and the errors at 50', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -286,7 +294,8 @@ test('STEPS is a 22-level trace at 14, the count at 38 and the errors at 50', as
   }
 })
 
-test('BUDGET is three dials on 14, 26 and 38; the 5H dial goes warning at 78 %', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: BUDGET is three dials on 14, 26 and 38; the 5H dial goes warning at 78 %', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -301,7 +310,8 @@ test('BUDGET is three dials on 14, 26 and 38; the 5H dial goes warning at 78 %',
   }
 })
 
-test('a window at 78 % is a ◕ dial in warning', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: a window at 78 % is a ◕ dial in warning', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy({ budget: { ...BUDGET, windows: [{ name: 'five_hour', pct: 78 }, { name: 'seven_day', pct: 22 }] } }))
   const hot = await mount($, 'terminal')
   const rows = await rowsOf(hot)
@@ -311,7 +321,8 @@ test('a window at 78 % is a ◕ dial in warning', async ($, on) => {
   await hot.unmount()
 })
 
-test('at 50 the aside goes, at 40 the value goes too, and at 32 the crew goes tight; every deck row ends in a rail on the last column', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: at 50 the aside goes, at 40 the value goes too, and at 32 the crew goes tight; every deck row ends in a rail on the last column', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     for (const cols of [50, 40, 32]) {
@@ -358,7 +369,8 @@ test('AGENTS lists the live agents only, a hull each, with tokens at 38 and time
   }
 })
 
-test('an empty session says Idle in FOCUS and draws the deck but no list section', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: an empty session says Idle in FOCUS and draws the deck but no list section', { options: { look: 'text' } }, async ($, on) => {
   seed(on, empty)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -371,7 +383,8 @@ test('an empty session says Idle in FOCUS and draws the deck but no list section
   }
 })
 
-test('with no update, FOCUS is the in-progress task, and with no task the step in flight', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: with no update, FOCUS is the in-progress task, and with no task the step in flight', { options: { look: 'text' } }, async ($, on) => {
   const stored = seed(on, empty)
   for (const surface of SURFACES) {
     reset(stored, { ...empty, tasks: [task('1', 'Add limiter', 'in_progress', { activeForm: 'Adding the limiter' })] })
@@ -407,7 +420,8 @@ test('pressing a kept row opens its step; pressing CREW, TASKS or STEPS opens th
 })
 
 // The budget view is ephemeral pane state (like onscreen.ts), not ui state.
-test('pressing the BUDGET row opens the budget view in place; its head row goes back', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: pressing the BUDGET row opens the budget view in place; its head row goes back', { options: { look: 'text' } }, async ($, on) => {
   const modelled = (id: string): AgentRow => ({ ...agent(id, 'Explore', 'x', 'y'), model: 'claude-sonnet-5-5', tokensIn: 10_000, tokensOut: 0 })
   seed(on, busy({ agents: { main, a1: modelled('a1') } }))
   for (const surface of SURFACES) {
@@ -430,7 +444,8 @@ test('pressing the BUDGET row opens the budget view in place; its head row goes 
 })
 
 
-test('LATEST is the running step and the newest error, with agent at 38 and time at 50', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: LATEST is the running step and the newest error, with agent at 38 and time at 50', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -486,7 +501,8 @@ test('with 3 kept steps the explanation line is gone', async ($, on) => {
   }
 })
 
-test('NOTES shows two lines, the newest first, from column 4 behind a dim ·', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: NOTES shows two lines, the newest first, from column 4 behind a dim ·', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -657,7 +673,7 @@ test('session.start without autoOpen opens nothing, and registers /mc as immedia
   await start($)
 
   expect(opened.length).toBe(0)
-  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip]' })
+  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
 })
 
 test('the clock invalidates only while a subagent or step runs, and main never counts', async ($, on) => {
@@ -718,7 +734,8 @@ test('the tab bar has no separators and draws the open tab bold in the accent, t
 const mountInline = ($: Engine, surface: (typeof SURFACES)[number], columns: number, isFocused: boolean) =>
   $.ui.mount({ ...PANE(columns), props: { ...PANE(columns).props, isFocused, placement: 'inline' }, surface })
 
-test('the strip at 96: a left-only deck on cells 1 to 4 beside AGENTS and LATEST, in 11 rows or fewer', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the strip at 96: a left-only deck on cells 1 to 4 beside AGENTS and LATEST, in 11 rows or fewer', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy())
   for (const surface of SURFACES) {
     const ui = await mountInline($, surface, 96, true)
@@ -754,7 +771,8 @@ test('the strip at 96: a left-only deck on cells 1 to 4 beside AGENTS and LATEST
   }
 })
 
-test('the strip says how many need you on its NEXT row', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the strip says how many need you on its NEXT row', { options: { look: 'text' } }, async ($, on) => {
   seed(on, busy({ steps: [step('s3', 3, 'Edit mod/hooks/views/timeline.tsx', 'running', { startedAt: NOW - 2000, asking: NOW - 30_000 })] }))
   const ui = await mountInline($, 'terminal', 96, false)
   const rows = screen(await ui.drawn())
@@ -764,7 +782,8 @@ test('the strip says how many need you on its NEXT row', async ($, on) => {
 })
 
 
-test('the strip with more than two live agents folds the rest into + n more', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the strip with more than two live agents folds the rest into + n more', { options: { look: 'text' } }, async ($, on) => {
   const agents = { ...busy().agents, a3: agent('a3', 'Explore', 'third one', '') }
   seed(on, busy({ agents }))
   for (const surface of SURFACES) {
@@ -795,7 +814,8 @@ test('focused, every row of Now, footer included, fits 32 and 40 columns', async
   }
 })
 
-test('at 32 a crew too wide for the gauge goes tight: hulls with no gaps', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: at 32 a crew too wide for the gauge goes tight: hulls with no gaps', { options: { look: 'text' } }, async ($, on) => {
   const agents: Record<string, AgentRow> = { main }
   for (let i = 1; i <= 6; i++) agents[`a${i}`] = agent(`a${i}`, 'Explore', `scout ${i}`, '')
   seed(on, busy({ agents }))

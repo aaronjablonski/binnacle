@@ -35,6 +35,12 @@
       "description": "The editor o: open runs as <editor> -r -g <path>:<line> (VS Code, Cursor and Windsurf read this). When it cannot run, the path is copied instead.",
       "default": "code"
     },
+    "doneSound": {
+      "type": "boolean",
+      "title": "Done sound",
+      "description": "Also play a short sound when the done notification is raised (a main turn over 60 seconds ended). macOS only; off by default.",
+      "default": false
+    },
     "agentLimitMin": {
       "type": "number",
       "title": "Agent time limit (minutes)",

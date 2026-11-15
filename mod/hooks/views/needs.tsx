@@ -1,17 +1,20 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, Timeline, UiState } from '../../types'
+import type { AgentRow, NotifyMode, Timeline, UiState } from '../../types'
+import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '../model/meter'
+import type { RunLimits } from '../model/meter'
 import { dismissKey, problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
 import { elapsed, fit, pillRun, promptTitle, shortPaths, wordFit } from './fit'
+import { lintelSpec, sillSpec } from './richkit'
 import { showInChat } from './find'
 import { argOf, laid } from './lay'
 import type { Placed } from './lay'
 import { openStepInline } from './openstep'
-import { viewAgent } from './parts'
+import { inst, viewAgent } from './parts'
 import type { ViewCtx } from './shell'
-import { C, COL, podOf, RAIL, tableCols } from './style'
+import { C, COL, DECK, podOf, RAIL, spriteOf, tableCols } from './style'
 import type { Pod, PodState } from './style'
 
 /** An ask counts as "waiting on you" only once it has run this long: in auto mode the classifier settles most within seconds. */
@@ -27,13 +30,29 @@ const SPAWNING_TOOLS = new Set(['Agent', 'Workflow'])
 /** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
 
-export type NotifyMode = 'off' | 'waits' | 'all'
+export type { NotifyMode }
+
+// The options the clock's tick and `needsYou` read: the long-run limits and
+// the done sound. Module state set once by `configureNeeds` at register time
+// (a render hook may not read options, and the shell's tick passes only
+// `notify`). A reload starts them over from the options again.
+let limits: RunLimits = runLimits(undefined)
+let doneSound = false
+
+/** Sets the limits `needsYou` passes to `problems` and whether a done notification also plays a sound. Register time. */
+export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unknown; doneSound?: unknown } | undefined): void {
+  limits = runLimits(o)
+  doneSound = o?.doneSound === true
+}
+
+/** The long-run limits in force (minutes; 0 is off). */
+export const needsLimits = (): Required<RunLimits> => runLimits(limits)
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
 /** What needs the person: the problems not dismissed, with an ask shown only after ASK_MS. */
 export function needsYou(t: Timeline, u: UiState, now: number): Problem[] {
-  return problems(t, now, u.dismissed).filter(p => p.kind !== 'asking' || now - p.since >= ASK_MS)
+  return problems(t, now, u.dismissed, limits).filter(p => p.kind !== 'asking' || now - p.since >= ASK_MS)
 }
 
 /** One line for a problem: the kind's wording around its label. */
@@ -48,8 +67,48 @@ export function problemText(p: Problem): string {
       return `${label} looped ×${p.count ?? 3}`
     case 'stalled':
       return `${label} stalled`
+    case 'long-run':
+      return `${label} long run`
     default:
       return `turn failed: ${label}`
+  }
+}
+
+/** The kind as a label-column word (ten wide at most), for the NEEDS YOU rows and the band: `PERMISSION`, `LONG RUN`, `STALLED`. */
+export function kindLabel(p: Problem): string {
+  switch (p.kind) {
+    case 'asking':
+      return 'PERMISSION'
+    case 'long-run':
+      return 'LONG RUN'
+    case 'stalled':
+      return 'STALLED'
+    case 'repeat':
+      return 'FAILED'
+    case 'loop':
+      return 'LOOP'
+    default:
+      return 'TURN FAILED'
+  }
+}
+
+/** The detail that sits beside the kind: how long it has run against its limit, how quiet it is, how often it failed. */
+export function needDetail(p: Problem, now: number): string {
+  switch (p.kind) {
+    case 'asking':
+      return `asked ${elapsed(p.since, now)} ago`
+    case 'long-run': {
+      const start = p.since - (p.limitMs ?? 0)
+      return `${elapsed(start, now)} of ${Math.round((p.limitMs ?? 0) / 60_000)}m`
+    }
+    case 'stalled':
+      return `quiet ${elapsed(p.since, now)}`
+    case 'repeat':
+      return `failed ×${p.count ?? 2}`
+    case 'loop':
+      return `looped ×${p.count ?? 3}`
+    default:
+      return 'failed'
   }
 }
 
@@ -94,7 +153,7 @@ export function moveNeed($: EngineInterface, delta: 1 | -1, count: number): void
 /** The glyph and its colour for a kind: `?` and `▲` wait on the person, a failure is `✖`. */
 export function needGlyph(p: Problem): { glyph: string; color: string } {
   if (p.kind === 'asking') return { glyph: '?', color: C.wait }
-  if (p.kind === 'stalled') return { glyph: '▲', color: C.wait }
+  if (p.kind === 'stalled' || p.kind === 'long-run') return { glyph: '▲', color: C.wait }
   return { glyph: '✖', color: C.fail }
 }
 
@@ -109,6 +168,8 @@ export function needWhy(p: Problem): string {
       return `looped ${p.count ?? 3}×`
     case 'stalled':
       return 'stalled'
+    case 'long-run':
+      return 'long run'
     default:
       return 'failed'
   }
@@ -264,6 +325,130 @@ function bracket(ctx: ViewCtx, $: EngineInterface, pieces: Piece[]): RenderEleme
  * takes the pane's focus. Null when nothing waits.
  */
 export function needsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  return ctx.look === 'rich' ? needsFrame(ctx, $) : needsBracket(ctx, $)
+}
+
+/** The rows the rich NEEDS YOU frame takes for `count` things waiting: lintel, the opened item (4), the others, a `+ n more` row, sill. */
+export function needsFrameRows(count: number): number {
+  if (count <= 0) return 0
+  const shown = Math.min(count, MAX_LIST)
+  return 2 + 4 + (shown - 1) + (count > shown ? 1 : 0)
+}
+
+/** The character a problem is drawn with: the asker, in the state its trouble names. */
+function askerOf(t: Timeline, p: Problem, now: number) {
+  const a = t.agents[p.agent]
+  const state: PodState = p.kind === 'asking' ? 'waiting' : p.kind === 'stalled' ? 'stalled' : p.kind === 'long-run' ? 'working' : 'failed'
+  return spriteOf({ id: p.agent, type: a?.type ?? p.agent, status: a?.status ?? 'running' }, now, state)
+}
+
+/**
+ * NEEDS YOU in the rich look (spec "Now, waiting"): an amber frame (lintel
+ * with the `NEEDS YOU n` pill and the oldest wait, sill) holding the opened
+ * item with its asker's large character (`?` for an ask), its kind, what it
+ * asks and `g: chat  x: dismiss  n: next`; the others one row each with the
+ * kind (`LONG RUN`, `STALLED`) in the label column. Keys are the text form's.
+ */
+function needsFrame(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { t, u, now, cols } = ctx
+  const list = needsYou(t, u, now)
+  if (list.length === 0) return null
+  const shown = list.slice(0, MAX_LIST)
+  const at = openedNeed(shown.length)
+  const oldest = Math.min(...list.map(p => p.since))
+  const nameEnd = cols >= 50 ? DECK.value - 2 : cols
+  const detailAt = cols >= 50 ? DECK.value : undefined
+  const ageAt = cols >= 62 ? DECK.aside : undefined
+  const first = shown[at]!
+  const els: RenderElement[] = [
+    inst(ctx, $, lintelSpec('needs-lintel', cols, { tone: 'warning', pill: `NEEDS YOU ${list.length}`, right: `oldest ${elapsed(oldest, now)}` })),
+  ]
+
+  const line = (p: Problem, bold: boolean): Placed[] => {
+    const segs: Placed[] = [{ col: DECK.gauge, text: wordFit(needName(t, p), Math.max(1, nameEnd - DECK.gauge)), ...(bold ? { bold: true } : {}) }]
+    const tint = p.kind === 'failed-turn' || p.kind === 'repeat' || p.kind === 'loop' ? { color: C.fail } : { color: C.wait }
+    if (detailAt !== undefined) {
+      const room = (ageAt ?? cols) - detailAt - 1
+      segs.push({ col: detailAt, text: wordFit(bold ? kindWord(p) : needDetail(p, now), room), ...tint })
+    }
+    if (ageAt !== undefined && bold) segs.push({ col: ageAt, text: wordFit(elapsed(p.since, now), cols - ageAt), ...tint })
+    return segs.filter(x => x.text !== '')
+  }
+
+  // The opened item: the character, the line, what it asks, the actions.
+  const asker = askerOf(t, first, now)
+  const chat = chatFor($, first)
+  const actions: { hotkey: string; label: string; key: string; onPress: () => void | Promise<void> }[] = []
+  if (chat !== undefined) actions.push({ hotkey: 'g', label: 'chat', key: `chat-${first.key}`, onPress: chat })
+  actions.push({ hotkey: 'x', label: 'dismiss', key: `dismiss-${first.key}`, onPress: () => dismissNeed($, first) })
+  if (shown.length > 1) actions.push({ hotkey: 'n', label: 'next', key: 'need-next', onPress: () => moveNeed($, 1, shown.length) })
+  const kept: typeof actions = []
+  let used = DECK.gauge
+  for (const a of actions) {
+    const w = (kept.length > 0 ? 3 : 0) + a.hotkey.length + 2 + a.label.length
+    if (used + w > cols) break
+    kept.push(a)
+    used += w
+  }
+  const detail = first.kind === 'asking' ? shortPaths(oneLine(first.label)) : shortPaths(problemText(first))
+  els.push(
+    <Box key="need-open" flexDirection="row">
+      <Box key="need-who" width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
+        {inst(ctx, $, { key: 'asker', ...asker })}
+      </Box>
+      <Box key="need-lines" flexDirection="column">
+        <Button key={`open-${first.key}`} plain onPress={() => openProblem($, first)} autoFocus={at === 0 ? true : undefined}>
+          {laid(line(first, true), DECK.gauge, ctx.e, $, `open-${first.key}-`)}
+        </Button>
+        <Text key="need-detail" wrap="truncate-end">
+          {wordFit(detail, Math.max(1, cols - DECK.gauge))}
+        </Text>
+        <Box key="need-actions" flexDirection="row" columnGap={3}>
+          {kept.map(a => (
+            <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
+              {a.label}
+            </Button>
+          ))}
+        </Box>
+      </Box>
+    </Box>,
+  )
+  // The rest: one row each, the kind in the label column.
+  shown.forEach((p, i) => {
+    if (i === at) return
+    els.push(
+      <Box key={`need-row-${p.key}`} flexDirection="row">
+        <Box key={`need-kind-${p.key}`} width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
+          <Text key={`kind-${p.key}`} dimColor wrap="truncate-end">
+            {kindLabel(p)}
+          </Text>
+        </Box>
+        <Button key={`open-${p.key}`} plain onPress={() => openProblem($, p)} autoFocus={i === 0 ? true : undefined}>
+          {laid(line(p, false), DECK.gauge, ctx.e, $, `open-${p.key}-`)}
+        </Button>
+      </Box>,
+    )
+  })
+  if (list.length > shown.length) {
+    els.push(
+      <Text key="need-more" dimColor wrap="truncate-end">
+        {`  + ${list.length - shown.length} more`}
+      </Text>,
+    )
+  }
+  els.push(inst(ctx, $, sillSpec('needs-sill', cols, { tone: 'warning' })))
+  return (
+    <Box key="needs" flexDirection="column">
+      {els}
+    </Box>
+  )
+}
+
+/** The word beside the opened item's name: its kind in lower case (`permission`, `long run`). */
+const kindWord = (p: Problem): string => kindLabel(p).toLowerCase()
+
+function needsBracket(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
   const { Button, Box } = $.ui.resolve(ctx.e)
   const { t, u, now, cols } = ctx
   const list = needsYou(t, u, now)
@@ -360,6 +545,29 @@ export function needsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | 
   return bracket(ctx, $, pieces)
 }
 
+/** A main turn this long or longer, ended normally, raises the done notification. */
+export const DONE_MS = 60_000
+
+/** A span as `45s`, `6m 12s` or `1h 04m`. */
+function span(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  if (total < 60) return `${total}s`
+  const m = Math.floor(total / 60)
+  if (m < 60) return `${m}m ${String(total % 60).padStart(2, '0')}s`
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
+}
+
+/** `Done in 6m 12s: the focus. 3 tasks closed, 1 error.` */
+export function doneText(t: Timeline, ms: number): string {
+  const focus = summary(t).focus
+  const turn = thisTurn(t)
+  const bits: string[] = []
+  if (turn !== undefined && turn.tasksClosed.length > 0) bits.push(`${turn.tasksClosed.length} ${turn.tasksClosed.length === 1 ? 'task' : 'tasks'} closed`)
+  if (turn !== undefined && turn.errors > 0) bits.push(`${turn.errors} ${turn.errors === 1 ? 'error' : 'errors'}`)
+  const head = `Done in ${span(ms)}${focus !== undefined ? `: ${wordFit(oneLine(focus), 80)}` : ''}`
+  return bits.length > 0 ? `${head}. ${bits.join(', ')}.` : head
+}
+
 /**
  * The clock's one call: raises a native notification once per step id for an
  * ask that has waited ASK_MS on Agent or Workflow and NOTIFY_ASK_MS on any
@@ -374,9 +582,19 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
     const u = await readUi($)
     const now = await $.clock.now()
     const mode = notify ?? 'waits'
+    // While the session is idle and the cache is warm, the lintel counts it down: one redraw a second.
+    const warm = cacheLine(t).warmUntil
+    if (warm !== undefined && warm > now && turnClock(t, now) === undefined) {
+      try {
+        $.ui.invalidate('ui.render')
+      } catch (err) {
+        debug($, `invalidate failed: ${errText(err)}`)
+      }
+    }
 
     const notes: { id: string; text: string }[] = []
-    if (mode !== 'off') {
+    let doneId: string | undefined
+    if (notifies(mode, 'wait')) {
       for (const p of needsYou(t, u, now)) {
         const id = p.stepId ?? p.key
         if (u.notified.includes(id)) continue
@@ -384,8 +602,20 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
           const tool = t.steps.find(s => s.id === p.stepId)?.tool
           const wait = tool !== undefined && SPAWNING_TOOLS.has(tool) ? ASK_MS : NOTIFY_ASK_MS
           if (now - p.since >= wait) notes.push({ id, text: `Waiting on you: ${oneLine(p.label)}` })
-        } else if (p.kind === 'failed-turn' && mode === 'all' && now - p.since <= FRESH_MS) {
+        } else if (p.kind === 'failed-turn' && notifies(mode, 'failed') && now - p.since <= FRESH_MS) {
           notes.push({ id, text: `Turn failed: ${oneLine(p.label)}` })
+        }
+      }
+    }
+    // One notification when a main turn of a minute or more ended normally.
+    if (notifies(mode, 'done')) {
+      const d = doneTurn(t, DONE_MS - 1)
+      const endedAt = d?.turn.endedAt
+      if (d !== undefined && endedAt !== undefined && now - endedAt <= FRESH_MS) {
+        const id = `done:${d.turn.id}`
+        if (!u.notified.includes(id)) {
+          doneId = id
+          notes.push({ id, text: doneText(t, d.ms) })
         }
       }
     }
@@ -411,6 +641,13 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
         await $.ui.notify(n.text)
       } catch (err) {
         debug($, `notify failed: ${errText(err)}`)
+      }
+      if (n.id === doneId && doneSound) {
+        try {
+          await $.audio.play({ asset: 'sounds/done.wav' })
+        } catch (err) {
+          debug($, `done sound failed: ${errText(err)}`)
+        }
       }
     }
     for (const x of toasts) $.ui.toast(x.text)

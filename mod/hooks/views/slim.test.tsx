@@ -114,7 +114,8 @@ function endsInWord(r: string): boolean {
   return WORDS.has(bare) || /^\d+%$/.test(bare)
 }
 
-test('slim at 22: a left-only bracket holds the state pill and the focus wrapped to 2 lines, and every section label is drawn below it', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: slim at 22: a left-only bracket holds the state pill and the focus wrapped to 2 lines, and every section label is drawn below it', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy())
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 22)
@@ -140,7 +141,8 @@ test('slim at 22: a left-only bracket holds the state pill and the focus wrapped
   }
 })
 
-test('the slim pill is WORKING in the accent while nothing waits, with the bracket in the accent', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the slim pill is WORKING in the accent while nothing waits, with the bracket in the accent', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy({ steps: [step('s1', 1, 'Bash npm test -- timeline', 'error', { endedAt: NOW - 4000 })] }))
   const ui = await mount($, 'terminal', 24)
   const rows = await rowsOf(ui)
@@ -151,7 +153,8 @@ test('the slim pill is WORKING in the accent while nothing waits, with the brack
   await ui.unmount()
 })
 
-test('slim grid: a label row has ┌ at 0, the label at 2, the value at 14 and › in the last column', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: slim grid: a label row has ┌ at 0, the label at 2, the value at 14 and › in the last column', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy())
   for (const surface of SURFACES) {
     for (const cols of [24, 28]) {
@@ -184,7 +187,8 @@ test('slim grid: a label row has ┌ at 0, the label at 2, the value at 14 and �
   }
 })
 
-test('slim CREW is one row of pods and the live names with their hulls, at 20, 24 and 28', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: slim CREW is one row of pods and the live names with their hulls, at 20, 24 and 28', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy())
   for (const cols of [20, 24, 28]) {
     const ui = await mount($, 'terminal', cols)
@@ -222,7 +226,8 @@ test('with nothing waiting there is no NEEDS YOU, and the stack starts at CREW u
   await ui.unmount()
 })
 
-test('TASKS shows the pips, then the next task when the current one is the focus, else the current one', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: TASKS shows the pips, then the next task when the current one is the focus, else the current one', { options: { look: 'text' } }, async ($, on) => {
   const stored = world(on, busy())
   const a = await mount($, 'terminal', 28)
   let rows = await rowsOf(a)
@@ -241,7 +246,8 @@ test('TASKS shows the pips, then the next task when the current one is the focus
   await b.unmount()
 })
 
-test('slim pips over the limit are a bar: 10 cells at 20 columns, 22 where they fit', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: slim pips over the limit are a bar: 10 cells at 20 columns, 22 where they fit', { options: { look: 'text' } }, async ($, on) => {
   const tasks = Array.from({ length: 30 }, (_, i) => task(String(i), `Task ${i}`, i < 12 ? 'completed' : 'pending'))
   world(on, busy({ tasks }))
   for (const cols of [20, 24, 28]) {
@@ -253,7 +259,8 @@ test('slim pips over the limit are a bar: 10 cells at 20 columns, 22 where they 
   }
 })
 
-test('CREW lists up to 3 live names, LATEST the newest error and the newest kept step', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: CREW lists up to 3 live names, LATEST the newest error and the newest kept step', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy({ agents: { main, a1: agent('a1', 'find every caller of stepRow'), a2: agent('a2', 'write timeline tests'), a3: agent('a3', 'one'), a4: agent('a4', 'two'), a5: agent('a5', 'old one', 'done') } }))
   const ui = await mount($, 'terminal', 28)
   const rows = await rowsOf(ui)
@@ -271,7 +278,8 @@ test('CREW lists up to 3 live names, LATEST the newest error and the newest kept
   await ui.unmount()
 })
 
-test('an empty session is one idle pill and line and nothing else but a hint', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: an empty session is one idle pill and line and nothing else but a hint', { options: { look: 'text' } }, async ($, on) => {
   world(on, empty)
   const ui = await mount($, 'terminal', 24)
   const rows = await rowsOf(ui)
@@ -284,7 +292,8 @@ test('an empty session is one idle pill and line and nothing else but a hint', a
 })
 
 
-test('slim at 20, 24 and 28: no row is wider than the pane and none ends inside a word', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: slim at 20, 24 and 28: no row is wider than the pane and none ends inside a word', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy())
   for (const surface of SURFACES) {
     for (const cols of [20, 24, 28]) {
@@ -329,7 +338,8 @@ test('NEEDS YOU is first and in warning, its first item focused with g: chat and
   }
 })
 
-test('a name whose first word is wider than the room is dropped, never cut inside the word', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: a name whose first word is wider than the room is dropped, never cut inside the word', { options: { look: 'text' } }, async ($, on) => {
   const long = 'supercalifragilisticexpialidocious'
   world(on, busy({ agents: { main, a1: agent('a1', long), a2: agent('a2', 'write timeline tests') } }))
   const ui = await mount($, 'terminal', 20)
@@ -339,7 +349,8 @@ test('a name whose first word is wider than the room is dropped, never cut insid
   await ui.unmount()
 })
 
-test('a short pane drops whole parts from the bottom: LATEST, then 7D, then the crew names', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: a short pane drops whole parts from the bottom: LATEST, then 7D, then the crew names', { options: { look: 'text' } }, async ($, on) => {
   world(on, busy())
   const rowsAt = async (bodyRows: number): Promise<string[]> => {
     const ui = await mount($, 'terminal', 24, bodyRows)

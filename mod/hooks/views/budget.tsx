@@ -1,16 +1,26 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, Budget, BudgetWindow, Timeline } from '../../types'
+import type { AgentRow, Budget, BudgetWindow, LedgerRow, Timeline } from '../../types'
+import { stamp } from '../model/digest'
+import { ledgerCsv, week } from '../model/ledger'
+import type { LedgerDay } from '../model/ledger'
+import { cacheLine, pace, turnShare } from '../model/meter'
+import type { Pace, PaceRow } from '../model/meter'
 import { budgetOf } from '../model/usage'
-import { apply, debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
-import { bar, clock, elapsed, meter, shortPaths, wordFit } from './fit'
-import { laid } from './lay'
+import { journalRoot } from '../journal'
+import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
+import { bar, clock, elapsed, fit, meter, shortPaths, wordFit } from './fit'
+import { laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { podFor, waitStates } from './needs'
-import { blank, deck, more, section } from './parts'
-import type { DeckCell, DeckRow, ReadoutCell, Run } from './parts'
+import { blank, deck, inst, more, section } from './parts'
+import type { DeckCell, DeckRow, InstSpec, ReadoutCell, Run } from './parts'
+import { Grid } from './raster'
+import type { Ink } from './raster'
+import { barsSpec, beadsSpec, deckRowEl, lintelSpec, sillSpec, stackSpec } from './richkit'
+import type { DeckRowSpec } from './richkit'
 import type { ViewCtx } from './shell'
-import { C, COL, DECK, GRID, tableCols } from './style'
+import { C, COL, DECK, GRID, rateColor, tableCols } from './style'
 
 /** A budget older than this is a restored one: it was toasted (or not) when it arrived. */
 const FRESH_MS = 30_000
@@ -77,13 +87,13 @@ export function modelTotals(t: Timeline): { model: string; tokens: number; agent
   return [...by.values()].sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model))
 }
 
-type Row = { label: string; pct: number; reset?: string; at?: number }
+type Row = { label: string; pct: number; reset?: string; at?: number; key?: string }
 
 function rowsOf(b: Budget, now: number): Row[] {
   const rows: Row[] = []
-  if (b.contextPct !== undefined) rows.push({ label: 'ctx', pct: b.contextPct })
+  if (b.contextPct !== undefined) rows.push({ label: 'ctx', pct: b.contextPct, key: 'context' })
   for (const w of b.windows) {
-    const row: Row = { label: windowName(w.name), pct: w.pct }
+    const row: Row = { label: windowName(w.name), pct: w.pct, key: w.name }
     if (w.resetsAt !== undefined) {
       row.reset = resetText(w.resetsAt, now)
       row.at = w.resetsAt
@@ -115,6 +125,7 @@ export function isBudgetOpen(): boolean {
 /** Opens or closes the budget view, and redraws the pane. Press handlers only. */
 export function setBudgetOpen($: EngineInterface, open: boolean): void {
   budgetOpen = open
+  if (open) void loadLedger($)
   try {
     $.ui.invalidate('ui.render')
   } catch (err) {
@@ -230,6 +241,10 @@ function shareTable(ctx: ViewCtx, $: EngineInterface, label: string, items: Shar
  * slim (under 32) the bracket is the left one only and a `b: back` row leads.
  */
 export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  return ctx.look === 'rich' && ctx.cols >= 38 ? richBudgetView(ctx, $) : textBudgetView(ctx, $)
+}
+
+function textBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Button } = $.ui.resolve(ctx.e)
   const { t, cols, now } = ctx
   const b = t.budget
@@ -254,6 +269,8 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     cells: wide ? [{ col: DECK.value, runs: [{ text: 'used', dim: true }] }, { col: DECK.aside, runs: [{ text: 'resets', dim: true }] }] : [],
   }
   const rows = b !== undefined ? rowsOf(b, now) : []
+  const p = pace(t, now)
+  const cl = cacheLine(t)
   const deckRows: DeckRow[] = [head]
   if (b === undefined || rows.length === 0) {
     deckRows.push({ key: 'budget-none', label: [{ text: 'No reading yet.', dim: true }] })
@@ -269,6 +286,17 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       ]
       if (r.at !== undefined) cells.push({ col: DECK.aside, runs: [{ text: resetClock(r.at, now), dim: true }] })
       deckRows.push({ key: `budget-${r.label}`, label, cells })
+      const pr = r.key !== undefined ? paceFor(p, r.key) : undefined
+      if (pr !== undefined) {
+        deckRows.push({
+          key: `budget-pace-${r.label}`,
+          cells: [
+            { col: DECK.gauge, runs: [{ text: `${perTen(pr.per10)} per 10m`, dim: true }], whole: true },
+            { col: DECK.value, runs: [{ text: fullText(pr), ...(pr.beforeReset === true ? { color: C.wait, bold: true } : { dim: true }) }], whole: true },
+            ...(pr.shortBy !== undefined ? [{ col: DECK.aside, runs: [{ text: `short ${elapsed(0, pr.shortBy)}`, color: C.wait }], whole: true }] : []),
+          ],
+        })
+      }
       continue
     }
     const cells: DeckCell[] = [
@@ -281,6 +309,20 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     if (!inline && r.at !== undefined) {
       deckRows.push({ key: `budget-${r.label}-reset`, cells: [{ col: 8, runs: [{ text: resetText(r.at, now), dim: true }] }] })
     }
+  }
+  if (p.outPerMin !== undefined) {
+    deckRows.push({ key: 'budget-output', label: 'OUTPUT', cells: [{ col: wide ? DECK.gauge : 8, runs: [{ text: `${tokenText(p.outPerMin)}/min`, bold: true }] }] })
+  }
+  if (cl.total > 0) {
+    const warm = warmText(cl.warmUntil, now)
+    deckRows.push({
+      key: 'budget-cache',
+      label: 'CACHE',
+      cells: [
+        { col: wide ? DECK.gauge : 8, runs: [{ text: `${Math.round(cl.readShare * 100)}% read`, bold: true }] },
+        ...(warm !== undefined && wide ? [{ col: DECK.value, runs: [{ text: warm.text, ...(warm.warm ? { color: C.result } : { dim: true }) }], whole: true }] : []),
+      ],
+    })
   }
   // The person's explicit opt-in (`showCost`): the one exception to Neo's "no dollar figure".
   if (ctx.showCost === true && b?.costUsd !== undefined) {
@@ -321,6 +363,15 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       }
     })
     out.push(blank(ctx, $, 'budget-gap-2'), ...shareTable(ctx, $, 'AGENTS', items, all, reported.length - items.length))
+  }
+  const days = week(ledger, now)
+  const weekTotal = days.reduce((n, d) => n + d.total, 0)
+  if (weekTotal > 0) {
+    out.push(
+      blank(ctx, $, 'budget-gap-3'),
+      runsLine(ctx.e, $, [{ col: 0, text: '┌', color: C.accent }, { col: COL.glyph, text: 'THIS WEEK', bold: true }], 'sec-this-week'),
+      runsLine(ctx.e, $, [{ col: COL.glyph, text: sparkText(days.map(d => d.total)) }, { col: DECK.gauge, text: `${tokenText(weekTotal)} tokens`, dim: true }], 'week-spark'),
+    )
   }
   return <Box flexDirection="column">{out.filter((x): x is RenderElement => x !== null)}</Box>
 }
@@ -405,4 +456,345 @@ export async function seedBudget($: EngineInterface, opts: { skipIfFresh?: boole
   } catch (err) {
     debug($, `budget seed failed: ${errText(err)}`)
   }
+}
+
+// ---------- Neo Rich: the budget view ----------
+
+// The ledger rows THIS WEEK reads. Ephemeral pane state like `budgetOpen`: a
+// render hook cannot await the store, so the press that opens the view loads
+// them (`loadLedger`) and redraws; a reload starts empty and loads again.
+let ledger: LedgerRow[] = []
+
+/** The ledger rows the view draws from (what the last `loadLedger` read). */
+export function ledgerRows(): LedgerRow[] {
+  return ledger
+}
+
+/** Replaces the rows the view draws from. For `loadLedger` and tests. */
+export function setLedgerRows(rows: LedgerRow[]): void {
+  ledger = rows
+}
+
+/** Reads the ledger from `$.store` and redraws. Press handlers and the clock only. Never throws. */
+export async function loadLedger($: EngineInterface): Promise<void> {
+  try {
+    ledger = await readLedgerRows($)
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    debug($, `ledger load failed: ${errText(err)}`)
+  }
+}
+
+/**
+ * `e` in the budget view: writes the ledger as CSV beside the journal
+ * (`<journal root>/ledger-<stamp>.csv`; the cost column only with `showCost`),
+ * and toasts the path. A press only. Never throws.
+ */
+export async function exportLedger($: EngineInterface, withCost: boolean): Promise<void> {
+  try {
+    const root = await journalRoot($)
+    if (root === undefined) {
+      $.ui.toast('Could not write the ledger: no home folder.')
+      return
+    }
+    const rows = await readLedgerRows($)
+    const path = `${root}/ledger-${stamp(await $.clock.now())}.csv`
+    await $.fs.write(path, ledgerCsv(rows, withCost))
+    $.ui.toast(`Ledger written: ${path}`)
+  } catch (err) {
+    debug($, `ledger export failed: ${errText(err)}`)
+    try {
+      $.ui.toast(`Could not write the ledger: ${errText(err)}`)
+    } catch {
+      // a toast that cannot show is not worth more
+    }
+  }
+}
+
+const WEEKDAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+
+/** A day key (`2026-11-15`) as `sun` to `sat`. */
+const weekdayOf = (day: string): string => WEEKDAY[new Date(`${day}T12:00:00`).getDay()] ?? ''
+
+/** The week's seven days as a Raster of stacked day columns (4 wide, pitch 6): the heaviest model `orchid` under the rest `iris`; an empty day is a rest tick. */
+export function weekSpec(days: LedgerDay[]): { spec: InstSpec; primary?: string; second: boolean } {
+  const totals = new Map<string, number>()
+  for (const d of days) for (const [m, n] of Object.entries(d.tokens)) totals.set(m, (totals.get(m) ?? 0) + n)
+  const primary = [...totals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  const max = Math.max(1, ...days.map(d => d.total))
+  const columns = days.length * 6 - 2
+  const spec: InstSpec = {
+    key: 'week',
+    columns,
+    rows: 3,
+    sig: `week:${days.map(d => `${d.day}:${primary !== undefined ? (d.tokens[primary] ?? 0) : 0}:${d.total}`).join(',')}`,
+    frames: () => {
+      const g = new Grid(columns, 3)
+      days.forEach((d, i) => {
+        const a = Math.round((((primary !== undefined ? d.tokens[primary] : 0) ?? 0) / max) * 24)
+        const b = Math.round((d.total / max) * 24)
+        if (b === 0) {
+          for (let x = 0; x < 4; x++) g.lv(i * 6 + x, 2, 1, 'rest')
+          return
+        }
+        for (let k = 0; k < 3; k++) {
+          const lo = k * 8
+          const pa = Math.max(0, Math.min(8, a - lo))
+          const pb = Math.max(0, Math.min(8, b - lo))
+          if (pb === 0) continue
+          for (let x = 0; x < 4; x++) {
+            if (pa >= 8) g.lv(i * 6 + x, 2 - k, 8, 'orchid')
+            else if (pa > 0) g.lv(i * 6 + x, 2 - k, pa, 'orchid', pb >= 8 ? 'iris' : undefined)
+            else g.lv(i * 6 + x, 2 - k, pb, 'iris')
+          }
+        }
+      })
+      return [g]
+    },
+    fallback: [0, 1, 2].map(r => [{ text: r === 2 ? sparkText(days.map(d => d.total)).padEnd(columns) : ' '.repeat(columns) }]),
+  }
+  return { spec, ...(primary !== undefined ? { primary } : {}), second: [...totals.keys()].length > 1 }
+}
+
+/** Values as one row of eighth blocks (the text form of a trace). */
+function sparkText(vals: number[]): string {
+  const max = Math.max(1, ...vals)
+  return vals.map(v => (v <= 0 ? '▁' : '▁▂▃▄▅▆▇█'[Math.max(0, Math.min(7, Math.round((v / max) * 7)))]!)).join('')
+}
+
+/** `5.9` as `+5.9` for a rate per ten minutes. */
+const perTen = (n: number): string => `+${n.toFixed(1)}`
+
+/** `full 37m`, `lasts` (a window that resets first) or `full 9h`, from a pace row. */
+function fullText(r: PaceRow): string {
+  return r.beforeReset === false ? 'lasts' : `full ${elapsed(0, r.fullIn)}`
+}
+
+/** The text for `CACHE`'s warm cell: `warm ~3:48`, or `cold` once the estimate ran out. */
+function warmText(warmUntil: number | undefined, now: number): { text: string; warm: boolean } | undefined {
+  if (warmUntil === undefined) return undefined
+  if (warmUntil <= now) return { text: 'cold', warm: false }
+  const s = Math.floor((warmUntil - now) / 1000)
+  return { text: `warm ~${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, warm: true }
+}
+
+const labelOf = (key: string): string => (key === 'context' ? 'CTX' : windowName(key).toUpperCase())
+
+/** The pace row for a window name (`context` for the context). */
+const paceFor = (p: Pace, key: string): PaceRow | undefined => (key === 'context' ? p.context : p.windows.find(w => w.name === key))
+
+/** The model colours THIS WEEK's legend and the share bars use. */
+const hueOfModel = (i: number): Ink => (i === 0 ? 'orchid' : i === 1 ? 'iris' : 'mute')
+
+/** A share-table row in the rich look: glyph and name (a Button when it opens something), the tokens at 38, a stacked share bar at 50. */
+function richShareRow(ctx: ViewCtx, $: EngineInterface, x: Share, total: number, hue: Ink): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const tc = tableCols(ctx.cols)
+  const dim = x.dim === true ? { dim: true } : {}
+  const left: Placed[] = [
+    { ...x.glyph, col: COL.glyph },
+    { col: COL.name, text: wordFit(x.name, Math.max(0, tc.nameEnd - COL.name)), ...dim },
+  ]
+  const leftWidth = tc.metric ?? ctx.cols
+  const body = laid(left, COL.glyph, ctx.e, $, `${x.key}-`)
+  const share = total > 0 ? Math.round((x.tokens / total) * 100) : 0
+  const bar = tc.time !== undefined && ctx.cols - tc.time >= 10 ? stackSpec(`share-${x.key}`, 10, [[Math.max(1, share), hue], [100 - Math.max(1, share), 'rest']], [x.color]) : undefined
+  return (
+    <Box key={`row-${x.key}`} flexDirection="row">
+      <Box key={`${x.key}-left`} width={leftWidth} flexShrink={0}>
+        <Text key={`${x.key}-pad`}>{'  '}</Text>
+        {x.onPress !== undefined ? (
+          <Button key={x.key} plain onPress={x.onPress}>
+            {body}
+          </Button>
+        ) : (
+          <Text key={x.key} wrap="truncate-end">
+            {body}
+          </Text>
+        )}
+      </Box>
+      {tc.metric !== undefined ? (
+        <Box key={`${x.key}-metric`} width={tc.time !== undefined ? tc.time - tc.metric : undefined} flexShrink={0}>
+          <Text key={`${x.key}-tokens`} dimColor wrap="truncate-end">
+            {wordFit(tokenText(x.tokens), Math.min(GRID.content, ctx.cols - tc.metric))}
+          </Text>
+        </Box>
+      ) : null}
+      {bar !== undefined ? inst(ctx, $, bar) : null}
+    </Box>
+  )
+}
+
+/** The budget view in the rich look (spec "Screens: Budget view"): beads per window over their rate trends, OUTPUT, CACHE, COST, then MODELS, AGENTS and THIS WEEK. */
+function richBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
+  const { t, cols, now } = ctx
+  const b = t.budget
+  const p = pace(t, now)
+  const cl = cacheLine(t)
+  const back = (): void => setBudgetOpen($, false)
+  const rows: DeckRowSpec[] = []
+  const cell = (col: number, text: string, extra: Omit<Run, 'text'> = {}): Placed => ({ col, text, ...extra })
+  const wide = cols >= 62
+  rows.push({
+    key: 'budget-back',
+    label: 'WINDOW',
+    onPress: back,
+    cells: [cell(26, 'per 10m', { dim: true }), cell(DECK.value, 'used', { dim: true }), cell(DECK.aside, 'resets', { dim: true })],
+  })
+  const wins: { key: string; pct: number; reset?: number; tokens?: number }[] = []
+  if (b?.contextPct !== undefined) wins.push({ key: 'context', pct: b.contextPct, ...(b.contextTokens !== undefined ? { tokens: b.contextTokens } : {}) })
+  for (const w of b?.windows ?? []) wins.push({ key: w.name, pct: w.pct, ...(w.resetsAt !== undefined ? { reset: w.resetsAt } : {}) })
+  if (wins.length === 0) rows.push({ key: 'budget-none', label: [{ text: 'No reading yet.', dim: true }] })
+  for (const w of wins) {
+    const name = labelOf(w.key)
+    const hot = w.pct >= 70
+    const pr = paceFor(p, w.key)
+    const cells: Placed[] = [cell(DECK.value, `${Math.round(w.pct)}%`, { bold: true, ...(hot ? { color: rateColor(w.pct) } : {}) })]
+    if (w.reset !== undefined) cells.push(cell(DECK.aside, w.reset <= now ? 'now' : `in ${elapsed(now, w.reset)}`, { dim: true }))
+    else if (w.tokens !== undefined) cells.push(cell(DECK.aside, `${tokenText(w.tokens)} tokens`, { dim: true }))
+    rows.push({ key: `budget-${name.toLowerCase()}`, label: name, inst: beadsSpec(`win-${name.toLowerCase()}`, 22, w.pct), cells })
+    // The rate trend appears only once the window has moved enough to have a pace (pace is silent early).
+    if (pr !== undefined) {
+      const amber = pr.beforeReset === true
+      const trend = barsSpec(`rate-${name.toLowerCase()}`, 1, pr.trend, pr.trend.map(() => (amber ? 'amber' : w.pct >= 90 ? 'red' : 'iris')))
+      rows.push({
+        key: `budget-pace-${name.toLowerCase()}`,
+        inst: trend,
+        cells: [
+          cell(26, perTen(pr.per10), { dim: true }),
+          cell(DECK.value, fullText(pr), amber ? { color: C.wait, bold: true } : { dim: true }),
+          ...(pr.shortBy !== undefined ? [cell(DECK.aside, `short ${elapsed(0, pr.shortBy)}`, { color: C.wait })] : []),
+        ],
+      })
+    }
+  }
+  if (p.outPerMin !== undefined) {
+    rows.push({
+      key: 'budget-output',
+      label: 'OUTPUT',
+      cells: [cell(DECK.gauge, `${tokenText(p.outPerMin)}/min`, { bold: true }), cell(26, 'output per minute of turn', { dim: true })],
+    })
+  }
+  if (cl.total > 0) {
+    const warm = warmText(cl.warmUntil, now)
+    rows.push({
+      key: 'budget-cache',
+      label: 'CACHE',
+      inst: stackSpec('cache', 22, [[cl.read, 'mint'], [cl.write, 'orchid'], [cl.fresh, 'mute']], [C.result, C.model]),
+      cells: [
+        cell(DECK.value, `${Math.round(cl.readShare * 100)}% read`, { bold: true }),
+        ...(warm !== undefined ? [cell(DECK.aside, warm.text, warm.warm ? { color: C.result } : { dim: true })] : []),
+      ],
+    })
+    rows.push({ key: 'budget-cache-sizes', cells: [cell(DECK.gauge, `read ${tokenText(cl.read)}  written ${tokenText(cl.write)}  fresh ${tokenText(cl.fresh)}`, { dim: true })] })
+    if (cl.resend !== undefined) rows.push({ key: 'budget-cache-cold', cells: [cell(DECK.gauge, `going cold re-sends ${tokenText(cl.resend)} uncached`, { dim: true })] })
+  }
+  // The person's explicit opt-in (`showCost`): the one dollar figure.
+  if (ctx.showCost === true && b?.costUsd !== undefined) {
+    const share = turnShare(t)
+    rows.push({
+      key: 'budget-cost',
+      label: 'COST',
+      cells: [cell(DECK.gauge, `${dollars(b.costUsd)} session`, { bold: true }), ...(share !== undefined ? [cell(DECK.value, `${dollars(share)} turn`, { dim: true })] : [])],
+    })
+  }
+  const out: (RenderElement | null)[] = [
+    <Box key="budget" flexDirection="column">
+      {inst(ctx, $, lintelSpec('budget-lintel', cols, { pill: 'BUDGET', right: 'esc back' }))}
+      {rows.map(r => deckRowEl(ctx, $, cols, r))}
+      {inst(ctx, $, sillSpec('budget-sill', cols, {}))}
+    </Box>,
+  ]
+  const totals = modelTotals(t)
+  const all = totals.reduce((n, x) => n + x.tokens, 0)
+  if (totals.length > 0) {
+    const items: Share[] = totals.slice(0, MAX_LIST).map(x => ({ key: `model-${x.model}`, glyph: { text: '◆', color: C.model }, name: x.model, tokens: x.tokens, color: C.model }))
+    out.push(
+      blank(ctx, $, 'budget-gap-1'),
+      section(ctx, $, 'MODELS', 'tokens', 'share'),
+      ...items.map(x => richShareRow(ctx, $, x, all, 'orchid')),
+      ...(totals.length > items.length ? [more(ctx, $, totals.length - items.length, 'more models')] : []),
+    )
+  }
+  const waits = waitStates(t, ctx.u, now)
+  const reported = Object.values(t.agents)
+    .filter(a => a.tokensIn !== undefined || a.tokensOut !== undefined)
+    .map(a => ({ a, tokens: (a.tokensIn ?? 0) + (a.tokensOut ?? 0) }))
+    .sort((x, y) => y.tokens - x.tokens || x.a.id.localeCompare(y.a.id))
+  if (reported.length > 0) {
+    const sum = reported.reduce((n, x) => n + x.tokens, 0)
+    const items: Share[] = reported.slice(0, MAX_LIST).map(({ a, tokens }) => {
+      const pod = podFor(a, waits, now)
+      const id = a.id
+      return {
+        key: `budget-agent-${id}`,
+        glyph: pod.hull,
+        name: id === 'main' ? 'main' : shortPaths(a.description || a.type),
+        tokens,
+        color: C.live,
+        ...(pod.state === 'done' || pod.state === 'queued' ? { dim: true } : {}),
+        ...(id !== 'main' ? { onPress: () => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: id })) } : {}),
+      }
+    })
+    out.push(
+      blank(ctx, $, 'budget-gap-2'),
+      section(ctx, $, 'AGENTS', 'tokens', 'share'),
+      ...items.map(x => richShareRow(ctx, $, x, sum, 'iris')),
+      ...(reported.length > items.length ? [more(ctx, $, reported.length - items.length, 'more agents')] : []),
+    )
+    const low = cl.byAgent.find(x => x.readShare < 0.3 && x.read + x.write + x.fresh >= 10_000 && x.id !== 'main')
+    if (low !== undefined) {
+      const a = t.agents[low.id]
+      out.push(
+        runsLine(ctx.e, $, [{ col: COL.name, text: wordFit(`${shortPaths(a?.description || low.type)} reads only ${Math.round(low.readShare * 100)}% from cache`, ctx.cols - COL.name), dim: true }], 'budget-cache-low'),
+      )
+    }
+  }
+  out.push(...weekBlock(ctx, $, wide))
+  return <Box flexDirection="column">{out.filter((x): x is RenderElement => x !== null)}</Box>
+}
+
+/** THIS WEEK (the ledger, spec "Features: Ledger"): the header with the week's tokens and sessions, the seven stacked day columns, the weekdays. Empty ledger: nothing. */
+function weekBlock(ctx: ViewCtx, $: EngineInterface, wide: boolean): RenderElement[] {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const days = week(ledger, ctx.now)
+  const total = days.reduce((n, d) => n + d.total, 0)
+  const sessions = days.reduce((n, d) => n + d.sessions, 0)
+  if (total === 0 && sessions === 0) return []
+  const segs: Placed[] = [{ col: 0, text: '┌', color: C.accent }, { col: COL.glyph, text: 'THIS WEEK', bold: true }]
+  if (ctx.cols >= 50) segs.push({ col: DECK.value, text: `${tokenText(total)} tokens`, dim: true })
+  if (ctx.cols >= 62) segs.push({ col: DECK.aside, text: `${sessions} ${sessions === 1 ? 'session' : 'sessions'}`, dim: true })
+  const out: RenderElement[] = [blank(ctx, $, 'budget-gap-3'), runsLine(ctx.e, $, segs, 'sec-this-week')]
+  const { spec, primary, second } = weekSpec(days)
+  const useCost = ctx.showCost === true && days.some(d => d.usd !== undefined)
+  if (DECK.gauge + spec.columns <= ctx.cols && wide) {
+    out.push(
+      <Box key="week-row" flexDirection="row">
+        <Box key="week-legend" flexDirection="column" width={DECK.gauge} paddingLeft={COL.name} flexShrink={0}>
+          {primary !== undefined ? (
+            <Text key="week-primary" color={C.model} wrap="truncate-end">
+              {fit(modelName(primary), 9)}
+            </Text>
+          ) : null}
+          {second ? (
+            <Text key="week-rest" color={C.live} wrap="truncate-end">
+              others
+            </Text>
+          ) : null}
+        </Box>
+        {inst(ctx, $, spec)}
+      </Box>,
+      <Text key="week-days" dimColor wrap="truncate-end">
+        {' '.repeat(DECK.gauge) + days.map((d, i) => weekdayOf(d.day) + (i < days.length - 1 ? '   ' : '')).join('')}
+      </Text>,
+    )
+  } else {
+    out.push(runsLine(ctx.e, $, [{ col: COL.glyph, text: sparkText(days.map(d => d.total)) }], 'week-spark'))
+  }
+  if (useCost) {
+    const usd = days.reduce((n, d) => n + (d.usd ?? 0), 0)
+    out.push(runsLine(ctx.e, $, [{ col: COL.glyph, text: `${dollars(usd)} this week`, dim: true }], 'week-cost'))
+  }
+  return out
 }

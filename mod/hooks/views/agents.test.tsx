@@ -992,6 +992,9 @@ test('the lintel is never refused at narrow widths: the readout is left out wher
       const ui = await mount($, 'terminal', columns)
       const all = await rows(ui)
       expect(all.length > 3).toBe(true)
+      // I9: a view that throws still draws the tab bar and one failure line (the shell's, or the view's own
+      // `Agents: …` / `Agents map: …`), so the line itself is what is ruled out.
+      expect(all.join('\n')).not.toMatch(/This tab failed|Failed:|^Agents( map)?: /m)
       for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
       await ui.unmount()
     }

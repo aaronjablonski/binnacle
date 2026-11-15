@@ -12,10 +12,10 @@ import { deepSearch, FIND_KEY, focusFind, setQuery, showInChat, stepTarget } fro
 import { isOnScreen } from './onscreen'
 import { copyResult, quoteInPrompt, toggleKeep } from './detail'
 import { bodyOfOpen, openStep, openStepInline } from './openstep'
-import { blank, footer, opened, row, section } from './parts'
+import { blank, footer, opened, pill, row, section } from './parts'
 import type { Action, Detail, Hint, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, cellsFor, GRID, statusColor, tableCols } from './style'
+import { C, cellCol, DECK, GRID, RAIL, statusColor } from './style'
 
 const MIN_PAD = 20
 /** Rows a turn shows before `+ n more in this turn`. */
@@ -173,12 +173,16 @@ function stepDetails(t: Timeline, s: Step, u: ViewCtx['u'], now: number): Detail
   return details.slice(0, 3)
 }
 
-type Chip = { key: string; name: string; count?: string; on: boolean; countColor?: string; onPress?: () => void | Promise<void> }
+type Chip = { key: string; name: string; count?: string; on: boolean; span?: number; countColor?: string; onPress?: () => void | Promise<void> }
 
-// The chips that fit the cells: the open one and All stay, then the rest from the front.
+const spanOf = (chips: Chip[]): number => chips.reduce((n, c) => n + (c.span ?? 1), 0)
+
+// The chips that fit the cells (the agent chip takes two): the open one and All stay, then the rest from the front.
+// With one cell only the open chip stays.
 function fitChips(chips: Chip[], cells: number): Chip[] {
+  if (cells <= 1) return chips.filter(c => c.on).slice(0, 1)
   const out = [...chips]
-  while (out.length > cells) {
+  while (spanOf(out) > cells) {
     let drop = -1
     out.forEach((c, i) => {
       if (!c.on && c.key !== 'filter-all') drop = i
@@ -186,7 +190,7 @@ function fitChips(chips: Chip[], cells: number): Chip[] {
     if (drop < 0) break
     out.splice(drop, 1)
   }
-  return out.slice(0, Math.max(0, cells))
+  return out
 }
 
 // The pane's scroll seat, read off the render input (K4: never viewport.rows).
@@ -220,54 +224,66 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const groups = stepGroups(shown, f)
     const shownCount = groups.reduce((n, g) => n + g.steps.length, 0)
 
-    // ---- the find row: f: Find (or / query), a count at the metric column, errors or `of n` at the time column
-    const tc = tableCols(cols)
-    const firstCol = tc.metric ?? tc.time
+    // ---- the FIND and SHOW deck: FIND (the field, the count at 38, errors at 50) over SHOW (the chips on cells 14, 26, 38 and 50)
     const errors = t.steps.filter(s => s.status === 'error').length
     const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many)
-    const errorsText = `✖ ${errors} ${plural(errors, 'error', 'errors')}`
-    const countCell = find.active ? (
-      <Text>
-        <Text bold>{String(shownCount)}</Text>
-        <Text dimColor>{` ${plural(shownCount, 'hit', 'hits')}`}</Text>
-      </Text>
-    ) : (
-      <Text>
-        <Text bold>{String(t.steps.length)}</Text>
-        <Text dimColor>{' steps'}</Text>
-      </Text>
-    )
-    const lastCell = find.active ? (
-      <Text dimColor>{`of ${t.steps.length}`}</Text>
-    ) : errors > 0 ? (
-      <Text color={C.fail}>{errorsText.length <= GRID.content ? errorsText : `✖ ${errors}`}</Text>
-    ) : null
-    const findRow = (
-      <Box key="find-row" flexDirection="row">
-        <Box flexDirection="row" width={firstCol ?? cols}>
-          <Text>{'  '}</Text>
-          {find.active ? (
-            <Text color={C.accent}>{'/ '}</Text>
-          ) : (
-            <Button key="find-f" hotkey="f" plain onPress={() => focusFind($, requestId)}>
-              Find
-            </Button>
-          )}
-          <Input
-            key={FIND_KEY}
-            placeholder={find.active ? '' : ' '}
-            value={u.query}
-            submitLabel="deep search"
-            onInput={(value: string) => void setQuery($, value)}
-            onSubmit={(value: string) => deepSearch($, value)}
-          />
+    const edge = cols - 2
+    // The cells a row of this width keeps (the deck's narrow tiers): the aside goes under 62, the value under 50.
+    const stops = [DECK.gauge, cellCol(2), DECK.value, DECK.aside].filter(c => !(cols < 62 && c >= DECK.aside) && !(cols < 50 && c >= DECK.value))
+    const cell = (c: number, i: number): number => (stops[i + 1] ?? cols - 1) - c
+    const findRow = (() => {
+      const hasValue = stops.includes(DECK.value)
+      const hasAside = stops.includes(DECK.aside)
+      const inputW = (hasValue ? DECK.value : cols - 1) - DECK.gauge
+      const countCell = find.active ? (
+        <Text>
+          <Text bold>{String(shownCount)}</Text>
+          <Text dimColor>{` ${plural(shownCount, 'hit', 'hits')}`}</Text>
+        </Text>
+      ) : (
+        <Text>
+          <Text bold>{String(t.steps.length)}</Text>
+          <Text dimColor>{' steps'}</Text>
+        </Text>
+      )
+      const errorsText = `✖ ${errors} ${plural(errors, 'error', 'errors')}`
+      const asideRoom = cols - 1 - DECK.aside - 1
+      const lastCell = find.active ? (
+        <Text dimColor>{`of ${t.steps.length}`}</Text>
+      ) : errors > 0 ? (
+        <Text color={C.fail}>{errorsText.length <= asideRoom ? errorsText : `✖ ${errors}`}</Text>
+      ) : null
+      return (
+        <Box key="find-row" flexDirection="row">
+          <Text color={C.live}>{`${RAIL.top} `}</Text>
+          <Box width={DECK.gauge - DECK.label}>
+            <Text dimColor>FIND</Text>
+          </Box>
+          <Box flexDirection="row" width={inputW}>
+            {find.active ? (
+              <Text color={C.accent}>{'/ '}</Text>
+            ) : (
+              <Button key="find-f" hotkey="f" plain onPress={() => focusFind($, requestId)}>
+                {inputW >= 20 ? 'type to search' : 'Find'}
+              </Button>
+            )}
+            <Input
+              key={FIND_KEY}
+              placeholder={find.active ? '' : ' '}
+              value={u.query}
+              submitLabel="deep search"
+              onInput={(value: string) => void setQuery($, value)}
+              onSubmit={(value: string) => deepSearch($, value)}
+            />
+          </Box>
+          {hasValue ? <Box width={cell(DECK.value, stops.indexOf(DECK.value))}>{countCell}</Box> : null}
+          {hasAside ? <Box width={cell(DECK.aside, stops.indexOf(DECK.aside))}>{lastCell}</Box> : null}
+          <Text color={C.live}>{RAIL.topRight}</Text>
         </Box>
-        {firstCol !== undefined ? <Box width={GRID.cell}>{countCell}</Box> : null}
-        {tc.metric !== undefined && lastCell !== null ? <Box width={GRID.cell}>{lastCell}</Box> : null}
-      </Box>
-    )
+      )
+    })()
 
-    // ---- the chips: one cell each, a zero count hidden unless it is the open filter
+    // ---- the chips: one cell each (the agent chip takes two); the chosen one is a pill; a zero count hidden unless it is the open filter
     const kept = t.steps.filter(s => s.pin !== undefined).length
     const inView = t.steps.filter(s => seen(s.id)).length
     const chipList: Chip[] = [
@@ -287,17 +303,24 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       })
     }
     if (f.kind === 'agent') {
-      chipList.push({ key: 'filter-agent', name: `${typeShort(agentName(t, f.id), GRID.content - 2)} ✕`, on: true, onPress: () => setFilter($, requestId, { kind: 'all' }) })
+      chipList.push({
+        key: 'filter-agent',
+        name: `${typeShort(agentName(t, f.id), 2 * GRID.cell - 6)} ✕`,
+        on: true,
+        span: 2,
+        onPress: () => setFilter($, requestId, { kind: 'all' }),
+      })
     }
     if (inView > 0) chipList.push({ key: 'chip-inview', name: 'In view', count: String(inView), on: false })
-    const chipCell = (c: Chip): RenderElement => {
+    // Under 36 columns only the cell at 14 holds a whole chip: the open one.
+    const slots = edge - cellCol(2) < 8 ? 1 : stops.length
+    const shownChips = fitChips(chipList, slots)
+    const chipCell = (c: Chip, room: number): RenderElement => {
       const label = c.count !== undefined ? `${c.name} ${c.count}` : c.name
       if (c.on) {
         return (
           <Button key={c.key} plain onPress={() => c.onPress?.()}>
-            <Text color={C.accent} bold>
-              {label}
-            </Text>
+            {pill(fit(label, Math.max(1, room - 2)), C.live, ctx.e, $, `${c.key}-pill`)}
           </Button>
         )
       }
@@ -324,14 +347,29 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         </Button>
       )
     }
-    const chips = (
+    let slot = 0
+    const chipBoxes = shownChips.map(c => {
+      const at0 = slot
+      if (at0 >= stops.length) return null
+      slot += c.span ?? 1
+      const start = stops[at0] ?? DECK.gauge
+      const end = stops[slot] ?? cols - 1
+      return (
+        <Box key={`cell-${c.key}`} width={end - start}>
+          {chipCell(c, end - start - 1)}
+        </Box>
+      )
+    })
+    const spent = Math.min(stops.length, spanOf(shownChips))
+    const showRow = (
       <Box key="chips" flexDirection="row">
-        <Text>{'  '}</Text>
-        {fitChips(chipList, cellsFor(cols)).map(c => (
-          <Box key={`cell-${c.key}`} width={GRID.cell}>
-            {chipCell(c)}
-          </Box>
-        ))}
+        <Text color={C.live}>{`${RAIL.bottom} `}</Text>
+        <Box width={DECK.gauge - DECK.label}>
+          <Text dimColor>SHOW</Text>
+        </Box>
+        {chipBoxes}
+        <Box width={Math.max(0, cols - 1 - (stops[spent] ?? cols - 1))} />
+        <Text color={C.live}>{RAIL.bottomRight}</Text>
       </Box>
     )
 
@@ -339,9 +377,8 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       return (
         <Box flexDirection="column">
           {findRow}
-          {blank(ctx, $, 'gap-find')}
-          {chips}
-          {blank(ctx, $, 'gap-chips')}
+          {showRow}
+          {blank(ctx, $, 'gap-deck')}
           <Text dimColor>No steps match.</Text>
         </Box>
       )
@@ -511,9 +548,8 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     return (
       <Box flexDirection="column">
         {findRow}
-        {blank(ctx, $, 'gap-find')}
-        {chips}
-        {blank(ctx, $, 'gap-chips')}
+        {showRow}
+        {blank(ctx, $, 'gap-deck')}
         <Box key="list" flexDirection="column">
           {top > 0 ? <Box key="space-top" height={top} /> : null}
           {drawn}

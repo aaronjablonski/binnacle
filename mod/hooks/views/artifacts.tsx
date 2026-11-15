@@ -2,20 +2,19 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { ArtifactKind, ArtifactRow, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
-import { clock, elapsed, fitLeft, shortPaths, wordFit, wrapWords } from './fit'
+import { clock, elapsed, fitLeft, shortPaths, wrapWords } from './fit'
 import { showInChat } from './find'
 import { exportDigest } from './handoff'
 import { openStepInline } from './openstep'
-import { blank, footer, more, opened, row, section } from './parts'
+import { blank, deck, footer, more, opened, row, section } from './parts'
 import type { Action, Detail, Hint, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, COL } from './style'
+import { C, COL, DECK } from './style'
 
-const GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', result: '◆', link: '⎇' }
+const GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', result: '✦', link: '⎇' }
 const COLOR: Record<ArtifactKind, string> = { page: C.accent, document: C.doc, result: C.result, link: C.accent }
 const KIND: Record<ArtifactKind, string> = { page: 'page', document: 'doc', result: 'result', link: 'link' }
 const EMPTY = 'No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.'
-const NOTE = 'kept ★ steps go in with full input and result'
 // Rows each list shows before its `+ n more` line.
 const ARTIFACT_CAP = 6
 const FILES_CAP = 3
@@ -47,7 +46,7 @@ function detailsOf(t: Timeline, a: ArtifactRow, cols: number, stepSeq: number | 
   return out
 }
 
-/** The Artifacts tab: ARTIFACTS (the newest opened), FILES CHANGED and HANDOFF. */
+/** The Artifacts tab: the HANDOFF and KEPT deck, then ARTIFACTS (the newest opened) and FILES CHANGED. */
 export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, u, cols, e } = ctx
@@ -58,6 +57,44 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     // Absent, the newest is open; '' means the person closed it.
     const openId = u.artifactOpen ?? newest
     const blocks: RenderElement[][] = []
+
+    // ---- the deck: HANDOFF (a press exports the digest) over KEPT (what goes in full)
+    const kept = t.steps.filter(x => x.pin !== undefined).length
+    const keptLine: Run[] =
+      kept > 0
+        ? [
+            { text: '★ ', color: C.spark },
+            { text: String(kept), bold: true },
+            { text: ` ${kept === 1 ? 'step goes' : 'steps go'} in full`, dim: true },
+          ]
+        : [
+            { text: '★ ', color: C.spark },
+            { text: 'none kept yet', dim: true },
+          ]
+    const handoff = deck(
+      ctx,
+      $,
+      [
+        {
+          key: 'handoff-export',
+          label: 'HANDOFF',
+          onPress: async () => void (await exportDigest($)),
+          cells: [
+            { col: DECK.gauge, runs: [{ text: '↥ ', color: C.accent }, { text: 'Export digest', bold: true }] },
+            { col: DECK.value, runs: [{ text: 'journal', dim: true }] },
+          ],
+        },
+        {
+          label: 'KEPT',
+          cells: [
+            { col: DECK.gauge, runs: keptLine },
+            { col: DECK.value, runs: [{ text: 'the rest in brief', dim: true }] },
+          ],
+        },
+      ],
+      { key: 'artifacts-deck' },
+    )
+    if (handoff !== null) blocks.push([handoff])
 
     const list: RenderElement[] = [section(ctx, $, 'ARTIFACTS', 'kind', 'age')]
     if (rows.length === 0) {
@@ -116,19 +153,6 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       if (newestFirst.length > FILES_CAP) files.push(more(ctx, $, newestFirst.length - FILES_CAP))
       blocks.push(files)
     }
-
-    blocks.push([
-      section(ctx, $, 'HANDOFF', 'to'),
-      row(ctx, $, {
-        key: 'handoff-export',
-        glyph: '↥',
-        glyphColor: C.accent,
-        name: 'Export digest',
-        metric: 'journal',
-        onPress: async () => void (await exportDigest($)),
-      }),
-      <Text key="handoff-note" dimColor wrap="truncate-end">{`    ${wordFit(NOTE, Math.max(1, cols - 4))}`}</Text>,
-    ])
 
     const hints: Hint[] = [
       { text: '↵ open' },

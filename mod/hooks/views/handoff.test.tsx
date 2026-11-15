@@ -3,6 +3,7 @@ import type { On } from 'claude-code'
 
 import type { Timeline } from '../../types'
 import { empty } from '../model/reduce'
+import { digestParts, KEPT_WORDS } from './handoff'
 
 // The engine beneath the mod for /mc export: a timeline held under the
 // current shape, a home folder, and a disk and clipboard that accept.
@@ -55,4 +56,19 @@ test('/mc export with no home records nothing', async ($, on) => {
   await $.command.run({ command: 'mc', args: 'export' } as never)
 
   expect((stored.get('timeline') as Timeline).lastExport).toBe(undefined)
+})
+
+test('digestParts counts what the export will hold: tasks, steps not kept, kept steps, and what was made', () => {
+  const step = (id: string, pin?: string) => ({ id, seq: 1, agent: 'main', tool: 'Read', label: 'Read a', status: 'done' as const, startedAt: 1, ...(pin !== undefined ? { pin } : {}) })
+  const t: Timeline = {
+    ...empty,
+    tasks: [{ id: '1', subject: 'one', status: 'completed', owner: 'main', updatedAt: 1 }],
+    steps: [step('a'), step('b'), step('c', 'x')],
+    artifacts: [{ id: 'r', kind: 'result', title: 'R', agent: 'main', count: 1, updatedAt: 1 }],
+    changed: ['a.ts', 'b.ts'],
+  }
+  const p = digestParts(t, 1_000_000)
+  expect([p.tasks, p.steps, p.kept, p.made, p.count]).toEqual([1, 2, 1, 3, 4])
+  expect(p.words).toBeGreaterThan(KEPT_WORDS)
+  expect(digestParts(empty, 1_000_000)).toMatchObject({ tasks: 0, steps: 0, kept: 0, made: 0, count: 0 })
 })

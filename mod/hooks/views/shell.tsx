@@ -3,6 +3,7 @@ import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput, Tim
 import type { Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
 import { agentsView } from './agents'
+import { artifactsView } from './artifacts'
 import { detailView } from './detail'
 import { rule } from './fit'
 import { overviewView } from './overview'
@@ -110,8 +111,7 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
       case 'timeline':
         return timelineView({ e, ...rest }, $)
       default:
-        // The tabs whose task has not landed yet.
-        return <Text dimColor>Coming in a later task.</Text>
+        return artifactsView({ e, ...rest }, $)
     }
   } catch (err) {
     debug($, `view failed: ${errText(err)}`)

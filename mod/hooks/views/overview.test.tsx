@@ -282,11 +282,11 @@ test('pressing tab-tasks writes ui.tab', async ($, on) => {
   }
 })
 
-test('a tab whose task has not landed says so, and the tab row stays', async ($, on) => {
+test('the Artifacts tab keeps the tab row', async ($, on) => {
   seed(on, empty, { tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    expect((await texts(ui)).join('\n')).toContain('Coming in a later task.')
+    expect((await texts(ui)).join('\n')).toContain('No artifacts yet.')
     expect(await ui.find({ key: 'tab-overview' })).toBeDefined()
     expect(await ui.find({ key: 'tab-artifacts' })).toBeDefined()
     await ui.unmount()

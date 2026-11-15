@@ -2,6 +2,7 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { Step, StepBody } from '../../types'
 import { BUDGET_CHANGE, BUDGET_INPUT, BUDGET_TOTAL, clean, cutChars, cutLines, diffOf } from '../model/code'
+import { quoteOf, stepMarkdown } from '../model/digest'
 import { apply, debug, errText, leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { showInChat } from './find'
@@ -13,6 +14,17 @@ import { glyphColor } from './style'
 async function togglePin($: EngineInterface, s: Step): Promise<void> {
   if (s.pin === undefined) await apply($, { kind: 'pin', id: s.id, note: '' })
   else await apply($, { kind: 'unpin', id: s.id })
+}
+
+// Presses only: the draft is filled, never submitted.
+async function quoteInPrompt($: EngineInterface, text: string): Promise<void> {
+  try {
+    const got = await $.prompt.fill({ text, mode: 'insert' })
+    if (!got.isFilled) $.ui.toast('Not quoted: the prompt is busy.')
+  } catch (err) {
+    debug($, `quote failed: ${errText(err)}`)
+    $.ui.toast(`Not quoted: ${errText(err)}`)
+  }
 }
 
 async function copyResult($: EngineInterface, text: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']): Promise<void> {
@@ -82,6 +94,16 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
             hotkey="c"
             onPress={press => copyResult($, body.text, press.surface)}
           />
+        ) : null}
+        {body !== undefined ? (
+          <Button
+            key="detail-md"
+            label="Copy as Markdown"
+            onPress={press => copyResult($, stepMarkdown(s, body), press.surface)}
+          />
+        ) : null}
+        {body !== undefined ? (
+          <Button key="detail-quote" label="Quote in prompt" onPress={() => quoteInPrompt($, quoteOf(s, body))} />
         ) : null}
       </Box>
     )

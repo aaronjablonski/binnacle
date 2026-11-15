@@ -316,3 +316,56 @@ test('Show in chat is there with no body kept too', async ($, on) => {
   expect(await ui.find({ key: 'detail-chat' })).toBeDefined()
   await ui.unmount()
 })
+
+test('Copy as Markdown and Quote in prompt do nothing on mount, and only copy or fill on press', async ($, on) => {
+  world(on, tl(step('s1', 'Edit a.ts', { tool: 'Bash' })), DETAIL(bodyOf({ text: 'out' })))
+  const copies: string[] = []
+  const fills: { text: string; mode: string }[] = []
+  const toasts: string[] = []
+  const submits: unknown[] = []
+  on('ui.copy', (_, e) => {
+    copies.push((e as unknown as { text: string }).text)
+    return { value: { isCopied: true as const } }
+  })
+  on('prompt.fill', (_, e) => {
+    fills.push(e as unknown as { text: string; mode: string })
+    return { isFilled: true as const }
+  })
+  on('prompt.submit', (_, e) => {
+    submits.push(e)
+    return e as never
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  for (const surface of SURFACES) {
+    copies.length = 0
+    fills.length = 0
+    const ui = await mount($, surface)
+    expect((await ui.find({ key: 'detail-md' }))?.text).toBe('Copy as Markdown')
+    expect((await ui.find({ key: 'detail-quote' }))?.text).toBe('Quote in prompt')
+    expect(copies.length + fills.length).toBe(0)
+    await ui.press({ key: 'detail-md' })
+    expect(copies.length).toBe(1)
+    expect(copies[0]).toContain('Tool: Bash (done)')
+    expect(copies[0]).toContain('```json')
+    expect(copies[0]).toContain('```\nout\n```')
+    expect(fills.length).toBe(0)
+    await ui.press({ key: 'detail-quote' })
+    expect(fills.length).toBe(1)
+    expect(fills[0]?.mode).toBe('insert')
+    expect(fills[0]?.text.startsWith('> Bash: Edit a.ts\n> Input:')).toBe(true)
+    expect(copies.length).toBe(1)
+    await ui.unmount()
+  }
+  expect(submits.length).toBe(0)
+})
+
+test('the new buttons are absent when the body is not kept', async ($, on) => {
+  world(on, tl(step('s1', 'Edit a.ts')), DETAIL())
+  const ui = await mount($, 'terminal')
+  expect(await ui.find({ key: 'detail-md' })).toBeUndefined()
+  expect(await ui.find({ key: 'detail-quote' })).toBeUndefined()
+  await ui.unmount()
+})

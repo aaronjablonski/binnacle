@@ -95,22 +95,42 @@ test('rich Now: the lead, the rings, the crew, the plan and the trace are Raster
   }
 })
 
-test('rich Now: no Button shares a row Box with a Raster inside the same Box (labels beside pictures, never in them)', async ($, on) => {
+// I9: the old walker returned at a Raster node, so it could never see a Button "inside" one and always passed.
+// The instrument's own Box (`inst-*`) is what holds a Raster's cells: no Button may sit in it, and a row of
+// fixed-width Boxes (instruments beside their label Buttons) must fit the pane, or a Button would overlap the picture.
+test('rich Now: no Button inside an instrument Box, and every row of fixed-width Boxes fits the pane', async ($, on) => {
   world(on, busy())
-  const ui = await mount($)
-  const walk = (n: unknown, inRaster: boolean, hits: string[]): void => {
-    if (n === null || typeof n !== 'object') return
-    if (Array.isArray(n)) return n.forEach(k => walk(k, inRaster, hits))
-    const node = n as { type?: unknown; props?: { key?: string }; children?: unknown }
-    if (node.type === 'Raster') return
-    if (inRaster && node.type === 'Button') hits.push(node.props?.key ?? '?')
-    const kids = node.children ?? (node as { props?: { children?: unknown } }).props?.children
-    walk(kids, inRaster, hits)
+  for (const cols of [62, 40]) {
+    const ui = await mount($, cols)
+    const inside: string[] = []
+    const wide: string[] = []
+    let instruments = 0
+    type N = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+    const kidsOf = (n: N): unknown[] => {
+      const c = n.children ?? n.props?.children
+      return c === undefined ? [] : Array.isArray(c) ? c.flat(Infinity) : [c]
+    }
+    const walk = (n: unknown, inInst: boolean): void => {
+      if (n === null || typeof n !== 'object') return
+      if (Array.isArray(n)) return n.forEach(k => walk(k, inInst))
+      const node = n as N
+      const key = typeof node.props?.key === 'string' ? node.props.key : ''
+      if (inInst && node.type === 'Button') inside.push(key)
+      const isInst = node.type === 'Box' && key.startsWith('inst-')
+      if (isInst) instruments += 1
+      if (node.type === 'Box' && node.props?.flexDirection !== 'column') {
+        const widths = kidsOf(node).map(k => (k as N)?.props?.width).filter((w): w is number => typeof w === 'number')
+        const sum = widths.reduce((a, b) => a + b, 0)
+        if (sum > cols) wide.push(`${key || '(row)'}: ${sum} > ${cols}`)
+      }
+      for (const k of kidsOf(node)) walk(k, inInst || isInst)
+    }
+    walk(await ui.drawn(), false)
+    expect(instruments).toBeGreaterThan(3)
+    expect(inside).toEqual([])
+    expect(wide).toEqual([])
+    await ui.unmount()
   }
-  const hits: string[] = []
-  walk(await ui.drawn(), false, hits)
-  expect(hits).toEqual([])
-  await ui.unmount()
 })
 
 test('rich Now: the hero step opens its page, BUDGET opens the budget view, CREW opens Agents', async ($, on) => {
@@ -290,7 +310,9 @@ test('long run uses the options: agentLimitMin 0 turns it off, a larger one wait
   const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 40 * 60_000, lastStepAt: NOW - 5_000 }) } })
   world(on, t)
   const ui = await mount($)
-  expect((await texts(ui)).some(x => x.includes('LONG RUN'))).toBe(false)
+  // I9: Now names the opened need's kind in lower case ('long run'), so both spellings are ruled out;
+  // the old check of 'LONG RUN' alone passed while the option was never applied.
+  expect((await texts(ui)).some(x => x.includes('long run') || x.includes('LONG RUN'))).toBe(false)
   await ui.unmount()
 })
 
@@ -371,6 +393,12 @@ test('rich strip: without a Raster the text strip is drawn', async ($, on) => {
   world(on, busy())
   const ui = await mount($, 100, 14, 'vscode', 'inline')
   expect(await rasters(ui)).toEqual([])
+  // I9: the text strip itself, not just the absence of Rasters: its two halves, the focus and the latest step.
+  expect(await ui.find({ key: 'strip-left' })).toBeDefined()
+  expect(await ui.find({ key: 'strip-right' })).toBeDefined()
+  const rows = screen(await ui.drawn()).join('\n')
+  expect(rows).toContain('Grouping timeline steps by agent')
+  expect(rows).toContain('LATEST')
   await ui.unmount()
 })
 
@@ -532,8 +560,15 @@ test('done fires once for a turn of a minute or more that ended normally, with t
   expect((stored.get('ui') as UiState).notified).toEqual(['done:t1'])
 })
 
-test('done is quiet for an interrupted or failed turn, and under the default notify (waits)', { options: { notify: 'done' } }, async ($, on) => {
+// I9: was named "interrupted or failed turn, and under the default notify" but held only the interrupted case; each case is its own test now.
+test('done is quiet for an interrupted turn', { options: { notify: 'done' } }, async ($, on) => {
   const { clock, notes } = await ticking($, on, turnEnded(120_000, { aborted: true }))
+  await clock.advance(3000)
+  expect(notes).toEqual([])
+})
+
+test('done is quiet for a failed turn under notify done', { options: { notify: 'done' } }, async ($, on) => {
+  const { clock, notes } = await ticking($, on, turnEnded(120_000, { failed: true }))
   await clock.advance(3000)
   expect(notes).toEqual([])
 })
@@ -542,6 +577,19 @@ test('done is quiet with notify waits (the default): a long turn ended normally 
   const { clock, notes } = await ticking($, on, turnEnded(120_000))
   await clock.advance(3000)
   expect(notes).toEqual([])
+})
+
+test('with doneSound on, the done notification plays the done sound once', { options: { notify: 'done', doneSound: true } }, async ($, on) => {
+  const plays: unknown[] = []
+  on('audio.play', (_, e) => {
+    plays.push((e as { clip?: { asset?: unknown } }).clip?.asset)
+    return { value: undefined } as never
+  })
+  const { clock, notes } = await ticking($, on, turnEnded(120_000))
+  await clock.advance(3000)
+  await clock.advance(3000)
+  expect(notes.length).toBe(1)
+  expect(plays).toEqual(['sounds/done.wav'])
 })
 
 test('the done sound is off by default: nothing plays', { options: { notify: 'done' } }, async ($, on) => {

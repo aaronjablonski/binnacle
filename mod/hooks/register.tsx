@@ -11,6 +11,8 @@ import { registerShell, runMc, startShell, syncPaneOpen } from './views/shell'
 
 export const register: Register = (on, options) => {
   registerCapture(on)
+  // The long-run limits and the done sound: read by the views and the clock (needs.tsx).
+  configureNeeds(options)
   registerGuide(on, options)
   registerShell(on, options)
   registerBand(on, options)

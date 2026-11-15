@@ -176,7 +176,9 @@ test('a workflow run is a node holding its agents with n/m done', async ($, on) 
   )
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    expect((await ui.find({ key: 'node-run:r1' }))?.text).toContain('⚙ review-changes · workflow · 1/2 done')
+    const runText = (await ui.find({ key: 'node-run:r1' }))?.text ?? ''
+    expect(runText).toContain('⚙ review-changes')
+    expect(runText).toContain('workflow · 1/2 done')
     expect(await ui.find({ key: 'node-w1' })).toBeDefined()
     expect(await ui.find({ key: 'node-w2' })).toBeDefined()
     expect(await ui.find({ key: 'fold-run:r1' })).toBeDefined()
@@ -277,6 +279,41 @@ test('only main: one row and the empty-state line', async ($, on) => {
     expect((await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('node-')).length).toBe(1)
     expect(await allText(ui)).toContain('No agents yet. Subagents and workflow agents appear here while they run.')
     expect(await allText(ui)).toContain('0 agents · 0 running')
+    await ui.unmount()
+  }
+})
+
+type Found2 = Awaited<ReturnType<Awaited<ReturnType<typeof mount>>['findAll']>>[number]
+const props2 = (f: Found2 | undefined): { color?: string; dimColor?: boolean } => (f?.props ?? {}) as { color?: string; dimColor?: boolean }
+
+test('tree glyphs carry status colours, folds are accent, and the header sums to the columns', async ($, on) => {
+  seed(on, family(), TREE_UI)
+  for (const surface of SURFACES) {
+    for (const columns of [62, 24]) {
+      const ui = await mount($, surface, columns)
+      const found = await ui.findAll({ type: 'Text' })
+      expect(found.filter(f => f.text === '▶').map(f => props2(f).color)).toContain('warning')
+      expect(found.filter(f => f.text === '✔').map(f => props2(f).color)).toContain('success')
+      expect(props2(found.find(f => f.text === '▾')).color).toBe('suggestion')
+      const header = found.filter(f => (f.text ?? '').startsWith('AGENTS') && (f.text ?? '').length === columns)
+      expect(header.length).toBe(1)
+      await ui.unmount()
+    }
+  }
+})
+
+test('a tree row has its meta flush right and the running agent doing line is dim under a └', async ($, on) => {
+  seed(on, family(), TREE_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const row = (await ui.find({ key: 'node-a2' }))?.text ?? ''
+    const [first, second] = row.split('\n')
+    expect(first?.endsWith('  30s · 1')).toBe(true)
+    // The button spans the row less its tree prefix and the fold column.
+    expect(first?.length).toBe(62 - 3 - 2)
+    expect(second).toBe('└ Edit limiter.test.ts')
+    const found = await ui.findAll({ type: 'Text' })
+    expect(props2(found.find(f => f.text === '\n└ Edit limiter.test.ts')).dimColor).toBe(true)
     await ui.unmount()
   }
 })

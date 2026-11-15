@@ -6,7 +6,7 @@ import { leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { blockBar, elapsed, fit } from './fit'
 import { openStep } from './openstep'
-import { sectionHeader } from './parts'
+import { glyphLine, sectionHeader, splitLine } from './parts'
 import type { ViewCtx } from './shell'
 import { C, glyphColor } from './style'
 
@@ -17,43 +17,9 @@ const ARTIFACT_COLOR: Record<ArtifactKind, string | undefined> = {
   result: C.done,
   link: undefined,
 }
-const MIN_SPLIT = 8
 // From this width the Overview draws two columns.
 const WIDE = 96
 const COLUMN_GAP = 2
-
-/** A glyph in its status colour (dim when it has none), a space and the text; the whole fits `cols`. */
-function glyphLine(ctx: ViewCtx, $: EngineInterface, glyph: string, color: string | undefined, text: string, bold = false): RenderElement {
-  const { Text } = $.ui.resolve(ctx.e)
-  const body = fit(text, Math.max(0, ctx.cols - glyph.length - 1))
-  return (
-    <Text>
-      {color !== undefined ? <Text color={color}>{glyph}</Text> : <Text dimColor>{glyph}</Text>}
-      {bold ? <Text bold>{` ${body}`}</Text> : ` ${body}`}
-    </Text>
-  )
-}
-
-// Left text and a dim right text on one row, or two rows when they do not fit.
-function splitLine(ctx: ViewCtx, $: EngineInterface, glyph: string, color: string | undefined, left: string, right: string): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const room = ctx.cols - right.length - 1
-  if (right === '') return glyphLine(ctx, $, glyph, color, left)
-  if (room < MIN_SPLIT) {
-    return (
-      <Box flexDirection="column">
-        {glyphLine(ctx, $, glyph, color, left)}
-        <Text dimColor>{fit(right, ctx.cols)}</Text>
-      </Box>
-    )
-  }
-  return (
-    <Box flexDirection="row" justifyContent="space-between">
-      {glyphLine({ ...ctx, cols: room }, $, glyph, color, left)}
-      <Text dimColor>{right}</Text>
-    </Box>
-  )
-}
 
 // A header that opens its tab.
 function goHeader(ctx: ViewCtx, $: EngineInterface, tab: Tab, label: string, meta: string): RenderElement {

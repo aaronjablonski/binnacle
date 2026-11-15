@@ -7,7 +7,9 @@ import { apply, debug, errText, readTimeline, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { clock, elapsed, fit, splitRow } from './fit'
 import { openStep } from './openstep'
+import { flushRight, glyphText } from './parts'
 import type { ViewCtx } from './shell'
+import { C, glyphColor } from './style'
 
 const INDENT = '  '
 const MIN_PAD = 20
@@ -49,7 +51,7 @@ function stepLayout(t: Timeline, s: Step, cols: number, now: number) {
   const end = s.status === 'running' ? now : (s.endedAt ?? s.startedAt)
   const right = [s.agent !== 'main' ? agentName(t, s.agent) : '', elapsed(s.startedAt, end)].filter(x => x !== '').join(' · ')
   const head = splitRow(`${INDENT}${glyph} ${star}${s.label}`, right, cols)
-  const note = s.pin !== undefined && s.pin !== '' ? fit(`${INDENT}${INDENT}${s.pin}`, cols) : ''
+  const note = s.pin !== undefined && s.pin !== '' ? fit(`${INDENT}└ ${s.pin}`, cols) : ''
   const height = 1 + (head.stacked ? 1 : 0) + (note !== '' ? 1 : 0)
   return { head, note, height }
 }
@@ -88,38 +90,55 @@ function turnRow(ctx: ViewCtx, item: Extract<Item, { kind: 'turn' }>, $: EngineI
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { t, cols } = ctx
   const lay = turnLayout(item.group, item.isOpen, cols)
+  const title = lay.left.slice(lay.mark.length + 1)
+  const mark = (
+    <Text key="mark" color={C.accent}>
+      {lay.mark}
+    </Text>
+  )
+  // The newest turn is always open: it is drawn as a heading, not a control,
+  // with its time right-aligned in a space-between row.
+  if (item.isNewest) {
+    return (
+      <Box key={`turn-${item.id}`} flexDirection="column">
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text>
+            {mark}
+            <Text bold>{` ${title}`}</Text>
+          </Text>
+          {lay.right !== '' && !lay.stacked ? <Text dimColor>{lay.right}</Text> : null}
+        </Box>
+        {lay.stacked ? <Text dimColor>{lay.right}</Text> : null}
+      </Box>
+    )
+  }
   const parts: RenderElement[] = [
+    mark,
     <Text key="head" bold>
-      {lay.left}
+      {` ${title}`}
     </Text>,
   ]
   if (lay.right !== '' && !lay.stacked) {
     parts.push(
       <Text key="time" dimColor>
-        {` ${lay.right}`}
+        {flushRight(lay.left.length, lay.right, cols)}
       </Text>,
     )
   }
   if (lay.stacked) {
     parts.push(
       <Text key="time" dimColor>
-        {`\n${lay.right}`}
+        {`
+${lay.right}`}
       </Text>,
     )
   }
   if (!item.isOpen) {
     parts.push(
       <Text key="count" dimColor>
-        {`\n${fit(`${INDENT}${countLine(t, item.group)}`, cols)}`}
+        {`
+${fit(`${INDENT}└ ${countLine(t, item.group)}`, cols)}`}
       </Text>,
-    )
-  }
-  // The newest turn is always open: it is drawn as a heading, not a control.
-  if (item.isNewest) {
-    return (
-      <Box key={`turn-${item.id}`}>
-        <Text>{parts}</Text>
-      </Box>
     )
   }
   return (
@@ -133,25 +152,32 @@ function stepRow(ctx: ViewCtx, s: Step, $: EngineInterface): RenderElement {
   const { Text, Button } = $.ui.resolve(ctx.e)
   const { t, cols, now } = ctx
   const lay = stepLayout(t, s, cols, now)
-  const parts: RenderElement[] = [<Text key="head">{lay.head.left}</Text>]
+  const glyph = STEP_GLYPH[s.status]
+  const parts: RenderElement[] = [
+    <Text key="indent">{INDENT}</Text>,
+    glyphText(glyph, glyphColor(s.status), ctx.e, $, 'glyph'),
+    <Text key="head">{lay.head.left.slice(INDENT.length + glyph.length)}</Text>,
+  ]
   if (lay.head.right !== '' && !lay.head.stacked) {
     parts.push(
       <Text key="meta" dimColor>
-        {` ${lay.head.right}`}
+        {flushRight(lay.head.left.length, lay.head.right, cols)}
       </Text>,
     )
   }
   if (lay.head.stacked) {
     parts.push(
       <Text key="meta" dimColor>
-        {`\n${fit(`${INDENT}${INDENT}${lay.head.right}`, cols)}`}
+        {`
+${fit(`${INDENT}${INDENT}${lay.head.right}`, cols)}`}
       </Text>,
     )
   }
   if (lay.note !== '') {
     parts.push(
       <Text key="note" dimColor>
-        {`\n${lay.note}`}
+        {`
+${lay.note}`}
       </Text>,
     )
   }

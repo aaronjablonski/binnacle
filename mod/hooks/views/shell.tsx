@@ -7,6 +7,8 @@ import { artifactsView } from './artifacts'
 import { detailView } from './detail'
 import { rule } from './fit'
 import { overviewView } from './overview'
+import { needsTick } from './needs'
+import type { NotifyMode } from './needs'
 import { C } from './style'
 import { tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
@@ -178,7 +180,8 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
 // The one timer of this module instance; a reload starts a fresh module.
 let ticker: Timer | undefined
 
-async function tick($: EngineInterface): Promise<void> {
+async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise<void> {
+  await needsTick($, notify)
   try {
     const t = await readTimeline($)
     // `main` is a row of its own and stays 'running' for the whole session.
@@ -191,7 +194,7 @@ async function tick($: EngineInterface): Promise<void> {
 }
 
 /** Session-start work, called from register.tsx's one session.start hook. Never throws. */
-export async function startShell($: EngineInterface, options: { autoOpen?: boolean }): Promise<void> {
+export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode }): Promise<void> {
   if (options.autoOpen === true) {
     try {
       const opened = await $.ui.open(paneArgs(false))
@@ -203,7 +206,7 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   try {
     if (ticker) ticker.cancel()
     ticker = $.clock.every(1000, () => {
-      void tick($)
+      void tick($, options.notify)
     })
   } catch (err) {
     debug($, `clock failed: ${errText(err)}`)

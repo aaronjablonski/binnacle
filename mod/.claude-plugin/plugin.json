@@ -15,6 +15,13 @@
       "title": "Guide Claude",
       "description": "Add the Mission Control update tool and one system-prompt section so Claude keeps the panel current.",
       "default": true
+    },
+    "notify": {
+      "type": "string",
+      "title": "Notifications",
+      "description": "Raise a native notification when Claude has waited on you for 20 seconds (waits), also when a turn fails (all), or never (off).",
+      "options": ["off", "waits", "all"],
+      "default": "waits"
     }
   }
 }

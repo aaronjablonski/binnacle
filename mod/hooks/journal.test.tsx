@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Timeline } from '../types'
-import { MAX_TEXT, MIN_PRUNE_AGE_MS, bodyOf, loadSnapshot, prune, readBody, saveSnapshot, writeBody } from './journal'
+import { CLEAR_MARK_MAX_AGE_MS, MAX_TEXT, MIN_PRUNE_AGE_MS, bodyOf, loadSnapshot, prune, readBody, saveSnapshot, writeBody } from './journal'
 import { empty } from './model/reduce'
 
 const HOME = 'C:/home'
@@ -265,12 +265,18 @@ test('with no home folder the journal writes nothing', async () => {
 
 // Through the mod itself: the disk answers the engine's fs calls beneath it.
 // `box.sessionId` is what `$.session.id()` answers; a test may change it.
-function world(on: On, d: Disk, sessionId: string): { timeline?: Timeline; sessionId: string } {
-  const box: { timeline?: Timeline; sessionId: string } = { sessionId }
+// With `ownState`, the world keeps $.state itself (see `stateBeneath`) so a
+// test can reset it as a /clear does.
+type Box = { timeline?: Timeline; sessionId: string; resetState: () => void }
+function world(on: On, d: Disk, sessionId: string, opts: { failCommand?: boolean; ownState?: boolean } = {}): Box {
+  const box: Box = { sessionId, resetState: () => undefined }
   mock.env(on, { USERPROFILE: HOME, OS: 'Windows_NT' })
   on('ui.log', () => ({ value: undefined }))
   on('session.id', () => ({ value: box.sessionId }))
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => {
+    if (opts.failCommand === true) throw new Error('command.register is down')
+    return { value: { command: 'mc' } }
+  })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('classic.SessionStart', () => ({}))
   on('fs.read', (_, e) => ({ value: d.read(e.path) }))
@@ -279,12 +285,44 @@ function world(on: On, d: Disk, sessionId: string): { timeline?: Timeline; sessi
   on('fs.list', (_, e) => ({ value: d.list(e.path) }))
   on('fs.stat', (_, e) => ({ value: d.stat(e.path) }))
   on('process.run', (_, e) => ({ value: d.remove(e.argv) }))
+  if (opts.ownState === true) {
+    box.resetState = stateBeneath(on, box)
+    return box
+  }
   on('state.set', async (_, e, next) => {
     const out = await next(e)
     if (e.key === 'timeline') box.timeline = (e.value as { value?: Timeline } | undefined)?.value
     return out
   })
   return box
+}
+
+// The engine's own $.state beneath the mod, which a /clear resets to defaults
+// (the mods docs, "Keep a value in $.state"). Writes honour `ifVersion`; the
+// timeline written is recorded on `box`. Answers the reset.
+function stateBeneath(on: On, box: Box): () => void {
+  const values = new Map<string, { value: unknown; version: number }>()
+  const name = (e: unknown): string => {
+    const a = e as { plugin: string; key: string }
+    return `${a.plugin}/${a.key}`
+  }
+  on('state.get', (_, e) => {
+    const cur = values.get(name(e))
+    return { value: { value: cur?.value, version: cur?.version ?? 0 } }
+  })
+  on('state.set', (_, e) => {
+    const w = e as unknown as { key: string; value: unknown; ifVersion?: number }
+    const cur = values.get(name(e))
+    const version = cur?.version ?? 0
+    if (w.ifVersion !== undefined && w.ifVersion !== version) return { value: { isSet: false as const, version } }
+    values.set(name(e), { value: w.value, version: version + 1 })
+    if (w.key === 'timeline') box.timeline = (w.value as { value?: Timeline } | undefined)?.value
+    return { value: { isSet: true as const, version: version + 1 } }
+  })
+  return () => {
+    values.clear()
+    box.timeline = undefined
+  }
 }
 
 const saved: Timeline = { ...empty, seq: 7, notes: [{ text: 'from before', agent: 'main', at: 9 }] }
@@ -417,7 +455,7 @@ test("session start's prune spares the current timeline's journal folder", async
   d.files.set(`${ROOT}/sess-j/timeline.json`, { text: JSON.stringify(box.timeline), mtimeMs: 1 })
   for (let i = 0; i < 22; i++) d.write(`${ROOT}/old-${i}/timeline.json`, '{}')
 
-  // A reload under another id (as after /clear) runs session.start again.
+  // A reload under another id runs session.start again.
   box.sessionId = 'sess-k'
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
@@ -439,4 +477,164 @@ test('a timeline-1 value an earlier version stored reads as empty, and the snaps
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   expect(box.timeline).toEqual(saved)
+})
+
+const MARK = 'mission-control:cleared'
+
+test('a /clear that resets the state restores the timeline, its journal kept, and links the new id', async ($, on) => {
+  const d = new Disk()
+  const box = world(on, d, 'sess-a', { ownState: true })
+  mock.store(on)
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  const clock = mock.clock(on, { now: NOW })
+
+  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'toolu_a' } as never)
+  await clock.advance(1)
+  expect(box.timeline?.journal).toBe('sess-a')
+
+  await $.session.end({ reason: 'clear', sessionId: 'sess-a', resume: { id: 'sess-a' } })
+  const snap = JSON.parse(d.read(`${ROOT}/sess-a/timeline.json`)) as Timeline
+  expect(snap.steps.map(s => s.id)).toEqual(['toolu_a'])
+
+  // /clear: the state goes back to defaults, the session goes on as sess-b.
+  box.resetState()
+  box.sessionId = 'sess-b'
+  await clock.advance(5000)
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-b' })
+
+  expect(box.timeline?.steps.map(s => s.id)).toEqual(['toolu_a'])
+  expect(box.timeline?.journal).toBe('sess-a')
+  expect(JSON.parse(d.read(`${ROOT}/sess-b/journal.json`))).toEqual({ journal: 'sess-a' })
+  expect(d.exists(`${ROOT}/sess-b/timeline.json`)).toBe(false)
+
+  // Later bodies still go to the first folder.
+  await $.tool.call({ tool: 'Bash', command: 'pwd', tool_use_id: 'toolu_b' } as never)
+  await clock.advance(1)
+  expect(d.exists(`${ROOT}/sess-a/steps/toolu_b.json`)).toBe(true)
+  expect(d.exists(`${ROOT}/sess-b/steps`)).toBe(false)
+
+  // The mark is used once: another /clear start with an empty state finds nothing.
+  box.resetState()
+  box.sessionId = 'sess-c'
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-c' })
+  expect(box.timeline).toBe(undefined)
+})
+
+test('a /clear with an empty timeline drops an old mark, so nothing is adopted', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-old/timeline.json`, JSON.stringify({ ...saved, journal: 'sess-old' }))
+  const box = world(on, d, 'sess-e', { ownState: true })
+  mock.store(on, { [MARK]: { journal: 'sess-old', at: NOW } })
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  mock.clock(on, { now: NOW })
+
+  await $.session.end({ reason: 'clear', sessionId: 'sess-e', resume: { id: 'sess-e' } })
+  box.sessionId = 'sess-f'
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-f' })
+
+  expect(box.timeline).toBe(undefined)
+  expect(d.exists(`${ROOT}/sess-f`)).toBe(false)
+})
+
+test('a stale /clear mark restores nothing and throws nothing', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-a/timeline.json`, JSON.stringify({ ...saved, journal: 'sess-a' }))
+  const box = world(on, d, 'sess-b', { ownState: true })
+  mock.store(on, { [MARK]: { journal: 'sess-a', at: NOW - CLEAR_MARK_MAX_AGE_MS - 1 } })
+  mock.clock(on, { now: NOW })
+
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-b' })
+
+  expect(box.timeline).toBe(undefined)
+  expect(d.exists(`${ROOT}/sess-b`)).toBe(false)
+})
+
+test('a /clear with no mark restores nothing and throws nothing', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-a/timeline.json`, JSON.stringify({ ...saved, journal: 'sess-a' }))
+  const box = world(on, d, 'sess-b', { ownState: true })
+  mock.store(on)
+  mock.clock(on, { now: NOW })
+
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-b' })
+
+  expect(box.timeline).toBe(undefined)
+  expect(d.exists(`${ROOT}/sess-b`)).toBe(false)
+})
+
+test('a resume of a post-clear id follows its journal.json', async ($, on) => {
+  const d = new Disk()
+  const first: Timeline = { ...saved, journal: 'sess-a' }
+  d.write(`${ROOT}/sess-a/timeline.json`, JSON.stringify(first))
+  d.write(`${ROOT}/sess-b/journal.json`, JSON.stringify({ journal: 'sess-a' }))
+  const box = world(on, d, 'sess-x')
+
+  await $.classic.SessionStart({ source: 'resume', session_id: 'sess-b' })
+
+  expect(box.timeline).toEqual(first)
+})
+
+test('a --resume session start of a post-clear id follows its journal.json', async ($, on) => {
+  const d = new Disk()
+  const first: Timeline = { ...saved, journal: 'sess-a' }
+  d.write(`${ROOT}/sess-a/timeline.json`, JSON.stringify(first))
+  d.write(`${ROOT}/sess-b/journal.json`, JSON.stringify({ journal: 'sess-a' }))
+  const box = world(on, d, 'sess-b')
+  mock.clock(on, { now: NOW })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(box.timeline).toEqual(first)
+})
+
+test('a link is followed once: a link to a link loads nothing', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-a/timeline.json`, JSON.stringify({ ...saved, journal: 'sess-a' }))
+  d.write(`${ROOT}/sess-b/journal.json`, JSON.stringify({ journal: 'sess-a' }))
+  d.write(`${ROOT}/sess-c/journal.json`, JSON.stringify({ journal: 'sess-b' }))
+  const box = world(on, d, 'sess-x')
+
+  await $.classic.SessionStart({ source: 'resume', session_id: 'sess-c' })
+
+  expect(box.timeline).toBe(undefined)
+})
+
+test("prune spares a folder a kept folder's journal.json points to", async () => {
+  const d = new Disk()
+  // sess-0 is the oldest, past the newest 20; sess-21, the newest, links to it.
+  for (let i = 0; i < 21; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  d.files.set(`${ROOT}/sess-21/journal.json`, { text: JSON.stringify({ journal: 'sess-0' }), mtimeMs: 200 })
+
+  await prune(engineOver(d), 20)
+
+  expect(d.removed).toEqual([`${ROOT}/sess-1`])
+  expect(d.exists(`${ROOT}/sess-0/timeline.json`)).toBe(true)
+})
+
+test('prune treats a folder holding only journal.json as its own', async () => {
+  const d = new Disk()
+  for (let i = 1; i < 21; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  d.files.set(`${ROOT}/sess-0/journal.json`, { text: JSON.stringify({ journal: 'sess-20' }), mtimeMs: 1 })
+
+  await prune(engineOver(d), 20)
+
+  expect(d.removed).toEqual([`${ROOT}/sess-0`])
+})
+
+test('a throwing command.register still restores and starts the guide (M2)', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-m/timeline.json`, JSON.stringify(saved))
+  const box = world(on, d, 'sess-m', { failCommand: true })
+  mock.clock(on, { now: NOW })
+  const tools: string[] = []
+  on('tool.register', (_, e) => {
+    tools.push(e.name)
+    return { value: { tool: e.name } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(box.timeline).toEqual(saved)
+  expect(tools).toEqual(['update'])
 })

@@ -102,3 +102,88 @@ test('/mc close and /mc pin still work', async ($, on) => {
   expect(pinned.text).toBe('Nothing to pin yet.')
   expect(opened.length).toBe(0)
 })
+
+test('/mc export writes the digest to the journal, copies it and answers the path', async ($, on) => {
+  const t: Timeline = {
+    ...empty,
+    journal: 'sess1',
+    notes: [{ text: 'a note', agent: 'main', at: 1 }],
+    steps: [
+      { id: 'p', seq: 1, agent: 'main', tool: 'Bash', label: 'Bash ls', status: 'done', startedAt: 1, pin: '' },
+      { id: 'u', seq: 2, agent: 'main', tool: 'Bash', label: 'Bash pwd', status: 'done', startedAt: 2 },
+    ],
+  }
+  world(on, t)
+  mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+  const reads: string[] = []
+  const writes: { path: string; text: string }[] = []
+  const copies: string[] = []
+  const toasts: string[] = []
+  const bodies: Record<string, string> = {
+    'C:/Users/x/.claude/mission-control/sess1/steps/p.json': JSON.stringify({ input: {}, text: 'PINNED', cut: 0, isError: false }),
+    'C:/Users/x/.claude/mission-control/sess1/steps/u.json': JSON.stringify({ input: {}, text: 'UNPINNED', cut: 0, isError: false }),
+  }
+  on('fs.read', (_, e) => {
+    const path = slash(e.path)
+    reads.push(path)
+    const found = bodies[path]
+    if (found === undefined) throw new Error('ENOENT')
+    return { value: found }
+  })
+  on('fs.write', (_, e) => {
+    writes.push({ path: slash(e.path), text: e.text })
+    return { value: undefined }
+  })
+  on('ui.copy', (_, e) => {
+    copies.push((e as unknown as { text: string }).text)
+    return { value: { isCopied: true as const } }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+
+  const got = await run($, 'export')
+
+  expect(writes.length).toBe(1)
+  expect(writes[0]?.path).toMatch(/^C:\/Users\/x\/\.claude\/mission-control\/sess1\/export-\d{4}-\d{2}-\d{2}-\d{4}\.md$/)
+  expect(writes[0]?.text).toContain('PINNED')
+  expect(writes[0]?.text).not.toContain('UNPINNED')
+  expect(reads.some(p => p.endsWith('/u.json'))).toBe(false)
+  expect(copies).toEqual([writes[0]?.text])
+  expect(got.text).toContain(writes[0]?.path)
+  expect(toasts).toEqual([`Exported: ${writes[0]?.path}`])
+})
+
+test('/mc export says when the copy failed', async ($, on) => {
+  world(on, empty)
+  mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+  on('session.id', () => ({ value: 'sess2' }))
+  const toasts: string[] = []
+  on('fs.write', () => ({ value: undefined }))
+  on('ui.copy', () => ({ value: { isCopied: false as const, reason: 'no-clipboard' as const } }))
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  await run($, 'export')
+  expect(toasts.length).toBe(1)
+  expect(toasts[0]).toMatch(/^Exported: .*\(copy failed: no-clipboard\)$/)
+})
+
+test('/mc export with no home answers and writes nothing', async ($, on) => {
+  world(on, empty)
+  mock.env(on, {})
+  const writes: string[] = []
+  on('fs.write', (_, e) => {
+    writes.push(e.path)
+    return { value: undefined }
+  })
+  const got = await run($, 'export')
+  expect(writes.length).toBe(0)
+  expect(got.text).toContain('Could not export')
+})
+
+function slash(path: string): string {
+  return path.split(String.fromCharCode(92)).join('/')
+}

@@ -6,6 +6,7 @@ import { agentsView } from './agents'
 import { artifactsView } from './artifacts'
 import { detailView } from './detail'
 import { rule } from './fit'
+import { exportDigest } from './handoff'
 import { overviewView } from './overview'
 import { budgetTick } from './budget'
 import { needsTick } from './needs'
@@ -132,7 +133,7 @@ function tabFor(word: string): { tab: Tab; label: string } | undefined {
   return undefined
 }
 
-/** The answer of `/mc`, `/mc close` and `/mc pin`. */
+/** The answer of `/mc`, `/mc close`, `/mc pin` and `/mc export`. */
 export async function runMc($: EngineInterface, args: string): Promise<{ text: string }> {
   const word = args.trim().split(/\s+/)[0] ?? ''
   if (word === '') {
@@ -154,6 +155,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not close Mission Control: ${errText(err)}` }
     }
   }
+  if (word === 'export') return exportDigest($)
   const target = tabFor(word)
   if (word !== 'pin' && target !== undefined) {
     try {

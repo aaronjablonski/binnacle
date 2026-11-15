@@ -1,5 +1,8 @@
 // Pure text helpers for the views. No claude-code import, so vitest loads it.
 
+import { C, dialOf, GLYPHS, rateColor } from './style'
+import type { Pod, Run } from './style'
+
 /** Cuts `text` to `columns` cells with a trailing '…'; '' when there is no room. */
 export function fit(text: string, columns: number): string {
   if (columns <= 0) return ''
@@ -29,9 +32,10 @@ export function elapsed(fromMs: number, toMs: number): string {
 
 /**
  * How many of `columns` cells a progress bar fills for done of total.
- * @deprecated HUD v1. Use `bar10`.
+ * Was HUD v1's `bar`; renamed when Neo took the name for its `▮▯` bar.
+ * @deprecated HUD v1. Use `bar`.
  */
-export function bar(done: number, total: number, columns: number): { filled: number; rest: number } {
+export function barSplit(done: number, total: number, columns: number): { filled: number; rest: number } {
   if (total <= 0 || columns <= 0) return { filled: 0, rest: Math.max(0, columns) }
   const share = Math.min(1, Math.max(0, done / total))
   const filled = Math.round(share * columns)
@@ -87,10 +91,10 @@ export function rule(columns: number): string {
 
 /**
  * The filled and the resting blocks of a progress bar of `columns` cells.
- * @deprecated HUD v1. Use `bar10`; the spec removes this once wave 2 lands.
+ * @deprecated HUD v1. Use `bar`; the spec removes this once wave 2 lands.
  */
 export function blockBar(done: number, total: number, columns: number): { filled: string; rest: string } {
-  const cells = bar(done, total, columns)
+  const cells = barSplit(done, total, columns)
   return { filled: '█'.repeat(cells.filled), rest: '░'.repeat(cells.rest) }
 }
 
@@ -174,6 +178,7 @@ export const DIAGRAM = 10
  * A 10-column bar for `value` of `total`: `fill` of `━`, `rest` of `─`.
  * Any non-zero value gets at least 1; only 100 % (or more) gets 10. A total
  * of 0 or less draws an empty bar.
+ * @deprecated HUD v2 (`━ ─`). Neo draws `bar(value, total, 10)` (`▮ ▯`).
  */
 export function bar10(value: number, total: number): { fill: string; rest: string } {
   let n = 0
@@ -217,6 +222,7 @@ export function stack10(counts: number[]): number[] {
  * Counts `times` into 10 buckets over `from` … `to` (steps per tenth of the
  * session). `to` itself falls in the last bucket; times outside are left out.
  * A span of zero puts every time equal to `to` in the last bucket.
+ * @deprecated Use `buckets(times, from, to, 10)` (or 22 in a deck).
  */
 export function buckets10(times: number[], from: number, to: number): number[] {
   const out: number[] = new Array<number>(DIAGRAM).fill(0)
@@ -235,6 +241,7 @@ const SPARKS = '▁▂▃▄▅▆▇█'
  * A 10-column sparkline: one of 8 levels (`▁` … `█`) per bucket, scaled to
  * the largest. Fewer than 10 buckets are padded with zeros at the start;
  * more keep the newest 10. All zero draws `▁` throughout.
+ * @deprecated Use `spark(buckets, 10)` (or 22 in a deck), which returns a styled Run.
  */
 export function spark10(buckets: number[]): string {
   const pad = new Array<number>(Math.max(0, DIAGRAM - buckets.length)).fill(0)
@@ -422,4 +429,183 @@ export function keepCells<T extends { drop?: number }>(cells: T[], n: number): T
     out.splice(pick === -1 ? out.length - 1 : pick, 1)
   }
   return out
+}
+
+// ---------- Neo: gauges and the crew (spec "Gauges", "Crew: pods") ----------
+// Each returns Runs (style.ts `Run`): styled pieces a deck cell, a row's
+// metric or a band lays at a column. Glyphs come from `GLYPHS`.
+
+/** The two bar widths Neo draws: 10 (one cell) and 22 (cells 2 and 3 of a deck, without the gap). */
+export type BarCells = 10 | 22
+
+/** The width of a deck gauge: from column 14 to 35, ending 2 before the value at 38. */
+export const GAUGE = 22
+
+/** Runs without the empty ones. */
+const solid = (runs: Run[]): Run[] => runs.filter(r => r.text !== '')
+
+/**
+ * A bar of exactly `cells` (10 or 22): `▮` lit, `▯` resting in `subtle`.
+ * Any non-zero value lights at least one cell; only 100 % (or more) lights
+ * all; a total of 0 or less, or a value of 0 or less, lights none. The lit run
+ * is in `color`, by default `rateColor` of the share (the accent, `warning`
+ * from 70 %, `error` from 90 %); pass `C.model` for a share bar.
+ *
+ * @example bar(18, 100, 22)            // [{ text: '▮▮▮▮', color: 'suggestion' }, { text: '▯' × 18, color: 'subtle' }]
+ * @example bar(993, 1512, 10, C.model) // 7 lit in `merged`, 3 resting
+ */
+export function bar(value: number, total: number, cells: BarCells, color?: string): Run[] {
+  let lit = 0
+  if (total > 0 && value > 0) {
+    lit = Math.round((Math.min(value, total) / total) * cells)
+    if (lit === 0) lit = 1
+    if (value < total && lit === cells) lit = cells - 1
+  }
+  const pct = total > 0 ? (Math.max(0, value) / total) * 100 : 0
+  return solid([
+    { text: GLYPHS.bar.lit.repeat(lit), color: color ?? rateColor(pct) },
+    { text: GLYPHS.bar.rest.repeat(cells - lit), color: C.subtle },
+  ])
+}
+
+/**
+ * One pip per task: `▪` done (dim), `▸` current (bold, accent), `▫` queued
+ * (dim). `active` is how many are current (default 1; 0 when nothing is in
+ * progress); they follow the done pips. More than `max` tasks (22 in a deck,
+ * 10 where a cell is all there is) draw `bar(done, total, max)` in the accent
+ * instead. No tasks draw nothing.
+ *
+ * @example pips(9, 14)     // ▪▪▪▪▪▪▪▪▪▸▫▫▫▫
+ * @example pips(30, 40)    // a 22-cell bar
+ * @example pips(9, 14, 10) // a 10-cell bar: 14 tasks do not fit one cell
+ */
+export function pips(done: number, total: number, max: BarCells = GAUGE, active = 1): Run[] {
+  const n = Math.max(0, Math.floor(total))
+  if (n > max) return bar(done, n, max, C.live)
+  const d = Math.min(n, Math.max(0, Math.floor(done)))
+  const cur = Math.min(n - d, Math.max(0, Math.floor(active)))
+  const [donePip, curPip, queuedPip] = GLYPHS.pip
+  return solid([
+    { text: donePip.repeat(d), dim: true },
+    { text: curPip.repeat(cur), color: C.live, bold: true },
+    { text: queuedPip.repeat(n - d - cur), dim: true },
+  ])
+}
+
+/**
+ * Counts `times` into `n` equal buckets over `from` … `to`. `to` itself falls
+ * in the last bucket; times outside are left out. A span of zero puts every
+ * time equal to `to` in the last bucket.
+ *
+ * @example buckets(stepStarts, sessionStart, ctx.now, 22)
+ */
+export function buckets(times: number[], from: number, to: number, n: BarCells): number[] {
+  const out: number[] = new Array<number>(n).fill(0)
+  const span = to - from
+  for (const t of times) {
+    if (t < from || t > to) continue
+    const i = span <= 0 ? n - 1 : Math.min(n - 1, Math.floor(((t - from) / span) * n))
+    out[i] = (out[i] ?? 0) + 1
+  }
+  return out
+}
+
+/**
+ * A trace of exactly `n` (10 or 22) levels, `▁` … `█`, scaled to the largest
+ * bucket, as one Run in `color` (default the accent). Fewer buckets are
+ * padded with zeros at the start; more keep the newest `n`. All zero draws
+ * `▁` throughout.
+ *
+ * @example spark(buckets(stepStarts, start, ctx.now, 22), 22)
+ * @example spark(doneBuckets, 22, C.subtle) // PACE: a quieter trace
+ */
+export function spark(values: number[], n: BarCells, color: string = C.live): Run[] {
+  const pad = new Array<number>(Math.max(0, n - values.length)).fill(0)
+  const kept = values.length >= n ? values.slice(values.length - n) : [...pad, ...values]
+  const max = Math.max(0, ...kept)
+  const levels = GLYPHS.sparks
+  const text = kept.map(v => levels[max > 0 ? Math.min(7, Math.max(0, Math.round((v / max) * 7))) : 0]).join('')
+  return [{ text, color }]
+}
+
+/** Options of `crewRow`. */
+export type CrewOpts = {
+  /** The one-row band: pods with no gaps, a signal cell only where there is a signal. */
+  tight?: boolean
+}
+
+/**
+ * A crew row: each pod at a pitch of 3 columns (hull, signal or blank, gap);
+ * the last has no trailing blank. At most `max` pods (7 in the pane, 12 in
+ * the band); more draw `max − 1` and a dim `+n`. 7 pods take 19 columns, 6
+ * and `+n` at most 22, so a crew at 14 ends by 36. Spaces are plain runs.
+ *
+ * @example crewRow(agents.map(a => podOf(a, ctx.now)))       // ◈  ◉  ▣  △! ●  ●  ■
+ * @example crewRow(pods, 12, { tight: true })                 // ◈◉▣△!●●■
+ */
+export function crewRow(pods: Pod[], max = 7, opts: CrewOpts = {}): Run[] {
+  const over = pods.length > max
+  const shown = over ? pods.slice(0, Math.max(0, max - 1)) : pods
+  const out: Run[] = []
+  const space = (k: number): void => {
+    const last = out[out.length - 1]
+    if (last !== undefined && last.text.trim() === '' && Object.keys(last).length === 1) out[out.length - 1] = { text: last.text + ' '.repeat(k) }
+    else out.push({ text: ' '.repeat(k) })
+  }
+  shown.forEach((p, i) => {
+    out.push(p.hull)
+    if (p.signal !== undefined) out.push(p.signal)
+    else if (opts.tight !== true) space(1)
+    if (opts.tight !== true && (i < shown.length - 1 || over)) space(1)
+  })
+  if (over) out.push({ text: `+${pods.length - shown.length}`, dim: true })
+  const last = out[out.length - 1]
+  if (last !== undefined && last.text.trim() === '' && Object.keys(last).length === 1) out.pop()
+  return out
+}
+
+/**
+ * A meter, one cell wide: `CTX ◔ 9%`: the label dim, a dial (`dialOf`), the
+ * rounded percentage bold, in the rate colour from 70 %. Labels are 2 or 3
+ * characters (CTX, 5H, 7D), so it is at most 10 wide; a value past 999 % is
+ * shown as `999%`.
+ *
+ * @example meter('5H', 78) // 5H ◕ 78%, the dial and value in warning
+ */
+export function meter(label: string, pct: number): Run[] {
+  const p = Number.isFinite(pct) ? pct : 0
+  const value = `${Math.min(999, Math.max(0, Math.round(p)))}%`
+  return [
+    { text: fit(label, 10 - 3 - value.length), dim: true },
+    { text: ' ' },
+    dialOf(p),
+    { text: ' ' },
+    { text: value, bold: true, ...(p >= 70 ? { color: rateColor(p) } : {}) },
+  ]
+}
+
+/**
+ * A tree row's tether prefix, `depth × 2` wide (spec "Grid": tethers take
+ * columns 2 to 3, or 4 to 5 two deep): `├╌` for a child with siblings below,
+ * `╰╌` for the last; at depth 2 the outer guide `┆` comes first when the
+ * parent has siblings below (`outer`), else a blank. Depth 0 has none.
+ *
+ * @example tether(1, false)       // '├╌'
+ * @example tether(2, true, true)  // '┆ ╰╌'
+ */
+export function tether(depth: number, last: boolean, outer = false): string {
+  if (depth <= 0) return ''
+  const t = last ? GLYPHS.tether.last : GLYPHS.tether.mid
+  if (depth === 1) return t
+  return `${outer ? GLYPHS.tether.guide : ' '} ${t}`
+}
+
+/**
+ * A pill as a Run: the word with one space each side, bold, in `inverseText`
+ * on `bg` (spec "Pill"): ` WORKING ` on the accent, ` NEEDS YOU ` on
+ * `warning`, ` ALL DONE ` / ` IDLE ` on `subtle`, the chosen filter chip on
+ * the accent. `pill` in parts.tsx draws it as a Text.
+ */
+export function pillRun(word: string, bg: string): Run {
+  return { text: ` ${word} `, bg, color: C.inverse, bold: true }
 }

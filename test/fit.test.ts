@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { bar, blockBar, elapsed, fit, fitLeft, headerParts, rule, typeShort, wrap } from '../mod/hooks/views/fit'
+import { barSplit, blockBar, elapsed, fit, fitLeft, headerParts, rule, typeShort, wrap } from '../mod/hooks/views/fit'
 
 test('fit cuts with an ellipsis and never exceeds the columns', () => {
   expect(fit('abcdef', 4)).toBe('abc…')
@@ -24,10 +24,10 @@ test('elapsed reads as seconds, minutes, hours', () => {
   expect(elapsed(5000, 1000)).toBe('0s')
 })
 
-test('bar splits the columns', () => {
-  expect(bar(2, 6, 36)).toEqual({ filled: 12, rest: 24 })
-  expect(bar(0, 0, 10)).toEqual({ filled: 0, rest: 10 })
-  expect(bar(9, 3, 10)).toEqual({ filled: 10, rest: 0 })
+test('barSplit (HUD v1 bar) splits the columns', () => {
+  expect(barSplit(2, 6, 36)).toEqual({ filled: 12, rest: 24 })
+  expect(barSplit(0, 0, 10)).toEqual({ filled: 0, rest: 10 })
+  expect(barSplit(9, 3, 10)).toEqual({ filled: 10, rest: 0 })
 })
 
 test('rule repeats the line glyph and is empty for no room', () => {

@@ -16,9 +16,13 @@ export const STEP_GLYPH: Record<Step['status'], string> = {
   denied: '⊘',
   interrupted: '◌',
 }
-/** An agent's row glyph: live in the accent (`statusColor`), a failure in error, done dim. */
+/**
+ * An agent's row glyph: live in the accent (`statusColor`), a failure in error, done dim.
+ * @deprecated Neo draws agents as hulls: `podOf(agent, ctx.now).hull` (style.ts).
+ */
 export const AGENT_GLYPH: Record<AgentRow['status'], string> = { running: '▸', done: '✓', error: '✖' }
 // `main` stays 'running' for the whole session, so it gets no status glyph.
+/** @deprecated Neo draws main as the lead's hull: `podOf(main, ctx.now).hull` (style.ts). */
 export const MAIN_GLYPH = '◆'
 /** A workflow run's row glyph. */
 export const RUN_GLYPH = '≡'

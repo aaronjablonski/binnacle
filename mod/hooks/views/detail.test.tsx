@@ -103,8 +103,8 @@ test('shows input and result', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = await allText(ui)
-    expect(all).toContain('Input')
-    expect(all).toContain('Result')
+    expect(all).toContain('INPUT')
+    expect(all).toContain('RESULT')
     expect(all).toContain('Read a.ts')
     expect(await sourceOf(ui, 'input')).toContain('"file_path": "src/a.ts"')
     expect(await sourceOf(ui, 'result')).toBe('all good')
@@ -258,5 +258,29 @@ test('narrow: no Text longer than 24 in the detail', async ($, on) => {
       for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
     }
     await ui.unmount()
+  }
+})
+
+type Mounted = Awaited<ReturnType<typeof mount>>
+type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
+const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bold?: boolean } =>
+  (f?.props ?? {}) as { color?: string; dimColor?: boolean; bold?: boolean }
+
+test('the header is a STEP section header, the glyph in its status colour and the label bold', async ($, on) => {
+  world(on, tl(step('s1', 'Bash npm test', { tool: 'Bash', status: 'error' })), DETAIL(bodyOf({ isError: true })))
+  for (const surface of SURFACES) {
+    for (const columns of [62, 24]) {
+      const ui = await mount($, surface, columns)
+      const found = await ui.findAll({ type: 'Text' })
+      expect(propsOf(found.find(f => f.text === 'STEP')).color).toBe('suggestion')
+      expect(found.some(f => (f.text ?? '').startsWith('STEP ') && (f.text ?? '').length === columns)).toBe(true)
+      expect(propsOf(found.find(f => f.text === '✖')).color).toBe('error')
+      expect(propsOf(found.find(f => (f.text ?? '').startsWith(' Bash npm'))).bold).toBe(true)
+      expect(found.some(f => (f.text ?? '').startsWith('RESULT ') && (f.text ?? '').includes('error'))).toBe(true)
+      for (const f of found) {
+        for (const line of (f.text ?? '').split('\n')) expect(line.length <= columns).toBe(true)
+      }
+      await ui.unmount()
+    }
   }
 })

@@ -115,8 +115,9 @@ test('shows a completed, an in-progress and a pending task with their glyphs', a
     expect(all).toContain('✔ Map the upload path')
     expect(all).toContain('▶ Wiring the limiter')
     expect(all).toContain('2m')
-    expect(all).toContain('☐ Return 429')
-    expect(all).toContain('1 of 3 done')
+    expect(all).toContain('○ Return 429')
+    expect(all).toContain('TASKS')
+    expect(all).toContain('1/3')
     await ui.unmount()
   }
 })
@@ -160,7 +161,7 @@ test("nests an agent's own tasks under it", async ($, on) => {
     const all = await texts(ui)
     expect(all).toContain('      ✔ Read the helpers')
     expect(all).toContain('      ▶ Cover burst')
-    expect(all).toContain('      ☐ Cover per-user keys')
+    expect(all).toContain('      ○ Cover per-user keys')
     await ui.unmount()
   }
 })
@@ -203,5 +204,63 @@ test('narrow: no Text longer than 24', async ($, on) => {
     expect(found.length >= 8).toBe(true)
     for (const f of found) expect((f.text ?? '').length <= 24).toBe(true)
     await ui.unmount()
+  }
+})
+
+type Mounted = Awaited<ReturnType<typeof mount>>
+type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
+const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string } =>
+  (f?.props ?? {}) as { color?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string }
+
+const MIXED: Timeline = {
+  ...empty,
+  tasks: [
+    task('1', 'Map the upload path', 'completed'),
+    task('2', 'Wire the limiter', 'in_progress', { activeForm: 'Wiring the limiter' }),
+    task('3', 'Return 429', 'pending'),
+  ],
+  agents: { main, a1: { ...agent('a1', 'Explore', 'find callers', 'Grep upload'), taskId: '2' } },
+}
+
+test('task glyphs carry their status colours and a pending task is dim', async ($, on) => {
+  seed(on, MIXED, TASKS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(propsOf(found.find(f => f.text === '✔')).color).toBe('success')
+    expect(found.filter(f => f.text === '▶').map(f => propsOf(f).color)).toContain('warning')
+    expect(propsOf(found.find(f => f.text === '○')).dimColor).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the in-progress task is bold with its age dim on the right of a space-between row', async ($, on) => {
+  seed(on, MIXED, TASKS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = (await ui.findAll({ type: 'Box' })).filter(b => propsOf(b).justifyContent === 'space-between')
+    expect(rows.length).toBe(1)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(propsOf(found.find(f => f.text === '2m')).dimColor).toBe(true)
+    expect(propsOf(found.find(f => f.text === ' Wiring the limiter')).bold).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the TASKS header is label, rule and meta summing to the columns, and no line passes 24', async ($, on) => {
+  seed(on, MIXED, TASKS_UI)
+  for (const surface of SURFACES) {
+    for (const columns of [62, 24]) {
+      const ui = await mount($, surface, columns)
+      const found = await ui.findAll({ type: 'Text' })
+      const header = found.find(f => (f.text ?? '').startsWith('TASKS ') && (f.text ?? '').length === columns)
+      expect(header).toBeDefined()
+      expect(propsOf(found.find(f => f.text === 'TASKS')).color).toBe('suggestion')
+      expect(propsOf(found.find(f => (f.text ?? '').startsWith(' ─') || (f.text ?? '').startsWith(' ──'))).color).toBe('subtle')
+      for (const f of found) {
+        for (const line of (f.text ?? '').split('\n')) expect(line.length <= columns).toBe(true)
+      }
+      await ui.unmount()
+    }
   }
 })

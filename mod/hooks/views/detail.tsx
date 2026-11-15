@@ -5,7 +5,9 @@ import { BUDGET_CHANGE, BUDGET_INPUT, BUDGET_TOTAL, clean, cutChars, cutLines, d
 import { apply, debug, errText, leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { clock, elapsed, fit, packParts } from './fit'
+import { glyphLine, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
+import { glyphColor } from './style'
 
 async function togglePin($: EngineInterface, s: Step): Promise<void> {
   if (s.pin === undefined) await apply($, { kind: 'pin', id: s.id, note: '' })
@@ -90,7 +92,8 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const pinLine = isPinned ? fit(s.pin === '' ? '★ pinned' : `★ ${s.pin}`, cols) : ''
     const header = (
       <Box key="header" flexDirection="column">
-        <Text bold>{fit(`${STEP_GLYPH[s.status]} ${s.label}`, cols)}</Text>
+        {sectionHeader('STEP', s.status, cols, ctx.e, $)}
+        {glyphLine(ctx, $, STEP_GLYPH[s.status], glyphColor(s.status), s.label, true)}
         <Text dimColor>{meta.join('\n')}</Text>
         {pinLine !== '' ? <Text>{pinLine}</Text> : null}
       </Box>
@@ -112,19 +115,19 @@ export function detailView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         {buttons}
         {header}
         <Box key="input" flexDirection="column">
-          <Text bold>Input</Text>
+          {sectionHeader('INPUT', '', cols, ctx.e, $)}
           <Code source={code.input.text} language="json" />
           {code.input.cut > 0 ? <Text dimColor>{fit(`… ${code.input.cut} more lines not shown`, cols)}</Text> : null}
         </Box>
         {code.change.source !== '' ? (
           <Box key="change" flexDirection="column">
-            <Text bold>Change</Text>
+            {sectionHeader('CHANGE', '', cols, ctx.e, $)}
             <Code source={code.change.source} format="diff" wrap="truncate-end" />
             {code.change.cut > 0 ? <Text dimColor>{fit(`… ${code.change.cut} more lines not shown`, cols)}</Text> : null}
           </Box>
         ) : null}
         <Box key="result" flexDirection="column">
-          <Text bold>{body.isError ? 'Result (error)' : 'Result'}</Text>
+          {sectionHeader('RESULT', body.isError ? 'error' : '', cols, ctx.e, $)}
           {code.result.text !== '' ? <Code source={code.result.text} /> : <Text dimColor>(empty)</Text>}
           {code.result.cut > 0 ? <Text dimColor>{fit(`… ${code.result.cut} more characters not shown`, cols)}</Text> : null}
           {body.cut > 0 ? <Text dimColor>{fit(`… ${body.cut} more characters not kept`, cols)}</Text> : null}

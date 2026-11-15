@@ -6,7 +6,9 @@ import type { TreeLine } from '../model/select'
 import { debug, errText, leaveDetail, updateUi } from '../state'
 import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, metaOf } from './agentmeta'
 import { fit } from './fit'
+import { flushRight, glyphText, sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
+import { C, glyphColor } from './style'
 
 const MAX_DEPTH = 6
 const BRANCH = 3
@@ -31,9 +33,14 @@ function agentName(agent: AgentRow, meta: string, room: number): { name: string;
   return { name: fit(agent.type, room), meta: '' }
 }
 
-function runName(line: TreeLine): string {
-  const { run, done, children } = line.node
-  return `⚙ ${run ? run.name : line.key} · workflow · ${done ?? 0}/${children.length} done`
+function runLabel(line: TreeLine): string {
+  const { run } = line.node
+  return `⚙ ${run ? run.name : line.key}`
+}
+
+function runMeta(line: TreeLine): string {
+  const { done, children } = line.node
+  return `workflow · ${done ?? 0}/${children.length} done`
 }
 
 function nodeButton(ctx: ViewCtx, line: TreeLine, room: number, $: EngineInterface): RenderElement {
@@ -52,9 +59,7 @@ function nodeButton(ctx: ViewCtx, line: TreeLine, room: number, $: EngineInterfa
           }))
         }
       >
-        <Text key="head" bold>
-          {fit(runName(line), room)}
-        </Text>
+        {sectionHeader(runLabel(line), runMeta(line), room, ctx.e, $)}
       </Button>
     )
   }
@@ -64,14 +69,16 @@ function nodeButton(ctx: ViewCtx, line: TreeLine, room: number, $: EngineInterfa
   const meta = metaOf(ctx, agent, '')
   const parts = isMain ? { name: fit('main', inner), meta: fit(meta, Math.max(0, inner - 5)) } : agentName(agent, meta, inner)
   const lines: RenderElement[] = [
+    glyphText(glyph, isMain ? undefined : glyphColor(agent.status), ctx.e, $, 'glyph'),
     <Text key="head" bold={isMain}>
-      {fit(`${glyph} ${parts.name}`, room)}
+      {` ${fit(parts.name, Math.max(0, room - glyph.length - 1))}`}
     </Text>,
   ]
-  if (parts.meta !== '' && parts.name.length + parts.meta.length + 3 <= room) {
+  const used = glyph.length + 1 + parts.name.length
+  if (parts.meta !== '' && used + parts.meta.length + 1 <= room) {
     lines.push(
       <Text key="meta" dimColor>
-        {` ${parts.meta}`}
+        {flushRight(used, parts.meta, room)}
       </Text>,
     )
   }
@@ -80,7 +87,7 @@ function nodeButton(ctx: ViewCtx, line: TreeLine, room: number, $: EngineInterfa
   if (!isMain && agent.status === 'running' && agent.doing !== '') {
     lines.push(
       <Text key="doing" dimColor>
-        {`\n${fit(`  ${agent.doing}`, room)}`}
+        {`\n${fit(`└ ${agent.doing}`, room)}`}
       </Text>,
     )
   }
@@ -121,7 +128,9 @@ function treeRow(ctx: ViewCtx, line: TreeLine, $: EngineInterface): RenderElemen
           }))
         }
       >
-        <Text key="glyph">{line.folded ? '▸' : '▾'}</Text>
+        <Text key="glyph" color={C.accent}>
+          {line.folded ? '▸' : '▾'}
+        </Text>
       </Button>,
     )
     items.push(<Text key="gap"> </Text>)
@@ -152,9 +161,7 @@ export function treeView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     }
     return (
       <Box flexDirection="column">
-        <Text key="count" dimColor>
-          {fit(`${count} agents · ${running} running`, cols)}
-        </Text>
+        {sectionHeader('AGENTS', `${count} agents · ${running} running`, cols, ctx.e, $)}
         {lines.map(l => treeRow(ctx, l, $))}
         {lines.length <= 1 ? (
           <Text key="empty" dimColor>

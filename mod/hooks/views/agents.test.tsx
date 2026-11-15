@@ -184,7 +184,9 @@ test('groups two workflow agents under their run with 1/2 done', async ($, on) =
   )
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
-    expect((await texts(ui)).join('\n')).toContain('⚙ review-changes · workflow · 1/2 done')
+    const all = (await texts(ui)).join('\n')
+    expect(all).toContain('⚙ review-changes')
+    expect(all).toContain('workflow · 1/2 done')
     expect((await ui.find({ key: 'agent-w1' }))?.text).toContain('read:agent-1')
     expect((await ui.find({ key: 'agent-w2' }))?.text).toContain('Read b.ts')
     await ui.unmount()
@@ -273,5 +275,65 @@ test('empty state', async ($, on) => {
       'No agents yet. Subagents and workflow agents appear here while they run.',
     )
     await ui.unmount()
+  }
+})
+
+type Mounted = Awaited<ReturnType<typeof mount>>
+type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
+const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bold?: boolean } =>
+  (f?.props ?? {}) as { color?: string; dimColor?: boolean; bold?: boolean }
+
+const MIXED_AGENTS = busy({
+  runs: { r1: run },
+  agents: {
+    main: withMainWork,
+    a1: agent('a1', 'Explore', 'find callers', 'Grep upload'),
+    a2: { ...agent('a2', 'Explore', 'map the path', 'done it', 'done'), endedAt: NOW - 8000, stepCount: 11 },
+    a3: agent('a3', 'Explore', 'broke', 'oops', 'error'),
+    w1: wf('w1', 0, 'read:agent-1', 'Read a.ts', 'done'),
+  },
+})
+
+test('agent glyphs carry status colours and main gets a dim bullet', async ($, on) => {
+  seed(on, MIXED_AGENTS, AGENTS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(found.filter(f => f.text === '▶').map(f => propsOf(f).color)).toContain('warning')
+    expect(found.filter(f => f.text === '✔').map(f => propsOf(f).color)).toContain('success')
+    expect(found.filter(f => f.text === '✖').map(f => propsOf(f).color)).toContain('error')
+    expect(propsOf(found.find(f => f.text === '•')).dimColor).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('a row is one Button: meta flush right, the doing line second, dim and prefixed with └', async ($, on) => {
+  seed(on, MIXED_AGENTS, AGENTS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const row = (await ui.find({ key: 'agent-a1' }))?.text ?? ''
+    const [first, second] = row.split('\n')
+    expect(first?.length).toBe(62)
+    expect(first?.endsWith('1m · 1 steps')).toBe(true)
+    expect(second).toBe('└ Grep upload')
+    const found = await ui.findAll({ type: 'Text' })
+    expect(propsOf(found.find(f => f.text === '\n└ Grep upload')).dimColor).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the AGENTS and run headers are section headers that sum to the columns', async ($, on) => {
+  seed(on, MIXED_AGENTS, AGENTS_UI)
+  for (const surface of SURFACES) {
+    for (const columns of [62, 24]) {
+      const ui = await mount($, surface, columns)
+      const found = await ui.findAll({ type: 'Text' })
+      const heads = found.filter(f => (f.text ?? '').startsWith('AGENTS') && (f.text ?? '').length === columns)
+      expect(heads.length).toBe(1)
+      const run = found.filter(f => (f.text ?? '').startsWith('⚙ review-changes') && (f.text ?? '').length === columns)
+      expect(run.length).toBe(1)
+      expect(propsOf(found.find(f => f.text === 'AGENTS')).color).toBe('suggestion')
+      await ui.unmount()
+    }
   }
 })

@@ -315,3 +315,68 @@ test('a filter that matches nothing says so', async ($, on) => {
   expect((await texts(ui)).join('\n')).toContain('No steps match.')
   await ui.unmount()
 })
+
+type Mounted = Awaited<ReturnType<typeof mount>>
+type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
+const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string } =>
+  (f?.props ?? {}) as { color?: string; dimColor?: boolean; bold?: boolean; justifyContent?: string }
+
+function pinned(): Timeline {
+  const t = twoTurns()
+  return { ...t, steps: t.steps.map(s => (s.id === 's4' ? { ...s, pin: 'the limiter itself' } : s)) }
+}
+
+test('step glyphs carry status colours and the turn mark is accent', async ($, on) => {
+  world(on, pinned(), TL_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(propsOf(found.find(f => f.text === '✔')).color).toBe('success')
+    expect(propsOf(found.find(f => f.text === '✖')).color).toBe('error')
+    expect(propsOf(found.find(f => f.text === '▾')).color).toBe('suggestion')
+    expect(propsOf(found.find(f => f.text === '▸')).color).toBe('suggestion')
+    await ui.unmount()
+  }
+})
+
+test('a step row is one Button: meta flush right, the pin note second, dim with └', async ($, on) => {
+  world(on, pinned(), TL_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const [first, second] = ((await ui.find({ key: 'step-s4' }))?.text ?? '').split('\n')
+    expect(first?.length).toBe(62)
+    expect(first?.endsWith('1s')).toBe(true)
+    expect(second).toBe('  └ the limiter itself')
+    const found = await ui.findAll({ type: 'Text' })
+    expect(propsOf(found.find(f => f.text === '\n  └ the limiter itself')).dimColor).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the newest turn is a space-between row with its time dim; a folded turn counts on a └ line', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const rows = (await ui.findAll({ type: 'Box' })).filter(b => propsOf(b).justifyContent === 'space-between')
+    expect(rows.length).toBe(1)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(found.some(f => /^\d\d:\d\d$/.test(f.text ?? '') && propsOf(f).dimColor === true)).toBe(true)
+    const folded = ((await ui.find({ key: 'turn-t1' }))?.text ?? '').split('\n')
+    expect(folded[1]).toBe('  └ 2 steps · 1 agent')
+    expect(folded[0]?.length).toBe(62)
+    await ui.unmount()
+  }
+})
+
+test('narrow: a pinned step and the turn rows keep every line within 24', async ($, on) => {
+  world(on, pinned(), TL_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 24)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(found.length > 6).toBe(true)
+    for (const f of found) {
+      for (const line of (f.text ?? '').split('\n')) expect(line.length <= 24).toBe(true)
+    }
+    await ui.unmount()
+  }
+})

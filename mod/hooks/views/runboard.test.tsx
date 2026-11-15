@@ -113,7 +113,7 @@ test('the Agents list run header opens the board', async ($, on) => {
 const rows = async (ui: Mounted): Promise<string[]> => screen(await ui.drawn())
 const rowWith = (all: string[], text: string): string => all.find(r => r.includes(text)) ?? ''
 
-test('the board: head on the grid, rows in spawn order on the table columns, no main', async ($, on) => {
+test('LOOK: the board: hulls at 2, head on the grid, rows in spawn order on the table columns, no main', async ($, on) => {
   seed(on, board(), UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -127,9 +127,10 @@ test('the board: head on the grid, rows in spawn order on the table columns, no 
     expect(text.indexOf('read agent one') < text.indexOf('read agent two')).toBe(true)
     expect(text.indexOf('read agent two') < text.indexOf('read agent three')).toBe(true)
     const one = rowWith(all, 'read agent one')
-    expect([colOf(one, '✓'), colOf(one, 'read agent one'), colOf(one, '–'), colOf(one, '40s')]).toEqual([2, 4, 38, 50])
-    expect(colOf(rowWith(all, 'read agent three'), '▸')).toBe(2)
-    expect(colOf(rowWith(all, 'read agent two'), '✖')).toBe(2)
+    expect([colOf(one, '■'), colOf(one, 'read agent one'), colOf(one, '–'), colOf(one, '40s')]).toEqual([2, 4, 38, 50])
+    expect(colOf(rowWith(all, 'read agent three'), '▣')).toBe(2)
+    expect(colOf(rowWith(all, 'read agent two'), '□')).toBe(2)
+    expect(colOf(rowWith(all, 'read agent two'), '!')).toBe(0)
     expect(text).not.toContain('main')
     expect(text).not.toContain('└')
     expect(await ui.find({ key: 'agent-main' })).toBeUndefined()

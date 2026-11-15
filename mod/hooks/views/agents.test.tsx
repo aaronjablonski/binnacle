@@ -160,13 +160,13 @@ const MIXED = busy({
   },
 })
 
-test('three columns at 62: glyph 2, name 4, tokens 38, time 50', async ($, on) => {
+test('LOOK: three columns at 62: hull 2, name 4, tokens 38, time 50', async ($, on) => {
   seed(on, MIXED, AGENTS_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 62)
     const all = await rows(ui)
     const a1 = rowWith(all, 'find callers')
-    expect(colOf(a1, '▸')).toBe(2)
+    expect(colOf(a1, '◉')).toBe(2)
     expect(colOf(a1, 'find callers')).toBe(4)
     expect(colOf(a1, '72k')).toBe(38)
     expect(colOf(a1, '1m')).toBe(50)
@@ -175,7 +175,8 @@ test('three columns at 62: glyph 2, name 4, tokens 38, time 50', async ($, on) =
     expect(colOf(head, 'AGENTS')).toBe(2)
     expect(colOf(head, 'tokens')).toBe(38)
     expect(colOf(head, 'time')).toBe(50)
-    const mainRow = rowWith(all, '◆')
+    const mainRow = rowWith(all, '◈ main')
+    expect(colOf(mainRow, '◈')).toBe(2)
     expect(colOf(mainRow, 'main')).toBe(4)
     expect(colOf(mainRow, '993k')).toBe(38)
     await ui.unmount()
@@ -193,17 +194,35 @@ test('main first, then running, failed, done; workflow agents are not in the lis
   await ui.unmount()
 })
 
-test('glyphs: ◆ main dim, ▸ live in the accent, ✖ error, ✓ done dim', async ($, on) => {
+test('LOOK: hulls via podOf: ◈ main in claude, ◉ live scout in the accent, ○ failed in error, ● done dim', async ($, on) => {
   seed(on, MIXED, AGENTS_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const found = await ui.findAll({ type: 'Text' })
-    expect(propsOf(found.find(f => f.text === '◆')).dimColor).toBe(true)
-    expect(found.filter(f => f.text === '▸').map(f => propsOf(f).color)).toContain('suggestion')
-    expect(found.filter(f => f.text === '✖').map(f => propsOf(f).color)).toContain('error')
-    const done = found.find(f => f.text === '✓')
-    expect(propsOf(done).dimColor).toBe(true)
-    expect(propsOf(done).color).toBeUndefined()
+    expect(found.filter(f => f.text === '◈').map(f => propsOf(f).color)).toContain('claude')
+    expect(found.filter(f => f.text === '◉').map(f => propsOf(f).color)).toContain('suggestion')
+    expect(found.filter(f => f.text === '○').map(f => propsOf(f).color)).toContain('error')
+    const done = found.filter(f => f.text === '●')
+    expect(done.length > 0).toBe(true)
+    for (const d of done) {
+      expect(propsOf(d).dimColor).toBe(true)
+      expect(propsOf(d).color).toBeUndefined()
+    }
+    const out = (await rows(ui)).join('\n')
+    for (const old of ['▸ find', '✓ count', '✖ run plugin', '◆ main']) expect(out).not.toContain(old)
+    await ui.unmount()
+  }
+})
+
+test('LOOK: a failed agent carries ! in the gutter in error; a live one carries nothing', async ($, on) => {
+  seed(on, MIXED, AGENTS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const all = await rows(ui)
+    expect(colOf(rowWith(all, 'run plugin tests'), '!')).toBe(0)
+    expect(rowWith(all, 'find callers').startsWith(' ')).toBe(true)
+    const bangs = (await ui.findAll({ type: 'Text' })).filter(f => (f.text ?? '').startsWith('!'))
+    expect(bangs.map(b => propsOf(b).color)).toContain('error')
     await ui.unmount()
   }
 })
@@ -272,34 +291,68 @@ test('r hides finished agents from the list and drops runs with nothing running'
   await again.unmount()
 })
 
-test('the head: LIVE, DONE, FAILED and the two heaviest models on cells 1 to 5', async ($, on) => {
+test('LOOK: the deck: CREW, ROLES, MODELS between rails at 0 and 61, labels at 2, gauges at 14', async ($, on) => {
   seed(on, MIXED, AGENTS_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 62)
     const all = await rows(ui)
-    const labels = rowWith(all, 'LIVE')
-    expect([2, 14, 26, 38, 50]).toEqual(['LIVE', 'DONE', 'FAILED', 'OPUS', 'SONNET'].map(l => colOf(labels, l)))
-    const values = all[all.indexOf(labels) + 1] ?? ''
-    expect(colOf(values, '2')).toBe(2)
-    expect(colOf(values, '1')).toBe(26)
-    expect(colOf(values, '993k')).toBe(38)
-    expect(colOf(values, '153k')).toBe(50)
+    const crew = rowWith(all, 'CREW')
+    const roles = rowWith(all, 'ROLES')
+    const models = rowWith(all, 'MODELS')
+    expect([crew, roles, models].map(r => r.length)).toEqual([62, 62, 62])
+    expect([crew[0], roles[0], models[0]]).toEqual(['┏', '┃', '┗'])
+    expect([crew[61], roles[61], models[61]]).toEqual(['┓', '┃', '┛'])
+    expect([colOf(crew, 'CREW'), colOf(roles, 'ROLES'), colOf(models, 'MODELS')]).toEqual([2, 2, 2])
+    // the crew: main, live, failed (with its !), done, at a pitch of 3 from 14
+    expect(crew.slice(14, 14 + 16)).toBe('◈  ◉  ▣  ○! ●  ■')
+    expect(colOf(crew, '2 live')).toBe(38)
+    expect(colOf(crew, '1 failed')).toBe(50)
+    // the roles legend: hull, role, count on 14, 26, 38, 50
+    expect([colOf(roles, '◇ lead 1'), colOf(roles, '○ scout 3'), colOf(roles, '□ build 2'), colOf(roles, '△ check 0')]).toEqual([14, 26, 38, 50])
+    // the two heaviest models: value at 14 and 38, a 10-cell share bar after each
+    expect(colOf(models, 'opus 993k')).toBe(14)
+    expect(models.slice(26, 36)).toBe('▮▮▮▮▮▮▮▮▯▯')
+    expect(colOf(models, '153k')).toBe(38 + 'sonne '.length)
+    expect(models.slice(50, 60)).toMatch(/^▮+▯+$/)
+    expect(all.join('\n')).not.toContain('LIVE')
     await ui.unmount()
   }
 })
 
-test('the head keeps 4, 3 and 2 cells at 55, 40 and 32 columns, models going first', async ($, on) => {
+test('LOOK: the deck tiers: under 62 the aside goes, under 50 the third and fourth cells go, never wider than the pane', async ($, on) => {
   seed(on, MIXED, AGENTS_UI)
-  for (const [columns, cells] of [[55, 4], [40, 3], [32, 2]] as const) {
+  for (const [columns, aside, third] of [[62, true, true], [55, false, true], [40, false, false], [32, false, false]] as const) {
     const ui = await mount($, 'terminal', columns)
     const all = await rows(ui)
-    const labels = rowWith(all, 'LIVE')
-    const found = ['LIVE', 'DONE', 'FAILED', 'OPUS', 'SONNET'].filter(l => labels.includes(l))
-    expect(found.length).toBe(cells)
-    if (cells === 4) expect(found).toContain('OPUS')
-    if (cells <= 3) expect(found).toEqual(['LIVE', 'DONE', 'FAILED'].slice(0, cells))
+    for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
+    expect(rowWith(all, 'CREW').includes('failed')).toBe(aside)
+    expect(rowWith(all, 'ROLES').includes('check')).toBe(aside)
+    expect(rowWith(all, 'ROLES').includes('build')).toBe(third)
+    expect(rowWith(all, 'MODELS').includes('sonn')).toBe(third)
+    expect(rowWith(all, 'ROLES').includes('lead')).toBe(true)
+    expect(rowWith(all, 'MODELS').includes('opus')).toBe(true)
+    expect(rowWith(all, 'CREW')[0]).toBe('┏')
     await ui.unmount()
   }
+})
+
+test('the crew shows a stalled pod with its signal, and the deck counts live agents', async ($, on) => {
+  seed(on, stalled(), AGENTS_UI)
+  const ui = await mount($, 'terminal', 62)
+  const crew = rowWith(await rows(ui), 'CREW')
+  expect(crew.slice(14, 14 + 14)).toBe('◈  ◉z ▣z ◉    ')
+  expect(colOf(crew, '3 live')).toBe(38)
+  expect(crew).not.toContain('failed')
+  await ui.unmount()
+})
+
+test('the MODELS row is left out when no agent has reported a model', async ($, on) => {
+  seed(on, busy({ agents: { main, a1: agent('a1', 'Explore', 'find callers', 'x') } }), AGENTS_UI)
+  const ui = await mount($, 'terminal', 62)
+  const text = (await rows(ui)).join('\n')
+  expect(text).toContain('ROLES')
+  expect(text).not.toContain('MODELS')
+  await ui.unmount()
 })
 
 const manyDone = (n: number): Timeline =>
@@ -352,7 +405,7 @@ test('pressing a row opens it in place; pressing it again closes it', async ($, 
   }
 })
 
-test('an opened row: bold name, result and agent at 6/14, the action line at 6, a blank above and below', async ($, on) => {
+test('LOOK: an opened row: bold name, result and agent at 6/14, the action line at 6, a blank above and below', async ($, on) => {
   seed(on, MIXED, { ...AGENTS_UI, agentOpen: 'a2' })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -366,7 +419,7 @@ test('an opened row: bold name, result and agent at 6/14, the action line at 6, 
     expect(colOf(result, '17 TypeScript files under mod/')).toBe(14)
     const meta = all[at + 2] ?? ''
     expect(colOf(meta, 'agent')).toBe(6)
-    expect(colOf(meta, 'Explore · haiku · 2 steps · ')).toBe(14)
+    expect(colOf(meta, 'scout · Explore · haiku · 2 steps · ')).toBe(14)
     const actions = all[at + 3] ?? ''
     expect(actions).toBe('      s: steps   v: transcript   g: chat')
     expect(all[at + 4]?.trim()).toBe('')
@@ -485,24 +538,25 @@ const stalled = (): Timeline =>
     },
   })
 
-test('! in the gutter marks a problem agent and a run that holds one', async ($, on) => {
+test('LOOK: a stalled agent is z in the gutter in warning; a run that holds a problem is !', async ($, on) => {
   seed(on, stalled(), AGENTS_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = await rows(ui)
-    expect(colOf(rowWith(all, 'find callers'), '!')).toBe(0)
-    expect(rowWith(all, 'write tests').startsWith('!')).toBe(false)
+    expect(colOf(rowWith(all, 'find callers'), 'z')).toBe(0)
+    expect(rowWith(all, 'write tests').startsWith(' ')).toBe(true)
     expect(colOf(rowWith(all, 'review-changes'), '!')).toBe(0)
-    const bangs = (await ui.findAll({ type: 'Text' })).filter(f => (f.text ?? '').startsWith('!'))
-    expect(bangs.map(b => propsOf(b).color)).toContain('error')
+    const found = await ui.findAll({ type: 'Text' })
+    expect(found.filter(f => (f.text ?? '').startsWith('z ')).map(b => propsOf(b).color)).toEqual(['warning'])
+    expect(found.filter(f => (f.text ?? '').startsWith('!')).map(b => propsOf(b).color)).toContain('error')
     await ui.unmount()
   }
 })
 
-test('a dismissed problem leaves no !', async ($, on) => {
+test('a dismissed problem leaves no ! and no z', async ($, on) => {
   seed(on, stalled(), { ...AGENTS_UI, dismissed: ['stalled:a1', 'stalled:w1'] })
   const ui = await mount($, 'terminal')
-  expect((await rows(ui)).filter(r => r.startsWith('!')).length).toBe(0)
+  expect((await rows(ui)).filter(r => /^[!z]/.test(r)).length).toBe(0)
   await ui.unmount()
 })
 
@@ -613,5 +667,23 @@ test('focused, every row of Agents, footer included, fits 32 and 40 columns', as
       for (const r of rows) expect(r.length <= columns).toBe(true)
       await ui.unmount()
     }
+  }
+})
+
+test('LOOK: an agent waiting on the person is ? in the gutter in warning, with its hull lit in warning and a ? in the crew', async ($, on) => {
+  const t = busy({
+    agents: { main, a1: agent('a1', 'Explore', 'find callers', 'Bash'), a2: agent('a2', 'Explore', 'write tests', 'Edit') },
+    steps: [step('s2', 2, 'Bash npm publish', 'running', { agent: 'a1', tool: 'Bash', asking: NOW - 4000 })],
+  })
+  seed(on, t, AGENTS_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const all = await rows(ui)
+    expect(colOf(rowWith(all, 'find callers'), '?')).toBe(0)
+    expect(rowWith(all, 'write tests').startsWith(' ')).toBe(true)
+    const found = await ui.findAll({ type: 'Text' })
+    expect(found.filter(f => (f.text ?? '').startsWith('? ')).map(f => propsOf(f).color)).toEqual(['warning'])
+    expect(rowWith(all, 'CREW').slice(14, 14 + 10)).toBe('◈  ◉? ◉   ')
+    await ui.unmount()
   }
 })

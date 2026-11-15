@@ -6,18 +6,20 @@ import type { TreeNode } from '../model/select'
 import { debug, errText, updateUi } from '../state'
 import { EMPTY, RUN_GLYPH, agentOpened, agentRow, tokensOf } from './agentmeta'
 import type { Jump } from './agentmeta'
-import { at, elapsed, fit, placed, wrapWords } from './fit'
+import { at, elapsed, fit, placed, tether, wrapWords } from './fit'
 import type { Seg } from './fit'
 import { blank, row, runText, section } from './parts'
 import type { Run } from './parts'
 import type { ViewCtx } from './shell'
+import type { PodState } from './style'
 import { C, COL, GRID } from './style'
 import { tokenText } from './budget'
 
 /** What the tree draws, in order: a node's row, or the `+ n done` line that stands for its finished children. */
+type Tether = { last: boolean; outer: boolean }
 type Item =
-  | { kind: 'node'; node: TreeNode; depth: 0 | 1 | 2; guide: string; folded: boolean; problem: boolean }
-  | { kind: 'done'; key: string; n: number; depth: 0 | 1 | 2; guide: string }
+  | { kind: 'node'; node: TreeNode; depth: 0 | 1 | 2; tether?: Tether; folded: boolean; problem: boolean }
+  | { kind: 'done'; key: string; n: number; depth: 0 | 1 | 2; tether: Tether }
 
 const clampDepth = (d: number): 0 | 1 | 2 => (d <= 0 ? 0 : d === 1 ? 1 : 2)
 
@@ -47,36 +49,41 @@ function isSettled(node: TreeNode, ids: Set<string>, open: string | undefined): 
 /** The tree as items. Only the `run:` keys in `folded` fold a node; a branch of finished agents becomes one `+ n done` line. */
 function itemsOf(root: TreeNode, folded: string[], ids: Set<string>, open: string | undefined): Item[] {
   const out: Item[] = []
-  const walk = (node: TreeNode, actual: number, guide: string, cont: string) => {
+  // `outer`: the parent has siblings below, so a `┆` runs down beside this level.
+  const walk = (node: TreeNode, actual: number, tether: Tether | undefined, outer: boolean) => {
     const depth = clampDepth(actual)
     const isFolded = node.kind === 'run' && folded.includes(node.key)
     const own = node.kind === 'agent' && node.agent !== undefined && ids.has(node.agent.id)
-    out.push({ kind: 'node', node, depth, guide, folded: isFolded, problem: own || (isFolded && hasProblemIn(node, ids)) })
+    out.push({
+      kind: 'node', node, depth, ...(tether !== undefined ? { tether } : {}), folded: isFolded,
+      problem: own || (isFolded && hasProblemIn(node, ids)),
+    })
     if (isFolded) return
     const shown = node.children.filter(c => !isSettled(c, ids, open))
     const hidden = node.children.filter(c => isSettled(c, ids, open))
     const hiddenAgents = hidden.reduce((n, c) => n + agentsIn(c).length, 0)
+    // `outer` for the children: this node has siblings below it (a depth-0 node has none).
+    const below = tether !== undefined && !tether.last
     shown.forEach((c, i) => {
       const last = i === shown.length - 1 && hiddenAgents === 0
-      const branch = last ? '└' : '├'
-      const childGuide = actual + 1 >= 2 ? `${cont} ${branch}` : branch
-      walk(c, actual + 1, childGuide, last ? ' ' : '│')
+      walk(c, actual + 1, { last, outer: below }, below)
     })
     if (hiddenAgents > 0) {
-      const childDepth = clampDepth(actual + 1)
-      out.push({ kind: 'done', key: node.key, n: hiddenAgents, depth: childDepth, guide: actual + 1 >= 2 ? `${cont} └` : '└' })
+      out.push({ kind: 'done', key: node.key, n: hiddenAgents, depth: clampDepth(actual + 1), tether: { last: true, outer: below } })
     }
   }
-  walk(root, 0, '', ' ')
+  walk(root, 0, undefined, false)
   return out
 }
 
-/** `+ n done` at the child depth, its guide in `subtle` (the mock's `│ └`). */
+/** `╰╌+ 3 done` at the child depth: the tether (and the `┆` outer guide) in `subtle`, `+` where a hull would be. */
 function doneLine(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'done' }>): RenderElement {
   const { Text } = $.ui.resolve(ctx.e)
   const indent = 2 * it.depth
+  const guide = tether(it.depth, it.tether.last, it.tether.outer)
+  const lead = guide.length - guide.trimStart().length
   const segs: (Run & Seg)[] = [
-    { ...at(COL.glyph, fit(it.guide, indent)), color: C.subtle },
+    { ...at(COL.glyph + lead, guide.trimStart()), color: C.subtle },
     { ...at(COL.glyph + indent, '+'), dim: true },
     { ...at(COL.name + indent, fit(`${it.n} done`, Math.max(0, ctx.cols - COL.name - indent))), dim: true },
   ].filter(s => s.text !== '')
@@ -119,7 +126,7 @@ function runRow(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'nod
     metric: runTokens(node),
     time: runTime(ctx, node),
     depth: it.depth,
-    ...(it.guide !== '' ? { guide: it.guide } : {}),
+    ...(it.tether !== undefined ? { tether: it.tether } : {}),
     ...(it.problem ? { flag: 'problem' as const } : {}),
     onPress: () =>
       updateUi($, u => ({
@@ -131,13 +138,14 @@ function runRow(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'nod
 
 /**
  * The tree under the shared head: `┌ AGENTS` and main with every agent and run
- * under it. Guides are `subtle` at columns 2 and 4, names sit at 4, 6 and 8,
+ * under it. Tethers (`├╌ ╰╌`, and `┆` as the outer guide two deep) are `subtle`
+ * at columns 2 and 4, hulls sit at 4 and 6, names at 6 and 8,
  * tokens and time on the same two columns as the list. A node with a problem,
  * and a folded run that holds one, carry `!`. Finished branches fold to
  * `+ n done`; a press on a run folds it, a press on an agent opens it.
  * `ids` are the agents with a problem; `targets` are the rows `n`/`p` visit.
  */
-export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>): { el: RenderElement; targets: Jump[] } {
+export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Map<string, PodState> = new Map()): { el: RenderElement; targets: Jump[] } {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, u, cols } = ctx
   try {
@@ -161,7 +169,8 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>): { 
       const line = agentRow(ctx, $, agent, {
         key: `node-${node.key}`,
         depth: it.depth,
-        ...(it.guide !== '' ? { guide: it.guide } : {}),
+        ...(it.tether !== undefined ? { tether: it.tether } : {}),
+        ...(states.has(agent.id) ? { state: states.get(agent.id)! } : {}),
         ...(it.problem ? { flag: 'problem' as const } : {}),
       })
       const detail = agentOpened(ctx, $, agent)

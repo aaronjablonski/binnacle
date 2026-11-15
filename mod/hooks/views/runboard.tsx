@@ -3,12 +3,13 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import type { AgentRow, Step } from '../../types'
 import { runBoard } from '../model/select'
 import { updateUi } from '../state'
-import { agentOpened, agentRow } from './agentmeta'
+import { agentOpened, agentRow, podStates } from './agentmeta'
 import { elapsed } from './fit'
 import { openStepInline } from './openstep'
 import { blank, section } from './parts'
 import { COL, GRID, statusColor } from './style'
 import type { ViewCtx } from './shell'
+import type { PodState } from './style'
 
 /** Blocks shown per agent. */
 export const STRIP_MAX = 20
@@ -78,9 +79,9 @@ function strip(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, 
 }
 
 /** One agent of the run: its row (a press opens it), its strip of step blocks, and the opened part. */
-function agentBlock(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, last: boolean, first: boolean, $: EngineInterface): RenderElement {
+function agentBlock(ctx: ViewCtx, agent: AgentRow, steps: Step[], perBlock: boolean, last: boolean, first: boolean, $: EngineInterface, states: Map<string, PodState>): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
-  const line = agentRow(ctx, $, agent, { key: `run-agent-${agent.id}` })
+  const line = agentRow(ctx, $, agent, { key: `run-agent-${agent.id}`, ...(states.has(agent.id) ? { state: states.get(agent.id)! } : {}) })
   const detail = agentOpened(ctx, $, agent)
   const blocks = strip(ctx, agent, steps, perBlock, $)
   if (detail === null) {
@@ -135,6 +136,7 @@ export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): R
   }
   const total = b.agents.reduce((n, a) => n + Math.min(STRIP_MAX, b.steps[a.id]?.length ?? 0), 0)
   const perBlock = total <= BLOCK_BUDGET
+  const states = podStates(ctx)
   const stats = `${b.done}/${b.agents.length} done · ${b.failed} failed · ${elapsed(0, b.elapsed)}`
   return (
     <Box flexDirection="column">
@@ -143,7 +145,7 @@ export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): R
       {section(ctx, $, b.run.name, 'tokens', 'time')}
       <Text key="stats" dimColor wrap="truncate-end">{`${' '.repeat(COL.glyph)}${stats}`}</Text>
       {b.agents.length === 0 ? <Text dimColor>{`${' '.repeat(COL.glyph)}No agents in this run yet.`}</Text> : null}
-      {b.agents.map((a, i) => agentBlock(ctx, a, b.steps[a.id] ?? [], perBlock, i === b.agents.length - 1, i === 0, $))}
+      {b.agents.map((a, i) => agentBlock(ctx, a, b.steps[a.id] ?? [], perBlock, i === b.agents.length - 1, i === 0, $, states))}
     </Box>
   )
 }

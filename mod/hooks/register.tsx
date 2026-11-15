@@ -5,6 +5,7 @@ import { registerGuide, startGuide } from './guide'
 import { restore, restoreAfterClear, saveForClear } from './journal'
 import { debug, errText } from './state'
 import { registerBand } from './views/band'
+import { seedBudget } from './views/budget'
 import { registerShell, runMc, startShell } from './views/shell'
 
 export const register: Register = (on, options) => {
@@ -35,6 +36,8 @@ export const register: Register = (on, options) => {
     // Before next(e), so the tool is listed by the first prompt (Finding i).
     await startGuide($, options)
     await startShell($, options)
+    // The budget line waits for session.measure otherwise; take a first reading.
+    await seedBudget($)
     return next(e)
   })
 

@@ -8,7 +8,7 @@ import { detailView } from './detail'
 import { rule } from './fit'
 import { exportDigest } from './handoff'
 import { overviewView } from './overview'
-import { budgetTick } from './budget'
+import { budgetTick, seedBudget } from './budget'
 import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { C } from './style'
@@ -138,6 +138,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   const word = args.trim().split(/\s+/)[0] ?? ''
   if (word === '') {
     try {
+      await seedBudget($, { skipIfFresh: true })
       const opened = await $.ui.open(paneArgs(true))
       if (!opened.isPlaced) return { text: 'Mission Control is open and waits for a wider terminal.' }
       return { text: 'Mission Control opened.' }
@@ -159,6 +160,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   const target = tabFor(word)
   if (word !== 'pin' && target !== undefined) {
     try {
+      await seedBudget($, { skipIfFresh: true })
       await updateUi($, cur => ({ ...leaveDetail(cur), tab: target.tab }))
       const opened = await $.ui.open(paneArgs(true))
       if (!opened.isPlaced) return { text: `Mission Control: ${target.label}. It waits for a wider terminal.` }

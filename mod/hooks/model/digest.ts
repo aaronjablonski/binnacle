@@ -3,7 +3,7 @@ import { clean, cutChars } from './code'
 import { cut, oneLine } from './label'
 import { problems } from './select'
 
-/** What a pinned step's input and result are each cut to in the digest. */
+/** What a step's input and result are each cut to when it is copied or quoted (a kept step is exported whole). */
 export const DIGEST_CUT = 2000
 
 /** A fenced block whose fence is longer than any backtick run inside. */
@@ -54,9 +54,10 @@ export function stamp(now: number): string {
 const MARK = { pending: '[ ]', in_progress: '[~]', completed: '[x]' } as const
 
 /**
- * The handoff digest: tasks, notes, pinned steps with input and result (each
- * cut to DIGEST_CUT), artifacts, changed files and open problems. `bodies`
- * is keyed by step id; only pinned steps are ever read from it.
+ * The handoff digest: tasks, notes, kept steps with their whole stored input
+ * and result (the journal already caps a body at 20,000 characters),
+ * artifacts, changed files and open problems. `bodies` is keyed by step id;
+ * only kept steps are ever read from it.
  */
 export function digest(t: Timeline, bodies: Record<string, StepBody | undefined>, now: number): string {
   const title = t.turns[0] !== undefined ? cut(oneLine(t.turns[0].prompt), 80) : 'Session handoff'
@@ -69,9 +70,9 @@ export function digest(t: Timeline, bodies: Record<string, StepBody | undefined>
   out.push('## Notes')
   out.push(t.notes.length === 0 ? '_None._' : t.notes.map(n => `- ${oneLine(n.text)}`).join('\n'))
 
-  const pinned = t.steps.filter(s => s.pin !== undefined)
-  out.push('## Pinned steps')
-  out.push(pinned.length === 0 ? '_None._' : pinned.map(s => stepMarkdown(s, bodies[s.id])).join('\n\n'))
+  const kept = t.steps.filter(s => s.pin !== undefined)
+  out.push('## Kept steps')
+  out.push(kept.length === 0 ? '_None._' : kept.map(s => stepMarkdown(s, bodies[s.id], Infinity)).join('\n\n'))
 
   out.push('## Artifacts')
   out.push(

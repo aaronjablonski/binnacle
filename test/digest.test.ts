@@ -44,12 +44,21 @@ describe('digest', () => {
     expect(out).not.toContain('UNPINNED-RESULT')
   })
 
-  it('cuts input and result to 2,000 characters each', () => {
-    const long = digest(tl, { p: body({ text: 'x'.repeat(5000), input: { c: 'y'.repeat(5000) } }) }, NOW)
+  it('the copy of a step (stepMarkdown) still cuts input and result to 2,000 characters each', () => {
+    const long = stepMarkdown(step('p'), body({ text: 'x'.repeat(5000), input: { c: 'y'.repeat(5000) } }))
     expect(long).toContain('x'.repeat(2000))
     expect(long).not.toContain('x'.repeat(2001))
     expect(long).toContain('… 3000 more characters not shown')
     expect(long).not.toContain('y'.repeat(2001))
+  })
+
+  it('exports a kept step whole: a 15,000-character body is not cut, under a Kept steps heading', () => {
+    const big = digest(tl, { p: body({ text: 'x'.repeat(15_000), input: { c: 'y'.repeat(15_000) } }) }, NOW)
+    expect(big).toContain('x'.repeat(15_000))
+    expect(big).toContain('y'.repeat(15_000))
+    expect(big).not.toContain('more characters not shown')
+    expect(big).toContain('## Kept steps')
+    expect(big).not.toContain('Pinned')
   })
 
   it('lists open problems and says None when empty', () => {

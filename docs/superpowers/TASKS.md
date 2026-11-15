@@ -29,7 +29,7 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 
 ## Then: navigation pass (`plans/2026-11-15-mission-control-navigation.md`)
 
-- [ ] V1: focus starts in the content, keyboard skips the tab bar (tabs by 1–5 / click), Down walks the active tab top to bottom
+- [x] V1: focus starts in the content, keyboard skips the tab bar (tabs by 1–5 / click), Down walks the active tab top to bottom
 
 ## Then: distilled features (`plans/2026-11-15-mission-control-distilled.md`)
 

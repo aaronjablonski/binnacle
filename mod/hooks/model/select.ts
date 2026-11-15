@@ -93,6 +93,44 @@ export function agentTree(t: Timeline): TreeNode {
 
 const startOf = (n: TreeNode) => n.agent?.startedAt ?? n.run?.startedAt ?? 0
 
+/**
+ * The tree without finished branches: a node stays when it is main, a running
+ * agent, or holds one (so the ancestors of running nodes stay). A run node
+ * stays only for the running agents under it. Returns a copy; `root` is untouched.
+ */
+export function runningOnlyTree(root: TreeNode): TreeNode {
+  const keep = (node: TreeNode): TreeNode | undefined => {
+    const children = node.children.map(keep).filter((c): c is TreeNode => c !== undefined)
+    const running = node.kind === 'agent' && node.agent?.status === 'running'
+    if (node.key !== 'main' && !running && children.length === 0) return undefined
+    return { ...node, children }
+  }
+  return keep(root) ?? { ...root, children: [] }
+}
+
+/** Agents under `node` (not itself, never main, runs not counted) and how many of them run. */
+export function branchCounts(node: TreeNode): { agents: number; running: number } {
+  let agents = 0
+  let running = 0
+  const walk = (n: TreeNode) => {
+    for (const c of n.children) {
+      if (c.kind === 'agent' && c.agent && c.agent.id !== 'main') {
+        agents += 1
+        if (c.agent.status === 'running') running += 1
+      }
+      walk(c)
+    }
+  }
+  walk(node)
+  return { agents, running }
+}
+
+/** Whether `node` or anything under it is one of `ids` (agent ids with a problem). */
+export function hasProblemIn(node: TreeNode, ids: Set<string>): boolean {
+  if (node.kind === 'agent' && node.agent && ids.has(node.agent.id)) return true
+  return node.children.some((c) => hasProblemIn(c, ids))
+}
+
 export type TreeLine = { key: string; prefix: string; node: TreeNode; folded: boolean }
 
 /** The tree depth-first, one line per node, skipping the children of folded keys. */

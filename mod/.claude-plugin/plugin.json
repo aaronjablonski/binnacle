@@ -4,12 +4,6 @@
   "description": "Keeps tasks, agents, a step timeline and artifacts in a pane and band beside the chat.",
   "types": "./types/index.d.ts",
   "userConfig": {
-    "probe": {
-      "type": "boolean",
-      "title": "Probe",
-      "description": "Developer probe: record raw hook events to .mc-probe/ in the working directory.",
-      "default": false
-    },
     "autoOpen": {
       "type": "boolean",
       "title": "Open at start",

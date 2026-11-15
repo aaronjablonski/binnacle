@@ -2,7 +2,9 @@ import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput, Tim
 
 import type { Tab, Timeline, UiState } from '../../types'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
+import { agentsView } from './agents'
 import { overviewView } from './overview'
+import { tasksView } from './tasks'
 
 export const PANE = 'mission-control'
 
@@ -78,6 +80,10 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
     switch (rest.u.tab) {
       case 'overview':
         return overviewView({ e, ...rest }, $)
+      case 'tasks':
+        return tasksView({ e, ...rest }, $)
+      case 'agents':
+        return agentsView({ e, ...rest }, $)
       default:
         // The tabs whose task has not landed yet.
         return <Text dimColor>Coming in a later task.</Text>

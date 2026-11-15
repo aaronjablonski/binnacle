@@ -34,3 +34,11 @@ export function bar(done: number, total: number, columns: number): { filled: num
   const filled = Math.round(share * columns)
   return { filled, rest: columns - filled }
 }
+
+/** A left text and a dim right text for one row of `columns`; `stacked` when the right text gets a row of its own. */
+export function splitRow(left: string, right: string, columns: number, minLeft = 8): { left: string; right: string; stacked: boolean } {
+  if (right === '') return { left: fit(left, columns), right: '', stacked: false }
+  const room = columns - right.length - 1
+  if (room < minLeft) return { left: fit(left, columns), right: fit(right, columns), stacked: true }
+  return { left: fit(left, room), right, stacked: false }
+}

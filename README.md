@@ -26,8 +26,8 @@ All of these work in the middle of a turn.
 | `/mc` | Opens the pane. |
 | `/mc close` | Closes it. |
 | `/mc pin [note]` | Pins the newest step, with an optional note. |
-| `/mc 1` to `/mc 5` | Switches to that tab. |
-| `/mc overview`, `tasks`, `agents`, `timeline`, `artifacts` | Switches to that tab by name. A 3-letter prefix also works (`/mc art`). |
+| `/mc 1` to `/mc 5` | Opens the pane on that tab. |
+| `/mc export` | Writes the digest to the journal and copies it. |
 
 ## Keys
 

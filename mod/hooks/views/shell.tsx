@@ -123,14 +123,9 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
   }
 }
 
-/** The tab a `/mc` word names: its number, its name, or a 3-letter prefix of it. */
+/** The tab a `/mc` digit names: 1 to 5. */
 function tabFor(word: string): { tab: Tab; label: string } | undefined {
-  const w = word.toLowerCase()
-  for (const x of TABS) {
-    if (w === x.hotkey || w === x.tab) return x
-    if (w.length === 3 && x.tab.startsWith(w)) return x
-  }
-  return undefined
+  return TABS.find(x => word === x.hotkey)
 }
 
 /** The answer of `/mc`, `/mc close`, `/mc pin` and `/mc export`. */
@@ -157,8 +152,8 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
     }
   }
   if (word === 'export') return exportDigest($)
-  const target = tabFor(word)
-  if (word !== 'pin' && target !== undefined) {
+  const target = tabFor(args.trim())
+  if (target !== undefined) {
     try {
       await seedBudget($, { skipIfFresh: true })
       await updateUi($, cur => ({ ...leaveDetail(cur), tab: target.tab }))
@@ -179,7 +174,7 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not pin: ${errText(err)}` }
     }
   }
-  return { text: 'Unknown tab. Try /mc 1-5 or a tab name.' }
+  return { text: 'Unknown. Try /mc, /mc 1-5, pin, export or close.' }
 }
 
 // The one timer of this module instance; a reload starts a fresh module.

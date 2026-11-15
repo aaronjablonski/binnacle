@@ -89,6 +89,9 @@ export type UiState = {
   toasted: string[]                                    // markers of toasts already raised (≤ 50, newest last)
   agentOpen?: string                                   // the agent row opened in place on the Agents tab (its AgentKey)
   stepOpen?: string                                    // the step opened in place on the Steps tab (its id); the full step is `detail`
+  taskOpen?: string                                    // the active task opened in place on the Tasks tab (its `<owner>:<id>`)
+  doneAll?: boolean                                    // the Tasks tab lists every done task, not the newest 3
+  artifactOpen?: string                                // the artifact row opened in place (its id); absent, the newest is open; "" closes it
   slim: boolean                                        // `/mc slim` asked for the 28-column pane; the layout itself reads only bodyColumns
 }
 

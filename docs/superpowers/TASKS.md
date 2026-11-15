@@ -16,7 +16,7 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 
 ## In progress
 
-- [ ] HUD v2 fix round re-check (footer fitting, open in place, Keep export, word-safe types)
+- [x] HUD v2 fix round and re-check (footer fitting, open in place, Keep export, word-safe types)
 - [ ] Neo N1: foundation (pods, dials, `▮▯` bars, pips, deck frame, pills)
 
 ## Next: Neo restyle (`plans/2026-11-15-mission-control-neo.md`)

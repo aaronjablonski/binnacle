@@ -224,11 +224,24 @@ export type Problem = {
 }
 
 /**
- * A step's call signature: its tool and its label without the leading tool
- * name, whitespace collapsed (`Bash:npm test`). Two calls of one tool on one
- * target share it.
+ * Tools whose runs repeat as a matter of course (todo and task updates, reads,
+ * edits of one file in several hunks): three in a turn are a loop only when
+ * one of them failed.
+ */
+const ROUTINE_TOOLS = new Set([
+  'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
+  'Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
+])
+
+/**
+ * A step's call signature: its tool and its `sig`, the hash of its normalised
+ * input (`Bash:1x2y3z`). Two calls share it when they run the same command,
+ * touch the same file or give the same input. A step without a sig (stored by
+ * an earlier version) falls back to its label without the leading tool name,
+ * whitespace collapsed (`Bash:npm test`).
  */
 export function signatureOf(step: Step): string {
+  if (typeof step.sig === 'string' && step.sig !== '') return `${step.tool}:${step.sig}`
   let rest = oneLine(step.label)
   if (rest === step.tool) rest = ''
   else if (rest.startsWith(`${step.tool} `)) rest = rest.slice(step.tool.length + 1)
@@ -242,6 +255,21 @@ export function dismissKey(p: Problem): string {
 
 const endOf = (s: Step): number => s.endedAt ?? s.startedAt
 const byKey = (a: { key: string }, b: { key: string }) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+
+/**
+ * The failures since a signature's newest success, newest first: walking its
+ * runs back from the newest, `error` ones are taken and the first `done` one
+ * stops the walk; running, denied and interrupted runs are passed over.
+ */
+function trailingFailures(runs: Step[]): Step[] {
+  const out: Step[] = []
+  const newestFirst = [...runs].sort((a, b) => b.seq - a.seq)
+  for (const s of newestFirst) {
+    if (s.status === 'done') break
+    if (s.status === 'error') out.push(s)
+  }
+  return out
+}
 
 /** Steps grouped by a key `keyOf` gives; a step it gives no key for is left out. */
 function groupBy(steps: Step[], keyOf: (s: Step) => string | undefined): Map<string, Step[]> {
@@ -259,8 +287,11 @@ function groupBy(steps: Step[], keyOf: (s: Step) => string | undefined): Map<str
 /**
  * What needs the person, newest first (by `since`):
  * - `asking`: a running step whose tool.check resolved `ask` (since: the ask);
- * - `repeat`: one signature ended `error` twice or more in the session (since: the newest failure's end);
- * - `loop`: one signature ran three times or more in one turn, unless it is already a repeat (since: the newest run's start);
+ * - `repeat`: one signature's newest runs ended `error` twice or more in a row, with no run of it
+ *   ending `done` in between or since (since: the newest failure's end; keyed by the run of
+ *   failures' first step, so a new run after a pass is a new problem);
+ * - `loop`: one signature ran three times or more in one turn, unless it is already a repeat, or
+ *   its tool is routine (ROUTINE_TOOLS) and none of those runs failed (since: the newest run's start);
  * - `stalled`: a running subagent that started no step for more than STALL_MS (since: its last step, or its start);
  * - `failed-turn`: a turn that ended failed within FAILED_TURN_MS of `now` (since: its end).
  * A problem whose `dismissKey` is in `dismissed` is left out; a repeat or loop
@@ -274,15 +305,16 @@ export function problems(t: Timeline, now: number, dismissed: string[]): Problem
     }
   }
 
-  const failures = groupBy(t.steps, (s) => (s.status === 'error' ? signatureOf(s) : undefined))
   const repeats = new Set<string>()
-  for (const [sig, list] of failures) {
-    if (list.length < 2) continue
+  for (const [sig, list] of groupBy(t.steps, signatureOf)) {
+    const failed = trailingFailures(list)
+    if (failed.length < 2) continue
     repeats.add(sig)
-    const last = list.reduce((a, b) => (endOf(b) >= endOf(a) ? b : a))
+    const last = failed[0]!
+    const first = failed[failed.length - 1]!
     out.push({
-      key: `repeat:${sig}`, kind: 'repeat', label: last.label, agent: last.agent,
-      stepId: last.id, since: endOf(last), count: list.length,
+      key: `repeat:${sig}:${first.id}`, kind: 'repeat', label: last.label, agent: last.agent,
+      stepId: last.id, since: endOf(last), count: failed.length,
     })
   }
 
@@ -293,6 +325,7 @@ export function problems(t: Timeline, now: number, dismissed: string[]): Problem
   })
   for (const list of inTurn.values()) {
     if (list.length < 3) continue
+    if (ROUTINE_TOOLS.has(list[0]!.tool) && !list.some((s) => s.status === 'error')) continue
     const last = list.reduce((a, b) => (b.seq >= a.seq ? b : a))
     out.push({
       key: `loop:${last.turnId}:${signatureOf(last)}`, kind: 'loop', label: last.label, agent: last.agent,

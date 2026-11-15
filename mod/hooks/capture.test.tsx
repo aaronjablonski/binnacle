@@ -229,7 +229,7 @@ test("agent.spawn's model lands on the agent", async ($, on) => {
   expect(box.timeline?.agents.a7?.model).toBe('claude-sonnet-5-5')
 })
 
-test('a timeline-2 value an earlier version stored reads as the initial value', async ($, on) => {
+test('a timeline-2 value an earlier version stored reads as the initial value (still)', async ($, on) => {
   const box = world(on)
   const stale = { seq: 7, turns: [], steps: [], agents: {}, runs: {}, tasks: [], notes: [], artifacts: [], changed: [] }
   on('state.get', async (_, e, next) => (e.key === 'timeline' && box.timeline === undefined
@@ -243,4 +243,68 @@ test('a timeline-2 value an earlier version stored reads as the initial value', 
   expect(box.timeline?.seq).toBe(1)
   expect(box.timeline?.agents.main?.type).toBe('main')
   expect(box.timeline?.steps.map(s => s.id)).toEqual(['toolu_new'])
+})
+
+test('a timeline-3 value the previous version stored reads as the initial value', async ($, on) => {
+  const box = world(on)
+  const stale = { seq: 7, turns: [], steps: [], agents: {}, runs: {}, tasks: [], notes: [], artifacts: [], changed: [] }
+  on('state.get', async (_, e, next) => (e.key === 'timeline' && box.timeline === undefined
+    ? { value: { value: { shape: 'timeline-3', value: stale }, version: 0 } }
+    : next(e)))
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+
+  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'toolu_new' } as never)
+
+  expect(box.timeline?.seq).toBe(1)
+  expect(box.timeline?.agents.main?.type).toBe('main')
+  expect(box.timeline?.steps.map(s => s.id)).toEqual(['toolu_new'])
+})
+
+const SPAWN = {
+  prompt: 'look around',
+  description: 'look',
+  subagentType: 'Explore',
+  provider: { plugin: 'engine', tier: 'core' },
+  parentModel: 'haiku',
+  background: false,
+  fork: false,
+} as const
+
+test("an asked Agent call's mark clears when its agent spawns, and the agent keeps its spawning step", async ($, on) => {
+  const box = world(on)
+  on('tool.check', () => ({ decision: 'ask' }))
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a7' }))
+  let during: Timeline | undefined
+  // The Agent call runs the whole subagent: it is still running when the agent spawns.
+  on('tool.call', async () => {
+    await $.agent.spawn({ ...SPAWN, tool_use_id: 'toolu_agent' })
+    during = box.timeline
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Agent', subagent_type: 'Explore', description: 'look', prompt: 'p', tool_use_id: 'toolu_agent' } as never)
+
+  expect(box.writes.some(t => t.steps.some(s => s.id === 'toolu_agent' && s.asking !== undefined))).toBe(true)
+  const step = during?.steps.find(s => s.id === 'toolu_agent')
+  expect(step?.status).toBe('running')
+  expect(step?.asking).toBe(undefined)
+  expect(during?.agents.a7?.spawnStep).toBe('toolu_agent')
+})
+
+test('a denied spawn clears nothing', async ($, on) => {
+  const box = world(on)
+  on('tool.check', () => ({ decision: 'ask' }))
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }))
+  on('agent.spawn', () => ({ deny: 'no' }) as never)
+  let during: Timeline | undefined
+  on('tool.call', async () => {
+    await $.agent.spawn({ ...SPAWN, tool_use_id: 'toolu_agent' })
+    during = box.timeline
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Agent', subagent_type: 'Explore', description: 'look', prompt: 'p', tool_use_id: 'toolu_agent' } as never)
+
+  expect(during?.steps.find(s => s.id === 'toolu_agent')?.asking).toBe(1000)
 })

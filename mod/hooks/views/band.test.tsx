@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { AgentRow, TaskItem, Timeline } from '../../types'
+import type { AgentRow, Step, TaskItem, Timeline } from '../../types'
 import { empty } from '../model/reduce'
 
 // AbovePrompt is raised on terminal, desktop and mobile only.
@@ -15,7 +15,7 @@ function seed(on: On, t: Timeline): void {
     const key = (e as { key: string }).key
     return {
       value: {
-        value: key === 'timeline' ? { shape: 'timeline-3', value: t } : undefined,
+        value: key === 'timeline' ? { shape: 'timeline-4', value: t } : undefined,
         version: 0,
       },
     }
@@ -159,5 +159,45 @@ test('narrow: with no focus the row is still within 24, and a tiny width drops t
       expect(row).toBe(expected)
       await ui.unmount()
     }
+  }
+})
+
+// M13: the focus goes after what is left of the needs and the tasks, never after the hint.
+test('when the tasks give way the focus still comes before the hint', async ($, on) => {
+  const asked: Step = { id: 's1', seq: 1, agent: 'main', tool: 'Bash', label: 'Bash rm -rf build', status: 'running', startedAt: NOW - 60_000, asking: NOW - 30_000 }
+  seed(on, {
+    ...empty,
+    seq: 1,
+    steps: [asked],
+    tasks: [task('1', 'in_progress')],
+    agents: { main: { ...empty.agents.main! }, a1: agent('a1') },
+    now: { focus: 'Wiring the limiter', at: NOW },
+  })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND({ bodyColumns: 30 }), surface })
+    const row = (await ui.find({ type: 'Text' }))?.text ?? ''
+    expect(row.length <= 30).toBe(true)
+    expect(row).not.toContain('tasks')
+    expect(row.startsWith('! 1 need you │ ▶ ')).toBe(true)
+    expect(row.endsWith(' │ /mc')).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('with no needs, when the tasks give way the focus still comes before the hint', async ($, on) => {
+  seed(on, {
+    ...empty,
+    tasks: [task('1', 'completed'), task('2', 'in_progress')],
+    agents: { main: { ...empty.agents.main! }, a1: agent('a1') },
+    now: { focus: 'Wiring the limiter', at: NOW },
+  })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...BAND({ bodyColumns: 16 }), surface })
+    const row = (await ui.find({ type: 'Text' }))?.text ?? ''
+    expect(row.length <= 16).toBe(true)
+    expect(row).not.toContain('tasks')
+    expect(row.startsWith('▶ ')).toBe(true)
+    expect(row.endsWith(' │ /mc')).toBe(true)
+    await ui.unmount()
   }
 })

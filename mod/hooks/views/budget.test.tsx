@@ -9,7 +9,7 @@ import { modelName, resetText, tokenText, windowName } from './budget'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-3' }
 const HOUR = 3_600_000
 
 type Stored = Map<string, unknown>

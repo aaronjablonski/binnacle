@@ -10,7 +10,8 @@ export type Step = {
   startedAt: number; endedAt?: number
   pin?: string                           // the note; '' when pinned without one
   pending?: Record<string, unknown>      // input kept between start and end; cleared at step.end
-  asking?: number                        // when tool.check resolved 'ask' for it; cleared when it ends
+  asking?: number                        // when tool.check resolved 'ask' for it; cleared when it ends, or when an agent it spawned shows it went ahead
+  sig?: string                           // its call signature: a hash of the tool and its normalised input (≤ 16); absent on steps an earlier version stored
 }
 export type AgentRow = {
   id: AgentKey; parent: AgentKey; type: string; description: string
@@ -23,6 +24,7 @@ export type AgentRow = {
   tokensIn?: number; tokensOut?: number  // summed over its turns' usage; input counts cache reads and writes
   result?: string                        // a workflow agent's StructuredOutput input on one line (≤ 200)
   lastStepAt?: number                    // when it last started a step
+  spawnStep?: string                     // the tool_use_id of the Agent or Workflow call that spawned it (≤ 64)
 }
 export type Run = { runId: string; name: string; parent: AgentKey; startedAt: number }
 export type TaskItem = {
@@ -61,11 +63,12 @@ export type Ev =
   | { kind: 'turn.end'; at: number; turnId: string; agent: AgentKey; answer: string; failed: boolean }
   | { kind: 'step.start'; at: number; id: string; agent: AgentKey; tool: string; input: Record<string, unknown> }
   | { kind: 'step.end'; at: number; id: string; status: 'done' | 'error' | 'denied'; result?: unknown }
-  | { kind: 'agent.start'; at: number; id: AgentKey; parent: AgentKey; type: string; description: string; runId?: string; agentIndex?: number }
+  | { kind: 'agent.start'; at: number; id: AgentKey; parent: AgentKey; type: string; description: string; runId?: string; agentIndex?: number; spawnStep?: string }
   | { kind: 'update'; at: number; agent: AgentKey; update: Update }
   | { kind: 'pin'; id: string; note: string }
   | { kind: 'unpin'; id: string }
   | { kind: 'step.ask'; at: number; id: string }
+  | { kind: 'step.unask'; id: string }
   | { kind: 'usage'; at: number; agent: AgentKey; model?: string; tokensIn: number; tokensOut: number }
   | { kind: 'measure'; at: number; budget: Budget }
   | { kind: 'agent.model'; id: AgentKey; model: string }

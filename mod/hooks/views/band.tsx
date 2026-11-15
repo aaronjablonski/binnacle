@@ -51,7 +51,8 @@ export function registerBand(on: On): void {
         const others = rowWidth()
         const room = cols - others - SEPARATOR.length
         if (room >= MIN_FOCUS) {
-          const at = (needs.length > 0 ? 1 : 0) + (s.total > 0 ? 1 : 0)
+          // After what is left of the needs and the tasks: either may have been dropped above.
+          const at = parts.filter(p => p.id === 'needs' || p.id === 'tasks').length
           parts.splice(at, 0, { id: 'focus', glyph: '▶', color: C.running, text: fit(s.focus, room - 2) })
         }
       }

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Ev, Step, Timeline } from '../mod/types'
 import { empty, reduce } from '../mod/hooks/model/reduce'
 import { dismissKey, findSteps, problems, runBoard, signatureOf } from '../mod/hooks/model/select'
+import { sigOf } from '../mod/hooks/model/label'
 
 const fold = (evs: Ev[], from: Timeline = empty): Timeline => evs.reduce(reduce, from)
 let clock = 1_000_000
@@ -23,7 +24,15 @@ const TEN_MIN = 600_000
 describe('signatureOf', () => {
   const step = (tool: string, label: string): Step => ({ id: 'x', seq: 1, agent: 'main', tool, label, status: 'done', startedAt: 0 })
 
-  it('is the tool and the label without its tool prefix, whitespace collapsed', () => {
+  it("is the tool and the step's sig when it has one", () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm test' })])
+    const s = t.steps[0]!
+    expect(s.sig).toBe(sigOf('Bash', { command: 'npm test' }))
+    expect(signatureOf(s)).toBe(`Bash:${s.sig}`)
+  })
+
+  // A step without a sig was stored by an earlier version (a restored snapshot).
+  it('without a sig: the tool and the label without its tool prefix, whitespace collapsed', () => {
     expect(signatureOf(step('Bash', 'Bash npm   test'))).toBe('Bash:npm test')
     expect(signatureOf(step('Read', 'Read src/a.ts'))).toBe('Read:src/a.ts')
   })
@@ -48,7 +57,7 @@ describe('problems', () => {
     expect(problems(fold([end('s1')], t), now, [])).toEqual([])
   })
 
-  it('repeat: the same signature failed twice in the session, across turns', () => {
+  it('repeat: the same signature failed twice in a row, across turns', () => {
     const t = fold([
       turnStart('t1'), start('s1', 'Bash', { command: 'npm test' }), end('s1', 'error'), turnEnd('t1'),
       turnStart('t2'), start('s2', 'Bash', { command: 'npm  test' }), end('s2', 'error'),
@@ -56,7 +65,8 @@ describe('problems', () => {
     ])
     const got = problems(t, clock, []).filter((p) => p.kind === 'repeat')
     expect(got).toHaveLength(1)
-    expect(got[0]).toMatchObject({ key: 'repeat:Bash:npm test', label: 'Bash npm test', agent: 'main', stepId: 's2', count: 2 })
+    const sig = signatureOf(t.steps.find((s) => s.id === 's2')!)
+    expect(got[0]).toMatchObject({ key: `repeat:${sig}:s1`, label: 'Bash npm test', agent: 'main', stepId: 's2', count: 2 })
     expect(got[0]!.since).toBe(t.steps.find((s) => s.id === 's2')!.endedAt)
   })
 
@@ -65,23 +75,106 @@ describe('problems', () => {
     expect(problems(t, clock, [])).toEqual([])
   })
 
+  it('fail, pass, fail of one command is no repeat (TDD)', () => {
+    const t = fold([
+      start('s1', 'Bash', { command: 'npm test' }), end('s1', 'error'),
+      start('s2', 'Bash', { command: 'npm test' }), end('s2'),
+      start('s3', 'Bash', { command: 'npm test' }), end('s3', 'error'),
+    ])
+    expect(problems(t, clock, [])).toEqual([])
+  })
+
+  it('a pass after two failures ends the repeat', () => {
+    const t = fold([
+      start('s1', 'Bash', { command: 'npm test' }), end('s1', 'error'),
+      start('s2', 'Bash', { command: 'npm test' }), end('s2', 'error'),
+      start('s3', 'Bash', { command: 'npm test' }), end('s3'),
+    ])
+    expect(problems(t, clock, [])).toEqual([])
+  })
+
+  it('a failure of another command in between does not break the run; a run still going does not either', () => {
+    const t = fold([
+      start('s1', 'Bash', { command: 'npm test' }), end('s1', 'error'),
+      start('x', 'Bash', { command: 'npm run lint' }), end('x'),
+      start('s2', 'Bash', { command: 'npm test' }), end('s2', 'error'),
+      start('s3', 'Bash', { command: 'npm test' }),
+    ])
+    expect(problems(t, clock, [])).toMatchObject([{ kind: 'repeat', stepId: 's2', count: 2 }])
+  })
+
+  it('a new run of failures after a pass is a new problem, even when an earlier run was dismissed', () => {
+    const first = fold([
+      start('s1', 'Bash', { command: 'npm test' }), end('s1', 'error'),
+      start('s2', 'Bash', { command: 'npm test' }), end('s2', 'error'),
+    ])
+    const [p] = problems(first, clock, [])
+    const later = fold([
+      start('s3', 'Bash', { command: 'npm test' }), end('s3'),
+      start('s4', 'Bash', { command: 'npm test' }), end('s4', 'error'),
+      start('s5', 'Bash', { command: 'npm test' }), end('s5', 'error'),
+    ], first)
+    expect(problems(later, clock, [dismissKey(p!)])).toMatchObject([{ kind: 'repeat', stepId: 's5', count: 2 }])
+  })
+
+  it('two long commands that share their first 80 characters are not one signature', () => {
+    const head = 'npx vitest run --reporter=verbose --coverage --coverage.reporter=text --pool=forks '
+    const t = fold([
+      start('s1', 'Bash', { command: `${head}test/a.test.ts` }), end('s1', 'error'),
+      start('s2', 'Bash', { command: `${head}test/b.test.ts` }), end('s2', 'error'),
+    ])
+    expect(t.steps[0]!.label).toBe(t.steps[1]!.label)
+    expect(problems(t, clock, [])).toEqual([])
+  })
+
   it('loop: the same signature three times in one turn, failed or not', () => {
     const t = fold([
       turnStart('t1'),
-      start('s1', 'Read', { file_path: 'C:/r/src/a.ts' }), end('s1'),
-      start('s2', 'Read', { file_path: 'C:/r/src/a.ts' }), end('s2'),
-      start('s3', 'Read', { file_path: 'C:/r/src/a.ts' }), end('s3'),
+      start('s1', 'Grep', { pattern: 'upload' }), end('s1'),
+      start('s2', 'Grep', { pattern: 'upload' }), end('s2'),
+      start('s3', 'Grep', { pattern: 'upload' }), end('s3'),
     ])
     const got = problems(t, clock, [])
     expect(got).toHaveLength(1)
-    expect(got[0]).toMatchObject({ key: 'loop:t1:Read:src/a.ts', kind: 'loop', label: 'Read src/a.ts', agent: 'main', stepId: 's3', count: 3 })
+    const sig = signatureOf(t.steps.find((s) => s.id === 's3')!)
+    expect(got[0]).toMatchObject({ key: `loop:t1:${sig}`, kind: 'loop', label: 'Grep "upload"', agent: 'main', stepId: 's3', count: 3 })
     expect(got[0]!.since).toBe(t.steps.find((s) => s.id === 's3')!.startedAt)
+  })
+
+  it('three Edits of one file in a turn are no loop, nor three Reads, Writes or todo and task updates', () => {
+    const thrice = (tool: string, input: Record<string, unknown>): Ev[] =>
+      [1, 2, 3].flatMap((i) => [start(`${tool}${i}`, tool, input), end(`${tool}${i}`)])
+    const t = fold([
+      turnStart('t1'),
+      ...thrice('Edit', { file_path: 'C:/r/src/x.ts', old_string: 'a', new_string: 'b' }),
+      ...thrice('MultiEdit', { file_path: 'C:/r/src/x.ts' }),
+      ...thrice('Write', { file_path: 'C:/r/src/y.ts', content: 'x' }),
+      ...thrice('NotebookEdit', { notebook_path: 'C:/r/n.ipynb' }),
+      ...thrice('Read', { file_path: 'C:/r/src/x.ts' }),
+      ...thrice('TodoWrite', { todos: [] }),
+      ...thrice('TaskCreate', { subject: 's' }),
+      ...thrice('TaskUpdate', { taskId: '1', status: 'completed' }),
+      ...thrice('TaskList', {}),
+      ...thrice('TaskGet', { taskId: '1' }),
+    ])
+    expect(problems(t, clock, [])).toEqual([])
+  })
+
+  it('three Edits of one file in a turn with one failed is a loop', () => {
+    const input = { file_path: 'C:/r/src/x.ts', old_string: 'a', new_string: 'b' }
+    const t = fold([
+      turnStart('t1'),
+      start('e1', 'Edit', input), end('e1'),
+      start('e2', 'Edit', input), end('e2', 'error'),
+      start('e3', 'Edit', input), end('e3'),
+    ])
+    expect(problems(t, clock, [])).toMatchObject([{ kind: 'loop', stepId: 'e3', count: 3 }])
   })
 
   it('three runs split over two turns are no loop', () => {
     const t = fold([
-      turnStart('t1'), start('s1', 'Read', { file_path: 'a.ts' }), end('s1'), start('s2', 'Read', { file_path: 'a.ts' }), end('s2'), turnEnd('t1'),
-      turnStart('t2'), start('s3', 'Read', { file_path: 'a.ts' }), end('s3'),
+      turnStart('t1'), start('s1', 'Grep', { pattern: 'a' }), end('s1'), start('s2', 'Grep', { pattern: 'a' }), end('s2'), turnEnd('t1'),
+      turnStart('t2'), start('s3', 'Grep', { pattern: 'a' }), end('s3'),
     ])
     expect(problems(t, clock, [])).toEqual([])
   })
@@ -134,10 +227,11 @@ describe('problems', () => {
     const evs: Ev[] = [start('s1', 'Bash', { command: 'npm test' }), end('s1', 'error'), start('s2', 'Bash', { command: 'npm test' }), end('s2', 'error')]
     const t = fold(evs)
     const [p] = problems(t, clock, [])
-    expect(dismissKey(p!)).toBe('repeat:Bash:npm test#2')
+    const sig = signatureOf(t.steps[0]!)
+    expect(dismissKey(p!)).toBe(`repeat:${sig}:s1#2`)
     expect(problems(t, clock, [dismissKey(p!)])).toEqual([])
     const grown = fold([start('s3', 'Bash', { command: 'npm test' }), end('s3', 'error')], t)
-    expect(problems(grown, clock, [dismissKey(p!)])).toMatchObject([{ key: 'repeat:Bash:npm test', count: 3 }])
+    expect(problems(grown, clock, [dismissKey(p!)])).toMatchObject([{ key: `repeat:${sig}:s1`, count: 3 }])
   })
 
   it('a dismissed problem without a count stays dismissed', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isDoc, labelOf, pathsOf } from '../mod/hooks/model/label'
+import { isDoc, labelOf, pathsOf, sigOf } from '../mod/hooks/model/label'
 
 describe('labelOf', () => {
   it('pins the listed tools', () => {
@@ -50,5 +50,40 @@ describe('isDoc', () => {
     expect(isDoc('a.ts')).toBe(false)
     expect(isDoc('md')).toBe(false)
     expect(isDoc('dir.md/file')).toBe(false)
+  })
+})
+
+describe('sigOf', () => {
+  it('is short, and the same for the same call with whitespace and key order changed', () => {
+    const a = sigOf('Bash', { command: 'npm test' })
+    expect(a.length).toBeGreaterThan(0)
+    expect(a.length <= 16).toBe(true)
+    expect(sigOf('Bash', { command: '  npm   test\n', description: 'run the tests' })).toBe(a)
+    expect(sigOf('Glob', { pattern: '*.ts', path: 'src' })).toBe(sigOf('Glob', { path: 'src', pattern: '*.ts' }))
+  })
+
+  it('tells apart two long commands that share their first 80 characters', () => {
+    const head = 'npx vitest run --reporter=verbose --coverage --coverage.reporter=text --pool=forks '
+    expect(sigOf('Bash', { command: `${head}test/a.test.ts` })).not.toBe(sigOf('Bash', { command: `${head}test/b.test.ts` }))
+  })
+
+  it('a file tool is keyed by its path alone, so two hunks of one file share it', () => {
+    const one = sigOf('Edit', { file_path: 'C:/r/src/x.ts', old_string: 'a', new_string: 'b' })
+    expect(sigOf('Edit', { file_path: 'C:/r/src/x.ts', old_string: 'c', new_string: 'd' })).toBe(one)
+    expect(sigOf('Edit', { file_path: 'C:/r/src/y.ts', old_string: 'a', new_string: 'b' })).not.toBe(one)
+    expect(sigOf('Read', { file_path: 'C:/r/src/x.ts', offset: 1 })).toBe(sigOf('Read', { file_path: 'C:/r/src/x.ts', offset: 400 }))
+  })
+
+  it('tells tools apart, and other tools by their whole input', () => {
+    expect(sigOf('Bash', { command: 'ls' })).not.toBe(sigOf('PowerShell', { command: 'ls' }))
+    expect(sigOf('Grep', { pattern: 'x', path: 'a' })).not.toBe(sigOf('Grep', { pattern: 'x', path: 'b' }))
+    expect(sigOf('TodoWrite', { todos: [{ content: 'a' }] })).not.toBe(sigOf('TodoWrite', { todos: [{ content: 'b' }] }))
+  })
+
+  it('takes a huge or odd input without throwing', () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(sigOf('X', circular).length <= 16).toBe(true)
+    expect(sigOf('Write', { file_path: 'a.md', content: 'x'.repeat(3_000_000) }).length <= 16).toBe(true)
   })
 })

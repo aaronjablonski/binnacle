@@ -2,13 +2,13 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Ev, Timeline, UiState } from '../types'
-import { empty, reduce } from './model/reduce'
+import { empty, reduce, settle } from './model/reduce'
 import { boundUi } from './model/usage'
 
 // Change a tag when the value's fields change: a reload then declines what
 // the earlier code stored instead of misreading it.
 export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as const, empty, {
-  shape: 'timeline-3',
+  shape: 'timeline-4',
 })
 
 export const initialUi: UiState = {
@@ -61,9 +61,13 @@ export async function stampJournal($: EngineInterface, id: string): Promise<stri
   return t.journal ?? id
 }
 
-/** Takes `snap` as the timeline when the state holds nothing yet; otherwise keeps what is there. */
+/**
+ * Takes `snap` as the timeline when the state holds nothing yet; otherwise
+ * keeps what is there. What the snapshot held running can never end in this
+ * session, so it is taken settled: no step running or asking, no subagent running.
+ */
 export async function adopt($: EngineInterface, snap: Timeline): Promise<void> {
-  await update($, timeline, cur => (isEmpty(cur) ? snap : cur))
+  await update($, timeline, cur => (isEmpty(cur) ? settle(snap) : cur))
 }
 
 // The mark a /clear leaves in `$.store` for the session that follows it: a

@@ -4,13 +4,16 @@ import type { Step, Tab } from '../../types'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { budgetView, isBudgetOpen, setBudgetOpen, windowName } from './budget'
+import { crewSpec, lintelReadout, planSpec } from './overview'
+import { beadsSpec, lintelSpec, sillSpec, toneOf } from './richkit'
 import { bar, crewRow, GAUGE, pillRun, pips, wordFit, wrapWords } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { chatFor, crewPods, dismissNeed, needGlyph, needName, needsYou, openProblem, paneState, podFor, waitStates } from './needs'
-import { blank, deck, more, row } from './parts'
+import { blank, deck, inst, more, row } from './parts'
 import type { DeckRow, Run } from './parts'
 import type { ViewCtx } from './shell'
+import { elapsed } from './fit'
 import { C, COL, GLYPHS, GRID, statusColor } from './style'
 
 // Under 32 columns: one stacked summary, no tab bar (spec "Slim mode").
@@ -92,12 +95,28 @@ function runsAt(runs: Run[], col: number): Placed[] {
  * focus wrapped to 2 lines. It turns `warning` when something waits.
  */
 function headBlock(ctx: ViewCtx, $: EngineInterface): Block {
-  const h = headline(ctx.t)
+  const focus = headline(ctx.t)
   const state = paneState(ctx)
-  const lines = wrapWords(h.text, ctx.cols - COL.glyph, 2)
+  const lines = wrapWords(focus.text, ctx.cols - COL.glyph, 2)
+  if (ctx.look === 'rich') {
+    // The lintel carries the pill (from 2) and the turn's age; the focus is two bold lines under it.
+    const { Text } = $.ui.resolve(ctx.e)
+    const ro = lintelReadout(ctx)
+    const turn = ro.right?.startsWith('turn') === true ? ro.right.split(' ').slice(2).join(' ') : undefined
+    const tone = state.word === 'WAITING' ? ('warning' as const) : ('accent' as const)
+    const els: RenderElement[] = [
+      inst(ctx, $, lintelSpec('slim-lintel', ctx.cols, { tone, pill: state.word, pillTone: toneOf(state.color), pillCol: 2, clamp: 1, ...(turn !== undefined && turn !== '' ? { right: turn, rightAmber: ro.amber } : {}) })),
+      ...lines.map((l, i) => (
+        <Text key={`slim-focus-${i}`} wrap="truncate-end" {...(focus.isIdle ? { dimColor: true } : { bold: true })}>
+          {`  ${l}`}
+        </Text>
+      )),
+    ]
+    return { els, rows: els.length }
+  }
   const rows: DeckRow[] = [
     { key: 'slim-pill', label: [pillRun(state.word, state.color)] },
-    ...lines.map((l, i): DeckRow => ({ key: `slim-focus-${i}`, label: [{ text: l, ...(h.isIdle ? { dim: true } : { bold: true }) }] })),
+    ...lines.map((l, i): DeckRow => ({ key: `slim-focus-${i}`, label: [{ text: l, ...(focus.isIdle ? { dim: true } : { bold: true }) }] })),
   ]
   const els = deck(ctx, $, rows, { key: 'slim-head', side: 'left', tone: state.word === 'WAITING' ? 'warning' : 'accent' })
   return { els: els !== null ? [els] : [], rows: rows.length }
@@ -167,14 +186,34 @@ function needsBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
   return { els, rows: els.length }
 }
 
+/** The plan strip from column 2 with the session's age beside it. */
+function richPlan(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const times = ctx.t.steps.map(x => x.startedAt)
+  const from = times.length > 0 ? Math.min(...times) : ctx.now
+  const cells = Math.max(4, Math.min(14, ctx.cols - COL.glyph - 5))
+  return (
+    <Box key="slim-plan-row" flexDirection="row">
+      <Text key="slim-plan-pad">{'  '}</Text>
+      {inst(ctx, $, planSpec(ctx.t, cells))}
+      {times.length > 0 ? (
+        <Text key="slim-plan-age" dimColor>
+          {` ${elapsed(from, ctx.now)}`}
+        </Text>
+      ) : null}
+    </Box>
+  )
+}
+
 function tasksBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
   const { t, cols } = ctx
   const s = summary(t)
   if (s.total === 0) return undefined
   const active = t.tasks.filter(x => x.status === 'in_progress').length
+  const plan = ctx.look === 'rich' ? richPlan(ctx, $) : runsLine(ctx.e, $, runsAt(pips(s.done, s.total, cols - COL.glyph >= GAUGE ? GAUGE : 10, active), COL.glyph), 'slim-pips')
   const els: RenderElement[] = [
     label(ctx, $, 'TASKS', { text: `${s.done}/${s.total}`, dim: true }, 'slim-go-tasks', () => openTab($, 'tasks')),
-    runsLine(ctx.e, $, runsAt(pips(s.done, s.total, cols - COL.glyph >= GAUGE ? GAUGE : 10, active), COL.glyph), 'slim-pips'),
+    plan,
   ]
   // The current task, or the next one when the current task is the focus.
   const current = s.current
@@ -204,12 +243,41 @@ function crewFit(ctx: ViewCtx, room: number): Run[] {
   return crewRow(pods, 1, { tight: true })
 }
 
+/** CREW in the rich look: up to three small characters from column 2, then `+n` for the rest and `!n` for the failed ones beside them. */
+function richCrew(ctx: ViewCtx, $: EngineInterface, live: number): Block {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const pods = crewPods(ctx)
+  const slots = Math.max(1, Math.min(3, Math.floor((ctx.cols - COL.glyph - 3) / 6)))
+  const shown = pods.slice(0, slots)
+  const over = pods.length - shown.length
+  const failed = Object.values(ctx.t.agents).filter(a => a.id !== 'main' && a.status === 'error').length
+  const els: RenderElement[] = [
+    label(ctx, $, 'CREW', { text: `${live} live`, dim: true }, 'slim-go-agents', () => openTab($, 'agents')),
+    <Box key="slim-crew-row" flexDirection="row">
+      <Text key="slim-crew-pad">{'  '}</Text>
+      {inst(ctx, $, crewSpec(shown, slots))}
+      <Box key="slim-crew-counts" flexDirection="column" paddingLeft={2}>
+        <Text key="slim-crew-over" dimColor>
+          {over > 0 ? `+${over}` : ' '}
+        </Text>
+        {failed > 0 ? (
+          <Text key="slim-crew-failed" color={C.fail} bold>
+            {`!${failed}`}
+          </Text>
+        ) : null}
+      </Box>
+    </Box>,
+  ]
+  return { els, rows: 3 }
+}
+
 /** CREW (spec "Slim"): `┌ CREW 2 live ›`, one row of pods and the live names with their hulls. Nothing without a subagent. */
 function crewBlock(ctx: ViewCtx, $: EngineInterface, withNames: boolean): Block | undefined {
   const { t, cols } = ctx
   const subs = Object.values(t.agents).filter(a => a.id !== 'main')
   if (subs.length === 0) return undefined
   const live = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
+  if (ctx.look === 'rich') return richCrew(ctx, $, live.length)
   const els: RenderElement[] = [
     label(ctx, $, 'CREW', { text: `${live.length} live`, dim: true }, 'slim-go-agents', () => openTab($, 'agents')),
     runsLine(ctx.e, $, runsAt(crewFit(ctx, cols - COL.glyph), COL.glyph), 'slim-crew'),
@@ -246,6 +314,21 @@ function budgetBlock(ctx: ViewCtx, $: EngineInterface, withSeven: boolean): Bloc
       { col: COL.glyph, text: r.label, dim: true },
       { col: BAR, text: `${Math.round(r.pct)}%`, bold: true },
     ]
+    if (ctx.look === 'rich' && ctx.cols >= VALUE + GRID.content) {
+      // Five beads a row, where the bar was.
+      const { Box, Text } = $.ui.resolve(ctx.e)
+      els.push(
+        <Box key={`slim-budget-${r.label}`} flexDirection="row">
+          <Box key={`slim-budget-${r.label}-t`} width={VALUE} flexShrink={0}>
+            <Text key={`slim-budget-${r.label}-text`} wrap="truncate-end">
+              {laid(segs, 0, ctx.e, $, `slim-budget-${r.label}-`)}
+            </Text>
+          </Box>
+          {inst(ctx, $, beadsSpec(`b-${r.label.toLowerCase()}`, 10, r.pct))}
+        </Box>,
+      )
+      continue
+    }
     if (ctx.cols >= VALUE + GRID.content) segs.push(...runsAt(bar(Math.max(0, Math.min(100, r.pct)), 100, 10), VALUE))
     els.push(runsLine(ctx.e, $, segs, `slim-budget-${r.label}`))
   }
@@ -293,6 +376,11 @@ function stackAt(ctx: ViewCtx, $: EngineInterface, level: number): { els: Render
     els.push(...b.els)
     rows += b.rows
     n += 1
+  }
+  // The rich form closes with the sill (one clamp cell), straight under the last row.
+  if (ctx.look === 'rich') {
+    els.push(inst(ctx, $, sillSpec('slim-sill', ctx.cols, { tone: needsYou(ctx.t, ctx.u, ctx.now).length > 0 ? 'warning' : 'accent', clamp: 1 })))
+    rows += 1
   }
   return { els, rows }
 }

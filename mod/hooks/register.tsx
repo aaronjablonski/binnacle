@@ -6,13 +6,14 @@ import { END_RESERVE_MS, restore, restoreAfterClear, saveForClear } from './jour
 import { debug, errText, saveLedger } from './state'
 import { registerBand } from './views/band'
 import { seedBudget } from './views/budget'
+import { configureNeeds } from './views/needs'
 import { registerShell, runMc, startShell, syncPaneOpen } from './views/shell'
 
 export const register: Register = (on, options) => {
   registerCapture(on)
   registerGuide(on, options)
   registerShell(on, options)
-  registerBand(on)
+  registerBand(on, options)
 
   // The module's one session.start hook: every task's session-start work is
   // a helper called from here (validate refuses a second unmatched hook).
@@ -22,7 +23,7 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'mc',
         description: 'Open Mission Control',
-        argumentHint: '[1-5 | keep <note> | export | close | slim | strip]',
+        argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]',
         immediate: true,
       })
     } catch (err) {

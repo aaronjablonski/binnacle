@@ -104,7 +104,8 @@ const asked = (seconds: number): Timeline => ({
 const texts = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }): Promise<string[]> =>
   (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '')
 
-test('an ask under 20 s draws no NEEDS YOU and no band alert; at 20 s it does', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: an ask under 20 s draws no NEEDS YOU and no band alert; at 20 s it does', { options: { look: 'text' } }, async ($, on) => {
   const { stored } = world(on, asked(19))
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE(62), surface })
@@ -141,7 +142,8 @@ const FOCUSED = (columns: number) => ({ ...PANE(columns), props: { ...PANE(colum
 
 const rowsOf = async (ui: { drawn: () => Promise<unknown> }): Promise<string[]> => screen(await ui.drawn())
 
-test('NEEDS YOU is a warning bracket first on Now: the pill, the count and the why and waiting heads, the first item opened inside it', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: NEEDS YOU is a warning bracket first on Now: the pill, the count and the why and waiting heads, the first item opened inside it', { options: { look: 'text' } }, async ($, on) => {
   world(on, waiting())
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE(62), surface })
@@ -197,7 +199,8 @@ test('NEEDS YOU is a warning bracket first on Now: the pill, the count and the w
   }
 })
 
-test('the NEEDS YOU bracket closes on the last row at 50, 40 and 32 columns, and a long ask is cut by word inside the rails', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the NEEDS YOU bracket closes on the last row at 50, 40 and 32 columns, and a long ask is cut by word inside the rails', { options: { look: 'text' } }, async ($, on) => {
   world(on, waiting())
   for (const cols of [50, 40, 32]) {
     const ui = await $.ui.mount({ ...PANE(cols), surface: 'terminal' })
@@ -215,7 +218,8 @@ test('the NEEDS YOU bracket closes on the last row at 50, 40 and 32 columns, and
   }
 })
 
-test('the crew shows who asks (?) and who stalled (z): lit hulls in warning with their signals', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the crew shows who asks (?) and who stalled (z): lit hulls in warning with their signals', { options: { look: 'text' } }, async ($, on) => {
   world(on, {
     ...asked(30),
     agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
@@ -232,7 +236,8 @@ test('the crew shows who asks (?) and who stalled (z): lit hulls in warning with
 })
 
 
-test('n opens the next item and p the previous; the opened row is bold and shows its why line', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: n opens the next item and p the previous; the opened row is bold and shows its why line', { options: { look: 'text' } }, async ($, on) => {
   world(on, waiting())
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...FOCUSED(62), surface })
@@ -283,7 +288,8 @@ test('the footer is at most 3 entries, drawn only while the pane has the focus',
   await ui.unmount()
 })
 
-test('a stalled agent is a ▲ in warning named by its description, and g opens its transcript', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: a stalled agent is a ▲ in warning named by its description, and g opens its transcript', { options: { look: 'text' } }, async ($, on) => {
   world(on, {
     ...empty,
     agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
@@ -346,7 +352,8 @@ test('dismiss writes ui.dismissed and the row goes away', async ($, on) => {
   }
 })
 
-test('at bodyColumns 32 and 40 nothing in NEEDS YOU is wider than the body', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: at bodyColumns 32 and 40 nothing in NEEDS YOU is wider than the body', { options: { look: 'text' } }, async ($, on) => {
   world(on, {
     ...empty,
     seq: 3,
@@ -535,7 +542,8 @@ test("a workflow agent's finish toasts its result, not its last step", async ($,
   expect(toasts).toEqual(['workflow-subagent finished: verdict: ok · files: 3'])
 })
 
-test('focused, every row of Now with NEEDS YOU, footer included, fits 32 and 40 columns', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: focused, every row of Now with NEEDS YOU, footer included, fits 32 and 40 columns', { options: { look: 'text' } }, async ($, on) => {
   world(on, waiting())
   for (const columns of [32, 40]) {
     for (const surface of SURFACES) {

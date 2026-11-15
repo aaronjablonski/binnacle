@@ -125,6 +125,7 @@ from the config menu:
 | `autoOpen` | `false` | Open the pane when a session starts. In a narrow terminal the pane waits for more room. |
 | `notify` | `waits` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn over 60 seconds finishes (`done`), also when a turn fails (`all`), or never (`off`). |
 | `showCost` | `false` | Show the session's dollar cost in the budget view. |
+| `doneSound` | `false` | Also play a short sound when the done notification is raised (macOS only; Windows and Linux terminals play nothing). |
 | `agentLimitMin` | `20` | Flag a subagent still working after this many minutes, once, as a long run in NEEDS YOU. It only reports. `0` turns it off. |
 | `turnLimitMin` | `60` | Flag a main turn still running after this many minutes, once, as a long run. `0` turns it off. |
 

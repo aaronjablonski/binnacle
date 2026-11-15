@@ -1,20 +1,24 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { Step, TaskItem } from '../../types'
+import type { Step, TaskItem, Timeline } from '../../types'
+import { cacheLine } from '../model/meter'
 import { summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
-import { resetClock, setBudgetOpen } from './budget'
-import { elapsed, layOut, meter, shortPaths, wordFit } from './fit'
+import { resetClock, setBudgetOpen, tokenText } from './budget'
+import { COMPARTMENTS_FROM, compartments, elapsed, layOut, meter, shortPaths, typeShort, wordFit } from './fit'
 import { argOf, laid, runsLine } from './lay'
 import type { Placed } from './lay'
-import { needsYou, podFor, problemText, waitStates } from './needs'
+import { needDetail, needGlyph, needName, needsYou, podFor, problemText, waitStates } from './needs'
 import { openStepInline } from './openstep'
-import { andThen, agentTokens, HALF, MAX_LIST, nowRows, RIGHT, STEP_GLYPH, STRIP, stripRight, subagents, who } from './overview'
-import { blank, deckRows } from './parts'
+import { openPage } from './pagenav'
+import { andThen, agentTokens, frameRows, HALF, MAX_LIST, nowFrame, nowRows, ringsOf, STEP_GLYPH, STRIP, stripRight, subagents, who } from './overview'
+import type { FrameParts } from './overview'
+import { blank, deckRows, inst } from './parts'
 import type { DeckRow } from './parts'
+import { lintelSpec, ringsSpec, sillSpec, stackSpec } from './richkit'
 import type { ViewCtx } from './shell'
-import { C, cellCol, GRID, statusColor } from './style'
+import { C, cellCol, GRID, spriteOf, statusColor } from './style'
 
 // ---------- the band's strip (`/mc strip`) ----------
 
@@ -27,14 +31,15 @@ const FIVE_FROM = 180
 /** Deck rows the strip gives up first when it is short of rows; FOCUS goes last. */
 const DECK_DROP = ['deck-budget', 'deck-steps', 'deck-next', 'deck-tasks', 'deck-crew', 'deck-wait']
 /** Under this many columns the stacked strip has no room for the right half's time column. */
-const STACK_RIGHT_FROM = RIGHT.time + GRID.content + 2
+// overview.tsx imports this file, so nothing here may read its constants while loading: 36 is RIGHT.time and 50 is HALF.
+const STACK_RIGHT_FROM = 36 + GRID.content + 2
 
 /**
  * The narrowest each compartment is drawn: NOW keeps its deck cells to 50;
  * AGENTS and LATEST keep a name or argument of 22 from 14 and the time on
  * cell 38. NOW and BUDGET keep their width; the lists take what is spare.
  */
-const MIN = { now: HALF, tasks: 22, agents: 42, latest: 42, budget: 24 } as const
+const MIN = { now: 50, tasks: 22, agents: 42, latest: 42, budget: 24 } as const
 /** The room a time takes in its cell: `8s`, `2m`, `1h04`, `12h`. */
 const TIME = 4
 
@@ -307,6 +312,17 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
   const { Box, Text } = $.ui.resolve(ctx.e)
   const needs = needsYou(ctx.t, ctx.u, ctx.now)
   const count = Math.min(needs.length, MAX_LIST)
+  const rich = richStrip(ctx, $, { maxRows: Math.max(0, opts.maxRows - 1), after: opts.after })
+  if (rich !== undefined) {
+    return (
+      <Box flexDirection="column">
+        {rich}
+        <Box key="strip-line" flexDirection="column">
+          {opts.line}
+        </Box>
+      </Box>
+    )
+  }
   const all = nowRows(ctx, $, true, count)
     .filter((r): r is DeckRow => r !== null)
     .map(r => (r.onPress !== undefined ? { ...r, onPress: andThen(r.onPress, opts.after) } : r))
@@ -385,6 +401,257 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
         ))}
       </Box>
       {compact}
+    </Box>
+  )
+}
+
+// ---------- Neo Rich: the strip's compartments ----------
+
+/** The rich strip's height at most: a frame's lintel and sill and nine rows. */
+const RICH_ROWS = 11
+/** Under this many rows the rich strip is not drawn: the text strip is. */
+const RICH_MIN_ROWS = 8
+
+/** One compartment: its lintel and sill (one clamp cell, the pill at column 2) around its rows, at most `tall` rows with them. */
+function framed(ctx: ViewCtx, $: EngineInterface, key: string, w: number, tall: number, pill: string, right: string | undefined, rows: RenderElement[], tone?: 'warning'): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
+  const sub = { ...ctx, cols: w }
+  const t = tone !== undefined ? { tone } : {}
+  return (
+    <Box key={`strip-${key}`} flexDirection="column" width={w}>
+      {inst(sub, $, lintelSpec(`${key}-lintel`, w, { ...t, pill, pillCol: 2, clamp: 1, ...(right !== undefined ? { right } : {}) }))}
+      {rows.slice(0, Math.max(0, tall - 2))}
+      {inst(sub, $, sillSpec(`${key}-sill`, w, { ...t, clamp: 1 }))}
+    </Box>
+  )
+}
+
+/** The NOW compartment's deck rows for `tall` rows: the fullest set that fits (STEPS, then the beads, then TASKS go first). */
+function nowKeep(t: Timeline, now: number, w: number, tall: number, narrow: boolean, count: number): FrameParts {
+  const base = { cols: w, count, strip: true, key: 'strip-now' } as const
+  const tries: Pick<FrameParts, 'keep' | 'beads'>[] = narrow
+    ? [
+        { keep: { next: false, steps: false, tasks: true }, beads: true },
+        { keep: { next: false, steps: false, tasks: true } },
+        { keep: { next: false, steps: false, tasks: false } },
+      ]
+    : [
+        { keep: { next: false, steps: true, tasks: true } },
+        { keep: { next: false, steps: false, tasks: true } },
+        { keep: { next: false, steps: false, tasks: false } },
+      ]
+  for (const o of tries) if (frameRows(t, now, { ...base, ...o }) <= tall) return { ...base, ...o }
+  return { ...base, ...tries[tries.length - 1]! }
+}
+
+/** One text row of a compartment: runs at columns, a plain Button when it opens something. */
+function crow(ctx: ViewCtx, $: EngineInterface, segs: Placed[], key: string, onPress?: () => void | Promise<void>): RenderElement {
+  return line(ctx, $, segs, key, onPress)
+}
+
+function richTasks(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, press: (f: () => void | Promise<void>) => () => void | Promise<void>): RenderElement {
+  const { t } = ctx
+  const s = summary(t)
+  const of = (status: TaskItem['status']) => t.tasks.filter(x => x.status === status)
+  const items = [...of('in_progress'), ...of('pending'), ...of('completed').sort((a, b) => b.updatedAt - a.updatedAt)]
+  const room = Math.max(0, tall - 2)
+  const hidden = items.length > room ? items.length - (room - 1) : 0
+  const shown = hidden > 0 ? items.slice(0, Math.max(0, room - 1)) : items
+  const rows: RenderElement[] = shown.map(x => {
+    const isActive = x.status === 'in_progress'
+    return crow(
+      ctx,
+      $,
+      [
+        { col: 2, text: TASK_GLYPH[x.status], ...(isActive ? { color: C.live } : { dim: true }) },
+        { col: 4, text: whole(isActive ? x.activeForm ?? x.subject : x.subject, w - 4), ...(isActive ? { bold: true } : x.status === 'completed' ? { dim: true } : {}) },
+      ],
+      `task-${x.owner}-${x.id}`,
+      press(() => openPage($, 'task', `${x.owner}:${x.id}`)),
+    )
+  })
+  if (hidden > 0) rows.push(runsLine(ctx.e, $, [{ col: 2, text: '+', dim: true }, { col: 4, text: `${hidden} more`, dim: true }], 'strip-tasks-more'))
+  if (items.length === 0) rows.push(none(ctx, $, 'no tasks', 'strip-tasks-none'))
+  return framed(ctx, $, 'tasks', w, tall, 'TASKS', s.total > 0 ? `${s.done} of ${s.total}` : undefined, rows)
+}
+
+function richNeeds(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, needs: Problem[], press: (f: () => void | Promise<void>) => () => void | Promise<void>): RenderElement {
+  const rows: RenderElement[] = needs.slice(0, Math.max(0, tall - 2)).map(p => {
+    const mark = needGlyph(p)
+    const detail = needDetail(p, ctx.now)
+    const stepId = p.stepId
+    const open = stepId !== undefined ? () => openPage($, 'step', stepId) : () => updateUi($, u => ({ ...leaveDetail(u), tab: 'overview' }))
+    return crow(
+      ctx,
+      $,
+      [
+        { col: 2, text: mark.glyph, bold: true, color: mark.color },
+        { col: 4, text: whole(needName(ctx.t, p), Math.max(0, w - 4 - detail.length - 2)), bold: true },
+        { col: Math.max(4, w - detail.length - 1), text: detail, color: C.wait },
+      ],
+      `need-${p.key}`,
+      press(open),
+    )
+  })
+  const oldest = Math.min(...needs.map(p => p.since))
+  return framed(ctx, $, 'needs', w, tall, `NEEDS YOU ${needs.length}`, `oldest ${elapsed(oldest, ctx.now)}`, rows, 'warning')
+}
+
+function richAgents(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, press: (f: () => void | Promise<void>) => () => void | Promise<void>): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { t, now } = ctx
+  const waits = waitStates(t, ctx.u, now)
+  const subs = subagents(t)
+  const live = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
+  const failed = subs.filter(a => a.status === 'error').sort((a, b) => b.startedAt - a.startedAt)
+  const done = subs.filter(a => a.status === 'done').length
+  const items = [...live, ...failed]
+  const room = Math.max(0, tall - 2)
+  const fold = done > 0 || items.length * 2 > room
+  const slots = Math.max(0, Math.floor((room - (fold ? 1 : 0)) / 2))
+  const shown = items.slice(0, slots)
+  const rows: RenderElement[] = shown.map(a => {
+    const pod = podFor(a, waits, now)
+    const spec = spriteOf({ id: a.id, type: a.type, status: a.status }, now, pod.state, 'S')
+    const facts = a.status === 'error' ? `${typeShort(a.type)} · failed · ${agentTokens(a)}` : `${typeShort(a.type)} · ${agentTokens(a)} · ${elapsed(a.startedAt, now)}`
+    return (
+      <Box key={`agent-row-${a.id}`} flexDirection="row">
+        {inst({ ...ctx, cols: w }, $, { key: `ag-${a.id}`, ...spec })}
+        <Box key={`agent-text-${a.id}`} flexDirection="column" paddingLeft={1}>
+          <Button key={`agent-${a.id}`} plain onPress={press(() => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })))}>
+            {wordFit(shortPaths(a.description || a.type), Math.max(1, w - 7))}
+          </Button>
+          <Text key={`agent-facts-${a.id}`} wrap="truncate-end" dimColor={a.status !== 'error'} color={a.status === 'error' ? C.fail : undefined}>
+            {wordFit(facts, Math.max(1, w - 7))}
+          </Text>
+        </Box>
+      </Box>
+    )
+  })
+  if (fold) {
+    const n = items.length - shown.length + done
+    if (n > 0) rows.push(runsLine(ctx.e, $, [{ col: 6, text: `+ ${n} ${items.length > shown.length ? 'more' : 'done'}`, dim: true }], 'strip-agents-more'))
+  }
+  if (items.length === 0 && done === 0) rows.push(none(ctx, $, 'none live', 'strip-agents-none'))
+  return framed(ctx, $, 'agents', w, tall, 'AGENTS', `${live.length} live`, rows)
+}
+
+function richLatest(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, press: (f: () => void | Promise<void>) => () => void | Promise<void>): RenderElement {
+  const { t, now } = ctx
+  const room = Math.max(0, tall - 2)
+  const steps = latestOrder(t.steps)
+  const s = summary(t)
+  const foot = s.errors > 0 ? `${s.errors} ${s.errors === 1 ? 'error' : 'errors'} of ${s.steps} steps` : `${s.steps} steps`
+  const fits = steps.length > 0 && room >= 3
+  const rows: RenderElement[] = steps.slice(0, Math.max(0, room - (fits ? 1 : 0))).map(x => {
+    const color = statusColor(x.status)
+    const tool = toolName(x.tool)
+    return crow(
+      ctx,
+      $,
+      [
+        { col: 2, text: STEP_GLYPH[x.status], ...(color !== undefined ? { color } : { dim: true }) },
+        { col: 4, text: whole(`${tool}  ${argOf(x.tool, x.label)}`, w - 4) },
+      ],
+      `step-${x.id}`,
+      press(() => openStepInline($, x.id)),
+    )
+  })
+  if (fits) rows.push(runsLine(ctx.e, $, [{ col: 2, text: foot, dim: true }], 'strip-latest-foot'))
+  if (steps.length === 0) rows.push(none(ctx, $, 'no steps yet', 'strip-latest-none'))
+  return framed(ctx, $, 'latest', w, tall, 'LATEST', undefined, rows)
+}
+
+/** A reset in a figure that fits eight columns: `in 45m`, `in 3h`, `in 4d`. */
+function inText(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000))
+  if (m < 60) return `in ${m}m`
+  const h = Math.round(m / 60)
+  return h < 48 ? `in ${h}h` : `in ${Math.round(h / 24)}d`
+}
+
+function richBudget(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, press: (f: () => void | Promise<void>) => () => void | Promise<void>): RenderElement {
+  const { t, now } = ctx
+  const b = t.budget
+  const rings = ringsOf(t, now)
+  const rows: RenderElement[] = []
+  if (rings.length === 0) rows.push(none(ctx, $, 'no reading yet', 'strip-budget-none'))
+  else {
+    rows.push(inst({ ...ctx, cols: w }, $, ringsSpec('strip-dials', rings)))
+    const figures: Placed[] = []
+    rings.forEach((r, i) => {
+      const win = r.name === 'CTX' ? undefined : b?.windows.find(x => (r.name === '5H' ? x.name === 'five_hour' : x.name === 'seven_day'))
+      const text = r.name === 'CTX' ? (b?.contextTokens !== undefined ? tokenText(b.contextTokens) : '') : win?.resetsAt !== undefined ? inText(win.resetsAt - now) : ''
+      if (text !== '') figures.push({ col: i * 8, text, dim: true })
+    })
+    const { Button } = $.ui.resolve(ctx.e)
+    rows.push(
+      <Button key="strip-budget" plain onPress={press(() => setBudgetOpen($, true))}>
+        {laid(figures, 0, ctx.e, $, 'strip-budget-')}
+      </Button>,
+    )
+  }
+  const cl = cacheLine(t)
+  if (cl.total > 0 && rows.length + 2 <= tall - 2 + 1) {
+    rows.push(inst({ ...ctx, cols: w }, $, stackSpec('strip-cache', Math.min(23, w), [[cl.read, 'mint'], [cl.write, 'orchid'], [cl.fresh, 'mute']], [C.result, C.model])))
+    rows.push(runsLine(ctx.e, $, [{ col: 0, text: `cache ${Math.round(cl.readShare * 100)}% read` }], 'strip-cache-text'))
+    const warm = cl.warmUntil !== undefined && cl.warmUntil > now ? cl.warmUntil - now : undefined
+    if (warm !== undefined) {
+      const s = Math.floor(warm / 1000)
+      rows.push(runsLine(ctx.e, $, [{ col: 0, text: `warm ~${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, color: C.result }], 'strip-cache-warm'))
+    }
+  }
+  return framed(ctx, $, 'budget', w, tall, 'BUDGET', undefined, rows)
+}
+
+/**
+ * The strip in the rich look (spec "Strip"): compartments from `compartments(cols, waiting)`, each with its own lintel and sill, three clear columns
+ * between, dropped whole and never squeezed. NOW is the Now frame without
+ * rings (three bead meters from 96 columns, the plan strip and trace); NEEDS
+ * YOU takes the second place whenever something waits; TASKS lists tasks;
+ * AGENTS shows each agent's small character, name and facts; LATEST lists
+ * steps; BUDGET has the rings, their resets and the cache. From 96 to 116
+ * AGENTS over LATEST share one text compartment. Undefined when the look is
+ * not rich, the strip is under 96 columns or `maxRows` is under 8 (the text strip
+ * is drawn then). Every row that opens something is a plain Button; a press
+ * opens the pane on what it names (`after`).
+ */
+export function richStrip(ctx: ViewCtx, $: EngineInterface, o: { maxRows: number; after?: () => Promise<void> }): RenderElement | undefined {
+  if (ctx.look !== 'rich' || ctx.cols < COMPARTMENTS_FROM) return undefined
+  const tall = Math.min(o.maxRows, RICH_ROWS)
+  if (tall < RICH_MIN_ROWS) return undefined
+  const { Box } = $.ui.resolve(ctx.e)
+  const needs = needsYou(ctx.t, ctx.u, ctx.now)
+  const count = Math.min(needs.length, MAX_LIST)
+  const { comps, gap } = compartments(ctx.cols, needs.length > 0)
+  const after = o.after
+  const press = (f: () => void | Promise<void>): (() => void | Promise<void>) => andThen(f, after)
+  const narrow = ctx.cols < 117
+  const drawn = comps.map(c => {
+    switch (c.key) {
+      case 'now':
+        return <Box key="strip-now-box" flexDirection="column" width={c.width}>{nowFrame(ctx, $, { ...nowKeep(ctx.t, ctx.now, c.width, tall, narrow, count), press })}</Box>
+      case 'needs':
+        return richNeeds(ctx, $, c.width, tall, needs, press)
+      case 'tasks':
+        return richTasks(ctx, $, c.width, tall, press)
+      case 'agents':
+        return richAgents(ctx, $, c.width, tall, press)
+      case 'latest':
+        return richLatest(ctx, $, c.width, tall, press)
+      case 'budget':
+        return richBudget(ctx, $, c.width, tall, press)
+      default:
+        return (
+          <Box key="strip-activity" flexDirection="column" width={c.width}>
+            {activityRows(ctx, $, c.width, tall, after ?? (async () => {}))}
+          </Box>
+        )
+    }
+  })
+  return (
+    <Box key="strip" flexDirection="row" columnGap={gap}>
+      {drawn}
     </Box>
   )
 }

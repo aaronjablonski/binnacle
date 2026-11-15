@@ -129,7 +129,8 @@ async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns
   return m
 }
 
-test('the budget view is a deck: used and resets heads, then CTX and each window with a 22-cell bar, the percentage at 38 and the reset at 50', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: the budget view is a deck: used and resets heads, then CTX and each window with a 22-cell bar, the percentage at 38 and the reset at 50', { options: { look: 'text' } }, async ($, on) => {
   world(on, withBudget(budget({ windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 32 }] })))
   for (const surface of SURFACES) {
     const m = await openBudget($, surface, 62)
@@ -166,7 +167,8 @@ test('the reset is a clock time inside a day and a weekday with the time beyond 
   expect(resetClock(NOW - 5, NOW)).toBe('now')
 })
 
-test('MODELS and AGENTS are tables with tokens at 38 and a 10-cell share bar at 50, and no dollar figure anywhere', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: MODELS and AGENTS are tables with tokens at 38 and a 10-cell share bar at 50, and no dollar figure anywhere', { options: { look: 'text' } }, async ($, on) => {
   world(
     on,
     withBudget(budget({ costUsd: 3.21 }), {
@@ -218,7 +220,8 @@ test('pressing an agent row of the budget view opens that agent', async ($, on) 
   await m.unmount()
 })
 
-test('every budget row fits the width, down to 32, and below 42 the reset drops under the bar', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: every budget row fits the width, down to 32, and below 42 the reset drops under the bar', { options: { look: 'text' } }, async ($, on) => {
   world(
     on,
     withBudget(
@@ -248,7 +251,8 @@ test('every budget row fits the width, down to 32, and below 42 the reset drops 
 })
 
 // showCost is the person's explicit opt-in: a documented exception to Neo's "no dollar figure" default.
-test('showCost on: the budget view has a COST row with the session cost, under the windows', { options: { showCost: true } }, async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: showCost on: the budget view has a COST row with the session cost, under the windows', { options: { look: 'text', showCost: true } }, async ($, on) => {
   world(on, withBudget(budget({ costUsd: 0.5 })))
   for (const cols of [62, 40, 32]) {
     const a = await openBudget($, 'terminal', cols)
@@ -282,7 +286,8 @@ test('showCost off (the default): no COST row and no dollar figure, though a cos
   await a.unmount()
 })
 
-test('with no budget the budget view says so', async ($, on) => {
+// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+test('text form: with no budget the budget view says so', { options: { look: 'text' } }, async ($, on) => {
   world(on, withBudget(undefined))
   const m = await openBudget($, 'terminal', 62)
   expect(screen(await m.drawn()).some(r => r.includes('No reading yet.'))).toBe(true)

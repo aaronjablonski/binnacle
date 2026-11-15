@@ -31,7 +31,15 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 
 - [x] V1: focus starts in the content, keyboard skips the tab bar (tabs by 1–5 / click), Down walks the active tab top to bottom
 
-## Then: distilled features (`plans/2026-11-15-mission-control-distilled.md`)
+## Now: Neo Rich build (`plans/2026-11-15-mission-control-neo-rich.md`), includes the distilled features
+
+- [ ] R1a raster engine + paint clock · D1 distilled data
+- [ ] R1b style/fit/parts/editor/shell routing
+- [ ] R2 Now/needs/budget/slim/strip · R3 Agents + crew map · R4 Tasks + Steps pages · R5 Artifacts + band · R6 Options + desktop Svg
+- [ ] R7 delights + Accent
+- [ ] Opus review; Aaron's live check
+
+## (superseded by Neo Rich) distilled features (`plans/2026-11-15-mission-control-distilled.md`)
 
 - [ ] D1: data (pace samples, cache usage, per-task tokens, long run, done turns, ledger)
 - [ ] D2: budget view and Now (Pace, Cache, warm countdown, This week ledger + CSV, session cost, This turn)

@@ -135,13 +135,13 @@ test('/mc strip closes the pane, writes ui.strip and the band draws the strip ro
   expect(uiOf(w).paneOpen).toBe(false)
   for (const surface of SURFACES) {
     const rows = await bandRows($, 110, 20, surface)
-    // The deck's six rows beside AGENTS and LATEST, then the band's one compact row.
+    // The deck's six rows beside AGENTS and LATEST (NOW 50 wide, a gap of 3, AGENTS and LATEST taking the rest), then the band's one compact row.
     expect(rows.length).toBe(7)
     expect(rows.slice(0, 6).map(r => r.slice(0, 8).trim())).toEqual(DECK_LABELS)
     expect(colOf(rows[0], FOCUS)).toBe(14)
-    expect(colOf(rows[0], '┌ AGENTS')).toBe(50)
+    expect(colOf(rows[0], '┌ AGENTS')).toBe(53)
     expect(rowAt(rows, '┌ LATEST')).toBeGreaterThan(0)
-    expect(colOf(rows[rowAt(rows, '┌ LATEST')], '┌ LATEST')).toBe(50)
+    expect(colOf(rows[rowAt(rows, '┌ LATEST')], '┌ LATEST')).toBe(53)
     const line = rows[6]!
     expect(line.startsWith('┃  WORKING ')).toBe(true)
     expect(line.length).toBe(110)
@@ -338,4 +338,111 @@ test('session.start with autoOpen opens no pane while the strip is on', { option
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   expect(w.opened.length).toBe(0)
+})
+
+// ---------- compartments: the strip takes the band's whole width ----------
+
+const WIDE: Timeline = {
+  ...BUSY,
+  budget: {
+    contextPct: 9,
+    windows: [
+      { name: 'five_hour', pct: 18, resetsAt: NOW + 2 * 3_600_000 },
+      { name: 'seven_day', pct: 22, resetsAt: NOW + 3 * 86_400_000 },
+    ],
+    at: NOW,
+  },
+}
+
+/** Every word the fixture can put on a row: a cut must end on one of them. */
+const WORDS = [
+  FOCUS, 'Humanise step labels', 'Map', 'Group', 'find every caller of stepRow', 'write timeline tests',
+  'Bash npm test -- timeline', 'Edit mod/hooks/views/timeline.tsx', 'Explore', 'general-purpose', 'general',
+].flatMap(x => x.split(/\s+/))
+
+/** Each `word…` on the rows: a cut at a word leaves a whole word (or a path's last parts) before the `…`. */
+function midWordCuts(rows: string[]): string[] {
+  const bad: string[] = []
+  for (const r of rows) {
+    for (const m of r.matchAll(/(\S+)…/g)) {
+      const tok = m[1]!
+      if (!WORDS.some(w => w === tok || w.endsWith(`/${tok}`))) bad.push(tok)
+    }
+  }
+  return bad
+}
+
+/** The columns where the compartments of the strip's first row start: `┏` (NOW) and each `┌`. */
+function starts(row: string): number[] {
+  const out: number[] = []
+  for (let i = 0; i < row.length; i++) if (row[i] === '┏' || row[i] === '┌') out.push(i)
+  return out
+}
+
+const COMPARTMENTS: [number, number[], string[]][] = [
+  // NOW keeps 50; AGENTS and LATEST take the other 47 after a gap of 3.
+  [100, [0, 53], ['FOCUS', 'AGENTS']],
+  // NOW 50 | AGENTS 47 | LATEST 47: the spare split evenly between the lists.
+  [150, [0, 53, 103], ['FOCUS', 'AGENTS', 'LATEST']],
+  // 50 + 22 + 42 + 42 + 24 = 180: gaps of 3 would not fit, so 2; TASKS takes the 2 spare.
+  [190, [0, 52, 78, 122, 166], ['FOCUS', 'TASKS', 'AGENTS', 'LATEST', 'BUDGET']],
+]
+
+for (const [cols, at, labels] of COMPARTMENTS) {
+  test(`at ${cols} columns the strip is ${at.length} compartments starting at ${at.join(', ')}, none wider than the band, no cut inside a word`, async ($, on) => {
+    world(on, WIDE, { ...initialUi, strip: true })
+    for (const surface of SURFACES) {
+      const rows = await bandRows($, cols, 20, surface)
+      expect(starts(rows[0]!)).toEqual(at)
+      labels.forEach((label, i) => expect([label, colOf(rows[0], label)]).toEqual([label, at[i]! + 2]))
+      for (const r of rows) expect([cols, r.length <= cols]).toEqual([cols, true])
+      expect(midWordCuts(rows)).toEqual([])
+      // The compact line stays under the strip, the band's whole width.
+      expect(rows[rows.length - 1]!.startsWith('┃  WORKING ')).toBe(true)
+      expect(rows.length <= 7).toBe(true)
+    }
+  })
+}
+
+test('at 150 the text takes the room it has: names and arguments are not cut', async ($, on) => {
+  world(on, WIDE, { ...initialUi, strip: true })
+  const rows = await bandRows($, 150)
+  expect(rows.some(r => r.includes('find every caller of stepRow'))).toBe(true)
+  expect(rows.some(r => r.includes('write timeline tests'))).toBe(true)
+  expect(rows.some(r => r.includes('npm test -- timeline'))).toBe(true)
+  // LATEST fills its rows: the error, the running step.
+  const latest = colOf(rows[0], '┌ LATEST')
+  expect(rows.filter(r => r.slice(latest).match(/^ {2}[✖▸✓]/)).length).toBe(2)
+})
+
+test('at 190 BUDGET shows each window with its reset time, and NOW gives up its own BUDGET row', async ($, on) => {
+  world(on, WIDE, { ...initialUi, strip: true })
+  const rows = await bandRows($, 190)
+  const budget = colOf(rows[0], '┌ BUDGET')
+  expect(rows.some(r => r.slice(budget).startsWith('  CTX ◔ 9%'))).toBe(true)
+  const five = rows.find(r => r.slice(budget).startsWith('  5H'))!
+  expect(five.slice(budget + 14).trim()).toMatch(/^\d{2}:\d{2}$/)
+  const seven = rows.find(r => r.slice(budget).startsWith('  7D'))!
+  expect(seven.slice(budget + 14).trim()).toMatch(/^[A-Z][a-z]{2} \d{2}:\d{2}$/)
+  expect(rows.some(r => r.startsWith('┗ BUDGET') || r.startsWith('┃ BUDGET'))).toBe(false)
+})
+
+test('at 190 with something waiting, NEEDS YOU takes the second compartment in place of TASKS', async ($, on) => {
+  const asked: Step = step('w1', 4, 'Bash rm -rf build', 'running', { tool: 'Bash', startedAt: NOW - 60_000, asking: NOW - 30_000 })
+  world(on, { ...WIDE, steps: [...WIDE.steps, asked] }, { ...initialUi, strip: true })
+  const rows = await bandRows($, 190)
+  expect(colOf(rows[0], '┌ NEEDS YOU')).toBe(52)
+  expect(colOf(rows[0], 'TASKS')).toBe(-1)
+  for (const r of rows) expect(r.length <= 190).toBe(true)
+})
+
+test('compartments drop from the right where the width runs out: at 180 BUDGET goes and NOW keeps its own BUDGET row', async ($, on) => {
+  world(on, WIDE, { ...initialUi, strip: true })
+  const at180 = await bandRows($, 180)
+  // Five need 180 and four gaps of 2: 188. Four: NOW 50 | TASKS 27 | AGENTS 47 | LATEST 47, gaps of 3.
+  expect(starts(at180[0]!)).toEqual([0, 53, 83, 133])
+  expect(colOf(at180[0], 'BUDGET')).toBe(-1)
+  expect(at180.some(r => r.startsWith('┗ BUDGET'))).toBe(true)
+  for (const r of at180) expect(r.length <= 180).toBe(true)
+  expect(midWordCuts(at180)).toEqual([])
 })

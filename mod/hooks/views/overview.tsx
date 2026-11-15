@@ -17,18 +17,18 @@ import { C, cellCol, COL, DECK, GRID, statusColor } from './style'
 import type { Run } from './style'
 
 // From this width the pane is the inline strip: eight cells, two halves.
-const STRIP = 96
-const MAX_LIST = 6
-const STEP_GLYPH: Record<Step['status'], string> = { running: '▸', done: '✓', error: '✖', denied: '✖', interrupted: '·' }
+export const STRIP = 96
+export const MAX_LIST = 6
+export const STEP_GLYPH: Record<Step['status'], string> = { running: '▸', done: '✓', error: '✖', denied: '✖', interrupted: '·' }
 const KEPT_NOTE = 'kept steps are never trimmed and export in full'
 
-const subagents = (t: Timeline) => Object.values(t.agents).filter(a => a.id !== 'main')
+export const subagents = (t: Timeline) => Object.values(t.agents).filter(a => a.id !== 'main')
 function openTab($: EngineInterface, tab: Tab): Promise<void> {
   return updateUi($, u => ({ ...leaveDetail(u), tab }))
 }
 
 /** An agent's tokens as `72k`, or `…` while it has reported none. */
-const agentTokens = (a: { tokensIn?: number; tokensOut?: number }): string =>
+export const agentTokens = (a: { tokensIn?: number; tokensOut?: number }): string =>
   a.tokensIn !== undefined || a.tokensOut !== undefined ? tokenText((a.tokensIn ?? 0) + (a.tokensOut ?? 0)) : '…'
 
 /**
@@ -38,7 +38,7 @@ const agentTokens = (a: { tokensIn?: number; tokensOut?: number }): string =>
  * there is no rail-only row, the aside column is out, and STEPS carries its
  * errors beside the count; `count` things waiting take the NEXT row.
  */
-function nowRows(ctx: ViewCtx, $: EngineInterface, strip: boolean, count: number): (DeckRow | null)[] {
+export function nowRows(ctx: ViewCtx, $: EngineInterface, strip: boolean, count: number): (DeckRow | null)[] {
   const { t, now } = ctx
   const s = summary(t)
   const h = headline(t)
@@ -135,7 +135,7 @@ function latestSteps(t: Timeline): Step[] {
 }
 
 // The agent as a metric cell: its type in a short form (`general-purpose` is `general`).
-const who = (t: Timeline, agent: string): string => (agent === 'main' ? 'main' : typeShort(t.agents[agent]?.type ?? agent))
+export const who = (t: Timeline, agent: string): string => (agent === 'main' ? 'main' : typeShort(t.agents[agent]?.type ?? agent))
 
 function latestBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const { t, now, e } = ctx
@@ -224,9 +224,9 @@ function stack(ctx: ViewCtx, $: EngineInterface, blocks: (RenderElement[] | Rend
 
 // ---------- the inline strip: the same cells, eight across ----------
 
-const HALF = 50
+export const HALF = 50
 // The right half's own columns: glyph 2, name 4, metric 24, time 36.
-const RIGHT = { glyph: 2, name: 4, nameEnd: 22, arg: 10, metric: 24, time: 36 }
+export const RIGHT = { glyph: 2, name: 4, nameEnd: 22, arg: 10, metric: 24, time: 36 }
 
 function stripHead($: EngineInterface, ctx: ViewCtx, label: string, metric: string, time: string, key: string): RenderElement {
   return runsLine(ctx.e, $, [
@@ -263,7 +263,7 @@ function stripRow($: EngineInterface, ctx: ViewCtx, r: StripRow): RenderElement 
  * A press, then `after` once it is done: the band's strip opens the pane
  * after a row's own write. Without `after` the press is unchanged.
  */
-function andThen(press: () => void | Promise<void>, after?: () => Promise<void>): () => void | Promise<void> {
+export function andThen(press: () => void | Promise<void>, after?: () => Promise<void>): () => void | Promise<void> {
   if (after === undefined) return press
   return async () => {
     await press()
@@ -329,7 +329,7 @@ function stripBlocks(ctx: ViewCtx, $: EngineInterface, after?: () => Promise<voi
  * they fit; then without the blank; then AGENTS cut to one agent; then one
  * block alone, AGENTS first. Six rows at most.
  */
-function stripRight(ctx: ViewCtx, $: EngineInterface, room = Infinity, after?: () => Promise<void>): RenderElement[] {
+export function stripRight(ctx: ViewCtx, $: EngineInterface, room = Infinity, after?: () => Promise<void>): RenderElement[] {
   const { agents, agentsShort, latest } = stripBlocks(ctx, $, after)
   const gap = (): RenderElement[] => (agents.length > 0 && latest.length > 0 ? [blank(ctx, $, 'strip-gap')] : [])
   const ways: (() => RenderElement[])[] = [
@@ -364,89 +364,6 @@ function stripView(ctx: ViewCtx, $: EngineInterface, count: number): RenderEleme
       </Box>
       {bar !== null ? <Text key="strip-footer-gap">{' '}</Text> : null}
       {bar}
-    </Box>
-  )
-}
-
-/** Deck rows the band's strip gives up first when it is short of rows; FOCUS goes last. */
-const DECK_DROP = ['deck-budget', 'deck-steps', 'deck-next', 'deck-tasks', 'deck-crew', 'deck-wait']
-/** Under this many columns the band's strip has no room for the right half's time column. */
-const STACK_RIGHT_FROM = RIGHT.time + GRID.content + 2
-
-/** The deck in at most `room` rows: rows go in DECK_DROP's order, then from the bottom. */
-function trimDeck(rows: DeckRow[], room: number): DeckRow[] {
-  let out = rows
-  for (const key of DECK_DROP) {
-    if (out.length <= room) break
-    out = out.filter(r => r.key !== key)
-  }
-  return out.slice(0, Math.max(0, room))
-}
-
-/**
- * What the band's strip is handed: the rows the band may take (its
- * `maxRows`), the band's own compact line to draw under the strip, and
- * what a press does once its own write is done (the pane opens).
- */
-export type BandStrip = { maxRows: number; line: RenderElement; after: () => Promise<void> }
-
-/**
- * The strip in the band (`/mc strip`): the inline pane's Now strip without
- * its tabs or footer, then the band's compact line. From 96 columns the
- * deck (left bracket) and AGENTS and LATEST sit side by side, 7 rows; under
- * 96 they stack with a blank between, 14 rows. Short of `maxRows` the right
- * half is trimmed first, then the deck from its bottom; the compact line
- * always stays. Every row that opens something is a plain Button with no
- * hotkey: a bare digit in an empty prompt can press a band Button.
- */
-export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const count = Math.min(needsYou(ctx.t, ctx.u, ctx.now).length, MAX_LIST)
-  const all = nowRows(ctx, $, true, count)
-    .filter((r): r is DeckRow => r !== null)
-    .map(r => (r.onPress !== undefined ? { ...r, onPress: andThen(r.onPress, opts.after) } : r))
-  // The compact line takes one row of the band.
-  const body = Math.max(0, opts.maxRows - 1)
-  const line = (
-    <Box key="strip-line" flexDirection="column">
-      {opts.line}
-    </Box>
-  )
-  const left = trimDeck(all, body)
-  if (ctx.cols >= STRIP) {
-    const right = stripRight(ctx, $, body, opts.after)
-    if (left.length === 0 && right.length === 0) return <Box flexDirection="column">{line}</Box>
-    return (
-      <Box flexDirection="column">
-        <Box key="strip" flexDirection="row">
-          <Box key="strip-left" flexDirection="column" width={HALF}>
-            {deckRows(ctx, $, left, { key: 'strip-deck', side: 'left', cols: HALF })}
-          </Box>
-          <Box key="strip-right" flexDirection="column">
-            {right}
-          </Box>
-        </Box>
-        {line}
-      </Box>
-    )
-  }
-  // Stacked: the blank between the halves takes a row; the right half needs two at least.
-  const room = body - left.length - (left.length > 0 ? 1 : 0)
-  const right = ctx.cols >= STACK_RIGHT_FROM && room >= 2 ? stripRight(ctx, $, room, opts.after) : []
-  return (
-    <Box flexDirection="column">
-      {left.length > 0 ? (
-        <Box key="strip-left" flexDirection="column">
-          {deckRows(ctx, $, left, { key: 'strip-deck', side: 'left', cols: Math.min(HALF, ctx.cols) })}
-        </Box>
-      ) : null}
-      {left.length > 0 && right.length > 0 ? <Text key="strip-halves-gap">{' '}</Text> : null}
-      {right.length > 0 ? (
-        <Box key="strip-right" flexDirection="column">
-          {right}
-        </Box>
-      ) : null}
-      {line}
     </Box>
   )
 }

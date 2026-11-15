@@ -87,12 +87,22 @@ you resize yourself keeps the width you give it, and the layout follows it.
 ## Strip mode
 
 `/mc strip` closes the pane and draws the strip in the band above the prompt
-instead: the Now deck (focus, next, crew, tasks, steps, budget) beside AGENTS
-and LATEST, with the band's one-row summary under it. From 96 columns the two
-halves sit side by side in 7 rows; narrower, they stack in 14. The band may
-take at most half the terminal's height, the prompt's rows included, so in a
-short terminal AGENTS and LATEST are cut first, then the deck from the
-bottom; the summary row always stays.
+instead, with the band's one-row summary under it. The strip uses the whole
+width, in compartments side by side, each with its own heading:
+
+| Band width | Compartments |
+| --- | --- |
+| under 96 | NOW (focus, next, crew, tasks, steps, budget), with AGENTS and LATEST stacked under it (14 rows) |
+| 96 to 139 | NOW, then AGENTS and LATEST together |
+| 140 to 179 | NOW, AGENTS, LATEST |
+| 180 and up | NOW, NEEDS YOU (or TASKS when nothing waits), AGENTS, LATEST, BUDGET with the reset times |
+
+NOW keeps 50 columns and the lists share the rest, so names and arguments get
+the room there is. Text is cut only at a word, with `…`. Where the width runs
+out, compartments drop from the right. The band may take at most half the
+terminal's height, the prompt's rows included, so in a short terminal the
+lists are cut first, then the deck from the bottom; the summary row always
+stays.
 
 Each strip row opens what it names, as it does in the pane: pressing it (a
 click, or Ctrl+X Tab to focus the band and then Enter) turns the strip off and

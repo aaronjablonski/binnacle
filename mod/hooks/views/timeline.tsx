@@ -7,17 +7,21 @@ import { findSteps, stepGroups } from '../model/select'
 import { windowRows } from '../model/window'
 import { apply, debug, errText, readTimeline, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
-import { at, clock, elapsed, fit, line, promptTitle, shortPaths, typeShort, wordFit } from './fit'
+import { at, clock, elapsed, fit, levels, line, promptTitle, shortPaths, typeShort, wordFit } from './fit'
 import { deepSearch, FIND_KEY, focusFind, setQuery, showInChat, stepTarget } from './find'
 import { isOnScreen } from './onscreen'
 import { copyResult, quoteInPrompt, toggleKeep } from './detail'
 import { bodyOfOpen, openStep, openStepInline } from './openstep'
-import { blank, footer, opened, pill, row, section } from './parts'
-import type { Action, Detail, Hint, Run } from './parts'
+import { blank, footer, inst, opened, pill, row, section } from './parts'
+import type { Action, Detail, Hint, InstSpec, Run } from './parts'
+import { bars } from './raster'
 import type { ViewCtx } from './shell'
-import { C, cellCol, DECK, GRID, RAIL, statusColor } from './style'
+import { C, cellCol, DECK, GLYPHS, GRID, RAIL, statusColor } from './style'
 
 const MIN_PAD = 20
+/** The MAP's width in buckets: the session as 44 columns, fewer where the pane is narrow. */
+const MAP_MAX = 44
+const MAP_ROWS = 2
 /** Rows a turn shows before `+ n more in this turn`. */
 const TURN_ROWS = 5
 /** Older turns listed under EARLIER TURNS before `+ n more turns`. */
@@ -199,6 +203,58 @@ function scrollOf(ctx: ViewCtx): { offset: number; bodyRows: number } {
   return { offset: props.scroll?.offset ?? 0, bodyRows: props.scroll?.bodyRows ?? 30 }
 }
 
+/** One MAP bucket: how many steps started in it, whether one failed, whether the chat shows one now. */
+type MapBucket = { count: number; error: boolean; view: boolean }
+
+/**
+ * The step MAP's buckets: the session's steps counted into `n` equal slices
+ * of time, from the first step to now. A bucket is `error` when a step in it
+ * failed and `view` when the transcript shows one of its steps now.
+ */
+export function mapBuckets(steps: readonly Step[], now: number, n: number, seen: (id: string) => boolean): MapBucket[] {
+  const out: MapBucket[] = Array.from({ length: n }, () => ({ count: 0, error: false, view: false }))
+  if (steps.length === 0) return out
+  const from = Math.min(...steps.map(s => s.startedAt))
+  const to = Math.max(now, ...steps.map(s => s.startedAt))
+  const span = to - from
+  for (const s of steps) {
+    const i = span <= 0 ? n - 1 : Math.min(n - 1, Math.floor(((s.startedAt - from) / span) * n))
+    const b = out[i]!
+    b.count += 1
+    if (s.status === 'error') b.error = true
+    if (seen(s.id)) b.view = true
+  }
+  return out
+}
+
+/**
+ * The step MAP as an instrument: `n` columns two rows tall (16 levels), the
+ * height the steps in the slice, an error red, the run in view bright (`ink`),
+ * the rest iris. Its text form is the same box in eighth blocks.
+ */
+function mapInst(buckets: MapBucket[]): InstSpec {
+  const n = buckets.length
+  const lv = levels(buckets.map(b => b.count), MAP_ROWS)
+  const ink = (b: MapBucket): Run =>
+    b.error ? { text: '', color: C.fail } : b.view ? { text: '', bold: true } : { text: '', color: C.live }
+  const rows: Run[][] = [[], []]
+  buckets.forEach((b, i) => {
+    const v = lv[i] ?? 0
+    const low = v <= 0 ? GLYPHS.sparks[0] : GLYPHS.sparks[Math.min(8, v) - 1]!
+    const high = v > 8 ? GLYPHS.sparks[v - 9]! : ' '
+    rows[0]!.push({ ...ink(b), text: high })
+    rows[1]!.push({ ...ink(b), text: low, ...(v <= 0 ? { dim: true, color: C.subtle } : {}) })
+  })
+  return {
+    key: 'map',
+    columns: n,
+    rows: MAP_ROWS,
+    sig: `map:${buckets.map(b => `${b.count}${b.error ? 'e' : ''}${b.view ? 'v' : ''}`).join(',')}`,
+    frames: () => [bars(MAP_ROWS, buckets.map(b => b.count), { hueOf: (i: number) => (buckets[i]?.error ? 'red' : buckets[i]?.view ? 'ink' : 'iris') })],
+    fallback: rows,
+  }
+}
+
 /** The Steps tab: the find row and chips, then the newest turn, any opened older turns and EARLIER TURNS. */
 export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text, Button, Input } = $.ui.resolve(ctx.e)
@@ -363,21 +419,41 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const spent = Math.min(stops.length, spanOf(shownChips))
     const showRow = (
       <Box key="chips" flexDirection="row">
-        <Text color={C.live}>{`${RAIL.bottom} `}</Text>
+        <Text color={C.live}>{`${RAIL.mid} `}</Text>
         <Box width={DECK.gauge - DECK.label}>
           <Text dimColor>SHOW</Text>
         </Box>
         {chipBoxes}
         <Box width={Math.max(0, cols - 1 - (stops[spent] ?? cols - 1))} />
-        <Text color={C.live}>{RAIL.bottomRight}</Text>
+        <Text color={C.live}>{RAIL.mid}</Text>
       </Box>
     )
+    const mapWidth = Math.min(MAP_MAX, cols - DECK.gauge - 2)
+    const mapRow =
+      mapWidth >= 4 ? (
+        <Box key="map-row" flexDirection="row">
+          <Box key="map-label" flexDirection="column" width={DECK.gauge} flexShrink={0}>
+            <Text>
+              <Text color={C.live}>{`${RAIL.mid} `}</Text>
+              <Text dimColor>MAP</Text>
+            </Text>
+            <Text color={C.live}>{RAIL.bottom}</Text>
+          </Box>
+          {inst(ctx, $, mapInst(mapBuckets(t.steps, ctx.now, mapWidth, seen)))}
+          <Box key="map-gap" width={Math.max(0, cols - 1 - DECK.gauge - mapWidth)} flexShrink={0} />
+          <Box key="map-right" flexDirection="column">
+            <Text color={C.live}>{RAIL.mid}</Text>
+            <Text color={C.live}>{RAIL.bottomRight}</Text>
+          </Box>
+        </Box>
+      ) : null
 
     if (groups.length === 0) {
       return (
         <Box flexDirection="column">
           {findRow}
           {showRow}
+          {mapRow}
           {blank(ctx, $, 'gap-deck')}
           <Text dimColor>No steps match.</Text>
         </Box>
@@ -549,6 +625,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       <Box flexDirection="column">
         {findRow}
         {showRow}
+        {mapRow}
         {blank(ctx, $, 'gap-deck')}
         <Box key="list" flexDirection="column">
           {top > 0 ? <Box key="space-top" height={top} /> : null}

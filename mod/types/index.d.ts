@@ -98,8 +98,8 @@ export type LedgerRow = { day: string; session: string; tokens: Record<string, n
 export type StepFilter = { kind: 'all' } | { kind: 'pinned' } | { kind: 'errors' } | { kind: 'agent'; id: AgentKey }
 export type StepBody = { input: Record<string, unknown>; text: string; cut: number; isError: boolean }
 export type Tab = 'overview' | 'tasks' | 'agents' | 'timeline' | 'artifacts'
-/** The kinds of detail page (`UiState.page`). */
-export type PageKind = 'task' | 'agent' | 'step' | 'artifact'
+/** The kinds of page (`UiState.page`): the four detail pages, and Options (its id the field opened under its row, '' for none). */
+export type PageKind = 'task' | 'agent' | 'step' | 'artifact' | 'options'
 export type UiState = {
   tab: Tab; filter: StepFilter
   agentsMode: 'list' | 'tree'; folded: string[]        // folded tree node keys

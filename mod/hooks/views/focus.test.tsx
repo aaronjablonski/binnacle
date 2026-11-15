@@ -14,7 +14,8 @@ import { stops } from './screen.testkit'
 const NOW = 1_000_000
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 const PANE_ID = 'mission-control'
-const TAB_KEYS = ['tab-overview', 'tab-tasks', 'tab-agents', 'tab-timeline', 'tab-artifacts']
+// The tab bar's Buttons: the five tabs and Options (`0`), all reached by hotkey rather than by the ring.
+const TAB_KEYS = ['tab-overview', 'tab-tasks', 'tab-agents', 'tab-timeline', 'tab-artifacts', 'tab-options']
 
 type World = { stored: Map<string, unknown>; landed: (string | undefined)[]; logs: string[] }
 

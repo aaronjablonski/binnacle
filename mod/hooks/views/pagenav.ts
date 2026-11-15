@@ -7,8 +7,8 @@ import type { EngineInterface } from 'claude-code'
 import type { PageKind, UiState } from '../../types'
 import { debug, errText, updateUi } from '../state'
 
-/** The four kinds of page. */
-export const PAGE_KINDS: readonly PageKind[] = ['task', 'agent', 'step', 'artifact']
+/** The kinds of page: the four detail pages, and Options. */
+export const PAGE_KINDS: readonly PageKind[] = ['task', 'agent', 'step', 'artifact', 'options']
 
 /** The longest page id kept. */
 const MAX_PAGE_ID = 200

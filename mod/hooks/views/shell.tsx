@@ -1,4 +1,4 @@
-import type { EngineInterface, On, PaneOpenArgs, RenderElement, RenderInput } from 'claude-code'
+import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, RenderInput } from 'claude-code'
 
 import type { PageKind, Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
@@ -13,9 +13,11 @@ import { begin, forget, startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
 import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
+import { configureOptions, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, GRID, lookOf, TAB_CELL, tier } from './style'
+import { C, GRID, TAB_CELL, tier } from './style'
 import type { Look, Tier } from './style'
+import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
 import { landing, stopsOf, withStart } from './ring'
@@ -54,9 +56,12 @@ export type ViewCtx = {
 }
 export type View = (ctx: ViewCtx, $: EngineInterface) => RenderElement
 
+/** The key of the tab bar's Options Button (`0`): reached, like a tab, by its hotkey and a click. */
+export const OPTIONS_KEY = 'tab-options'
+
 /** Whether `key` is one of the tab bar's Buttons. */
 export function isTabKey(key: string): boolean {
-  return TABS.some(x => key === `tab-${x.tab}`)
+  return key === OPTIONS_KEY || TABS.some(x => key === `tab-${x.tab}`)
 }
 
 /**
@@ -113,8 +118,10 @@ export async function syncPaneOpen($: EngineInterface): Promise<void> {
   }
 }
 
-export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: boolean; editor?: string; look?: string }): void {
+export function registerShell(on: On, options: PluginOptions): void {
   configureEditor(options.editor)
+  configureOptions(options)
+  const look = typeof options.look === 'string' ? options.look : undefined
   // Observes every close of the pane (the person's own, /mc close, a press): the
   // flag follows what the hooks beneath settled, and the paint clock drops the
   // pane's Rasters. The one ui.close hook of the module; it answers exactly
@@ -152,7 +159,7 @@ export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: 
     try {
       // A new draw of the pane: Rasters it does not track again stop painting.
       begin(PANE)
-      const rest = await drawnOf($, e, options.showCost === true, options.look)
+      const rest = await drawnOf($, e, options.showCost === true, look)
       const width = tier(cols)
       // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary.
       const tree =
@@ -161,7 +168,7 @@ export function registerShell(on: On, options: { autoOpen?: boolean; showCost?: 
         ) : (
           <Box flexDirection="column">
             {tabBar($, e, rest, width)}
-            <Text key="tabs-gap">{' '}</Text>
+            {tabsGap($, e, rest, width)}
             {body($, e, rest)}
           </Box>
         )
@@ -221,6 +228,8 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<
             </Box>
           )
         })}
+        {optionsOnTabs(cols, width) ? <Text key="tabs-options-gap">{'  '}</Text> : null}
+        {optionsOnTabs(cols, width) ? optionsButton($, e, u) : null}
       </Box>
       <Text key="track">
         {' '.repeat(GRID.margin)}
@@ -228,6 +237,59 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<
         <Text color={C.accent}>{'━'.repeat(Math.max(0, Math.min(span, end - from)))}</Text>
         <Text color={C.subtle}>{'─'.repeat(Math.max(0, end - from - span))}</Text>
       </Text>
+    </Box>
+  )
+}
+
+/** The Options Button's label: `0: options`. */
+const OPTIONS_LABEL = 'options'
+const OPTIONS_WIDTH = OPTIONS_HOTKEY.length + 2 + OPTIONS_LABEL.length
+
+/** Whether the Options Button fits on the tab row, two columns after the last tab cell. */
+function optionsOnTabs(cols: number, width: Exclude<Tier, 'slim'>): boolean {
+  return GRID.margin + TABS.length * TAB_CELL[width] + 2 + OPTIONS_WIDTH <= cols
+}
+
+/**
+ * The Options Button (`0: options`): opens the Options page, or closes it
+ * when it is open; bold in the accent while it is. The hotkey is `0`, as a
+ * Button takes only a digit or a lowercase letter (the mocks' `,` is not one).
+ */
+function optionsButton($: EngineInterface, e: RenderInput, u: UiState): RenderElement {
+  const { Text, Button } = $.ui.resolve(e)
+  const isOpen = pageOf(u)?.kind === 'options'
+  return (
+    <Button
+      key={OPTIONS_KEY}
+      hotkey={OPTIONS_HOTKEY}
+      plain
+      dimColor={isOpen ? undefined : true}
+      onPress={() => toggleOptions($, isOpen)}
+    >
+      {isOpen ? (
+        <Text color={C.accent} bold>
+          {OPTIONS_LABEL}
+        </Text>
+      ) : (
+        OPTIONS_LABEL
+      )}
+    </Button>
+  )
+}
+
+/**
+ * The blank row under the tab bar. Where the tab row has no room for the
+ * Options Button (the full labels at 62 to 72 columns, the shorter ones
+ * under 49), it sits at this row's right end instead, so `0` is armed at
+ * every width the tabs are drawn at.
+ */
+function tabsGap($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<Tier, 'slim'>): RenderElement {
+  const { Box, Text } = $.ui.resolve(e)
+  if (optionsOnTabs(rest.cols, width)) return <Text key="tabs-gap">{' '}</Text>
+  return (
+    <Box key="tabs-gap" flexDirection="row">
+      <Text>{' '.repeat(Math.max(GRID.margin, rest.cols - OPTIONS_WIDTH))}</Text>
+      {optionsButton($, e, rest.u)}
     </Box>
   )
 }
@@ -243,7 +305,7 @@ type Drawn = {
  */
 async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, showCost: boolean, look?: string): Promise<Drawn> {
   return {
-    look: lookOf($.ui.resolve(e), { look }),
+    look: lookFor($.ui.resolve(e), e.surface, { look }),
     site: PANE,
     t: await readTimeline($),
     u: await readUi($),
@@ -333,6 +395,8 @@ function pageBody($: EngineInterface, e: RenderInput, rest: Drawn, kind: PageKin
       return agentPage({ e, ...rest }, $, id)
     case 'step':
       return stepPage({ e, ...rest }, $, id)
+    case 'options':
+      return optionsPage({ e, ...rest }, $, id)
     default:
       return artifactPage({ e, ...rest }, $, id)
   }
@@ -389,7 +453,7 @@ export async function leaveStrip($: EngineInterface): Promise<void> {
 
 /**
  * The commands, and nothing else: `/mc`, `/mc 1-5`, `/mc keep <note>`,
- * `/mc export`, `/mc close`, `/mc slim`, `/mc strip`. `/mc`, `/mc 1-5` and
+ * `/mc export`, `/mc close`, `/mc slim`, `/mc strip`, `/mc options`. `/mc`, `/mc 1-5` and
  * `/mc slim` open the pane and so turn the strip off; `/mc strip` closes it:
  * whichever ran last wins.
  */
@@ -471,7 +535,18 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       return { text: `Could not switch the strip: ${errText(err)}` }
     }
   }
-  return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim or strip.' }
+  if (word === 'options') {
+    try {
+      await updateUi($, cur => ({ ...cur, page: { kind: 'options', id: '' } }))
+      const opened = await openPane($)
+      if (!opened.isPlaced) return { text: 'Mission Control: options. It waits for a wider terminal.' }
+      return { text: 'Mission Control: options.' }
+    } catch (err) {
+      debug($, `options failed: ${errText(err)}`)
+      return { text: `Could not open the options: ${errText(err)}` }
+    }
+  }
+  return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim, strip or options.' }
 }
 
 async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise<void> {

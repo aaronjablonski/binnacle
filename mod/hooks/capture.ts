@@ -2,6 +2,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { Ev } from '../types'
 import { bodyOf, claimJournal, saveSnapshot, writeBody } from './journal'
+import { budgetOf, usageOf } from './model/usage'
 import { apply, debug, errText, readTimeline } from './state'
 
 // The capture hooks only observe: each calls `next(e)` exactly once and
@@ -81,6 +82,36 @@ export function registerCapture(on: On): void {
         ev.agentIndex = e.workflow.agentIndex
       }
       await apply($, ev)
+      // The model the subagent runs on: core's resolved id (`claude-sonnet-5-5`
+      // in probe-usage), replaced later by each turn's usage.model.
+      if (typeof out.model === 'string' && out.model !== '') {
+        await apply($, { kind: 'agent.model', id: out.agentId, model: out.model })
+      }
+    })
+    return out
+  }).catch(($, e, next) => next(e))
+
+  // Observes the engine's permission verdict. `ask` only says the call was put
+  // to the mode's decider (a person, a host or the auto-mode classifier); the
+  // step stays marked until it ends through the tool.call capture above.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    await safely($, 'step.ask', async () => {
+      if (verdict.decision !== 'ask') return
+      const id = e.tool_use_id
+      if (typeof id !== 'string' || id === '') return
+      await apply($, { kind: 'step.ask', at: await now($), id })
+    })
+    return verdict
+  }).catch(($, e, next) => next(e))
+
+  // The session's context fill, rate-limit windows and cost, whenever a unit moved.
+  on('session.measure', async ($, e, next) => {
+    const out = await next(e)
+    await safely($, 'measure', async () => {
+      if (!Array.isArray(e.changed) || e.changed.length === 0) return
+      const at = await now($)
+      await apply($, { kind: 'measure', at, budget: budgetOf(e, at) })
     })
     return out
   }).catch(($, e, next) => next(e))
@@ -97,7 +128,10 @@ export function registerCapture(on: On): void {
     await safely($, 'turn.end', async () => {
       const failed = e.reason === 'error' || e.reason === 'refusal'
       const agent = e.agentId ?? 'main'
-      await apply($, { kind: 'turn.end', at: await now($), turnId: e.turnId, agent, answer: e.answer, failed })
+      const at = await now($)
+      await apply($, { kind: 'turn.end', at, turnId: e.turnId, agent, answer: e.answer, failed })
+      const used = usageOf(e.usage)
+      if (used !== undefined) await apply($, { kind: 'usage', at, agent, ...used })
       if (agent === 'main') {
         later($, 'saveSnapshot', async () => {
           const journal = await claimJournal($)

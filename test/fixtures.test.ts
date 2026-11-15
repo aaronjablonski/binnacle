@@ -41,6 +41,24 @@ describe('fromFixture', () => {
       .toEqual([{ kind: 'agent.start', at: 9, id: 'z', parent: 'main', type: 'unknown', description: '' }])
     for (const junk of [null, 3, 'x', {}, { event: 'session.receive', e: {} }, { event: 'tool.call', e: {} }]) expect(fromFixture(junk)).toEqual([])
   })
+
+  it('maps the usage, model, measure and ask lines', () => {
+    const usage = { input_tokens: 4, output_tokens: 193, cache_read_input_tokens: 33638, cache_creation_input_tokens: 40757, model: 'claude-sonnet-5-5' }
+    expect(fromFixture({ at: 10, event: 'turn.complete', e: { answer: '', turnId: 't', agentId: 'w', isAborted: false, reason: 'answer', usage } })).toEqual([
+      { kind: 'turn.end', at: 10, turnId: 't', agent: 'w', answer: '', failed: false },
+      { kind: 'usage', at: 10, agent: 'w', model: 'claude-sonnet-5-5', tokensIn: 74399, tokensOut: 193 },
+    ])
+    expect(fromFixture({ at: 11, event: 'agent.spawned', e: { tool_use_id: 'u5' }, r: { model: 'claude-sonnet-5-5', agentId: 'z' } })).toEqual([
+      { kind: 'agent.start', at: 11, id: 'z', parent: 'main', type: 'unknown', description: '' },
+      { kind: 'agent.model', id: 'z', model: 'claude-sonnet-5-5' },
+    ])
+    expect(fromFixture({ at: 12, event: 'session.measure', e: { context: { tokens: 1, window: 100, percent: 1 }, rateLimits: [], changed: ['context'] }, r: { changed: ['context'] } }))
+      .toEqual([{ kind: 'measure', at: 12, budget: { contextPct: 1, windows: [], at: 12 } }])
+    expect(fromFixture({ at: 13, event: 'tool.check', e: { tool: 'Bash', input: {}, tool_use_id: 'u6' }, r: { decision: 'ask', reason: 'r' } }))
+      .toEqual([{ kind: 'step.ask', at: 13, id: 'u6' }])
+    expect(fromFixture({ at: 14, event: 'tool.check', e: { tool: 'Read', input: {}, tool_use_id: 'u7' }, r: { decision: 'allow' } })).toEqual([])
+    expect(fromFixture({ at: 15, event: 'tool.check', e: { tool: 'Read', input: {} }, r: { decision: 'ask' } })).toEqual([])
+  })
 })
 
 describe('fixtureEvents', () => {
@@ -93,8 +111,50 @@ describe('fixtures fold through reduce', () => {
     for (const a of inRun) expect(a).toMatchObject({ status: 'done', doing: expect.stringMatching(/^StructuredOutput /) })
   })
 
+  it('usage: every agent has a model and tokens, workflow agents a result line, and the budget is the last measure', () => {
+    const t = play('usage')
+    wellFormed(t)
+    const subs = Object.values(t.agents).filter((a) => a.id !== 'main')
+    expect(subs).toHaveLength(3)
+    for (const a of [...subs, t.agents.main!]) {
+      expect(a.model).toMatch(/^claude-/)
+      expect(a.tokensIn! > 0).toBe(true)
+      expect(a.tokensOut! > 0).toBe(true)
+    }
+    expect(t.agents.main!.model).toBe('claude-haiku-5-5')
+    // Main's two turns summed: 6+118293+43295 and 6+120848+3784 in, 1530 and 866 out.
+    expect(t.agents.main).toMatchObject({ tokensIn: 286232, tokensOut: 2396 })
+    const run = Object.values(t.agents).filter((a) => a.runId === 'wf_9f235728-ebe')
+    expect(run.map((a) => a.agentIndex).sort()).toEqual([1, 2])
+    for (const a of run) {
+      expect(a).toMatchObject({ model: 'claude-sonnet-5-5', status: 'done' })
+      expect(a.result).toMatch(/^name: mission-control-claude-mod · path: .*package\.json$/)
+    }
+    expect(t.agents.ad5bac7d22f131785).toMatchObject({ type: 'Explore', model: 'claude-sonnet-5-5', tokensIn: 71886, tokensOut: 1746 })
+    expect(t.budget).toEqual({
+      contextPct: 6,
+      windows: [{ name: 'seven_day', pct: 21, resetsAt: Date.parse('2026-11-19T09:00:00.000Z') }],
+      costUsd: 0.25038801,
+      at: 1794748046451,
+    })
+    // The checks that resolved ask marked their steps; every one has ended since.
+    const asked = t.steps.filter((s) => s.tool === 'Workflow' || s.tool === 'Agent' || s.tool === 'Bash' || s.tool === 'SubagentHandback')
+    expect(asked).toHaveLength(4)
+    for (const s of asked) expect(s.asking).toBeUndefined()
+  })
+
+  it('usage: a check that resolved ask marks its step while it runs', () => {
+    const all = lines('usage')
+    type Line = { event?: string; e?: { tool?: string } }
+    const cut = all.findIndex((l) => (l as Line).event === 'tool.result' && (l as Line).e?.tool === 'Bash')
+    const t = fixtureEvents(all.slice(0, cut)).reduce(reduce, empty)
+    const bash = t.steps.find((s) => s.tool === 'Bash')!
+    expect(bash.status).toBe('running')
+    expect(bash.asking).toBe(1794748033109)
+  })
+
   it('stays far under the $.state limit', () => {
-    for (const name of ['subagent', 'guide', 'tasks', 'workflow']) {
+    for (const name of ['subagent', 'guide', 'tasks', 'workflow', 'usage']) {
       expect(JSON.stringify(play(name)).length).toBeLessThan(64 * 1024)
     }
   })

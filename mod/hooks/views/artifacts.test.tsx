@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 
 type Stored = Map<string, unknown>
 
@@ -76,7 +76,10 @@ const art = (kind: ArtifactRow['kind'], title: string, extra: Partial<ArtifactRo
   ...extra,
 })
 const tl = (artifacts: ArtifactRow[], extra: Partial<Timeline> = {}): Timeline => ({ ...empty, artifacts, ...extra })
-const ART_UI: UiState = { tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] }
+const ART_UI: UiState = {
+  tab: 'artifacts', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+}
 
 async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62) {
   return $.ui.mount({ ...PANE(columns), surface })

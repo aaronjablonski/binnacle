@@ -7,7 +7,7 @@ import { empty } from '../model/reduce'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
-const SHAPES: Record<string, string> = { timeline: 'timeline-2', ui: 'ui-2' }
+const SHAPES: Record<string, string> = { timeline: 'timeline-3', ui: 'ui-3' }
 
 type Stored = Map<string, unknown>
 
@@ -94,7 +94,10 @@ const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> =
   return found.map(f => f.text ?? '')
 }
 
-const TASKS_UI: UiState = { tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [] }
+const TASKS_UI: UiState = {
+  tab: 'tasks', filter: { kind: 'all' }, agentsMode: 'list', folded: [], openTurns: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [],
+}
 
 test('shows a completed, an in-progress and a pending task with their glyphs', async ($, on) => {
   seed(

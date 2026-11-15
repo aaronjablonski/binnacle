@@ -1,8 +1,10 @@
-import type { AgentKey, AgentRow, ArtifactRow, Ev, Run, Step, TaskItem, Timeline } from '../../types'
+import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, Run, Step, TaskItem, Timeline, TurnRow } from '../../types'
 import { basename, cut, isDoc, labelOf, oneLine, pathsOf, tail2 } from './label'
 import {
-  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
+  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEPS, MAX_TASKS,
+  MAX_TURNS,
 } from './limits'
+import { windowsOf } from './usage'
 
 const DOING_MAX = 80
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
@@ -39,6 +41,13 @@ const line = (v: unknown): string | undefined => {
   if (typeof v !== 'string') return undefined
   const s = cut(oneLine(v), MAX_LINE)
   return s === '' ? undefined : s
+}
+/** A finite, non-negative number, or undefined. */
+const count = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
+const modelOf = (v: unknown): string | undefined => {
+  if (typeof v !== 'string') return undefined
+  const m = cut(oneLine(v), MAX_MODEL)
+  return m === '' ? undefined : m
 }
 const taskStatus = (v: unknown): TaskItem['status'] | undefined =>
   TASK_STATUS.has(v as TaskItem['status']) ? (v as TaskItem['status']) : undefined
@@ -164,6 +173,27 @@ function openTurn(t: Timeline, agent: AgentKey): string | undefined {
   return undefined
 }
 
+const isWorkflowAgent = (a: AgentRow): boolean => a.id !== 'main' && (a.runId !== undefined || a.type === 'workflow-subagent')
+
+/** A StructuredOutput input on one line: `key: value` joined by ` · `, nested values as JSON, cut to MAX_RESULT. */
+function resultLine(input: Obj): string {
+  const parts: string[] = []
+  for (const [k, v] of Object.entries(input)) {
+    let text: string
+    if (typeof v === 'string') text = v
+    else if (typeof v === 'number' || typeof v === 'boolean' || v === null) text = String(v)
+    else {
+      try {
+        text = JSON.stringify(v) ?? ''
+      } catch {
+        text = ''
+      }
+    }
+    parts.push(`${k}: ${text}`)
+  }
+  return cut(oneLine(parts.join(' · ')), MAX_RESULT)
+}
+
 function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeline {
   if (t.steps.some((s) => s.id === ev.id)) return t
   const input = isObj(ev.input) ? ev.input : {}
@@ -178,7 +208,11 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
   const turnId = openTurn(t, ev.agent)
   if (turnId !== undefined) step.turnId = turnId
   let next: Timeline = { ...t, seq, steps: boundPending(boundSteps([...t.steps, step])) }
-  next = withAgent(next, ev.agent, ev.at, (a) => ({ ...a, stepCount: a.stepCount + 1, doing: label }))
+  next = withAgent(next, ev.agent, ev.at, (a) => {
+    const row: AgentRow = { ...a, stepCount: a.stepCount + 1, doing: label, lastStepAt: ev.at }
+    if (ev.tool === 'StructuredOutput' && isWorkflowAgent(a)) row.result = resultLine(input)
+    return row
+  })
   if (ev.tool === 'TodoWrite' && Array.isArray(input.todos)) {
     const todos: TaskItem[] = []
     input.todos.forEach((td, i) => {
@@ -204,7 +238,7 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
   const step = t.steps[i]!
   if (step.status !== 'running' && step.status !== 'interrupted') return t
   const pending = step.pending ?? {}
-  const { pending: _drop, ...rest } = step
+  const { pending: _drop, asking: _asked, ...rest } = step
   const ended: Step = { ...rest, status: ev.status, endedAt: ev.at }
   let next: Timeline = { ...t, steps: t.steps.map((s, j) => (j === i ? ended : s)) }
   if (ev.status !== 'done') return next
@@ -304,7 +338,7 @@ function applyUpdate(t: Timeline, ev: Extract<Ev, { kind: 'update' }>): Timeline
       next = { ...next, now: { focus: next.now?.focus ?? '', next: nxt, at: ev.at } }
     }
   } else if (focus !== undefined) {
-    next = withAgent(next, ev.agent, ev.at, (a) => ({ ...a, doing: focus }))
+    next = withAgent(next, ev.agent, ev.at, (a) => ({ ...a, doing: cut(focus, DOING_MAX) }))
   }
   if (note !== undefined) {
     next = { ...next, notes: dropPast([...next.notes, { text: note, agent: ev.agent, at: ev.at }], MAX_NOTES) }
@@ -331,8 +365,15 @@ function turnStart(t: Timeline, ev: Extract<Ev, { kind: 'turn.start' }>): Timeli
 }
 
 function turnEnd(t: Timeline, ev: Extract<Ev, { kind: 'turn.end' }>): Timeline {
-  const turns = t.turns.map((x) => (x.id === ev.turnId && x.endedAt === undefined ? { ...x, endedAt: ev.at } : x))
-  const steps = t.steps.map((s) => (s.agent === ev.agent && s.status === 'running' ? { ...s, status: 'interrupted' as const, endedAt: ev.at } : s))
+  const turns = t.turns.map((x): TurnRow => {
+    if (x.id !== ev.turnId || x.endedAt !== undefined) return x
+    return ev.failed === true ? { ...x, endedAt: ev.at, failed: true } : { ...x, endedAt: ev.at }
+  })
+  const steps = t.steps.map((s): Step => {
+    if (s.agent !== ev.agent || s.status !== 'running') return s
+    const { asking: _asked, ...rest } = s
+    return { ...rest, status: 'interrupted', endedAt: ev.at }
+  })
   const first = cut(oneLine((str(ev.answer) ?? '').trim().split(/\r?\n/)[0] ?? ''), DOING_MAX)
   return withAgent({ ...t, turns, steps }, ev.agent, ev.at, (a) => {
     const row: AgentRow = { ...a }
@@ -343,6 +384,47 @@ function turnEnd(t: Timeline, ev: Extract<Ev, { kind: 'turn.end' }>): Timeline {
     }
     return row
   })
+}
+
+/** Marks a running step as sent to ask; the first ask's time is kept. */
+function stepAsk(t: Timeline, ev: Extract<Ev, { kind: 'step.ask' }>): Timeline {
+  const i = t.steps.findIndex((s) => s.id === ev.id)
+  if (i < 0) return t
+  const s = t.steps[i]!
+  if (s.status !== 'running' || s.asking !== undefined || typeof ev.at !== 'number') return t
+  return { ...t, steps: t.steps.map((x, j) => (j === i ? { ...s, asking: ev.at } : x)) }
+}
+
+/** Adds a turn's token counts to its agent; a model given replaces the one held. */
+function addUsage(t: Timeline, ev: Extract<Ev, { kind: 'usage' }>): Timeline {
+  const tokensIn = count(ev.tokensIn)
+  const tokensOut = count(ev.tokensOut)
+  const model = modelOf(ev.model)
+  if (tokensIn === undefined && tokensOut === undefined && model === undefined) return t
+  return withAgent(t, ev.agent, ev.at, (a) => {
+    const row: AgentRow = { ...a }
+    if (tokensIn !== undefined) row.tokensIn = (a.tokensIn ?? 0) + tokensIn
+    if (tokensOut !== undefined) row.tokensOut = (a.tokensOut ?? 0) + tokensOut
+    if (model !== undefined) row.model = model
+    return row
+  })
+}
+
+function agentModel(t: Timeline, ev: Extract<Ev, { kind: 'agent.model' }>): Timeline {
+  const model = modelOf(ev.model)
+  if (model === undefined) return t
+  const at = t.agents[ev.id]?.startedAt ?? 0
+  return withAgent(t, ev.id, at, (a) => ({ ...a, model }))
+}
+
+/** The budget replaced whole by the newest measurement. */
+function measure(t: Timeline, ev: Extract<Ev, { kind: 'measure' }>): Timeline {
+  const src: Partial<Budget> = isObj(ev.budget) ? ev.budget : {}
+  const budget: Budget = { windows: windowsOf(src.windows), at: ev.at }
+  if (typeof src.contextPct === 'number' && Number.isFinite(src.contextPct)) budget.contextPct = src.contextPct
+  const usd = count(src.costUsd)
+  if (usd !== undefined) budget.costUsd = usd
+  return { ...t, budget }
 }
 
 function pin(t: Timeline, id: string, note: string | undefined): Timeline {
@@ -367,6 +449,10 @@ export function reduce(t: Timeline, ev: Ev): Timeline {
       case 'turn.end': return turnEnd(t, ev)
       case 'pin': return pin(t, ev.id, typeof ev.note === 'string' ? cut(oneLine(ev.note), MAX_LINE) : '')
       case 'unpin': return pin(t, ev.id, undefined)
+      case 'step.ask': return stepAsk(t, ev)
+      case 'usage': return addUsage(t, ev)
+      case 'agent.model': return agentModel(t, ev)
+      case 'measure': return measure(t, ev)
       default: return t
     }
   } catch {

@@ -7,6 +7,7 @@ import { AGENT_GLYPH, EMPTY, MAIN_GLYPH, WORKFLOW_TYPE, metaOf } from './agentme
 import { fit, splitRow } from './fit'
 import { flushRight, glyphText, sectionHeader } from './parts'
 import { glyphColor } from './style'
+import { runBoardView } from './runboard'
 import { treeView } from './tree'
 import type { ViewCtx } from './shell'
 
@@ -61,11 +62,22 @@ ${fit(`${' '.repeat(prefix.length)}└ ${agent.doing}`, cols)}`}</Text>)
   )
 }
 
+/** A run's section header as one Button that opens its board. */
+function runHeader(ctx: ViewCtx, runId: string, label: string, meta: string, $: EngineInterface): RenderElement {
+  const { Button } = $.ui.resolve(ctx.e)
+  return (
+    <Button key={`run-open-${runId}`} plain onPress={() => updateUi($, u => ({ ...u, run: runId }))}>
+      {sectionHeader(label, meta, ctx.cols, ctx.e, $)}
+    </Button>
+  )
+}
+
 /** The Agents tab: a List or Tree mode row, then main and each group of agents. */
 export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { t, u, cols } = ctx
   try {
+    if (u.run !== undefined) return runBoardView(ctx, u.run, $)
     const running = Object.values(t.agents).filter(a => a.id !== 'main' && a.status === 'running').length
     const finished = Object.values(t.agents).filter(a => a.id !== 'main' && a.status !== 'running').length
     const mode = (
@@ -118,7 +130,7 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           const prefix = g.run ? '  ' : ''
           return (
             <Box key={key} flexDirection="column">
-              {g.run ? sectionHeader(`⚙ ${g.run.name}`, `workflow · ${g.done}/${g.agents.length} done`, cols, ctx.e, $) : null}
+              {g.run ? runHeader(ctx, g.run.runId, `⚙ ${g.run.name}`, `workflow · ${g.done}/${g.agents.length} done`, $) : null}
               {g.agents.map(a => agentRow(ctx, a, prefix, false, $))}
             </Box>
           )

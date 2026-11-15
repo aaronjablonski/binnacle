@@ -26,10 +26,11 @@ export const register: Register = (on, options) => {
   })
 
   // A /clear, a resume or a fork goes on under another session id with no
-  // session.start: load that session's snapshot here.
+  // session.start: load that session's snapshot here. A /clear keeps the
+  // record the state already holds (spec goal 6), with its journal folder.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     try {
-      await restore($, e.session_id, { prune: false })
+      await restore($, e.session_id, { prune: false, keepCurrent: e.source === 'clear' })
     } catch {
       // restore reports its own failures
     }

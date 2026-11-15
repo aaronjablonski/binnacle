@@ -7,7 +7,7 @@ import { empty, reduce } from './model/reduce'
 // Change a tag when the value's fields change: a reload then declines what
 // the earlier code stored instead of misreading it.
 export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as const, empty, {
-  shape: 'timeline-1',
+  shape: 'timeline-2',
 })
 
 const initialUi: UiState = { tab: 'overview', filter: { kind: 'all' }, agentsMode: 'list', folded: [] }
@@ -32,6 +32,17 @@ export async function readTimeline($: EngineInterface): Promise<Timeline> {
 }
 
 const isEmpty = (t: Timeline): boolean => JSON.stringify(t) === JSON.stringify(empty)
+
+/** True when the state holds a timeline with anything in it. */
+export async function hasTimeline($: EngineInterface): Promise<boolean> {
+  return !isEmpty(await read($, timeline))
+}
+
+/** Sets the timeline's `journal` to `id` unless it has one; answers the one it holds. */
+export async function stampJournal($: EngineInterface, id: string): Promise<string> {
+  const t = await update($, timeline, cur => (cur.journal !== undefined ? cur : { ...cur, journal: id }))
+  return t.journal ?? id
+}
 
 /** Takes `snap` as the timeline when the state holds nothing yet; otherwise keeps what is there. */
 export async function adopt($: EngineInterface, snap: Timeline): Promise<void> {

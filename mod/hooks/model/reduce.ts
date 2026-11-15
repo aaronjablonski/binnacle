@@ -1,11 +1,21 @@
-import type { AgentKey, AgentRow, ArtifactRow, Ev, Step, TaskItem, Timeline } from '../../types'
+import type { AgentKey, AgentRow, ArtifactRow, Ev, Run, Step, TaskItem, Timeline } from '../../types'
 import { basename, cut, isDoc, labelOf, oneLine, pathsOf, tail2 } from './label'
-import { MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_NOTES, MAX_STEPS, MAX_TURNS } from './limits'
+import {
+  MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
+} from './limits'
 
 const DOING_MAX = 80
-/** Strings kept in a step's `pending` input are cut to this. */
-const PENDING_STRING_MAX = 1000
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+/** The input keys step.end reads, per tool; a step of any other tool keeps no `pending`. */
+const PENDING_KEYS: Record<string, readonly string[]> = {
+  TaskCreate: ['subject', 'activeForm'],
+  TaskUpdate: ['taskId', 'status', 'subject', 'activeForm'],
+  Write: ['file_path', 'notebook_path'],
+  Edit: ['file_path', 'notebook_path'],
+  MultiEdit: ['file_path', 'notebook_path'],
+  NotebookEdit: ['file_path', 'notebook_path'],
+  Artifact: ['file_path', 'title'],
+}
 const TASK_STATUS = new Set<TaskItem['status']>(['pending', 'in_progress', 'completed'])
 
 const mainRow: AgentRow = {
@@ -33,14 +43,52 @@ const line = (v: unknown): string | undefined => {
 const taskStatus = (v: unknown): TaskItem['status'] | undefined =>
   TASK_STATUS.has(v as TaskItem['status']) ? (v as TaskItem['status']) : undefined
 
-/** The input's primitive values only, long strings cut: enough for step.end, small in $.state. */
-function keepPending(input: Obj): Obj {
+/**
+ * The primitive values of the keys step.end reads for this tool, each string
+ * cut to MAX_PENDING; undefined when the tool has none.
+ */
+function keepPending(tool: string, input: Obj): Obj | undefined {
+  const keys = PENDING_KEYS[tool]
+  if (keys === undefined) return undefined
   const out: Obj = {}
-  for (const [k, v] of Object.entries(input)) {
-    if (typeof v === 'string') out[k] = cut(v, PENDING_STRING_MAX)
+  for (const k of keys) {
+    const v = input[k]
+    if (typeof v === 'string') out[k] = cut(v, MAX_PENDING)
     else if (typeof v === 'number' || typeof v === 'boolean') out[k] = v
   }
   return out
+}
+
+/**
+ * Drops items past `max`: those `finished` says are done go first, oldest
+ * (by `at`) first; then the oldest of the rest. `keep` items are never dropped.
+ */
+function dropOldest<T>(list: T[], max: number, finished: (x: T) => boolean, at: (x: T) => number, keep: (x: T) => boolean = () => false): T[] {
+  const over = list.length - max
+  if (over <= 0) return list
+  const order = list
+    .map((x, i) => ({ i, done: finished(x), at: at(x) }))
+    .filter((r) => !keep(list[r.i]!))
+    .sort((a, b) => (a.done === b.done ? a.at - b.at : a.done ? -1 : 1))
+  const drop = new Set(order.slice(0, over).map((r) => r.i))
+  return list.filter((_, i) => !drop.has(i))
+}
+
+function boundTasks(tasks: TaskItem[]): TaskItem[] {
+  return dropOldest(tasks, MAX_TASKS, (x) => x.status === 'completed', (x) => x.updatedAt)
+}
+
+function boundAgents(agents: Record<AgentKey, AgentRow>): Record<AgentKey, AgentRow> {
+  const rows = Object.values(agents)
+  if (rows.length <= MAX_AGENTS) return agents
+  const kept = dropOldest(rows, MAX_AGENTS, (a) => a.status !== 'running', (a) => a.endedAt ?? a.startedAt, (a) => a.id === 'main')
+  return Object.fromEntries(kept.map((a) => [a.id, a]))
+}
+
+function boundRuns(runs: Record<string, Run>): Record<string, Run> {
+  const rows = Object.values(runs)
+  if (rows.length <= MAX_RUNS) return runs
+  return Object.fromEntries(dropOldest(rows, MAX_RUNS, () => true, (r) => r.startedAt).map((r) => [r.runId, r]))
 }
 
 function newAgent(id: AgentKey, at: number): AgentRow {
@@ -48,12 +96,29 @@ function newAgent(id: AgentKey, at: number): AgentRow {
 }
 
 function withAgent(t: Timeline, id: AgentKey, at: number, fn: (a: AgentRow) => AgentRow): Timeline {
-  const a = t.agents[id] ?? newAgent(id, at)
-  return { ...t, agents: { ...t.agents, [id]: fn(a) } }
+  const old = t.agents[id]
+  const agents = { ...t.agents, [id]: fn(old ?? newAgent(id, at)) }
+  return { ...t, agents: old === undefined ? boundAgents(agents) : agents }
 }
 
 function dropPast<T>(list: T[], max: number): T[] {
   return list.length > max ? list.slice(list.length - max) : list
+}
+
+/**
+ * Only the newest MAX_PENDING_STEPS steps keep their `pending`: a step whose
+ * end has not come by then (a lost or very late step.end) is left without it.
+ */
+function boundPending(steps: Step[]): Step[] {
+  let over = -MAX_PENDING_STEPS
+  for (const s of steps) if (s.pending !== undefined) over++
+  if (over <= 0) return steps
+  return steps.map((s) => {
+    if (over <= 0 || s.pending === undefined) return s
+    over--
+    const { pending: _drop, ...rest } = s
+    return rest
+  })
 }
 
 function boundSteps(steps: Step[]): Step[] {
@@ -87,7 +152,7 @@ function putArtifact(t: Timeline, row: Omit<ArtifactRow, 'count'>): Timeline {
 function putTask(t: Timeline, id: string, fn: (old: TaskItem | undefined) => TaskItem | undefined): Timeline {
   const i = t.tasks.findIndex((x) => x.id === id)
   const res = fn(i < 0 ? undefined : t.tasks[i])
-  if (i < 0) return res ? { ...t, tasks: [...t.tasks, res] } : t
+  if (i < 0) return res ? { ...t, tasks: boundTasks([...t.tasks, res]) } : t
   return { ...t, tasks: res ? t.tasks.map((x, j) => (j === i ? res : x)) : t.tasks.filter((_, j) => j !== i) }
 }
 
@@ -106,11 +171,13 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
   const seq = t.seq + 1
   const step: Step = {
     id: ev.id, seq, agent: ev.agent, tool: ev.tool, label, status: 'running',
-    startedAt: ev.at, pending: keepPending(input),
+    startedAt: ev.at,
   }
+  const pending = keepPending(ev.tool, input)
+  if (pending !== undefined) step.pending = pending
   const turnId = openTurn(t, ev.agent)
   if (turnId !== undefined) step.turnId = turnId
-  let next: Timeline = { ...t, seq, steps: boundSteps([...t.steps, step]) }
+  let next: Timeline = { ...t, seq, steps: boundPending(boundSteps([...t.steps, step])) }
   next = withAgent(next, ev.agent, ev.at, (a) => ({ ...a, stepCount: a.stepCount + 1, doing: label }))
   if (ev.tool === 'TodoWrite' && Array.isArray(input.todos)) {
     const todos: TaskItem[] = []
@@ -126,7 +193,7 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
       if (af !== undefined) item.activeForm = af
       todos.push(item)
     })
-    next = { ...next, tasks: [...next.tasks.filter((x) => x.owner !== ev.agent), ...todos] }
+    next = { ...next, tasks: boundTasks([...next.tasks.filter((x) => x.owner !== ev.agent), ...todos]) }
   }
   return next
 }
@@ -181,7 +248,8 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
       }
     }
   } else if (step.tool === 'Artifact') {
-    const url = str(result.url)
+    const raw = str(result.url)
+    const url = raw === undefined ? undefined : cut(oneLine(raw), MAX_REF)
     if (url) {
       const fp = str(pending.file_path)
       const title = line(pending.title) ?? (fp ? line(basename(fp)) : undefined) ?? 'Page'
@@ -192,7 +260,8 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
     const name = str(result.workflowName)
     if (runId && name) {
       const old = next.runs[runId]
-      next = { ...next, runs: { ...next.runs, [runId]: { runId, name: cut(oneLine(name), MAX_LINE), parent: agent, startedAt: old?.startedAt ?? step.startedAt } } }
+      const run: Run = { runId, name: cut(oneLine(name), MAX_LINE), parent: agent, startedAt: old?.startedAt ?? step.startedAt }
+      next = { ...next, runs: boundRuns({ ...next.runs, [runId]: run }) }
     }
   }
   return next
@@ -201,7 +270,8 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
 function agentStart(t: Timeline, ev: Extract<Ev, { kind: 'agent.start' }>): Timeline {
   let next = t
   if (ev.runId !== undefined && !next.runs[ev.runId]) {
-    next = { ...next, runs: { ...next.runs, [ev.runId]: { runId: ev.runId, name: 'workflow', parent: ev.parent, startedAt: ev.at } } }
+    const run: Run = { runId: ev.runId, name: 'workflow', parent: ev.parent, startedAt: ev.at }
+    next = { ...next, runs: boundRuns({ ...next.runs, [ev.runId]: run }) }
   }
   let taskId: string | undefined
   let best = -Infinity
@@ -210,7 +280,7 @@ function agentStart(t: Timeline, ev: Extract<Ev, { kind: 'agent.start' }>): Time
   }
   return withAgent(next, ev.id, ev.at, (old) => {
     const row: AgentRow = {
-      ...old, id: ev.id, parent: ev.parent, type: ev.type, description: cut(oneLine(ev.description ?? ''), MAX_LINE),
+      ...old, id: ev.id, parent: ev.parent, type: cut(oneLine(str(ev.type) ?? ''), DOING_MAX), description: cut(oneLine(ev.description ?? ''), MAX_LINE),
       status: 'running',
     }
     if (old.stepCount === 0) row.startedAt = ev.at
@@ -243,7 +313,7 @@ function applyUpdate(t: Timeline, ev: Extract<Ev, { kind: 'update' }>): Timeline
   if (isObj(art) && (art.kind === 'result' || art.kind === 'link')) {
     const title = line(art.title)
     if (title !== undefined) {
-      const ref = typeof art.ref === 'string' && art.ref.trim() !== '' ? oneLine(art.ref) : undefined
+      const ref = typeof art.ref === 'string' && art.ref.trim() !== '' ? cut(oneLine(art.ref), MAX_REF) : undefined
       const summary = line(art.summary)
       const row: Omit<ArtifactRow, 'count'> = { id: `${art.kind}:${ref ?? title}`, kind: art.kind, title, agent: ev.agent, updatedAt: ev.at }
       if (ref !== undefined) row.ref = ref

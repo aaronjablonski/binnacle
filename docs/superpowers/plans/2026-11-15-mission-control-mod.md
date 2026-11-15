@@ -649,6 +649,24 @@ default), counted in `<home>/.claude/mission-control/<session-id>/timeline.json`
   summary"). One run also added a note ("Explore agent is reading
   README.md; result pending."), which is status rather than something to
   find again later. No reply mentioned the panel or the updates.
+- Fix round 1 (review I4): "as your first tool call on a new request" would
+  add an update call, and a second model request, to replies that need no
+  tools. The bullet now reads: "When a request needs tools, include a
+  mcp__mission-control__update call with `focus` (and `next` when you know
+  it) alongside your first tool call(s), and again whenever what you are
+  working on changes; skip it for replies that need no tools. One short
+  line each." The rest of the text is unchanged. First attempt, no further
+  iteration needed, on `--model haiku`, one session at a time:
+  - The same README prompt, three runs: **3 of 3** set `now.focus` and
+    `now.next` (e.g. "Reading README.md via Explore agent to summarise the
+    repo" / "Report one-line description of the repo"). Haiku still sends
+    the update in its own message before the `Agent` call rather than
+    alongside it: one extra round trip on tool-using requests remains.
+  - `claude -p "In one sentence, what does the word idempotent mean?"
+    --model haiku --plugin-dir ./mod`: **no update call** (stream-json shows
+    no tool use at all); `now` is unset.
+  - Each run's `timeline.json` carried `journal` equal to its session id
+    (review I3's stamp, seen live).
 
 **Task 4: `ToolUse` has no `bodyColumns`.** The type file gives
 `bodyColumns` to `Pane`, `AbovePrompt` and `AbovePromptList` only. The

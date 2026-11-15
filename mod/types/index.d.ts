@@ -39,6 +39,7 @@ export type Timeline = {
   agents: Record<AgentKey, AgentRow>; runs: Record<string, Run>
   tasks: TaskItem[]; now?: Now; notes: Note[]
   artifacts: ArtifactRow[]; changed: string[]   // distinct code paths written or edited
+  journal?: string                       // the session id whose journal folder holds this timeline's bodies and snapshot; set at the first write, kept across /clear
 }
 export type Update = {
   focus?: string; next?: string; note?: string

@@ -2,11 +2,14 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Timeline } from '../types'
-import { MAX_TEXT, bodyOf, loadSnapshot, prune, readBody, saveSnapshot, writeBody } from './journal'
+import { MAX_TEXT, MIN_PRUNE_AGE_MS, bodyOf, loadSnapshot, prune, readBody, saveSnapshot, writeBody } from './journal'
 import { empty } from './model/reduce'
 
 const HOME = 'C:/home'
 const ROOT = `${HOME}/.claude/mission-control`
+const DAY = 24 * 60 * 60 * 1000
+/** The clock prune reads: well past every mtime the tests' disks give, unless a test says otherwise. */
+const NOW = 10 * DAY
 
 type File = { text: string; mtimeMs: number }
 
@@ -58,9 +61,10 @@ class Disk {
 // The test kit's `$` carries only the event nouns (no fs, env or process),
 // so the journal's functions are handed an engine stand-in over the disk:
 // exactly the calls journal.ts makes, each async as the engine's are.
-function engineOver(d: Disk, env: Record<string, string> = { USERPROFILE: HOME, OS: 'Windows_NT' }): EngineInterface {
+function engineOver(d: Disk, env: Record<string, string> = { USERPROFILE: HOME, OS: 'Windows_NT' }, now = NOW): EngineInterface {
   const $ = {
     env: { get: async (name: string) => env[name] },
+    clock: { now: async () => now },
     fs: {
       write: async (p: string, t: string) => d.write(p, t),
       read: async (p: string) => d.read(p),
@@ -155,6 +159,104 @@ test('prune spares the running session even when it is old', async () => {
   expect(d.removed).toEqual([`${ROOT}/sess-1`])
 })
 
+test("prune never runs cmd for a home folder cmd could misread (USERPROFILE='C:\\Users\\R&D')", async () => {
+  const d = new Disk()
+  const home = 'C:\\Users\\R&D'
+  for (let i = 0; i < 25; i++) d.files.set(`C:/Users/R&D/.claude/mission-control/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  let ran = 0
+  const $ = engineOver(d, { USERPROFILE: home, OS: 'Windows_NT' })
+  ;($ as unknown as { process: { run: () => Promise<never> } }).process.run = async () => {
+    ran++
+    throw new Error('process.run must not be called')
+  }
+
+  await prune($, 20)
+
+  expect(ran).toBe(0)
+  expect(d.files.size).toBe(25)
+})
+
+test('prune runs cmd with the plain path when the home folder is safe, spaces included', async () => {
+  const d = new Disk()
+  for (let i = 0; i < 21; i++) d.files.set(`C:/Users/Tom Smith/.claude/mission-control/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  const argvs: (readonly string[])[] = []
+  const $ = engineOver(d, { USERPROFILE: 'C:\\Users\\Tom Smith', OS: 'Windows_NT' })
+  ;($ as unknown as { process: { run: (argv: readonly string[]) => unknown } }).process.run = async (argv: readonly string[]) => {
+    argvs.push(argv)
+    return d.remove(argv)
+  }
+
+  await prune($, 20)
+
+  expect(argvs).toEqual([['cmd', '/d', '/c', 'rmdir', '/s', '/q', 'C:\\Users\\Tom Smith\\.claude\\mission-control\\sess-0']])
+})
+
+test('prune keeps a folder under 24 hours old', async () => {
+  const d = new Disk()
+  for (let i = 2; i < 22; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  d.files.set(`${ROOT}/sess-0/timeline.json`, { text: '{}', mtimeMs: 10 })
+  d.files.set(`${ROOT}/sess-1/timeline.json`, { text: '{}', mtimeMs: 50 })
+
+  // Both oldest folders are under a day old by this clock: nothing goes.
+  await prune(engineOver(d, undefined, 10 + DAY - 1), 20)
+  expect(d.removed).toEqual([])
+
+  // sess-0 is a day old, sess-1 a moment under: only sess-0 goes.
+  await prune(engineOver(d, undefined, 50 + DAY - 1), 20)
+  expect(d.removed).toEqual([`${ROOT}/sess-0`])
+})
+
+test('prune keeps a folder without timeline.json or steps', async () => {
+  const d = new Disk()
+  for (let i = 1; i < 22; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  d.files.set(`${ROOT}/sess-0/notes.txt`, { text: 'not ours', mtimeMs: 1 })
+  const $ = engineOver(d)
+  // The folder's own time is known (and old), so only its contents keep it.
+  ;($ as unknown as { fs: { stat: (p: string) => unknown } }).fs.stat = async (p: string) => {
+    if (p.endsWith('/sess-0')) return { kind: 'dir', size: 0, mtimeMs: 1, isLink: false }
+    return d.stat(p)
+  }
+
+  await prune($, 20)
+
+  expect(d.removed).toEqual([`${ROOT}/sess-1`])
+  expect(d.exists(`${ROOT}/sess-0`)).toBe(true)
+})
+
+test('prune removes a folder that holds only steps', async () => {
+  const d = new Disk()
+  for (let i = 1; i < 21; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  d.files.set(`${ROOT}/sess-0/steps/toolu_1.json`, { text: '{}', mtimeMs: 1 })
+  const $ = engineOver(d)
+  ;($ as unknown as { fs: { stat: (p: string) => unknown } }).fs.stat = async (p: string) => {
+    if (p.endsWith('/sess-0')) return { kind: 'dir', size: 0, mtimeMs: 1, isLink: false }
+    return d.stat(p)
+  }
+
+  await prune($, 20)
+
+  expect(d.removed).toEqual([`${ROOT}/sess-0`])
+})
+
+test('prune keeps a folder whose time is unknown', async () => {
+  const d = new Disk()
+  for (let i = 1; i < 22; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  d.files.set(`${ROOT}/sess-0/timeline.json`, { text: '{}', mtimeMs: 0 })
+
+  await prune(engineOver(d), 20)
+
+  expect(d.removed).toEqual([`${ROOT}/sess-1`])
+})
+
+test('prune spares every folder it is given', async () => {
+  const d = new Disk()
+  for (let i = 0; i < 23; i++) d.files.set(`${ROOT}/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+
+  await prune(engineOver(d), 20, ['sess-0', 'sess-1'])
+
+  expect(d.removed).toEqual([`${ROOT}/sess-2`])
+})
+
 test('with no home folder the journal writes nothing', async () => {
   const d = new Disk()
   await writeBody(engineOver(d, {}), 's1', 'toolu_3', bodyOf({}, { text: 'x' }))
@@ -162,11 +264,12 @@ test('with no home folder the journal writes nothing', async () => {
 })
 
 // Through the mod itself: the disk answers the engine's fs calls beneath it.
-function world(on: On, d: Disk, sessionId: string): { timeline?: Timeline } {
-  const box: { timeline?: Timeline } = {}
+// `box.sessionId` is what `$.session.id()` answers; a test may change it.
+function world(on: On, d: Disk, sessionId: string): { timeline?: Timeline; sessionId: string } {
+  const box: { timeline?: Timeline; sessionId: string } = { sessionId }
   mock.env(on, { USERPROFILE: HOME, OS: 'Windows_NT' })
   on('ui.log', () => ({ value: undefined }))
-  on('session.id', () => ({ value: sessionId }))
+  on('session.id', () => ({ value: box.sessionId }))
   on('command.register', () => ({ value: { command: 'mc' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('classic.SessionStart', () => ({}))
@@ -201,6 +304,7 @@ test('session start prunes old folders and restores this session', async ($, on)
   for (let i = 0; i < 22; i++) d.write(`${ROOT}/old-${i}/timeline.json`, '{}')
   d.write(`${ROOT}/sess-s/timeline.json`, JSON.stringify(saved))
   const box = world(on, d, 'sess-s')
+  mock.clock(on, { now: NOW })
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
@@ -254,4 +358,85 @@ test('a main turn end saves a snapshot', async ($, on) => {
   const snap = JSON.parse(d.read(`${ROOT}/sess-t/timeline.json`)) as Timeline
   expect(snap.turns[0]?.id).toBe('t1')
   expect(snap.turns[0]?.endedAt).toBe(1)
+})
+
+test('a /clear keeps the timeline, and bodies and snapshots stay in its first journal folder', async ($, on) => {
+  const d = new Disk()
+  const box = world(on, d, 'sess-a')
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const clock = mock.clock(on, { now: 1 })
+
+  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'toolu_a' } as never)
+  await clock.advance(1)
+  expect(box.timeline?.journal).toBe('sess-a')
+
+  // /clear: the session goes on under a new id, with the state kept.
+  box.sessionId = 'sess-b'
+  d.write(`${ROOT}/sess-b/timeline.json`, JSON.stringify(saved))
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-b' })
+  expect(box.timeline?.steps.map(s => s.id)).toEqual(['toolu_a'])
+  expect(box.timeline?.journal).toBe('sess-a')
+
+  await $.tool.call({ tool: 'Bash', command: 'pwd', tool_use_id: 'toolu_b' } as never)
+  await $.turn.start({ text: 'hello', turnId: 't1' })
+  await $.turn.complete({ answer: 'hi', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(1)
+
+  expect(box.timeline?.steps.map(s => s.id)).toEqual(['toolu_a', 'toolu_b'])
+  expect(d.exists(`${ROOT}/sess-a/steps/toolu_a.json`)).toBe(true)
+  expect(d.exists(`${ROOT}/sess-a/steps/toolu_b.json`)).toBe(true)
+  expect(d.under(`${ROOT}/sess-b`)).toEqual([`${ROOT}/sess-b/timeline.json`])
+  const snap = JSON.parse(d.read(`${ROOT}/sess-a/timeline.json`)) as Timeline
+  expect(snap.journal).toBe('sess-a')
+  expect(snap.steps.map(s => s.id)).toEqual(['toolu_a', 'toolu_b'])
+  expect(JSON.parse(d.read(`${ROOT}/sess-b/timeline.json`))).toEqual(saved)
+})
+
+test('a /clear with nothing in the state restores as before', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-c/timeline.json`, JSON.stringify(saved))
+  const box = world(on, d, 'sess-c')
+
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-c' })
+
+  expect(box.timeline).toEqual(saved)
+})
+
+test("session start's prune spares the current timeline's journal folder", async ($, on) => {
+  const d = new Disk()
+  const box = world(on, d, 'sess-j')
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  const clock = mock.clock(on, { now: NOW })
+
+  // A body under sess-j stamps it as the journal; it is the oldest folder.
+  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'toolu_j' } as never)
+  await clock.advance(1)
+  expect(box.timeline?.journal).toBe('sess-j')
+  d.files.set(`${ROOT}/sess-j/timeline.json`, { text: JSON.stringify(box.timeline), mtimeMs: 1 })
+  for (let i = 0; i < 22; i++) d.write(`${ROOT}/old-${i}/timeline.json`, '{}')
+
+  // A reload under another id (as after /clear) runs session.start again.
+  box.sessionId = 'sess-k'
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(d.exists(`${ROOT}/sess-j/steps/toolu_j.json`)).toBe(true)
+  // sess-j is the oldest of the three past the newest 20, and is spared.
+  expect(d.removed.sort()).toEqual([`${ROOT}/old-0`, `${ROOT}/old-1`])
+})
+
+test('a timeline-1 value an earlier version stored reads as empty, and the snapshot is restored', async ($, on) => {
+  const d = new Disk()
+  d.write(`${ROOT}/sess-o/timeline.json`, JSON.stringify(saved))
+  const box = world(on, d, 'sess-o')
+  mock.clock(on, { now: NOW })
+  const stale: Timeline = { ...empty, seq: 99, notes: [{ text: 'stale', agent: 'main', at: 1 }] }
+  on('state.get', async (_, e, next) => (e.key === 'timeline' && box.timeline === undefined
+    ? { value: { value: { shape: 'timeline-1', value: stale }, version: 0 } }
+    : next(e)))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(box.timeline).toEqual(saved)
 })

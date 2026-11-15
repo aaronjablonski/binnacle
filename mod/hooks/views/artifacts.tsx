@@ -5,7 +5,7 @@ import { debug, errText, updateUi } from '../state'
 import { clock, elapsed, fitLeft, shortPaths, wordFit, wrapWords } from './fit'
 import { showInChat } from './find'
 import { exportDigest } from './handoff'
-import { openStep } from './openstep'
+import { openStepInline } from './openstep'
 import { blank, footer, more, opened, row, section } from './parts'
 import type { Action, Detail, Hint, Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -88,7 +88,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const stepId = a.stepId
       const actions: Action[] = []
       if (stepId !== undefined && seq !== undefined) {
-        actions.push({ hotkey: 'o', label: 'step', key: `act-o-${a.id}`, onPress: () => openStep($, stepId) })
+        actions.push({ hotkey: 'o', label: 'step', key: `act-o-${a.id}`, onPress: () => openStepInline($, stepId) })
       }
       const hasRef = a.ref !== undefined && a.ref !== ''
       actions.push({

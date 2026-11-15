@@ -33,7 +33,7 @@ async function bodyFor($: EngineInterface, stepId: string): Promise<StepBody | u
  * step are set at once, then the body is read from the timeline's journal
  * folder and written beside it (`stepBody`, or `missing`). Any full step
  * (`detail`) is closed. The Steps rows and `n`/`p` use it; `openStep` is the
- * full step that other screens still open. Never throws.
+ * full step, opened only by a second press inside Steps. Never throws.
  */
 export async function openStepInline($: EngineInterface, stepId: string): Promise<void> {
   await updateUi($, u => {
@@ -51,8 +51,7 @@ export async function openStepInline($: EngineInterface, stepId: string): Promis
 }
 
 /**
- * The full step (the second press on a step, and what the Now, Agents and
- * Artifacts screens open): `detail` is set at once with the body
+ * The full step (the second press on a step, inside Steps): `detail` is set at once with the body
  * the inline open already read, or bare while a fresh read runs and is then
  * written under it (`body`, or `missing`). Never throws.
  */

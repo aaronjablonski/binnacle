@@ -191,8 +191,9 @@ test('o opens the step that wrote the artifact', async ($, on) => {
     await ui.press({ key: 'act-o-document:a.md' })
     const u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
-    // The step opens on the Steps tab: in place (stepOpen), or as the full step (detail).
-    expect(u.stepOpen ?? u.detail?.stepId).toBe('s1')
+    // The step opens in place on the Steps tab, never as the full step.
+    expect(u.stepOpen).toBe('s1')
+    expect(u.detail).toBeUndefined()
     await ui.unmount()
     stored.set('ui', ART_UI)
   }

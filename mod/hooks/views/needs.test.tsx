@@ -270,6 +270,7 @@ test('pressing an asking row opens its step; pressing an agent-only problem filt
     let u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
     expect(u.stepOpen).toBe('s1')
+    expect(u.detail).toBeUndefined()
     await ui.unmount()
     stored.delete('ui')
     const again = await $.ui.mount({ ...PANE(62), surface })

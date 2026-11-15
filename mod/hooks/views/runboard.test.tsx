@@ -190,6 +190,7 @@ test('pressing a block opens that step', async ($, on) => {
     const u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
     expect(u.stepOpen).toBe('b1')
+    expect(u.detail).toBeUndefined()
     stored.set('ui', UI)
     await ui.unmount()
   }
@@ -241,7 +242,10 @@ test('a huge run falls back to one Button per agent opening its newest step', as
     expect(await ui.find({ key: 'block-h3s24' })).toBeUndefined()
     expect((await ui.findAll({ type: 'Button' })).length < 30).toBe(true)
     await ui.press({ key: 'strip-h3' })
-    expect((stored.get('ui') as UiState).stepOpen).toBe('h3s24')
+    const opened = stored.get('ui') as UiState
+    expect(opened.tab).toBe('timeline')
+    expect(opened.stepOpen).toBe('h3s24')
+    expect(opened.detail).toBeUndefined()
     stored.set('ui', UI)
     await ui.unmount()
   }

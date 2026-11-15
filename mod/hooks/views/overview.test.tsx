@@ -379,7 +379,10 @@ test('pressing a kept row opens its step; pressing a readout label opens its tab
     reset(stored, busy())
     const ui = await mount($, surface)
     await ui.press({ key: 'kept-s2' })
-    expect((stored.get('ui') as UiState).stepOpen).toBe('s2')
+    const kept = stored.get('ui') as UiState
+    expect(kept.tab).toBe('timeline')
+    expect(kept.stepOpen).toBe('s2')
+    expect(kept.detail).toBeUndefined()
     await ui.unmount()
     stored.delete('ui')
     const again = await mount($, surface)
@@ -443,6 +446,21 @@ test('pressing a latest step opens its detail in the timeline', async ($, on) =>
     const u = stored.get('ui') as UiState
     expect(u.tab).toBe('timeline')
     expect(u.stepOpen).toBe('s1')
+    expect(u.detail).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('pressing a step in the strip opens it in place on the Steps tab', async ($, on) => {
+  const stored = seed(on, busy())
+  for (const surface of SURFACES) {
+    reset(stored, busy())
+    const ui = await mountInline($, surface, 96, false)
+    await ui.press({ key: 'step-s1' })
+    const u = stored.get('ui') as UiState
+    expect(u.tab).toBe('timeline')
+    expect(u.stepOpen).toBe('s1')
+    expect(u.detail).toBeUndefined()
     await ui.unmount()
   }
 })

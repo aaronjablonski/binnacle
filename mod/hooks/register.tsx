@@ -22,7 +22,7 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name: 'mc',
         description: 'Open Mission Control',
-        argumentHint: '[1-5 | tab | close | pin <note> | export]',
+        argumentHint: '[1-5 | pin <note> | export | close]',
         immediate: true,
       })
     } catch (err) {

@@ -50,19 +50,6 @@ const FORMS: [string, string, string][] = [
   ['3', 'agents', 'Agents'],
   ['4', 'timeline', 'Timeline'],
   ['5', 'artifacts', 'Artifacts'],
-  ['overview', 'overview', 'Overview'],
-  ['tasks', 'tasks', 'Tasks'],
-  ['agents', 'agents', 'Agents'],
-  ['timeline', 'timeline', 'Timeline'],
-  ['artifacts', 'artifacts', 'Artifacts'],
-  ['TASKS', 'tasks', 'Tasks'],
-  ['Agents', 'agents', 'Agents'],
-  ['ove', 'overview', 'Overview'],
-  ['tas', 'tasks', 'Tasks'],
-  ['age', 'agents', 'Agents'],
-  ['tim', 'timeline', 'Timeline'],
-  ['art', 'artifacts', 'Artifacts'],
-  ['TIM', 'timeline', 'Timeline'],
 ]
 
 for (const [arg, tab, label] of FORMS) {
@@ -80,12 +67,22 @@ for (const [arg, tab, label] of FORMS) {
   })
 }
 
+test('/mc with an old tab name answers Unknown and writes nothing', async ($, on) => {
+  const { stored, opened } = world(on, empty)
+
+  const got = await run($, 'agents')
+
+  expect(got.text).toBe('Unknown. Try /mc, /mc 1-5, pin, export or close.')
+  expect(stored.has('ui')).toBe(false)
+  expect(opened.length).toBe(0)
+})
+
 test('/mc with an unknown tab answers and writes nothing', async ($, on) => {
   const { stored, opened } = world(on, empty)
 
-  for (const arg of ['6', '0', 'banana', 'ta']) {
+  for (const arg of ['6', '0', 'banana']) {
     const got = await run($, arg)
-    expect(got.text).toBe('Unknown tab. Try /mc 1-5 or a tab name.')
+    expect(got.text).toBe('Unknown. Try /mc, /mc 1-5, pin, export or close.')
   }
 
   expect(stored.has('ui')).toBe(false)

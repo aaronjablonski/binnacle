@@ -380,3 +380,86 @@ test('a stale budget from a restored session does not toast', async ($, on) => {
   await clock.advance(3000)
   expect(toasts).toEqual([])
 })
+
+// A first reading: `$.session.usage()` answers what session.measure would have pushed.
+const USAGE = {
+  startedAt: 0,
+  context: { window: 1_000_000, percent: 85 },
+  rateLimits: [{ kind: 'five_hour', percentUsed: 75, resetsAt: '2026-11-15T09:00:00.000Z' }],
+  cost: { usd: 1.5 },
+}
+
+type Reads = { n: number }
+function usageWorld(on: On, t: Timeline, reply: () => unknown): { stored: Stored; clock: MockClock; toasts: string[]; reads: Reads } {
+  const { stored, clock } = world(on, t)
+  const toasts: string[] = []
+  const reads: Reads = { n: 0 }
+  on('session.usage', () => {
+    reads.n++
+    return { value: reply() } as never
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  on('ui.notify', () => ({ value: { isSent: true as const, channel: 'terminal' } }) as never)
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true as const } }) as never)
+  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('tool.register', () => ({ value: { tool: 'x' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  return { stored, clock, toasts, reads }
+}
+
+test('session.start seeds a budget from $.session.usage, and the seed replays no toast', async ($, on) => {
+  const { stored, clock, toasts } = usageWorld(on, empty, () => USAGE)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect((stored.get('timeline') as Timeline).budget).toEqual({
+    contextPct: 85,
+    windows: [{ name: 'five_hour', pct: 75, resetsAt: Date.parse('2026-11-15T09:00:00.000Z') }],
+    costUsd: 1.5,
+    at: NOW,
+  })
+  await clock.advance(3000)
+  expect(toasts).toEqual([])
+  expect((stored.get('ui') as UiState).toasted).toEqual(
+    expect.arrayContaining(['budget:ctx:80', 'budget:five_hour:70']),
+  )
+})
+
+test('session.start with a usage that has no figures seeds nothing', async ($, on) => {
+  const { stored } = usageWorld(on, empty, () => ({ startedAt: 0, context: { window: 1_000_000 }, rateLimits: [] }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect((stored.get('timeline') as Timeline).budget).toBeUndefined()
+})
+
+test('a throwing $.session.usage breaks neither session.start nor /mc', async ($, on) => {
+  const { stored } = usageWorld(on, empty, () => {
+    throw new Error('no usage')
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const got = await $.command.run({ command: 'mc', args: '' } as never)
+  expect(got).toEqual({ text: 'Mission Control opened.' })
+  expect((stored.get('timeline') as Timeline).budget).toBeUndefined()
+})
+
+test('/mc seeds a budget when none exists', async ($, on) => {
+  const { stored, reads } = usageWorld(on, empty, () => USAGE)
+  const got = await $.command.run({ command: 'mc', args: '' } as never)
+  expect(got).toEqual({ text: 'Mission Control opened.' })
+  expect(reads.n).toBe(1)
+  expect((stored.get('timeline') as Timeline).budget).toMatchObject({ contextPct: 85, at: NOW })
+})
+
+test('/mc does not re-read when the budget is under 60 s old', async ($, on) => {
+  const { reads } = usageWorld(on, withBudget(budget({ at: NOW - 59_000 })), () => USAGE)
+  await $.command.run({ command: 'mc', args: '' } as never)
+  expect(reads.n).toBe(0)
+})
+
+test('/mc re-reads a budget older than 60 s', async ($, on) => {
+  const { stored, reads } = usageWorld(on, withBudget(budget({ at: NOW - 61_000, contextPct: 1 })), () => USAGE)
+  await $.command.run({ command: 'mc', args: '' } as never)
+  expect(reads.n).toBe(1)
+  expect((stored.get('timeline') as Timeline).budget?.contextPct).toBe(85)
+})

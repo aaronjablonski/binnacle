@@ -1,7 +1,8 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, Budget, Timeline } from '../../types'
-import { debug, errText, readTimeline, readUi, updateUi } from '../state'
+import { budgetOf } from '../model/usage'
+import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
 import { blockBar, elapsed, fit } from './fit'
 import { sectionHeader } from './parts'
 import type { ViewCtx } from './shell'
@@ -211,5 +212,47 @@ export async function budgetTick($: EngineInterface): Promise<void> {
     for (const text of toasts) $.ui.toast(text)
   } catch (err) {
     debug($, `budget tick failed: ${errText(err)}`)
+  }
+}
+
+/** A budget newer than this is left alone when `/mc` asks for a first reading. */
+const SEED_FRESH_MS = 60_000
+
+/** The toast markers a budget has already reached: what budgetTick would raise for it. */
+function reachedMarks(b: Budget): string[] {
+  const marks: string[] = []
+  if (b.contextPct !== undefined && b.contextPct >= CONTEXT_TOAST) marks.push('budget:ctx:80')
+  for (const w of b.windows) {
+    for (let level = WINDOW_FROM; level <= 100 && level <= w.pct; level += WINDOW_STEP) marks.push(`budget:${w.name}:${level}`)
+  }
+  return marks
+}
+
+/**
+ * A first reading of the budget from `$.session.usage()`, which has the
+ * figures a `session.measure` input has, so `budgetOf` reads both. It is
+ * taken at session start and when `/mc` opens the pane, because nothing else
+ * records a budget until Claude next replies. With `onlyIfOlderThanMs` set
+ * an existing budget newer than that is kept and nothing is read.
+ *
+ * The reached toast markers are written before the budget, so the clock's
+ * budgetTick cannot toast figures that were already there. Never throws.
+ */
+export async function seedBudget($: EngineInterface, opts: { skipIfFresh?: boolean } = {}): Promise<void> {
+  try {
+    const at = await $.clock.now()
+    if (opts.skipIfFresh === true) {
+      const had = (await readTimeline($)).budget
+      if (had !== undefined && at - had.at < SEED_FRESH_MS) return
+    }
+    const b = budgetOf(await $.session.usage(), at)
+    if (b.contextPct === undefined && b.costUsd === undefined && b.windows.length === 0) return
+    const marks = reachedMarks(b)
+    if (marks.length > 0) {
+      await updateUi($, cur => ({ ...cur, toasted: [...cur.toasted, ...marks.filter(m => !cur.toasted.includes(m))] }))
+    }
+    await apply($, { kind: 'measure', at, budget: b })
+  } catch (err) {
+    debug($, `budget seed failed: ${errText(err)}`)
   }
 }

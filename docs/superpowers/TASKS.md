@@ -33,11 +33,13 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 
 ## Now: Neo Rich build (`plans/2026-11-15-mission-control-neo-rich.md`), includes the distilled features
 
-- [ ] R1a raster engine + paint clock · D1 distilled data
-- [ ] R1b style/fit/parts/editor/shell routing
-- [ ] R2 Now/needs/budget/slim/strip · R3 Agents + crew map · R4 Tasks + Steps pages · R5 Artifacts + band · R6 Options + desktop Svg
+- [x] R1a raster engine + paint clock · D1 distilled data
+- [x] R1b style/fit/parts/editor/shell routing
+- [x] R2 Now/needs/budget/slim/strip · R3 Agents + crew map · R4 Tasks + Steps pages · R5 Artifacts + band · R6 Options + desktop Svg
 - [ ] R7 delights + Accent
-- [ ] Opus review; Aaron's live check
+- [x] Opus review + fix round
+- [ ] Aaron's live check
+- [ ] Next: calm cockpit restyle + chosen crew family + NEEDS YOU/WATCH split + task-list guide (awaiting Aaron's picks)
 
 ## (superseded by Neo Rich) distilled features (`plans/2026-11-15-mission-control-distilled.md`)
 

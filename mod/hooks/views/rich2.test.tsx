@@ -9,7 +9,7 @@ import { kindLabel, needDetail, needsYou } from './needs'
 import { cacheReadout, nowSections, staleFocus, turnLines } from './overview'
 import { rowsUsed, sectionRows, NOW_SECTIONS } from './fit'
 import { setLedgerRows, weekSpec } from './budget'
-import { screen } from './screen.testkit'
+import { backTo, keepLog, LOGS, screen } from './screen.testkit'
 import type { ViewCtx } from './shell'
 
 // The rich form of Now, NEEDS YOU, the budget view, slim and the strip, and
@@ -23,7 +23,8 @@ const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 function world(on: On, t: Timeline, u: UiState = initialUi): { stored: Map<string, unknown>; clock: MockClock } {
   const stored = new Map<string, unknown>([['timeline', t], ['ui', u]])
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -117,7 +118,10 @@ test('rich Now: the hero step opens its page, BUDGET opens the budget view, CREW
   const ui = await mount($)
   expect(await keys(ui)).toEqual(expect.arrayContaining(['hero-step', 'deck-budget', 'deck-crew', 'deck-tasks', 'deck-steps']))
   await ui.press({ key: 'hero-step' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'step', id: 's3' })
+  const opened = stored.get('ui') as UiState & { stepBody?: { stepId: string } }
+  expect(opened.page).toEqual({ kind: 'step', id: 's3', from: 'hero-step' })
+  // Through openStep: the body read ran for this step (none is kept here, so it is marked missing).
+  expect(opened.stepBody?.stepId).toBe('s3')
   await ui.press({ key: 'deck-crew' })
   expect((stored.get('ui') as UiState).tab).toBe('agents')
   await ui.unmount()
@@ -324,6 +328,18 @@ test('rich strip: compartments from 96 columns, each with its own lintel and sil
     for (const r of screen(await ui.drawn())) expect(r.length).toBeLessThanOrEqual(cols)
     await ui.unmount()
   }
+})
+
+test('rich strip: a need row opens the page of the asking step through openStep, so its body loads', async ($, on) => {
+  const { stored } = world(on, waitingT())
+  const ui = await mount($, 100, 14, 'terminal', 'inline')
+  const need = (await keys(ui)).find(k => k.startsWith('need-'))
+  expect(need).toBeDefined()
+  await ui.press({ key: need ?? '' })
+  const u = stored.get('ui') as UiState & { stepBody?: { stepId: string } }
+  expect(u.page).toEqual({ kind: 'step', id: 'p1' })
+  expect(u.stepBody?.stepId).toBe('p1')
+  await ui.unmount()
 })
 
 test('rich strip: without a Raster the text strip is drawn', async ($, on) => {

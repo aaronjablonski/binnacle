@@ -32,8 +32,8 @@ async function bodyFor($: EngineInterface, stepId: string): Promise<StepBody | u
  * Opens a step in place on the Steps tab (`ui.stepOpen`): the tab and the
  * step are set at once, then the body is read from the timeline's journal
  * folder and written beside it (`stepBody`, or `missing`). Any full step
- * (`detail`) is closed. The Steps rows and `n`/`p` use it; `openStep` is the
- * full step, opened only by a second press inside Steps. Never throws.
+ * (`detail`) is closed. `n`/`p` on Steps, a need and the strip use it; Enter
+ * on a step row opens the page (`openStep`). Never throws.
  */
 export async function openStepInline($: EngineInterface, stepId: string): Promise<void> {
   await updateUi($, u => {
@@ -51,25 +51,33 @@ export async function openStepInline($: EngineInterface, stepId: string): Promis
 }
 
 /**
- * The full step (the second press on a step, inside Steps): the step's page
- * (`ui.page = { kind: 'step', id }`) opens at once, with the body the inline
- * open already read, or bare while a fresh read runs and is then written
- * beside `stepOpen` (`stepBody`, or `missing`). `b` returns to the list with
- * the step still open in place. Never throws.
+ * The step's page (Enter on a step row anywhere: rich rule 4): `ui.page =
+ * { kind: 'step', id, from }` opens at once, with the body already read for
+ * it, or bare while a fresh read runs and is then written beside it
+ * (`stepBody`, or `missing`). The open tab is kept, so `b` returns to the
+ * list it was opened from; on the Steps tab the step is also marked in
+ * place (`stepOpen`). Every caller that opens a step page comes here
+ * (pagenav's `openPage` sends kind `step` here). Never throws.
  */
-export async function openStep($: EngineInterface, stepId: string): Promise<void> {
+export async function openStep($: EngineInterface, stepId: string, from?: string): Promise<void> {
   let known: StepBodyOpen | undefined
-  await updateUi($, u => {
-    known = bodyOfOpen(u, stepId)
-    const { detail: _detail, ...rest } = u
-    const keep = known !== undefined ? { stepBody: known } : {}
-    return { ...rest, tab: 'timeline', stepOpen: stepId, page: { kind: 'step', id: stepId }, ...keep } as UiState
-  })
-  if (known !== undefined) return
-  const body = await bodyFor($, stepId)
-  await updateUi($, u => {
-    if (u.stepOpen !== stepId) return u
-    const stepBody: StepBodyOpen = body !== undefined ? { stepId, body } : { stepId, missing: true }
-    return { ...u, stepBody } as UiState
-  })
+  try {
+    await updateUi($, u => {
+      known = bodyOfOpen(u, stepId)
+      const { detail: _detail, ...rest } = u
+      const { stepBody: _old, ...bare } = rest as UiWithBody
+      const keep = known !== undefined ? { stepBody: known } : {}
+      const page = { kind: 'step' as const, id: stepId.slice(0, 200), ...(from !== undefined && from !== '' ? { from: from.slice(0, 200) } : {}) }
+      return { ...bare, ...(u.tab === 'timeline' ? { stepOpen: stepId } : {}), page, ...keep } as UiState
+    })
+    if (known !== undefined) return
+    const body = await bodyFor($, stepId)
+    await updateUi($, u => {
+      if (u.page?.kind !== 'step' || u.page.id !== stepId) return u
+      const stepBody: StepBodyOpen = body !== undefined ? { stepId, body } : { stepId, missing: true }
+      return { ...u, stepBody } as UiState
+    })
+  } catch {
+    // The page stays as far as it got; the next press retries.
+  }
 }

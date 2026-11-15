@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow } from '../../types'
-import { STATE_WORD, agentOpened, openAgentPage, signalFlag, timeCell, toggleOpen, tokensCell } from './agentmeta'
+import { STATE_WORD, agentOpened, openAgentPage, signalFlag, timeCell, tokensCell } from './agentmeta'
 import type { AgentRowOpts } from './agentmeta'
 import { modelName } from './budget'
 import { placed, wordFit } from './fit'
@@ -81,7 +81,7 @@ export function crewNode(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: CrewN
       </Box>
       {inst(ctx, $, { key: `who-${a.id}`, ...sprite })}
       <Box key={`${o.key}-text`} flexDirection="column" paddingLeft={1}>
-        <Button key={o.key} plain onPress={() => toggleOpen($, a.id)}>
+        <Button key={o.key} plain onPress={() => openAgentPage($, a.id, o.key)}>
           {body}
         </Button>
         <Text key={`${o.key}-facts`} wrap="truncate-end" dimColor={!failed} color={failed ? C.fail : undefined}>
@@ -93,21 +93,9 @@ export function crewNode(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: CrewN
 }
 
 /**
- * An agent's row opened in place (`agentOpened`), with `e: page` on a line of its own under the
- * actions (`opened` shows three actions at most): the way into the agent's page.
+ * An agent's row opened in place (`agentOpened`: `n`/`p` on Agents move it).
+ * The way into the agent's page is Enter on its row or node (rich rule 4).
  */
 export function openedAgent(ctx: ViewCtx, $: EngineInterface, a: AgentRow): RenderElement | null {
-  const base = agentOpened(ctx, $, a)
-  if (base === null) return null
-  const { Box, Button } = $.ui.resolve(ctx.e)
-  return (
-    <Box key={`opened-${a.id}`} flexDirection="column">
-      {base}
-      <Box key={`opened-page-${a.id}`} flexDirection="row" paddingLeft={COL.action}>
-        <Button key={`agent-page-${a.id}`} hotkey="e" plain onPress={() => openAgentPage($, a.id)}>
-          page
-        </Button>
-      </Box>
-    </Box>
-  )
+  return agentOpened(ctx, $, a)
 }

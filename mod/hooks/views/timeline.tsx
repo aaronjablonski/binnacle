@@ -497,7 +497,8 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         bold: isOpen,
         metric: hit ? { text: 'in result', color: C.accent } : s.agent === 'main' ? 'main' : typeShort(agentName(t, s.agent)),
         time: s.status === 'running' ? 'now' : elapsed(s.startedAt, end),
-        onPress: () => (isOpen ? openStep($, s.id) : openStepInline($, s.id)),
+        // Enter on a step row opens its page (rich rule 4); `b` comes back to the row.
+        onPress: () => openStep($, s.id, `step-${s.id}`),
       })
     }
     const addStep = (s: Step, sectionAt: number): void => {

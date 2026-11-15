@@ -10,7 +10,8 @@ import { COMPARTMENTS_FROM, compartments, elapsed, layOut, meter, shortPaths, ty
 import { argOf, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { needDetail, needGlyph, needName, needsYou, podFor, problemText, waitStates } from './needs'
-import { openStepInline } from './openstep'
+import { openStep, openStepInline } from './openstep'
+import { openAgentPage } from './agentmeta'
 import { openPage } from './pagenav'
 import { andThen, agentTokens, frameRows, HALF, MAX_LIST, nowFrame, nowRows, ringsOf, STEP_GLYPH, STRIP, stripRight, subagents, who } from './overview'
 import type { FrameParts } from './overview'
@@ -144,7 +145,7 @@ function agentsRows(ctx: ViewCtx, $: EngineInterface, w: number, h: number, afte
         { col: 4, text: whole(shortPaths(a.description || a.type), nameEnd - 4) },
         ...(tokCol !== undefined ? [{ col: tokCol, text: agentTokens(a), dim: true }] : []),
         { col: last, text: brief(elapsed(a.startedAt, now)), dim: true },
-      ], `agent-${a.id}`, andThen(() => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })), after)),
+      ], `agent-${a.id}`, andThen(() => openAgentPage($, a.id, `agent-${a.id}`), after)),
     )
   }
   if (shown.length < live.length) {
@@ -196,7 +197,7 @@ function latestRows(ctx: ViewCtx, $: EngineInterface, w: number, h: number, afte
         { col: argCol, text: whole(argOf(x.tool, x.label), end - argCol) },
         ...(agentCol !== undefined ? [{ col: agentCol, text: whole(who(t, x.agent), last - 2 - agentCol), dim: true }] : []),
         { col: last, text: x.status === 'running' ? 'now' : brief(elapsed(x.endedAt ?? x.startedAt, now)), dim: true },
-      ], `step-${x.id}`, andThen(() => openStepInline($, x.id), after)),
+      ], `step-${x.id}`, andThen(() => openStep($, x.id, `step-${x.id}`), after)),
     )
   }
   return out
@@ -467,7 +468,7 @@ function richTasks(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, pr
         { col: 4, text: whole(isActive ? x.activeForm ?? x.subject : x.subject, w - 4), ...(isActive ? { bold: true } : x.status === 'completed' ? { dim: true } : {}) },
       ],
       `task-${x.owner}-${x.id}`,
-      press(() => openPage($, 'task', `${x.owner}:${x.id}`)),
+      press(() => openPage($, 'task', `${x.owner}:${x.id}`, `task-${x.owner}-${x.id}`)),
     )
   })
   if (hidden > 0) rows.push(runsLine(ctx.e, $, [{ col: 2, text: '+', dim: true }, { col: 4, text: `${hidden} more`, dim: true }], 'strip-tasks-more'))
@@ -480,7 +481,7 @@ function richNeeds(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, ne
     const mark = needGlyph(p)
     const detail = needDetail(p, ctx.now)
     const stepId = p.stepId
-    const open = stepId !== undefined ? () => openPage($, 'step', stepId) : () => updateUi($, u => ({ ...leaveDetail(u), tab: 'overview' }))
+    const open = stepId !== undefined ? () => openStep($, stepId) : () => updateUi($, u => ({ ...leaveDetail(u), tab: 'overview' }))
     return crow(
       ctx,
       $,
@@ -518,7 +519,7 @@ function richAgents(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, p
       <Box key={`agent-row-${a.id}`} flexDirection="row">
         {inst({ ...ctx, cols: w }, $, { key: `ag-${a.id}`, ...spec })}
         <Box key={`agent-text-${a.id}`} flexDirection="column" paddingLeft={1}>
-          <Button key={`agent-${a.id}`} plain onPress={press(() => updateUi($, u => ({ ...leaveDetail(u), tab: 'agents', agentOpen: a.id })))}>
+          <Button key={`agent-${a.id}`} plain onPress={press(() => openAgentPage($, a.id, `agent-${a.id}`))}>
             {wordFit(shortPaths(a.description || a.type), Math.max(1, w - 7))}
           </Button>
           <Text key={`agent-facts-${a.id}`} wrap="truncate-end" dimColor={a.status !== 'error'} color={a.status === 'error' ? C.fail : undefined}>
@@ -554,7 +555,7 @@ function richLatest(ctx: ViewCtx, $: EngineInterface, w: number, tall: number, p
         { col: 4, text: whole(`${tool}  ${argOf(x.tool, x.label)}`, w - 4) },
       ],
       `step-${x.id}`,
-      press(() => openStepInline($, x.id)),
+      press(() => openStep($, x.id, `step-${x.id}`)),
     )
   })
   if (fits) rows.push(runsLine(ctx.e, $, [{ col: 2, text: foot, dim: true }], 'strip-latest-foot'))

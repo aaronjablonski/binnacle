@@ -69,17 +69,6 @@ export function timeCell(ctx: ViewCtx, a: AgentRow): string {
   return elapsed(a.startedAt, end)
 }
 
-/** Opens the agent's row in place, or closes it when it is the open one. */
-export async function toggleOpen($: EngineInterface, id: string): Promise<void> {
-  await updateUi($, u => {
-    if (u.agentOpen === id) {
-      const { agentOpen: _open, ...rest } = u
-      return rest
-    }
-    return { ...u, agentOpen: id }
-  })
-}
-
 /** The gutter flag a pod's signal is: `!` problem, `?` waiting, `z` stalled; none without a signal. */
 export function signalFlag(pod: Pod): Flag | undefined {
   const text = pod.signal?.text
@@ -103,7 +92,7 @@ export type AgentRowOpts = {
 /**
  * One agent as a table row: its hull at 2 (`podOf`: shape for the role, fill
  * for the state), description, tokens at 38 and time at 50. The pod's signal
- * is the gutter flag: `!` (failed), `?` (waiting), `z` (stalled). A press opens it.
+ * is the gutter flag: `!` (failed), `?` (waiting), `z` (stalled). A press opens its page.
  */
 export function agentRow(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: AgentRowOpts): RenderElement {
   const isMain = a.id === 'main'
@@ -121,7 +110,8 @@ export function agentRow(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: Agent
     ...(flag !== undefined ? { flag } : {}),
     ...(o.depth !== undefined ? { depth: o.depth } : {}),
     ...(o.tether !== undefined ? { tether: o.tether } : {}),
-    onPress: () => toggleOpen($, a.id),
+    // Enter on an agent row opens its page (rich rule 4); `b` comes back to the row.
+    onPress: () => openAgentPage($, a.id, o.key),
   })
 }
 
@@ -303,8 +293,8 @@ export async function primeAgentPage($: EngineInterface, agentId: string): Promi
   }
 }
 
-/** Opens the agent's page (`ui.page`) and starts reading what it shows. A press only. */
-export async function openAgentPage($: EngineInterface, agentId: string): Promise<void> {
-  await openPage($, 'agent', agentId)
+/** Opens the agent's page (`ui.page`), from the row keyed `from`, and starts reading what it shows. A press only. */
+export async function openAgentPage($: EngineInterface, agentId: string, from?: string): Promise<void> {
+  await openPage($, 'agent', agentId, from)
   await primeAgentPage($, agentId)
 }

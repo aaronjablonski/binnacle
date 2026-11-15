@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, Run, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { roles } from '../model/meter'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 /** The text look on every surface: the layout the Raster-free tables keep (hull glyphs, one row each). */
 const TEXT = { options: { look: 'text' } } as const
@@ -23,7 +23,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -405,21 +406,26 @@ test('the opened row always shows, even past the sixth', async ($, on) => {
   await ui.unmount()
 })
 
-test('pressing a row opens it in place; pressing it again closes it', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
+test('Enter on an agent row opens its page; b returns to the list with the agent row focused', async ($, on) => {
   const stored = seed(on, MIXED, AGENTS_UI)
   for (const surface of SURFACES) {
     put(stored, MIXED, AGENTS_UI)
+    LOGS.length = 0
     const ui = await mount($, surface)
     await ui.press({ key: 'agent-a2' })
-    expect((stored.get('ui') as UiState).agentOpen).toBe('a2')
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'a2', from: 'agent-a2' })
     expect((stored.get('ui') as UiState).tab).toBe('agents')
-    await ui.press({ key: 'agent-a2' })
-    expect((stored.get('ui') as UiState).agentOpen).toBeUndefined()
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['agent-a2'])
     await ui.unmount()
   }
 })
 
-test('LOOK (text form): an opened row: bold name, result and agent at 6/14, the action line at 6, e: page under it, a blank above and below', TEXT, async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): the opened row (n/p move it) has no e: page line; Enter on the row opens the page.
+test('LOOK (text form): an opened row: bold name, result and agent at 6/14, the action line at 6, a blank above and below', TEXT, async ($, on) => {
   seed(on, MIXED, { ...AGENTS_UI, agentOpen: 'a2' })
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
@@ -436,8 +442,7 @@ test('LOOK (text form): an opened row: bold name, result and agent at 6/14, the 
     expect(colOf(meta, 'scout · Explore · haiku · 2 steps · ')).toBe(14)
     const actions = all[at + 3] ?? ''
     expect(actions).toBe('      s: steps   v: transcript   g: chat')
-    expect(all[at + 4]).toBe('      e: page')
-    expect(all[at + 5]?.trim()).toBe('')
+    expect(all[at + 4]?.trim()).toBe('')
     await ui.unmount()
   }
 })
@@ -888,18 +893,8 @@ test('main has a page too: no transcript and no chat, steps and back', async ($,
   await ui.unmount()
 })
 
-test('e: page on an opened row opens the agent page; b closes it; a gone agent says so', async ($, on) => {
-  const stored = seed(on, pageWorld(), { ...AGENTS_UI, agentOpen: 'a1' })
-  const ui = await mount($, 'terminal', 62)
-  await ui.press({ key: 'agent-page-a1' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'a1' })
-  await ui.unmount()
-  const open = await mount($, 'terminal', 62)
-  expect(rowWith(await rows(open), 'b: back')).toContain('b: back')
-  await open.press({ key: 'page-back' })
-  expect((stored.get('ui') as UiState).page).toBeUndefined()
-  await open.unmount()
-  put(stored, pageWorld(), PAGE_UI('nobody'))
+test('an agent page for an agent that is gone says so', async ($, on) => {
+  seed(on, pageWorld(), PAGE_UI('nobody'))
   const gone = await mount($, 'terminal', 62)
   expect((await rows(gone)).join('\n')).toContain('This agent is gone.')
   await gone.unmount()
@@ -914,7 +909,10 @@ test('the TASK line opens the task page and a step row opens the step page', asy
   put(stored, pageWorld(), PAGE_UI('a1'))
   const again = await mount($, 'terminal', 62)
   await again.press({ key: 'agent-step-s2' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'step', id: 's2' })
+  const u = stored.get('ui') as UiState & { stepBody?: { stepId: string } }
+  expect(u.page).toEqual({ kind: 'step', id: 's2' })
+  // Through openStep: the body read ran for this step.
+  expect(u.stepBody?.stepId).toBe('s2')
   await again.unmount()
 })
 

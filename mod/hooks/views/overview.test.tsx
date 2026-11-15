@@ -4,7 +4,7 @@ import type { On } from 'claude-code'
 
 import type { AgentRow, Budget, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -20,7 +20,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -344,7 +345,8 @@ test('text form: at 50 the aside goes, at 40 the value goes too, and at 32 the c
   }
 })
 
-test('AGENTS lists the live agents only, a hull each, with tokens at 38 and time at 50, and a row opens the agent', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): a row opened the agent in place on the Agents tab; Enter now opens its page.
+test('AGENTS lists the live agents only, a hull each, with tokens at 38 and time at 50; Enter on a row opens its page and b returns to it', async ($, on) => {
   const stored = seed(on, empty)
   for (const surface of SURFACES) {
     reset(stored, busy({ agents: { ...busy().agents, a3: agent('a3', 'Explore', 'finished long ago', '', 'done') } }))
@@ -361,10 +363,14 @@ test('AGENTS lists the live agents only, a hull each, with tokens at 38 and time
     const a2 = rows[rowAt(rows, 'write timeline tests')]!
     expect(colOf(a2, '▣')).toBe(2)
     expect(rows.some(r => r.includes('finished long ago'))).toBe(false)
+    LOGS.length = 0
     await ui.press({ key: 'agent-a1' })
-    const u = stored.get('ui') as UiState
-    expect(u.tab).toBe('agents')
-    expect(u.agentOpen).toBe('a1')
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'a1', from: 'agent-a1' })
+    expect((stored.get('ui') as UiState).tab).toBe('overview')
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['agent-a1'])
     await ui.unmount()
   }
 })
@@ -398,16 +404,23 @@ test('text form: with no update, FOCUS is the in-progress task, and with no task
   }
 })
 
-test('pressing a kept row opens its step; pressing CREW, TASKS or STEPS opens that tab', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): a kept row opened the step in place on Steps; Enter now opens its page.
+test('Enter on a kept row opens its step page and b returns to it; pressing CREW, TASKS or STEPS opens that tab', async ($, on) => {
   const stored = seed(on, empty)
   for (const surface of SURFACES) {
     reset(stored, busy())
     const ui = await mount($, surface)
+    LOGS.length = 0
     await ui.press({ key: 'kept-s2' })
     const kept = stored.get('ui') as UiState
-    expect(kept.tab).toBe('timeline')
-    expect(kept.stepOpen).toBe('s2')
+    expect(kept.page).toEqual({ kind: 'step', id: 's2', from: 'kept-s2' })
+    expect((kept as UiState & { stepBody?: { stepId: string } }).stepBody?.stepId).toBe('s2')
+    expect(kept.tab).toBe('overview')
     expect(kept.detail).toBeUndefined()
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['kept-s2'])
     await ui.unmount()
     // The desktop's deck is an Svg: its rows are not Buttons (the tab bar opens the tabs).
     if (surface === 'desktop') continue
@@ -534,30 +547,41 @@ test('every row of Now fits bodyColumns at 62, 50, 40 and 32, with a long focus'
   }
 })
 
-test('pressing a latest step opens its detail in the timeline', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "opens its detail in place in the timeline"
+test('Enter on a latest step opens its page; b returns to the list with the step row focused', async ($, on) => {
   const stored = seed(on, empty)
   for (const surface of SURFACES) {
     reset(stored, { ...empty, steps: [step('s1', 1, 'Edit a.ts', 'done')] })
+    LOGS.length = 0
     const ui = await mount($, surface)
     await ui.press({ key: 'step-s1' })
-    const u = stored.get('ui') as UiState
-    expect(u.tab).toBe('timeline')
-    expect(u.stepOpen).toBe('s1')
-    expect(u.detail).toBeUndefined()
+    const u = stored.get('ui') as UiState & { stepBody?: { stepId: string } }
+    expect(u.page).toEqual({ kind: 'step', id: 's1', from: 'step-s1' })
+    expect(u.tab).toBe('overview')
+    expect(u.stepBody?.stepId).toBe('s1')
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['step-s1'])
     await ui.unmount()
   }
 })
 
-test('pressing a step in the strip opens it in place on the Steps tab', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "opens it in place on the Steps tab"
+test('Enter on a step in the strip opens its page; b returns to the strip with the step row focused', async ($, on) => {
   const stored = seed(on, busy())
   for (const surface of SURFACES) {
     reset(stored, busy())
+    LOGS.length = 0
     const ui = await mountInline($, surface, 96, false)
     await ui.press({ key: 'step-s1' })
-    const u = stored.get('ui') as UiState
-    expect(u.tab).toBe('timeline')
-    expect(u.stepOpen).toBe('s1')
-    expect(u.detail).toBeUndefined()
+    const u = stored.get('ui') as UiState & { stepBody?: { stepId: string } }
+    expect(u.page).toEqual({ kind: 'step', id: 's1', from: 'step-s1' })
+    expect(u.stepBody?.stepId).toBe('s1')
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['step-s1'])
     await ui.unmount()
   }
 })

@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import type { ArtifactRow, Step, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { clock } from './fit'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -21,7 +21,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -141,8 +142,8 @@ test('a document written three times shows doc ×3 as its kind', async ($, on) =
   }
 })
 
-// LOOK TEST (edited for Rich): the action line gains `p: page`, which opens the artifact's page.
-test('the newest artifact is open by default: link and from at 6 and 14, then o: step  c: copy link  g: chat  p: page', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): the action line drops `p: page`; Enter on the row opens the page.
+test('the newest artifact is open by default: link and from at 6 and 14, then o: step  c: copy link  g: chat', async ($, on) => {
   seed(
     on,
     tl([art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', stepId: 's9' })], { steps: [step('s9', 9, 'Publish')] }),
@@ -155,32 +156,27 @@ test('the newest artifact is open by default: link and from at 6 and 14, then o:
     expect([colOf(link, 'link'), colOf(link, 'claude.ai/artifact/x')]).toEqual([6, 14])
     const from = rowWith(rows, 'from')
     expect(colOf(from, 'main · step 9 · ')).toBe(14)
-    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat   p: page')
+    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat')
     expect(colOf(rowWith(rows, 'o: step'), 'o: step')).toBe(6)
     await ui.unmount()
   }
 })
 
-test('pressing another row opens it and closes the first; pressing the open row closes it', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
+test('Enter on an artifact row opens its page; b returns to the list with the artifact row focused', async ($, on) => {
   const stored = seed(on, FOUR, ART_UI)
-  const openOf = async (): Promise<string[]> => {
-    const ui = await mount($, 'terminal')
-    const rows = await drawnRows(ui)
+  for (const surface of SURFACES) {
+    stored.set('ui', ART_UI)
+    LOGS.length = 0
+    const ui = await mount($, surface)
+    await ui.press({ key: 'art-page:Rate limit design' })
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'artifact', id: 'page:Rate limit design', from: 'art-page:Rate limit design' })
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['art-page:Rate limit design'])
     await ui.unmount()
-    return ['claude.ai/artifact/x', 'github.com/x/pull/41', 'Implementation plan'].filter(x => rows.some(r => r.includes(x)))
   }
-  // newest (the link) is open to start with
-  expect(await openOf()).toEqual(['github.com/x/pull/41'])
-  const a = await mount($, 'terminal')
-  await a.press({ key: 'art-page:Rate limit design' })
-  await a.unmount()
-  expect((stored.get('ui') as UiState).artifactOpen).toBe('page:Rate limit design')
-  expect(await openOf()).toEqual(['claude.ai/artifact/x'])
-  const b = await mount($, 'terminal')
-  await b.press({ key: 'art-page:Rate limit design' })
-  await b.unmount()
-  expect((stored.get('ui') as UiState).artifactOpen).toBe('')
-  expect(await openOf()).toEqual([])
 })
 
 test('o opens the step that wrote the artifact', async ($, on) => {
@@ -248,7 +244,7 @@ test('c copies the link, or the title when there is no ref, and says when it fai
   }
 })
 
-// LOOK TEST (edited for Rich): the action line reads `c: copy   p: page`.
+// BEHAVIOUR CHANGE (rich rule 4): the action line reads `c: copy` (no `p: page`).
 test('c copies the title when the artifact has no ref', async ($, on) => {
   seed(on, tl([art('result', 'Findings')]), ART_UI)
   const copies: string[] = []
@@ -258,18 +254,18 @@ test('c copies the title when the artifact has no ref', async ($, on) => {
   })
   on('ui.toast', () => ({ value: undefined }))
   const bare = await mount($, 'terminal')
-  expect(rowWith(await drawnRows(bare), 'c: copy').trim()).toBe('c: copy   p: page')
+  expect(rowWith(await drawnRows(bare), 'c: copy').trim()).toBe('c: copy')
   await bare.press({ key: 'act-c-result:Findings' })
   expect(copies).toEqual(['Findings'])
   await bare.unmount()
 })
 
-// LOOK TEST (edited for Rich): the action line reads `c: copy link   p: page`.
-test('a step no longer in the timeline leaves only c and p: no o and no g', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): the action line reads `c: copy link` (no `p: page`).
+test('a step no longer in the timeline leaves only c: no o and no g', async ($, on) => {
   seed(on, tl([art('document', 'a.md', { ref: 'a.md', stepId: 'gone' })]), ART_UI)
   const ui = await mount($, 'terminal')
   const rows = await drawnRows(ui)
-  expect(rowWith(rows, 'c: copy link').trim()).toBe('c: copy link   p: page')
+  expect(rowWith(rows, 'c: copy link').trim()).toBe('c: copy link')
   expect(rows.some(r => r.includes('o: step') || r.includes('g: chat'))).toBe(false)
   expect(rowWith(rows, 'from')).not.toContain('step')
   await ui.unmount()
@@ -616,14 +612,6 @@ test('files changed: o calls openInEditor on a press only, for the file that was
   await ui.unmount()
 })
 
-test('p: page opens the artifact page', async ($, on) => {
-  const stored = seed(on, tl([art('document', 'plan', { ref: 'docs/plan.md' })]), ART_UI)
-  const ui = await mount($, 'terminal')
-  await ui.press({ key: 'act-p-document:plan' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'artifact', id: 'document:plan' })
-  await ui.unmount()
-})
-
 const LONG_TITLE = 'Rate limit design: a token bucket for each API key, with the burst case and the three callers that change'
 const LONG_REF = 'C:/Users/aaron/Documents/GitHub/mission-control-claude-mod/docs/superpowers/plans/2026-11-15-a-very-long-plan-name.md'
 const LONG_SUMMARY = 'Why the limiter moves before auth, how the bucket is keyed, what the 429 reply carries, and the three callers that change. Then the follow-up work.'
@@ -699,8 +687,9 @@ test('the artifact page: the step that made it opens the step page through openS
   await ui.press({ key: 'artifact-madeby' })
   const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; missing?: true } }
   expect(u.page).toEqual({ kind: 'step', id: 's9' })
-  expect(u.stepOpen).toBe('s9')
-  // openStep reads the body (here none is kept) and writes the result beside stepOpen; openPage would leave it unset.
+  // BEHAVIOUR CHANGE (rich rule 4): the step page keeps the tab it was opened from, so `b` returns there.
+  expect(u.tab).toBe('artifacts')
+  // openStep reads the body (here none is kept) and writes the result beside the page; openPage alone used to leave it unset.
   expect(u.stepBody).toEqual({ stepId: 's9', missing: true })
   await ui.unmount()
 })

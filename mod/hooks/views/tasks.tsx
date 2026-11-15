@@ -4,7 +4,7 @@ import type { AgentRow, Step, TaskItem, Timeline } from '../../types'
 import { median, taskMeter } from '../model/meter'
 import type { TaskMeterRow } from '../model/meter'
 import { debug, errText, updateUi } from '../state'
-import { STEP_GLYPH, signalFlag } from './agentmeta'
+import { STEP_GLYPH, openAgentPage, signalFlag } from './agentmeta'
 import { buckets, clock, elapsed, levels, pips, spark, typeShort, wrapFull, wrapWords } from './fit'
 import { exportDigest } from './handoff'
 import { podFor, waitStates } from './needs'
@@ -25,7 +25,6 @@ const DONE_CAP = 3
 const UNFOLDED_CAP = 20
 // Agents tethered under the active task before the more line.
 const TETHERED_AGENTS = 4
-const OPENED_AGENTS = 3
 // The PLAN strip: one column per task (two cells apart while they fit), at most this wide, three rows tall.
 const PLAN_MAX = 34
 const PLAN_ROWS = 3
@@ -247,15 +246,8 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         </Text>
       ) : null
 
-    const toggleOpen = (key: string) => (): Promise<void> =>
-      updateUi($, s => {
-        if (s.taskOpen === key) {
-          const { taskOpen: _closed, ...rest } = s
-          return rest
-        }
-        return { ...s, taskOpen: key }
-      })
-    const toPage = (key: string) => (): Promise<void> => openPage($, 'task', key)
+    // Enter on a task row opens its page (rich rule 4); `b` comes back to the row.
+    const toPage = (key: string) => (): Promise<void> => openPage($, 'task', key, `task-${key}`)
 
     const blocks: RenderElement[][] = []
 
@@ -263,7 +255,6 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const lines: RenderElement[] = [section(ctx, $, 'ACTIVE', 'tokens', 'time')]
       for (const x of active.slice(0, ACTIVE_CAP)) {
         const key = keyOf(x)
-        const open = u.taskOpen === key
         const agents = agentsOn(t, x)
         const live = agents.filter(a => a.status === 'running').length
         const m = byTask.get(key)
@@ -277,7 +268,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
             bold: true,
             ...(used !== '' ? { metric: used } : live > 0 && x.owner === 'main' ? { metric: `${live} live` } : {}),
             time: elapsed(x.updatedAt, now),
-            onPress: toggleOpen(key),
+            onPress: toPage(key),
           }),
         )
         const shown = agents.slice(0, TETHERED_AGENTS)
@@ -297,24 +288,11 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
               tether: { last: i === shown.length - 1 && hidden === 0 },
               ...(at !== '' ? { metric: at } : {}),
               time: elapsed(a.startedAt, now),
+              onPress: () => openAgentPage($, a.id, `task-agent-${a.id}`),
             }),
           )
         })
         if (hidden > 0) lines.push(more(ctx, $, hidden, 'more agents', 1))
-        if (open) {
-          const details: Detail[] =
-            agents.length === 0
-              ? [{ key: 'agents', value: 'none working on it' }]
-              : agents.slice(0, OPENED_AGENTS).map((a, i) => ({
-                  key: i === 0 ? 'agent' : '',
-                  value: [{ text: `${a.type} · ${a.description}` }, ...(a.doing !== '' ? [{ text: ` · ${a.doing}`, dim: true }] : [])],
-                }))
-          if (m !== undefined && m.running > 0 && m.tokens > 0) {
-            details.push({ key: 'tokens', value: `${m.running} live: ${tok(m.runningTokens) || '0'} of the ${tok(m.tokens)}` })
-          }
-          const actions: Action[] = [{ hotkey: 'p', label: 'page', key: `page-${key}`, onPress: toPage(key) }]
-          lines.push(opened(ctx, $, details, actions))
-        }
       }
       if (active.length > ACTIVE_CAP) lines.push(more(ctx, $, active.length - ACTIVE_CAP, 'more active'))
       blocks.push(lines)

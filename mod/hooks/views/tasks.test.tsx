@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { decode, PALETTE } from './raster'
-import { colOf, screen } from './screen.testkit'
+import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -21,7 +21,8 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  on('ui.log', () => ({ value: undefined }))
+  LOGS.length = 0
+  on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
@@ -265,31 +266,28 @@ test('the tethered agents have the hull colour of their pod; a fifth agent folds
   await ui.unmount()
 })
 
-test('pressing the active row opens its agents with type and doing; pressing again closes it', async ($, on) => {
+// BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
+test('Enter on the active task opens its page; b returns to the list with the task focused', async ($, on) => {
   const stored = seed(on, BUSY, TASKS_UI)
-  const ui = await mount($, 'terminal')
-  expect((await drawnRows(ui)).some(r => r.includes('Explore · find callers'))).toBe(false)
-  await ui.press({ key: 'task-main:a1' })
-  await ui.unmount()
-  expect((stored.get('ui') as UiState).taskOpen).toBe('main:a1')
-  const again = await mount($, 'terminal')
-  const rows = await drawnRows(again)
-  const first = rowWith(rows, 'Explore · find callers')
-  expect([colOf(first, 'agent'), colOf(first, 'Explore · find callers')]).toEqual([6, 14])
-  expect(colOf(rowWith(rows, 'general-purpose · write tests'), 'general-purpose · write tests')).toBe(14)
-  expect(first).toContain('Grep stepRow')
-  await again.press({ key: 'task-main:a1' })
-  await again.unmount()
-  expect((stored.get('ui') as UiState).taskOpen).toBeUndefined()
-  const closed = await mount($, 'terminal')
-  expect((await drawnRows(closed)).some(r => r.includes('Explore · find callers'))).toBe(false)
-  await closed.unmount()
+  for (const surface of SURFACES) {
+    stored.set('ui', TASKS_UI)
+    LOGS.length = 0
+    const ui = await mount($, surface)
+    await ui.press({ key: 'task-main:a1' })
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'task', id: 'main:a1', from: 'task-main:a1' })
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['task-main:a1'])
+    await ui.unmount()
+  }
 })
 
-test('an opened task with no agent says so', async ($, on) => {
-  seed(on, { ...empty, tasks: [task('1', 'Solo job', 'in_progress')] }, { ...TASKS_UI, taskOpen: 'main:1' })
+// BEHAVIOUR CHANGE (rich rule 4): the in-place block is gone; its "none working on it" line is the page's AGENTS line.
+test('the page of a task no agent worked on says so', async ($, on) => {
+  seed(on, { ...empty, tasks: [task('1', 'Solo job', 'in_progress')] }, { ...TASKS_UI, page: { kind: 'task', id: 'main:1' } })
   const ui = await mount($, 'terminal')
-  expect((await drawnRows(ui)).some(r => r.includes('none working on it'))).toBe(true)
+  expect((await drawnRows(ui)).some(r => r.includes('No agent worked on it.'))).toBe(true)
   await ui.unmount()
 })
 
@@ -499,17 +497,23 @@ test('over 34 tasks the PLAN strip buckets them so it stays 34 columns wide', as
   await ui.unmount()
 })
 
-test('Enter on a queued or done task opens its page; the opened active task has p: page', async ($, on) => {
+test('Enter on a queued or done task opens its page; b returns to the list with the task focused', async ($, on) => {
   const stored = seed(on, BUSY, TASKS_UI)
-  const ui = await mount($, 'desktop')
-  await ui.press({ key: 'task-main:q1' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'task', id: 'main:q1' })
-  await ui.unmount()
-  stored.set('ui', { ...TASKS_UI, taskOpen: 'main:a1' })
+  for (const key of ['main:q1', 'main:d5']) {
+    stored.set('ui', TASKS_UI)
+    LOGS.length = 0
+    const ui = await mount($, 'desktop')
+    await ui.press({ key: `task-${key}` })
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'task', id: key, from: `task-${key}` })
+    await ui.redraw()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual([`task-${key}`])
+    await ui.unmount()
+  }
+  // The active task has no p: page any more: Enter on its row is the way in.
   const open = await mount($, 'desktop')
-  expect((await drawnRows(open)).some(r => r.includes('p: page'))).toBe(true)
-  await open.press({ key: 'page-main:a1' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'task', id: 'main:a1' })
+  expect((await drawnRows(open)).some(r => r.includes('p: page'))).toBe(false)
   await open.unmount()
 })
 

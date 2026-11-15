@@ -329,10 +329,8 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
           bold: isOpen,
           metric: a.count > 1 ? `${KIND[a.kind]} ×${a.count}` : KIND[a.kind],
           time: elapsed(a.updatedAt, ctx.now),
-          onPress: () => {
-            fileOpen = undefined
-            return updateUi($, s => ({ ...s, artifactOpen: (s.artifactOpen ?? newest) === a.id ? '' : a.id }))
-          },
+          // Enter on an artifact row opens its page (rich rule 4); `b` comes back to the row.
+          onPress: () => openPage($, 'artifact', a.id, `art-${a.id}`),
         }),
       )
       if (!isOpen) return
@@ -351,7 +349,6 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       if (stepId !== undefined && seq !== undefined) {
         actions.push({ hotkey: 'g', label: 'chat', key: `act-g-${a.id}`, onPress: () => showInChat($, stepId) })
       }
-      actions.push({ hotkey: 'p', label: 'page', key: `act-p-${a.id}`, onPress: () => openPage($, 'artifact', a.id) })
       list.push(opened(ctx, $, detailsOf(t, a, cols, seq), []), actionLine(ctx, $, actions, `actions-${a.id}`))
       if (i < Math.min(rows.length, ARTIFACT_CAP) - 1 || rows.length > ARTIFACT_CAP) list.push(blank(ctx, $, `below-${a.id}`))
     })

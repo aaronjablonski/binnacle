@@ -1,22 +1,21 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, Budget, Timeline } from '../../types'
+import type { AgentRow, Budget, BudgetWindow, Timeline } from '../../types'
 import { budgetOf } from '../model/usage'
 import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { blockBar, elapsed, fit } from './fit'
-import { sectionHeader } from './parts'
+import { elapsed, fit, wordFit } from './fit'
+import { runsLine } from './lay'
+import type { Placed } from './lay'
+import { barCell, blank, more, row, section } from './parts'
+import type { ReadoutCell, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C } from './style'
+import { C, GRID, rateColor } from './style'
 
 /** A budget older than this is a restored one: it was toasted (or not) when it arrived. */
 const FRESH_MS = 30_000
 const CONTEXT_TOAST = 80
 const WINDOW_FROM = 70
 const WINDOW_STEP = 10
-// Under this width, or off the dock, the section is one line.
-const COMPACT = 40
-const MIN_BAR = 6
-const MAX_BAR = 30
 
 /** `claude-sonnet-5-5` as `sonnet`; an unknown id loses only its `claude-` prefix. */
 export function modelName(id: string): string {
@@ -97,82 +96,157 @@ export function budgetLine(b: Budget, showCost: boolean): string {
   return parts.join(' · ')
 }
 
-function fillColor(pct: number): string {
-  if (pct >= 90) return C.error
-  if (pct >= WINDOW_FROM) return C.running
-  return C.done
+// ---------- the Now readout cells and the budget view ----------
+
+// Whether Now shows the budget view in place of its sections. Ephemeral pane
+// state like onscreen.ts's: a render hook may not write `$.state`, and a
+// reload starting it closed loses nothing.
+let budgetOpen = false
+
+/** Whether the budget view replaces Now's sections. */
+export function isBudgetOpen(): boolean {
+  return budgetOpen
 }
 
-// The compact seat is judged on the pane's placement and width.
-function isCompact(ctx: ViewCtx): boolean {
-  const props = (ctx.e as { props?: { placement?: string } }).props
-  return ctx.cols < COMPACT || (props?.placement !== undefined && props.placement !== 'dock')
+/** Opens or closes the budget view, and redraws the pane. Press handlers only. */
+export function setBudgetOpen($: EngineInterface, open: boolean): void {
+  budgetOpen = open
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    debug($, `invalidate failed: ${errText(err)}`)
+  }
+}
+
+/** The hotter of the 5-hour and 7-day windows; the one there is when only one is. */
+function hotWindow(b: Budget): BudgetWindow | undefined {
+  const five = b.windows.find(w => w.name === 'five_hour')
+  const seven = b.windows.find(w => w.name === 'seven_day')
+  if (five !== undefined && seven !== undefined) return five.pct > seven.pct ? five : seven
+  return five ?? seven
+}
+
+const none = (text: string): Run[] => [{ text, dim: true }]
+
+/**
+ * The CTX and the 7D (or 5H, when it is the hotter window) readout cells of
+ * Now. Pressing either label opens the budget view. They drop last-but-one
+ * (CTX, rank 3) and first (the window, rank 1).
+ */
+export function budgetCells($: EngineInterface, t: Timeline): ReadoutCell[] {
+  const b = t.budget
+  const open = (): void => setBudgetOpen($, true)
+  const pct = b?.contextPct
+  const win = b !== undefined ? hotWindow(b) : undefined
+  return [
+    {
+      label: 'CTX',
+      key: 'readout-ctx',
+      onPress: open,
+      drop: 3,
+      value: pct !== undefined ? percent(pct) : none('–'),
+      gfx: barCell(pct ?? 0, 100, pct !== undefined ? rateColor(pct) : undefined),
+    },
+    {
+      label: win !== undefined ? windowName(win.name).toUpperCase() : '7D',
+      key: 'readout-window',
+      onPress: open,
+      drop: 1,
+      value: win !== undefined ? percent(win.pct) : none('–'),
+      gfx: barCell(win?.pct ?? 0, 100, win !== undefined ? rateColor(win.pct) : undefined),
+    },
+  ]
+}
+
+/** The two heaviest models as readout cells: the model and its share of all tokens. */
+export function modelCells(t: Timeline): ReadoutCell[] {
+  const totals = modelTotals(t)
+  const all = totals.reduce((n, x) => n + x.tokens, 0)
+  return totals.slice(0, 2).map((x, i) => {
+    const share = all > 0 ? Math.round((x.tokens / all) * 100) : 0
+    return {
+      label: x.model.toUpperCase(),
+      value: `${share}%`,
+      gfx: barCell(share, 100, C.model),
+      drop: 2 - i,
+    }
+  })
+}
+
+const MAX_LIST = 6
+
+// The runs cut to `n` characters (a bar shortens by its rest).
+function shrink(runs: Run[], n: number): Run[] {
+  const out: Run[] = []
+  let left = n
+  for (const r of runs) {
+    if (left <= 0) break
+    out.push({ ...r, text: r.text.slice(0, left) })
+    left -= r.text.length
+  }
+  return out
 }
 
 /**
- * BUDGET: a block bar for the context and one per window, each with its
- * percentage and reset time; one dim line on a narrow or inline seat. Null
- * until the first measure has something to show.
+ * The budget view (spec "Now": one press from the readouts): `b: back`, then
+ * every window (CTX first) as label at 2, value at 8, a 10-column bar at 14
+ * and its reset at 26 (on its own line at 8 when the width is under 40), the
+ * cost when asked for, and one row per model with its tokens and agents.
  */
-export function budgetSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  const { Box, Text } = $.ui.resolve(ctx.e)
+export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { t, cols, now } = ctx
   const b = t.budget
-  const showCost = ctx.showCost === true
-  if (b === undefined) return null
-  const rows = rowsOf(b, now)
-  if (rows.length === 0) return null
-  if (isCompact(ctx)) {
-    return (
-      <Text key="budget" dimColor>
-        {fit(budgetLine(b, showCost), cols)}
-      </Text>
-    )
+  const out: (RenderElement | null)[] = [
+    <Box key="budget-top" flexDirection="row" paddingLeft={GRID.margin}>
+      <Button key="budget-back" hotkey="b" plain onPress={() => setBudgetOpen($, false)}>
+        back
+      </Button>
+    </Box>,
+    blank(ctx, $, 'budget-gap-0'),
+    section(ctx, $, 'BUDGET'),
+  ]
+  const rows = b !== undefined ? rowsOf(b, now) : []
+  if (b === undefined || rows.length === 0) {
+    out.push(<Text key="budget-none" dimColor>{'  No reading yet.'}</Text>)
   }
-  const width = Math.max(...rows.map(r => r.label.length))
-  const meta = showCost && b.costUsd !== undefined ? dollars(b.costUsd) : ''
-  return (
-    <Box key="budget" flexDirection="column">
-      {sectionHeader('BUDGET', meta, cols, ctx.e, $)}
-      {rows.map(r => {
-        const label = r.label.padEnd(width)
-        const pct = percent(r.pct)
-        let tail = ` ${pct}${r.reset !== undefined ? ` · ${r.reset}` : ''}`
-        let bar = Math.min(MAX_BAR, cols - width - 1 - tail.length)
-        if (bar < MIN_BAR) {
-          tail = ` ${pct}`
-          bar = Math.min(MAX_BAR, cols - width - 1 - tail.length)
-        }
-        if (bar < MIN_BAR) return <Text key={`budget-${r.label}`}>{fit(`${label} ${pct}`, cols)}</Text>
-        const blocks = blockBar(Math.max(0, Math.min(100, r.pct)), 100, bar)
-        return (
-          <Text key={`budget-${r.label}`}>
-            <Text dimColor>{label} </Text>
-            <Text color={fillColor(r.pct)}>{blocks.filled}</Text>
-            <Text color={C.rule}>{blocks.rest}</Text>
-            <Text>{tail}</Text>
-          </Text>
-        )
-      })}
-    </Box>
-  )
-}
-
-/** BY MODEL: one dim totals line per model under the Agents list. Null with no usage yet. */
-export function modelsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const totals = modelTotals(ctx.t)
-  if (totals.length === 0) return null
-  return (
-    <Box key="models" flexDirection="column">
-      {sectionHeader('BY MODEL', 'tokens', ctx.cols, ctx.e, $)}
-      {totals.map(x => (
-        <Text key={`model-${x.model}`} dimColor>
-          {fit(`${x.model} ${tokenText(x.tokens)} · ${x.agents} ${x.agents === 1 ? 'agent' : 'agents'}`, ctx.cols)}
-        </Text>
-      ))}
-    </Box>
-  )
+  const room = Math.max(0, Math.min(GRID.content, cols - 14))
+  const inline = cols >= 40
+  for (const r of rows) {
+    const label = fit(r.label.toUpperCase(), 5)
+    const bar = barCell(Math.max(0, Math.min(100, r.pct)), 100, rateColor(r.pct))
+    const barRuns = shrink(bar, room)
+    const segs: Placed[] = [
+      { col: GRID.margin, text: label, dim: true },
+      { col: 8, text: percent(r.pct), bold: true },
+      ...barRuns.map((x, i) => ({ ...x, col: 14 + (i === 0 ? 0 : (barRuns[0]?.text.length ?? 0)) })),
+    ]
+    if (inline && r.reset !== undefined) segs.push({ col: 26, text: wordFit(r.reset, cols - 26), dim: true })
+    out.push(runsLine(ctx.e, $, segs, `budget-${r.label}`))
+    if (!inline && r.reset !== undefined) {
+      out.push(runsLine(ctx.e, $, [{ col: 8, text: wordFit(r.reset, cols - 8), dim: true }], `budget-${r.label}-reset`))
+    }
+  }
+  if (ctx.showCost === true && b?.costUsd !== undefined) {
+    out.push(runsLine(ctx.e, $, [{ col: GRID.margin, text: 'COST', dim: true }, { col: 8, text: dollars(b.costUsd), bold: true }], 'budget-cost'))
+  }
+  const totals = modelTotals(t)
+  if (totals.length > 0) {
+    out.push(blank(ctx, $, 'budget-gap-1'), section(ctx, $, 'BY MODEL', 'tokens', 'agents'))
+    for (const x of totals.slice(0, MAX_LIST)) {
+      out.push(
+        row(ctx, $, {
+          key: `model-${x.model}`,
+          glyph: '·',
+          name: x.model,
+          metric: tokenText(x.tokens),
+          time: `${x.agents} ${x.agents === 1 ? 'agent' : 'agents'}`,
+        }),
+      )
+    }
+    if (totals.length > MAX_LIST) out.push(more(ctx, $, totals.length - MAX_LIST))
+  }
+  return <Box flexDirection="column">{out.filter((x): x is RenderElement => x !== null)}</Box>
 }
 
 /**

@@ -5,7 +5,8 @@ import type { On } from 'claude-code'
 import type { AgentRow, Budget, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { modelName, resetText, tokenText, windowName } from './budget'
+import { modelCells, modelName, resetText, tokenText, windowName } from './budget'
+import { colOf, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -116,48 +117,60 @@ test('no budget yet: no BUDGET section and no one-line summary', async ($, on) =
   }
 })
 
-test('BUDGET shows the context bar and each window with its reset', async ($, on) => {
+const focused = (columns: number, placement: 'dock' | 'inline' = 'dock') => ({
+  ...PANE(columns, placement),
+  props: { ...PANE(columns, placement).props, isFocused: true },
+})
+
+// The budget view is one press away: the CTX label, or `b` from the footer.
+async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns: number, placement: 'dock' | 'inline' = 'dock') {
+  const m = await $.ui.mount({ ...focused(columns, placement), surface })
+  await m.press({ key: 'hint-budget' })
+  return m
+}
+
+test('the budget view shows CTX and each window: label 2, value 8, bar 14, reset 26', async ($, on) => {
   world(on, withBudget(budget({ windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 32 }] })))
   for (const surface of SURFACES) {
-    const m = await view($, surface, 62)
-    const all = await lines(m)
-    expect(all.some(l => l.includes('BUDGET'))).toBe(true)
-    const ctx = all.find(l => l.includes('62%')) ?? ''
-    expect(ctx).toContain('ctx')
-    expect(ctx).toContain('█')
-    const five = all.find(l => l.includes('71%')) ?? ''
-    expect(five).toContain('5h')
-    expect(five).toContain('resets in 2h00')
-    const seven = all.find(l => l.includes('32%')) ?? ''
-    expect(seven).toContain('7d')
+    const m = await openBudget($, surface, 62)
+    const rows = screen(await m.drawn())
+    expect(rows.some(r => r.startsWith('┌ BUDGET'))).toBe(true)
+    const ctx = rows.find(r => r.startsWith('  CTX'))!
+    expect(colOf(ctx, '62%')).toBe(8)
+    expect(ctx.slice(14, 24)).toMatch(/^[━─]{10}$/)
+    const five = rows.find(r => r.startsWith('  5H'))!
+    expect(colOf(five, '71%')).toBe(8)
+    expect(colOf(five, 'resets in 2h00')).toBe(26)
+    const seven = rows.find(r => r.startsWith('  7D'))!
+    expect(colOf(seven, '32%')).toBe(8)
     expect(seven).not.toContain('resets')
+    await m.press({ key: 'budget-back' })
     await m.unmount()
   }
 })
 
-test('wide seats put BUDGET in the two-column Overview', async ($, on) => {
-  world(on, withBudget(budget()))
-  const m = await view($, 'terminal', 110)
-  const all = (await lines(m)).join('\n')
-  expect(all).toContain('BUDGET')
-  expect(all).toContain('5h')
+test('the budget view lists a model row with its tokens and agents', async ($, on) => {
+  world(on, withBudget(budget(), { agents: { main, a1: agent('a1', { model: 'claude-sonnet-5-5', tokensIn: 40_000, tokensOut: 1200 }) } }))
+  const m = await openBudget($, 'terminal', 62)
+  const rows = screen(await m.drawn())
+  expect(rows.some(r => r.startsWith('┌ BY MODEL'))).toBe(true)
+  const sonnet = rows.find(r => r.includes('sonnet'))!
+  expect(colOf(sonnet, 'sonnet')).toBe(4)
+  expect(colOf(sonnet, '41k')).toBe(38)
+  expect(colOf(sonnet, '1 agent')).toBe(50)
+  await m.press({ key: 'budget-back' })
   await m.unmount()
 })
 
-test('narrow and inline seats show the one line', async ($, on) => {
-  world(on, withBudget(budget()))
-  for (const surface of SURFACES) {
-    for (const [cols, placement] of [[34, 'dock'], [62, 'inline']] as const) {
-      const m = await view($, surface, cols, placement)
-      const all = await lines(m)
-      expect(all).toContain('ctx 62% · 5h 71%')
-      expect(all.join('\n')).not.toContain('BUDGET')
-      await m.unmount()
-    }
-  }
+test('with no budget the budget view says so', async ($, on) => {
+  world(on, withBudget(undefined))
+  const m = await openBudget($, 'terminal', 62)
+  expect(screen(await m.drawn()).some(r => r.includes('No reading yet.'))).toBe(true)
+  await m.press({ key: 'budget-back' })
+  await m.unmount()
 })
 
-test('every budget line fits the width, down to 32', async ($, on) => {
+test('every budget row fits the width, down to 32, and the reset drops under the bar below 40', async ($, on) => {
   world(
     on,
     withBudget(
@@ -172,8 +185,12 @@ test('every budget line fits the width, down to 32', async ($, on) => {
   )
   for (const surface of SURFACES) {
     for (const cols of [32, 34, 40, 62, 110]) {
-      const m = await view($, surface, cols)
-      for (const l of await lines(m)) expect(l.length).toBeLessThanOrEqual(cols)
+      const m = await openBudget($, surface, cols)
+      const rows = screen(await m.drawn())
+      expect(rows.some(r => r.startsWith('┌ BUDGET'))).toBe(true)
+      for (const l of rows) expect(l.length).toBeLessThanOrEqual(cols)
+      if (cols < 40) expect(rows.some(r => colOf(r, 'resets in') === 8)).toBe(true)
+      await m.press({ key: 'budget-back' })
       await m.unmount()
     }
   }
@@ -181,123 +198,36 @@ test('every budget line fits the width, down to 32', async ($, on) => {
 
 test('cost is hidden by default', async ($, on) => {
   world(on, withBudget(budget({ costUsd: 0.5 })))
-  const a = await view($, 'terminal', 62)
-  expect((await lines(a)).join('\n')).not.toContain('$')
+  const a = await openBudget($, 'terminal', 62)
+  expect(screen(await a.drawn()).join('\n')).not.toContain('$')
+  await a.press({ key: 'budget-back' })
   await a.unmount()
 })
 
-test('showCost adds the dollar figure to the section and the one line', { options: { showCost: true } }, async ($, on) => {
+test('showCost adds a COST row to the budget view', { options: { showCost: true } }, async ($, on) => {
   world(on, withBudget(budget({ costUsd: 0.5 })))
-  const a = await view($, 'terminal', 62)
-  expect((await lines(a)).join('\n')).toContain('$0.50')
+  const a = await openBudget($, 'terminal', 62)
+  const cost = screen(await a.drawn()).find(r => r.startsWith('  COST'))!
+  expect(colOf(cost, '$0.50')).toBe(8)
+  await a.press({ key: 'budget-back' })
   await a.unmount()
-  const b = await view($, 'terminal', 34)
-  expect(await lines(b)).toContain('ctx 62% · 5h 71% · $0.50')
-  await b.unmount()
 })
 
-test('agent rows carry model and tokens; a running agent with none shows …', async ($, on) => {
-  world(
-    on,
-    withBudget(undefined, {
-      agents: {
-        main: { ...main, model: 'claude-opus-5-5', tokensIn: 100_000, tokensOut: 18_000 },
-        a1: agent('a1', { model: 'claude-sonnet-5-5', tokensIn: 40_000, tokensOut: 1_200 }),
-        a2: agent('a2', { status: 'running', endedAt: undefined }),
-        a3: agent('a3'),
-      },
-    }),
-    ui('agents'),
-  )
-  for (const surface of SURFACES) {
-    const m = await view($, surface, 62)
-    expect((await m.find({ key: 'agent-main' }))?.text ?? '').toContain('opus 118k')
-    expect((await m.find({ key: 'agent-a1' }))?.text ?? '').toContain('sonnet 41k')
-    const running = (await m.find({ key: 'agent-a2' }))?.text ?? ''
-    expect(running).toContain('…')
-    expect(running).not.toContain(' 0')
-    expect((await m.find({ key: 'agent-a3' }))?.text ?? '').not.toContain('…')
-    await m.unmount()
+test('modelCells gives the two heaviest models as their share of all tokens', () => {
+  const t = {
+    ...empty,
+    agents: {
+      main,
+      a1: agent('a1', { model: 'claude-opus-5-5', tokensIn: 60_000, tokensOut: 0 }),
+      a2: agent('a2', { model: 'claude-sonnet-5-5', tokensIn: 30_000, tokensOut: 0 }),
+      a3: agent('a3', { model: 'claude-haiku-5-5', tokensIn: 10_000, tokensOut: 0 }),
+    },
   }
-})
-
-test('a totals line per model sits under the list', async ($, on) => {
-  world(
-    on,
-    withBudget(undefined, {
-      agents: {
-        main: { ...main, model: 'claude-opus-5-5', tokensIn: 100_000, tokensOut: 12_000 },
-        a1: agent('a1', { model: 'claude-sonnet-5-5', tokensIn: 40_000, tokensOut: 2_000 }),
-        a2: agent('a2', { model: 'claude-sonnet-5-5', tokensIn: 10_000, tokensOut: 500 }),
-      },
-    }),
-    ui('agents'),
-  )
-  for (const surface of SURFACES) {
-    const m = await view($, surface, 62)
-    const all = await lines(m)
-    expect(all.some(l => l.includes('BY MODEL'))).toBe(true)
-    expect(all).toContain('opus 112k · 1 agent')
-    expect(all).toContain('sonnet 53k · 2 agents')
-    await m.unmount()
-  }
-})
-
-test('no usage anywhere: no totals section', async ($, on) => {
-  world(on, withBudget(undefined, { agents: { main, a1: agent('a1') } }), ui('agents'))
-  const m = await view($, 'terminal', 62)
-  expect((await lines(m)).join('\n')).not.toContain('BY MODEL')
-  await m.unmount()
-})
-
-test('agent rows and totals fit 32 columns', async ($, on) => {
-  world(
-    on,
-    withBudget(undefined, {
-      agents: {
-        main: { ...main, model: 'claude-opus-5-5', tokensIn: 100_000, tokensOut: 12_000 },
-        a1: agent('a1', { model: 'claude-sonnet-5-5', tokensIn: 40_000, tokensOut: 2_000, description: 'a long description here' }),
-      },
-    }),
-    ui('agents'),
-  )
-  for (const surface of SURFACES) {
-    const m = await view($, surface, 32)
-    for (const l of await lines(m)) expect(l.length).toBeLessThanOrEqual(32)
-    await m.unmount()
-  }
-})
-
-test('a subagent has a View button; main has none; pressing views that agent', async ($, on) => {
-  world(on, withBudget(undefined, { agents: { main, a1: agent('a1') } }), ui('agents'))
-  const views: unknown[] = []
-  on('ui.view', (_, e) => {
-    views.push(e)
-    return { value: {} }
-  })
-  for (const surface of SURFACES) {
-    const m = await view($, surface, 62)
-    expect(await m.find({ key: 'view-main' })).toBe(undefined)
-    expect(await m.find({ key: 'view-a1' })).not.toBe(undefined)
-    expect(views.length).toBe(0)
-    await m.press({ key: 'view-a1' })
-    expect(views.pop()).toEqual({ agentId: 'a1' })
-    await m.unmount()
-  }
-})
-
-test('a refused view toasts the reason', async ($, on) => {
-  world(on, withBudget(undefined, { agents: { main, a1: agent('a1') } }), ui('agents'))
-  const toasts: string[] = []
-  on('ui.toast', (_, e) => {
-    toasts.push((e as unknown as { text: string }).text)
-    return { value: undefined }
-  })
-  on('ui.view', () => ({ value: { deny: 'No such agent.' } }))
-  const m = await view($, 'terminal', 62)
-  await m.press({ key: 'view-a1' })
-  expect(toasts).toEqual(['No such agent.'])
-  await m.unmount()
+  const cells = modelCells(t)
+  expect(cells.map(c => c.label)).toEqual(['OPUS', 'SONNET'])
+  expect(cells.map(c => c.value)).toEqual(['60%', '30%'])
+  expect(cells.every(c => c.gfx.reduce((n, r) => n + r.text.length, 0) === 10)).toBe(true)
+  expect(modelCells(empty)).toEqual([])
 })
 
 // A clock-driven world: the session has started, the ticker runs.

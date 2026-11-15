@@ -4,9 +4,12 @@ import type { Timeline, UiState } from '../../types'
 import { dismissKey, problems } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, fit } from './fit'
+import { elapsed, promptTitle, shortPaths } from './fit'
+import { showInChat } from './find'
+import { argOf } from './lay'
 import { openStep } from './openstep'
-import { sectionHeader } from './parts'
+import { blank, more, opened, row, section, viewAgent } from './parts'
+import type { Action, Detail } from './parts'
 import type { ViewCtx } from './shell'
 import { C } from './style'
 
@@ -22,9 +25,6 @@ export const NOTIFY_ASK_MS = 60_000
 const SPAWNING_TOOLS = new Set(['Agent', 'Workflow'])
 /** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
-// Rows the section draws; the rest become one dim line.
-const MAX_ROWS = 5
-const DISMISS = 'dismiss'
 
 export type NotifyMode = 'off' | 'waits' | 'all'
 
@@ -58,7 +58,7 @@ function ageText(p: Problem, now: number): string {
 }
 
 // Pressing a row: the step's detail, else the Timeline filtered to the agent.
-async function openProblem($: EngineInterface, p: Problem): Promise<void> {
+export async function openProblem($: EngineInterface, p: Problem): Promise<void> {
   if (p.stepId !== undefined) {
     await openStep($, p.stepId)
     return
@@ -69,41 +69,137 @@ async function openProblem($: EngineInterface, p: Problem): Promise<void> {
   })
 }
 
-/** NEEDS YOU: one row per problem, its dismiss under it. Null when there is none. */
+// Which item of NEEDS YOU is opened. Ephemeral pane state like onscreen.ts's:
+// a render hook may not write `$.state`, and a reload starting at the first
+// item loses nothing.
+let openedAt = 0
+
+/** The opened item's index in a list of `count`. */
+export function openedNeed(count: number): number {
+  return count <= 0 ? 0 : Math.max(0, Math.min(openedAt, count - 1))
+}
+
+/** `n` and `p`: opens the next or previous item (wrapping), and redraws. Press handlers only. */
+export function moveNeed($: EngineInterface, delta: 1 | -1, count: number): void {
+  if (count <= 0) return
+  openedAt = (openedNeed(count) + delta + count) % count
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    debug($, `invalidate failed: ${errText(err)}`)
+  }
+}
+
+/** The glyph and its colour for a kind: `?` and `▲` wait on the person, a failure is `✖`. */
+export function needGlyph(p: Problem): { glyph: string; color: string } {
+  if (p.kind === 'asking') return { glyph: '?', color: C.wait }
+  if (p.kind === 'stalled') return { glyph: '▲', color: C.wait }
+  return { glyph: '✖', color: C.fail }
+}
+
+/** The `why` column: what is wrong, in a word or two. */
+export function needWhy(p: Problem): string {
+  switch (p.kind) {
+    case 'asking':
+      return 'asking'
+    case 'repeat':
+      return `failed ${p.count ?? 2}×`
+    case 'loop':
+      return `looped ${p.count ?? 3}×`
+    case 'stalled':
+      return 'stalled'
+    default:
+      return 'failed'
+  }
+}
+
+/** Dismisses a problem: its key goes to `ui.dismissed`. */
+export function dismissNeed($: EngineInterface, p: Problem): Promise<void> {
+  return updateUi($, cur => ({ ...cur, dismissed: [...cur.dismissed, dismissKey(p)] }))
+}
+
+/** `g: chat`: the step's own row, or the agent's transcript; undefined when the problem has neither. */
+export function chatFor($: EngineInterface, p: Problem): (() => Promise<void>) | undefined {
+  if (p.stepId !== undefined) {
+    const id = p.stepId
+    return () => showInChat($, id)
+  }
+  if (p.agent !== 'main') {
+    const id = p.agent
+    return () => viewAgent($, id)
+  }
+  return undefined
+}
+
+/** The tool of a problem's step, when it has one. */
+function stepOf(t: Timeline, p: Problem): { tool: string; label: string } | undefined {
+  const s = p.stepId !== undefined ? t.steps.find(x => x.id === p.stepId) : undefined
+  return s !== undefined ? { tool: s.tool, label: s.label } : undefined
+}
+
+/** What the name column of a problem's row says. */
+export function needName(t: Timeline, p: Problem): string {
+  const s = stepOf(t, p)
+  if (s !== undefined) return argOf(s.tool, s.label) || s.tool
+  if (p.kind === 'failed-turn') return promptTitle(p.label) || problemText(p)
+  return shortPaths(oneLine(p.label))
+}
+
+// Rows the section draws; the rest become one dim line.
+const MAX_LIST = 6
+
+/**
+ * NEEDS YOU (spec "Now"): `┌ NEEDS YOU why waiting` in warning, then one row
+ * per problem. The opened item (the first until `n` or `p` moves it) is bold
+ * with an `asks` or `why` line, an `agent` line and `g: chat  x: dismiss  n:
+ * next`; the first row takes the pane's focus. Null when nothing waits.
+ */
 export function needsSection(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  const { Box, Button, Text } = $.ui.resolve(ctx.e)
-  const { t, u, cols, now } = ctx
+  const { Box } = $.ui.resolve(ctx.e)
+  const { t, u, now } = ctx
   const list = needsYou(t, u, now)
   if (list.length === 0) return null
-  const shown = list.slice(0, MAX_ROWS)
+  const shown = list.slice(0, MAX_LIST)
+  const at = openedNeed(shown.length)
+  const parts: RenderElement[] = [section(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })]
+  shown.forEach((p, i) => {
+    const s = stepOf(t, p)
+    const mark = needGlyph(p)
+    const isOpen = i === at
+    if (isOpen && i > 0) parts.push(blank(ctx, $, `need-gap-${i}`))
+    parts.push(
+      row(ctx, $, {
+        key: `open-${p.key}`,
+        glyph: mark.glyph,
+        glyphColor: mark.color,
+        ...(s !== undefined ? { tool: s.tool } : {}),
+        name: needName(t, p),
+        bold: isOpen,
+        metric: needWhy(p),
+        time: elapsed(p.since, now),
+        onPress: () => openProblem($, p),
+        ...(i === 0 ? { autoFocus: true } : {}),
+      }),
+    )
+    if (!isOpen) return
+    const who = p.agent !== 'main' ? t.agents[p.agent]?.type ?? p.agent : 'main'
+    const details: Detail[] =
+      p.kind === 'asking'
+        ? [{ key: 'asks', value: `to run ${shortPaths(oneLine(p.label))}` }]
+        : [{ key: 'why', value: shortPaths(problemText(p)) }]
+    details.push({ key: 'agent', value: who })
+    const chat = chatFor($, p)
+    const actions: Action[] = []
+    if (chat !== undefined) actions.push({ hotkey: 'g', label: 'chat', key: `chat-${p.key}`, onPress: chat })
+    actions.push({ hotkey: 'x', label: 'dismiss', key: `dismiss-${p.key}`, onPress: () => dismissNeed($, p) })
+    if (shown.length > 1) actions.push({ hotkey: 'n', label: 'next', key: 'need-next', onPress: () => moveNeed($, 1, shown.length) })
+    parts.push(opened(ctx, $, details, actions))
+    if (i < shown.length - 1) parts.push(blank(ctx, $, `need-after-${i}`))
+  })
+  if (list.length > shown.length) parts.push(more(ctx, $, list.length - shown.length))
   return (
     <Box key="needs" flexDirection="column">
-      {sectionHeader('NEEDS YOU', String(list.length), cols, ctx.e, $)}
-      {shown.map(p => {
-        const text = fit(problemText(p), Math.max(0, cols - 2))
-        const who = p.agent !== 'main' ? t.agents[p.agent]?.type ?? p.agent : 'main'
-        const meta = fit(`  ${who} · ${ageText(p, now)}`, Math.max(0, cols - DISMISS.length - 1))
-        return (
-          <Box key={`need-${p.key}`} flexDirection="column">
-            <Button key={`open-${p.key}`} plain label={fit(`! ${text}`, cols)} onPress={() => openProblem($, p)}>
-              <Text color={C.error}>!</Text>
-              <Text>{` ${text}`}</Text>
-            </Button>
-            <Box flexDirection="row" justifyContent="space-between">
-              <Text dimColor>{meta}</Text>
-              <Button
-                key={`dismiss-${p.key}`}
-                plain
-                dimColor
-                onPress={() => updateUi($, cur => ({ ...cur, dismissed: [...cur.dismissed, dismissKey(p)] }))}
-              >
-                <Text>{DISMISS}</Text>
-              </Button>
-            </Box>
-          </Box>
-        )
-      })}
-      {list.length > shown.length ? <Text dimColor>{fit(`+${list.length - shown.length} more`, cols)}</Text> : null}
+      {parts}
     </Box>
   )
 }

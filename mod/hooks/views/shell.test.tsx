@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, Register } from 'claude-code'
 
 import type { Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
@@ -11,8 +11,10 @@ const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
-function world(on: On, t: Timeline, u?: UiState, shapes: Record<string, string> = SHAPES): { stored: Stored; opened: Record<string, unknown>[] } {
+function world(on: On, t: Timeline, u?: UiState, shapes: Record<string, string> = SHAPES, placed = true): { stored: Stored; opened: Record<string, unknown>[] } {
   const stored: Stored = new Map()
+  // A key the mod has written is held under the current shape, as the engine does.
+  const written = new Set<string>()
   stored.set('timeline', t)
   if (u) stored.set('ui', u)
   const versions = new Map<string, number>()
@@ -24,7 +26,7 @@ function world(on: On, t: Timeline, u?: UiState, shapes: Record<string, string> 
     const v = stored.get(key)
     return {
       value: {
-        value: v === undefined ? undefined : { shape: shapes[key], value: v },
+        value: v === undefined ? undefined : { shape: written.has(key) ? SHAPES[key] : shapes[key], value: v },
         version: versions.get(key) ?? 0,
       },
     }
@@ -33,12 +35,13 @@ function world(on: On, t: Timeline, u?: UiState, shapes: Record<string, string> 
     const w = e as unknown as { key: string; value: { value: unknown } }
     const version = (versions.get(w.key) ?? 0) + 1
     versions.set(w.key, version)
+    written.add(w.key)
     stored.set(w.key, w.value.value)
     return { value: { isSet: true as const, version } }
   })
   on('ui.open', (_, e) => {
     opened.push(e as unknown as Record<string, unknown>)
-    return { value: { isPlaced: true as const } }
+    return { value: placed ? { isPlaced: true as const } : { isPlaced: false as const, reason: 'narrow' } }
   })
   on('ui.close', () => ({ value: undefined }))
   return { stored, opened }
@@ -166,7 +169,78 @@ test('a ui value stored as ui-3 reads as the initial value', async ($, on) => {
 
   await run($, 'slim')
 
-  expect(stored.get('ui')).toEqual({ ...initialUi, slim: true })
+  expect(stored.get('ui')).toEqual({ ...initialUi, slim: true, paneOpen: true })
+})
+
+const paneOpenOf = (stored: Stored): unknown => (stored.get('ui') as UiState | undefined)?.paneOpen
+
+test('paneOpen is written by /mc, /mc 1-5 and /mc slim when the pane is placed, and cleared by /mc close', async ($, on) => {
+  const { stored } = world(on, empty)
+  expect(paneOpenOf(stored)).toBe(undefined)
+
+  await run($, '')
+  expect(paneOpenOf(stored)).toBe(true)
+  await run($, 'close')
+  expect(paneOpenOf(stored)).toBe(false)
+  await run($, '3')
+  expect(paneOpenOf(stored)).toBe(true)
+  await run($, 'close')
+  await run($, 'slim')
+  expect(paneOpenOf(stored)).toBe(true)
+})
+
+test('an open that waits for a wider terminal leaves paneOpen false', async ($, on) => {
+  const { stored } = world(on, empty, undefined, SHAPES, false)
+
+  await run($, '')
+
+  expect(paneOpenOf(stored)).toBe(false)
+})
+
+// Another plugin closes a pane: the engine raises ui.close through this mod's hooks too.
+// Written out in full: an inline plugin is a module of its own.
+const closer: Register = on => {
+  on('command.run', { command: 'closer' }, async ($, e) => {
+    await $.ui.close({ id: e.args })
+    return { text: 'closed' }
+  })
+}
+const closeVia = ($: { command: { run: (a: never) => Promise<{ text?: string }> } }, id: string) =>
+  $.command.run({ command: 'closer', args: id } as never)
+
+test('a close of the pane from anywhere (the person, a press) clears paneOpen: a matched ui.close hook observes it', { plugins: [{ name: 'closer', register: closer }] }, async ($, on) => {
+  const { stored } = world(on, empty)
+  await run($, '')
+  expect(paneOpenOf(stored)).toBe(true)
+
+  await closeVia($, 'mission-control')
+
+  expect(paneOpenOf(stored)).toBe(false)
+})
+
+test('a ui.close of another pane leaves paneOpen alone', { plugins: [{ name: 'closer', register: closer }] }, async ($, on) => {
+  const { stored } = world(on, empty)
+  await run($, '')
+
+  await closeVia($, 'other-pane')
+
+  expect(paneOpenOf(stored)).toBe(true)
+})
+
+test('a unknown /mc word writes nothing, paneOpen included', async ($, on) => {
+  const { stored } = world(on, empty)
+  await run($, 'bogus')
+  expect(stored.get('ui')).toBe(undefined)
+})
+
+test('a ui-4 value without paneOpen reads false: no shape bump, nothing declined', async ($, on) => {
+  const old = { ...initialUi, tab: 'artifacts' } as Partial<UiState>
+  delete old.paneOpen
+  const { stored } = world(on, empty, old as UiState)
+
+  await run($, 'close')
+
+  expect(stored.get('ui')).toEqual({ ...initialUi, tab: 'artifacts', paneOpen: false })
 })
 
 const PANE = (columns: number) =>

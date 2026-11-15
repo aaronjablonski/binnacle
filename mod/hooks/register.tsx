@@ -6,7 +6,7 @@ import { restore, restoreAfterClear, saveForClear } from './journal'
 import { debug, errText } from './state'
 import { registerBand } from './views/band'
 import { seedBudget } from './views/budget'
-import { registerShell, runMc, startShell } from './views/shell'
+import { registerShell, runMc, startShell, syncPaneOpen } from './views/shell'
 
 export const register: Register = (on, options) => {
   registerCapture(on)
@@ -66,6 +66,8 @@ export const register: Register = (on, options) => {
     } catch {
       // both report their own failures
     }
+    // A /clear resets $.state while the pane stays up: take the flag from the engine again.
+    await syncPaneOpen($)
     return next(e)
   }).catch(($, e, next) => next(e))
 

@@ -2,7 +2,8 @@ import type { Register } from 'claude-code'
 
 import { registerCapture } from './capture'
 import { registerGuide, startGuide } from './guide'
-import { restore } from './journal'
+import { restore, restoreAfterClear, saveForClear } from './journal'
+import { debug, errText } from './state'
 
 export const register: Register = (on, options) => {
   registerCapture(on)
@@ -10,11 +11,16 @@ export const register: Register = (on, options) => {
 
   // The module's one session.start hook: every task's session-start work is
   // a helper called from here (validate refuses a second unmatched hook).
+  // Each step has its own try, so one failing cannot skip the next (M2).
   on('session.start', async ($, e, next) => {
-    await $.command.register({
-      name: 'mc',
-      description: 'Open Mission Control',
-    })
+    try {
+      await $.command.register({
+        name: 'mc',
+        description: 'Open Mission Control',
+      })
+    } catch (err) {
+      debug($, `command.register failed: ${errText(err)}`)
+    }
     try {
       await restore($, await $.session.id())
     } catch {
@@ -25,14 +31,30 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // A /clear resets $.state and goes on under a new session id with no
+  // session.start: save the snapshot and leave a mark naming its folder for
+  // the classic.SessionStart{clear} that follows. The exit's bound is shared
+  // with core, so the work reads next.budget.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      try {
+        await saveForClear($, e.sessionId, () => next.budget.remainingMs)
+      } catch {
+        // saveForClear reports its own failures
+      }
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   // A /clear, a resume or a fork goes on under another session id with no
-  // session.start: load that session's snapshot here. A /clear keeps the
-  // record the state already holds (spec goal 6), with its journal folder.
+  // session.start. A /clear adopts the record the mark names (spec goal 6);
+  // a resume or fork loads that session's snapshot, following its link.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     try {
-      await restore($, e.session_id, { prune: false, keepCurrent: e.source === 'clear' })
+      if (e.source === 'clear') await restoreAfterClear($, e.session_id)
+      else await restore($, e.session_id, { prune: false })
     } catch {
-      // restore reports its own failures
+      // both report their own failures
     }
     return next(e)
   }).catch(($, e, next) => next(e))

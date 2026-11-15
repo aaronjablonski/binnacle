@@ -49,6 +49,49 @@ export async function adopt($: EngineInterface, snap: Timeline): Promise<void> {
   await update($, timeline, cur => (isEmpty(cur) ? snap : cur))
 }
 
+// The mark a /clear leaves in `$.store` for the session that follows it: a
+// /clear resets `$.state`, so the journal folder of the timeline it ended is
+// handed across here. `$.store` is shared by every session of the mod.
+
+const CLEAR_MARK = 'mission-control:cleared'
+
+/** Where the timeline a /clear ended was journalled, and when (ms). */
+export type ClearMark = { journal: string; at: number }
+
+/** Leaves the mark for the session after a /clear. Never throws. */
+export async function markClear($: EngineInterface, mark: ClearMark): Promise<void> {
+  try {
+    await $.store.set(CLEAR_MARK, mark)
+  } catch (err) {
+    debug($, `markClear failed: ${errText(err)}`)
+  }
+}
+
+/** Reads the mark and removes it, so it is used at most once. Never throws. */
+export async function takeClearMark($: EngineInterface): Promise<ClearMark | undefined> {
+  let v: unknown
+  try {
+    v = await $.store.get(CLEAR_MARK)
+  } catch {
+    return undefined
+  }
+  if (v === undefined) return undefined
+  await dropClearMark($)
+  if (typeof v !== 'object' || v === null) return undefined
+  const m = v as Record<string, unknown>
+  if (typeof m.journal !== 'string' || m.journal === '' || typeof m.at !== 'number') return undefined
+  return { journal: m.journal, at: m.at }
+}
+
+/** Removes the mark. Never throws. */
+export async function dropClearMark($: EngineInterface): Promise<void> {
+  try {
+    await $.store.delete(CLEAR_MARK)
+  } catch {
+    // nothing to remove, or no store
+  }
+}
+
 export function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }

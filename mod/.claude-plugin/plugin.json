@@ -2,6 +2,7 @@
   "name": "mission-control",
   "version": "0.1.0",
   "description": "Keeps tasks, agents, a step timeline and artifacts in a pane and band beside the chat.",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "probe": {
       "type": "boolean",

@@ -10,7 +10,7 @@ import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
-import { bar, clock, elapsed, fit, growLists, listSplit, meter, shortPaths, wordFit } from './fit'
+import { bar, clock, elapsed, growLists, listSplit, meter, shortPaths, wordFit } from './fit'
 import { laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { podFor, waitStates } from './needs'
@@ -794,7 +794,7 @@ function weekBlock(ctx: ViewCtx, $: EngineInterface, wide: boolean): RenderEleme
         <Box key="week-legend" flexDirection="column" width={DECK.gauge} paddingLeft={COL.name} flexShrink={0}>
           {primary !== undefined ? (
             <Text key="week-primary" color={C.model} wrap="truncate-end">
-              {fit(modelName(primary), 9)}
+              {wordFit(modelName(primary), 9)}
             </Text>
           ) : null}
           {second ? (

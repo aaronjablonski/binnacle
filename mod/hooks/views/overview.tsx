@@ -5,7 +5,7 @@ import { cacheLine, pace, taskKey, taskMeter, thisTurn, turnClock } from '../mod
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { budgetMeters, budgetView, exportLedger, isBudgetOpen, setBudgetOpen, tokenText } from './budget'
-import { buckets, clock, crewRow, elapsed, GAUGE, pips, sectionRows, shortPaths, spark, typeShort, wordFit, NOW_SECTIONS } from './fit'
+import { buckets, clock, crewRow, elapsed, GAUGE, pips, sectionRows, shortPaths, spark, toolCell, typeShort, wordFit, NOW_SECTIONS } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { crewPods, moveNeed, needsCap, needsFrameRows, needsLimits, needsSection, needsYou, paneState, podFor, waitStates } from './needs'
@@ -254,7 +254,7 @@ function stripRow($: EngineInterface, ctx: ViewCtx, r: StripRow): RenderElement 
   const nameCol = r.tool !== undefined ? RIGHT.arg : RIGHT.name
   const segs: Placed[] = [
     { col: RIGHT.glyph, text: r.glyph, ...(r.color !== undefined ? { color: r.color } : { dim: true }) },
-    ...(r.tool !== undefined ? [{ col: RIGHT.name, text: r.tool.slice(0, 5), dim: true }] : []),
+    ...(r.tool !== undefined ? [{ col: RIGHT.name, text: toolCell(r.tool, 5), dim: true }] : []),
     { col: nameCol, text: wordFit(r.name, RIGHT.nameEnd - nameCol) },
     { col: RIGHT.metric, text: wordFit(r.metric, GRID.content), dim: true },
     { col: RIGHT.time, text: wordFit(r.time, GRID.content), dim: true },

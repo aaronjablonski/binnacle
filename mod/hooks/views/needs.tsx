@@ -6,7 +6,7 @@ import type { RunLimits } from '../model/meter'
 import { dismissKey, problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, fit, growLists, listSplit, pillRun, promptTitle, shortPaths, wordFit } from './fit'
+import { elapsed, growLists, listSplit, nameFit, pillRun, promptTitle, shortPaths, toolCell, wordFit } from './fit'
 import { lintelSpec, sillSpec } from './richkit'
 import { showInChat } from './find'
 import { argOf, laid } from './lay'
@@ -378,7 +378,7 @@ function needsFrame(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElemen
   ]
 
   const line = (p: Problem, bold: boolean): Placed[] => {
-    const segs: Placed[] = [{ col: DECK.gauge, text: wordFit(needName(t, p), Math.max(1, nameEnd - DECK.gauge)), ...(bold ? { bold: true } : {}) }]
+    const segs: Placed[] = [{ col: DECK.gauge, text: nameFit(needName(t, p), Math.max(1, nameEnd - DECK.gauge)), ...(bold ? { bold: true } : {}) }]
     const tint = p.kind === 'failed-turn' || p.kind === 'repeat' || p.kind === 'loop' ? { color: C.fail } : { color: C.wait }
     if (detailAt !== undefined) {
       const room = (ageAt ?? cols) - detailAt - 1
@@ -475,8 +475,8 @@ function needsBracket(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElem
     { col: 2, ...pillRun('NEEDS YOU', C.wait) },
     { col: 14, text: String(list.length), color: C.wait, bold: true },
   ]
-  if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) heads.push({ col: tc.metric, text: fit('why', roomAt(cols, tc.metric)), dim: true })
-  if (tc.time !== undefined && roomAt(cols, tc.time) > 0) heads.push({ col: tc.time, text: fit('waiting', roomAt(cols, tc.time)), dim: true })
+  if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) heads.push({ col: tc.metric, text: wordFit('why', roomAt(cols, tc.metric)), dim: true })
+  if (tc.time !== undefined && roomAt(cols, tc.time) > 0) heads.push({ col: tc.time, text: wordFit('waiting', roomAt(cols, tc.time)), dim: true })
   pieces.push(textPiece(ctx, $, 'needs-head', heads))
 
   shown.forEach((p, i) => {
@@ -488,8 +488,8 @@ function needsBracket(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElem
     const nameCol = s !== undefined ? toolCol + 6 : toolCol
     const tint = isOpen && p.kind !== 'failed-turn' && p.kind !== 'repeat' && p.kind !== 'loop' ? { color: C.wait } : { dim: true }
     const segs: Placed[] = [{ col: COL.glyph, text: mark.glyph, color: mark.color }]
-    if (s !== undefined) segs.push({ col: toolCol, text: fit(s.tool, 5), dim: true })
-    segs.push({ col: nameCol, text: wordFit(needName(t, p), Math.max(0, nameEnd - nameCol)), ...(isOpen ? { bold: true } : {}) })
+    if (s !== undefined) segs.push({ col: toolCol, text: toolCell(s.tool, 5), dim: true })
+    segs.push({ col: nameCol, text: nameFit(needName(t, p), Math.max(0, nameEnd - nameCol)), ...(isOpen ? { bold: true } : {}) })
     if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) segs.push({ col: tc.metric, text: wordFit(needWhy(p), roomAt(cols, tc.metric)), ...tint })
     if (tc.time !== undefined && roomAt(cols, tc.time) > 0) segs.push({ col: tc.time, text: wordFit(elapsed(p.since, now), roomAt(cols, tc.time)), ...tint })
     const live = segs.filter(x => x.text !== '')
@@ -513,7 +513,7 @@ function needsBracket(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElem
     details.forEach((d, j) => {
       pieces.push(
         textPiece(ctx, $, `need-detail-${j}`, [
-          { col: COL.detailKey, text: fit(d.key, COL.detailValue - COL.detailKey - 1), dim: true },
+          { col: COL.detailKey, text: wordFit(d.key, COL.detailValue - COL.detailKey - 1), dim: true },
           { col: COL.detailValue, text: wordFit(d.value, Math.max(0, cols - 2 - COL.detailValue)) },
         ]),
       )

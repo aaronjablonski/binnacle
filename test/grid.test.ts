@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
-  at, bar10, buckets10, DIAGRAM, fitRuns, keepCells, line, placed, promptTitle, shortPaths, spark10, stack10, wordFit, wrapWords,
+  at, bar10, buckets10, DIAGRAM, fitRuns, keepCells, line, placed, promptTitle, shortPaths, spark10, stack10, toolCell, wordFit, wrapWords,
 } from '../mod/hooks/views/fit'
 import { C, cellCol, cellsFor, COL, GRID, rateColor, statusColor, TAB_CELL, tableCols, tier } from '../mod/hooks/views/style'
 
@@ -186,9 +186,20 @@ describe('words', () => {
     }
   })
 
-  test('wordFit cuts a single word wider than the room, the one case with no boundary', () => {
-    expect(wordFit('supercalifragilistic', 8)).toBe('superca…')
-    expect(wordFit('supercalifragilistic and more', 8)).toBe('superca…')
+  // BEHAVIOUR CHANGE (binding rule 1): a single word wider than the room was cut mid-word ('superca…').
+  test('wordFit never cuts inside a word: a long token is cut where a part ends, else left out', () => {
+    expect(wordFit('supercalifragilistic', 8)).toBe('')
+    expect(wordFit('supercalifragilistic and more', 8)).toBe('')
+    expect(wordFit('docs/superpowers/specs/rich.md', 20)).toBe('docs/superpowers…')
+    expect(wordFit('Incomprehensibilities_of_the_internationalization', 30)).toBe('Incomprehensibilities_of_the…')
+    expect(wordFit('SubagentHandback', 5)).toBe('')
+  })
+
+  test('toolCell: a tool whole, its short name, or nothing; never cut', () => {
+    expect(toolCell('Edit')).toBe('Edit')
+    expect(toolCell('SubagentHandback')).toBe('Hand')
+    expect(toolCell('TodoWrite')).toBe('Todo')
+    expect(toolCell('mcp__plugin__thing')).toBe('')
   })
 
   test('wrapWords: lines of at most cols, at most 2 by default, the last cut by word', () => {

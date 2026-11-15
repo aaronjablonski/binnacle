@@ -61,6 +61,7 @@ export const BUSY: Timeline = {
     a1: agent('a1', 'Explore', 'Find every caller of the lintel and the readout guards', 'running', { taskId: '2' }),
     a2: agent('a2', 'general-purpose', 'Write the sweep tests for widths between twenty-two and sixty-two', 'done', { endedAt: NOW - 100_000, taskId: '2', result: 'Wrote eleven tests across three files' }),
     a3: agent('a3', 'code-reviewer', 'Review the consolidation for drift', 'running', { taskId: '1' }),
+    a4: agent('a4', 'superpowers-implementation-specialist', 'Incomprehensibilities_of_the_internationalization_framework', 'running', { taskId: '2', model: 'claude-sonnet-5-20261101-experimental' }),
   },
   steps: [
     step('s1', 1, 'Bash', 'Bash npm test', 'error', { agent: 'a2' }),
@@ -71,6 +72,8 @@ export const BUSY: Timeline = {
     step('s6', 6, 'Read', 'Read mod/hooks/views/raster.ts', 'running', { agent: 'a1' }),
     step('s7', 7, 'Bash', 'Bash git status --short', 'running', { agent: 'a3', asking: NOW - 60_000 }),
     step('s8', 8, 'Edit', 'Edit mod/hooks/views/overview.tsx', 'running'),
+    step('s9', 9, 'NotebookEdit', 'NotebookEdit notebooks/analysis.ipynb', 'done'),
+    step('s10', 10, 'SubagentHandback', 'SubagentHandback Consolidation report for the caller with every finding', 'running', { agent: 'a2' }),
   ],
   artifacts: [
     artifact('r1', 'result', 'Lintel sweep across every width', { summary: 'No refusal between twenty-two and sixty-two columns', stepId: 's5' }),
@@ -103,10 +106,10 @@ export const BUILDS: Record<string, Build> = {
   'options page': (c, $) => optionsPage(c, $, ''),
 }
 
-const state: { build?: Build; failed: string[] } = { failed: [] }
+const state: { build?: Build; failed: string[]; look: 'rich' | 'text' } = { failed: [], look: 'rich' }
 
 /** The test's own Pane: draws `state.build` alone, in the rich look, and records a throw. */
-export function sweeps(on: On, t: Timeline = BUSY, u: UiState = initialUi): { failed: string[] } {
+export function sweeps(on: On, t: Timeline = BUSY, u: UiState = initialUi): typeof state {
   const stored = new Map<string, unknown>([['timeline', t], ['ui', u]])
   mock.clock(on, { now: NOW })
   on('ui.log', () => ({ value: undefined }))
@@ -118,7 +121,7 @@ export function sweeps(on: On, t: Timeline = BUSY, u: UiState = initialUi): { fa
     const { Box, Text } = $.ui.resolve(e)
     if (e.component !== 'Pane') return null as never
     const cols = e.props.bodyColumns
-    const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now: NOW, bodyRows: e.props.scroll.bodyRows, look: 'rich', site: 'sweep' }
+    const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now: NOW, bodyRows: e.props.scroll.bodyRows, look: state.look, site: 'sweep' }
     try {
       return <Box flexDirection="column">{state.build?.(ctx, $) ?? null}</Box>
     } catch (err) {
@@ -127,6 +130,7 @@ export function sweeps(on: On, t: Timeline = BUSY, u: UiState = initialUi): { fa
     }
   })
   state.failed = []
+  state.look = 'rich'
   return state
 }
 
@@ -160,4 +164,44 @@ for (const name of Object.keys(BUILDS)) {
     }
     expect(bad).toEqual([])
   })
+}
+
+// ---------- binding rule 1: cuts land on words ----------
+
+const words = (text: string): string[] => text.split(/[^A-Za-z0-9]+/).filter(w => w !== '')
+
+/**
+ * Every place a drawn row ends a piece in `…` where the piece's last word is
+ * not a whole word: not one of `vocab` (the fixture's words and every word the
+ * same view draws with room to spare). `SubagentHandback` cut to `Suba…`, or a
+ * path cut to `mod/hooks/vi…`, is caught; `find every…` is a cut on a word.
+ */
+export function midWordCuts(rows: string[], vocab: Set<string>): string[] {
+  const out: string[] = []
+  for (const r of rows) {
+    for (const m of r.matchAll(/(\S*)…/g)) {
+      const piece = m[1] ?? ''
+      if (piece === '' || !/[A-Za-z0-9_]$/.test(piece)) continue
+      const last = words(piece).pop() ?? ''
+      if (!vocab.has(last)) out.push(`${JSON.stringify(r.trim())} cuts "${last}"`)
+    }
+  }
+  return out
+}
+
+for (const name of Object.keys(BUILDS)) {
+  for (const look of ['rich', 'text'] as const) {
+    test(`${name} (${look}): at 62, 40 and 32 columns no drawn text is cut inside a word`, async ($, on) => {
+      const s = sweeps(on)
+      s.look = look
+      const vocab = new Set(words(JSON.stringify(BUSY)))
+      for (const w of (await draw($, name, 200)).flatMap(words)) vocab.add(w)
+      const bad: string[] = []
+      for (const cols of [62, 40, 32]) {
+        for (const cut of midWordCuts(await draw($, name, cols), vocab)) bad.push(`${cols}: ${cut}`)
+      }
+      expect(s.failed).toEqual([])
+      expect(bad).toEqual([])
+    })
+  }
 }

@@ -7,7 +7,7 @@ import { findSteps, stepGroups } from '../model/select'
 import { windowRows } from '../model/window'
 import { apply, debug, errText, readTimeline, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
-import { at, clock, elapsed, fit, growLists, levels, line, listSplit, promptTitle, shortPaths, typeShort, wordFit } from './fit'
+import { at, clock, elapsed, growLists, levels, line, listSplit, promptTitle, shortPaths, typeShort, wordFit } from './fit'
 import { deepSearch, FIND_KEY, focusFind, setQuery, showInChat, stepTarget } from './find'
 import { isOnScreen } from './onscreen'
 import { copyResult, quoteInPrompt, toggleKeep } from './detail'
@@ -376,7 +376,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       if (c.on) {
         return (
           <Button key={c.key} plain onPress={() => c.onPress?.()}>
-            {pill(fit(label, Math.max(1, room - 2)), C.live, ctx.e, $, `${c.key}-pill`)}
+            {pill(wordFit(label, Math.max(1, room - 2)), C.live, ctx.e, $, `${c.key}-pill`)}
           </Button>
         )
       }
@@ -649,6 +649,6 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     )
   } catch (err) {
     debug($, `timeline view failed: ${errText(err)}`)
-    return <Text dimColor>{fit(`Steps: ${errText(err)}`, cols)}</Text>
+    return <Text dimColor>{wordFit(`Steps: ${errText(err)}`, cols)}</Text>
   }
 }

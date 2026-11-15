@@ -85,8 +85,10 @@ test('typeShort: general-purpose is general; otherwise the longest leading part 
   expect(typeShort('a b c d', 3)).toBe('a b')
 })
 
-test('typeShort: a first part wider than the room is cut with an ellipsis', () => {
-  expect(typeShort('claude-code-guide', 4)).toBe('cla…')
+// BEHAVIOUR CHANGE (binding rule 1): a first part wider than the room was cut mid-word ('cla…'); it is now left out.
+test('typeShort: a first part wider than the room is left out, never cut inside the word', () => {
+  expect(typeShort('claude-code-guide', 4)).toBe('')
+  expect(typeShort('claude-code-guide', 7)).toBe('claude')
   expect(typeShort('Explore', 10)).toBe('Explore')
   expect(typeShort('x', 0)).toBe('')
 })

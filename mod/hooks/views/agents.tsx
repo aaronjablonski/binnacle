@@ -20,7 +20,7 @@ import {
 import type { AgentFile, Jump } from './agentmeta'
 import { modelName, modelTotals, tokenText } from './budget'
 import { crewNode, openedAgent } from './crewnode'
-import { bar, clock, crewRow, elapsed, fit, growLists, listSplit, wrapWords } from './fit'
+import { bar, clock, crewRow, elapsed, growLists, listSplit, wordFit, wrapWords } from './fit'
 import { openInEditor } from './editor'
 import { blank, footer, heightOf, more, page, richDeck, row, section } from './parts'
 import type { Action, DeckCell, FrameSpec, InstSpec, PageField, Run } from './parts'
@@ -364,7 +364,7 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     )
   } catch (err) {
     debug($, `agents view failed: ${errText(err)}`)
-    return <Text dimColor>{fit(`Agents: ${errText(err)}`, cols)}</Text>
+    return <Text dimColor>{wordFit(`Agents: ${errText(err)}`, cols)}</Text>
   }
 }
 

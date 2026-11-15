@@ -5,7 +5,7 @@ import { pace, taskMeter, thisTurn } from '../model/meter'
 import { summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi } from '../state'
-import { bar, beadCount, crewRow, elapsed, fit, fitRuns, meter, pillRun, pips } from './fit'
+import { bar, beadCount, crewRow, elapsed, fitRuns, meter, pillRun, pips, wordFit } from './fit'
 import { kindLabel, needsYou, problemText, waitStates } from './needs'
 import { stripBandView } from './stripband'
 import { begin } from './paint'
@@ -486,7 +486,7 @@ function foldedRow(ctx: ViewCtx, $: EngineInterface, tone: string, lead: Run[], 
   const used = fixed + midGap(chosen.flex) + widthOf(chosen.flex) + piecesWidth(chosen.right)
   if (used > cols) {
     // Not even the pill fits beside the rails: a plain cut of the one word.
-    return <Text wrap="truncate-end" color={tone}>{fit(fallback, Math.max(1, cols))}</Text>
+    return <Text wrap="truncate-end" color={tone}>{wordFit(fallback, Math.max(1, cols))}</Text>
   }
   const runs: Part[] = [
     text('┃', { color: tone }),

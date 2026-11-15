@@ -11,7 +11,7 @@ import type { AgentRow, Timeline, UiState } from '../../types'
 import { cacheLine, pace, taskMeter, turnClock } from '../model/meter'
 import { problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
-import { buckets, elapsed, shortPaths } from './fit'
+import { buckets, elapsed, shortPaths, wordFit } from './fit'
 import { DOT_BITS, PALETTE, rate, sprite, SPRITE } from './raster'
 import type { Hue, Palette, Role, Size, State } from './raster'
 import { spriteOf } from './style'
@@ -142,7 +142,7 @@ export function deckModel(t: Timeline, u: UiState, now: number): DeckModel {
   const plan = meter.rows.slice(0, MAX_PLAN).map(r => ({
     tokens: r.tokens,
     current: r.task.status === 'in_progress',
-    title: `${oneLine(r.task.subject).slice(0, 80)}: ${r.tokens > 0 ? `${tokens(r.tokens)} tokens` : r.task.status}`,
+    title: `${wordFit(oneLine(r.task.subject), 80)}: ${r.tokens > 0 ? `${tokens(r.tokens)} tokens` : r.task.status}`,
   }))
 
   const first = t.steps.reduce((m, x) => Math.min(m, x.startedAt), now)

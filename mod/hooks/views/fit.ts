@@ -252,10 +252,29 @@ export function spark10(buckets: number[]): string {
 
 const oneSpaced = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
+/** The characters that part a long token into words: `snake_case`, `kebab-case`, a path, a dotted name. */
+const PARTS = new Set(['_', '-', '/', '\\', '.', ':'])
+
+/**
+ * The longest head of one long token that ends where a part ends (before a
+ * `_`, `-`, `/`, a backslash, `.` or `:`) and is at most `room` long; '' when no part fits.
+ *
+ * @example partCut('docs/superpowers/specs', 18) // 'docs/superpowers'
+ */
+export function partCut(token: string, room: number): string {
+  let best = ''
+  for (let i = 1; i < token.length && i <= room; i++) {
+    if (PARTS.has(token[i]!) && !PARTS.has(token[i - 1]!)) best = token.slice(0, i)
+  }
+  return best
+}
+
 /**
  * `text` on one line (whitespace collapsed) cut to at most `cols` at a word
- * boundary, ending with `…` when cut. The one exception: when even the first
- * word does not fit, that word is cut (there is no boundary to cut at).
+ * boundary, ending with `…` when cut (binding rule 1: cuts land on words).
+ * When even the first word does not fit, it is cut where one of its parts
+ * ends (`partCut`: a path segment, a `snake_case` word); a first word with no
+ * part that fits leaves nothing: '' (the caller drops the cell).
  */
 export function wordFit(text: string, cols: number): string {
   if (cols <= 0) return ''
@@ -268,15 +287,49 @@ export function wordFit(text: string, cols: number): string {
     if (next.length + 1 > cols) break
     out = next
   }
-  if (out === '') return fit(t, cols)
-  return `${out}…`
+  if (out === '') out = partCut(t.split(' ')[0] ?? '', cols - 1)
+  return out === '' ? '' : `${out}…`
+}
+
+/**
+ * A name cell (a row's name, a need's asker, a node's label): `wordFit`, and
+ * where not even a part of its first word fits, a lone `…` so a pressable row
+ * keeps a label. No word is cut either way.
+ */
+export function nameFit(text: string, cols: number): string {
+  const got = wordFit(text, cols)
+  return got === '' && cols >= 1 && text.trim() !== '' ? '…' : got
+}
+
+/** Short names a table's 5-wide tool column shows for tools whose names are longer. */
+const TOOL_SHORT: Record<string, string> = {
+  SubagentHandback: 'Hand',
+  TodoWrite: 'Todo',
+  MultiEdit: 'Edit',
+  NotebookEdit: 'Nb',
+  WebSearch: 'Web',
+  WebFetch: 'Fetch',
+  TaskCreate: 'Task',
+  TaskUpdate: 'Task',
+  StructuredOutput: 'Out',
+}
+
+/**
+ * A tool's name for a column of `room` (5 in a table row): whole when it
+ * fits, else its short name (`SubagentHandback` is `Hand`), else '' (the
+ * name column after it says what the step is). Never cut.
+ */
+export function toolCell(tool: string, room = 5): string {
+  if (tool.length <= room) return tool
+  const short = TOOL_SHORT[tool]
+  return short !== undefined && short.length <= room ? short : ''
 }
 
 /**
  * An agent type as a metric cell: `general-purpose` is `general`; any other
  * type is its longest leading part, cut at a hyphen or a space, that fits
  * `room` (a metric cell is 10 wide). When even the first part is too wide it
- * is cut with `…`, as `fit` does.
+ * is cut as `wordFit` cuts it (at a part, or left out).
  *
  * @example typeShort('general-purpose') // 'general'
  * @example typeShort('code-reviewer')   // 'code'
@@ -291,16 +344,16 @@ export function typeShort(type: string, room = 10): string {
     if (head.length > room) break
     best = head
   }
-  return best !== '' ? best : fit(type, room)
+  return best !== '' ? best : wordFit(type, room)
 }
 
-/** One wrapped line's words as text; a lone word wider than the line is cut. */
-const joinLine = (words: string[], cols: number): string => (words.length === 1 ? fit(words[0] ?? '', cols) : words.join(' '))
+/** One wrapped line's words as text; a lone word wider than the line is cut at one of its parts (`wordFit`). */
+const joinLine = (words: string[], cols: number): string => (words.length === 1 ? wordFit(words[0] ?? '', cols) : words.join(' '))
 
 /**
  * `text` wrapped by word into at most `maxLines` lines of at most `cols`.
  * When it needs more, the last line holds what is left cut by `wordFit`, so
- * it ends with `…`. A word wider than a line is cut with `…`.
+ * it ends with `…`. A word wider than a line is cut at one of its parts, or left out (`wordFit`).
  */
 export function wrapWords(text: string, cols: number, maxLines = 2): string[] {
   if (cols <= 0 || maxLines <= 0) return []
@@ -331,16 +384,28 @@ export function wrapWords(text: string, cols: number, maxLines = 2): string[] {
 }
 
 /**
- * Runs (styled pieces of one line) cut to `cols` by `wordFit` over their
- * joined text: the same runs when they fit; otherwise the runs up to the cut,
- * the last one shortened, then a plain `{ text: '…' }` run. Empty runs are dropped.
+ * Runs (styled pieces of one line) cut to `cols` on a word of their joined
+ * text, its own spacing kept: the same runs when they fit; otherwise the runs
+ * up to the last word end that leaves room for `…` (or, when even the first
+ * word does not fit, a part of it: `partCut`), the last one shortened, then a
+ * plain `{ text: '…' }` run. Nothing fits: no runs. Empty runs are dropped.
  */
 export function fitRuns<T extends { text: string }>(runs: T[], cols: number): (T | { text: string })[] {
   const joined = runs.map(r => r.text).join('')
-  const cut = wordFit(joined, cols)
-  if (cut === joined) return runs
-  if (cut === '') return []
-  const keep = cut.endsWith('…') ? cut.length - 1 : cut.length
+  if (joined.length <= cols) return runs
+  if (cols <= 0) return []
+  let keep = 0
+  for (let i = 1; i <= cols - 1 && i < joined.length; i++) {
+    if (joined[i] === ' ' && joined[i - 1] !== ' ') keep = i
+  }
+  if (keep === 0) {
+    const first = joined.trimStart()
+    const lead = joined.length - first.length
+    const head = partCut(first.split(' ')[0] ?? '', cols - 1 - lead)
+    keep = head === '' ? 0 : lead + head.length
+  }
+  if (keep === 0) return []
+  const cut = `${joined.slice(0, keep)}…`
   const out: (T | { text: string })[] = []
   let used = 0
   for (const r of runs) {

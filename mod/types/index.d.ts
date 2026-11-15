@@ -94,6 +94,7 @@ export type UiState = {
   artifactOpen?: string                                // the artifact row opened in place (its id); absent, the newest is open; "" closes it
   slim: boolean                                        // `/mc slim` asked for the 28-column pane; the layout itself reads only bodyColumns
   paneOpen?: boolean                                   // the pane is open (set by /mc open, 1-5, slim and close, and by ui.close for the person's own close); the band is compact while true. Optional so a value an earlier version stored, and test fixtures, still type; readUi always answers a boolean
+  strip?: boolean                                      // `/mc strip` asked for the strip in the band in place of the pane; set false by /mc, /mc 1-5, /mc slim and a press in the strip. Optional as paneOpen is: readUi always answers a boolean
 }
 
 declare module 'claude-code' {

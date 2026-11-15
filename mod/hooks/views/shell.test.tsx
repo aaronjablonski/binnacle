@@ -58,7 +58,7 @@ const FORMS: [string, string, string][] = [
   ['5', 'artifacts', 'Artifacts'],
 ]
 
-const UNKNOWN = 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close or slim.'
+const UNKNOWN = 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim or strip.'
 
 for (const [arg, tab, label] of FORMS) {
   test(`/mc ${arg} switches to ${tab}, clears detail and opens the pane`, async ($, on) => {

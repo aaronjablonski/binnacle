@@ -1,27 +1,52 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow } from '../../types'
+import type { AgentRow, TaskItem } from '../../types'
 import { agentTree, hasProblemIn, runningOnlyTree } from '../model/select'
 import type { TreeNode } from '../model/select'
 import { debug, errText, updateUi } from '../state'
-import { EMPTY, RUN_GLYPH, agentOpened, agentRow, tokensOf } from './agentmeta'
+import { EMPTY, RUN_GLYPH, signalFlag, tokensOf, toggleOpen } from './agentmeta'
 import type { Jump } from './agentmeta'
-import { at, elapsed, fit, placed, tether, wrapWords } from './fit'
-import type { Seg } from './fit'
-import { blank, row, runText, section } from './parts'
-import type { Run } from './parts'
+import { tokenText } from './budget'
+import { crewNode, factsOf, openedAgent } from './crewnode'
+import { elapsed, fit, placed, wordFit, wrapWords } from './fit'
+import { inst, runText, section } from './parts'
+import type { Flag, Run } from './parts'
 import type { ViewCtx } from './shell'
 import type { PodState } from './style'
-import { C, COL, GRID } from './style'
-import { tokenText } from './budget'
+import { C, DECK, GRID, podOf, spriteOf, tableCols } from './style'
 
-/** What the tree draws, in order: a node's row, or the `+ n done` line that stands for its finished children. */
-type Tether = { last: boolean; outer: boolean }
+/** The crew map's columns: the trunk's tether starts at 5, each level 4 further in. */
+const TRUNK = 5
+const STEP = 4
+const tetherCol = (level: number): number => TRUNK + STEP * level
+/** The deepest level drawn: a node deeper than this stays at it. */
+const MAX_LEVEL = 2
+
+const FLAG_RUN: Record<Flag, Run> = {
+  inView: { text: '◂', color: C.live },
+  problem: { text: '!', color: C.fail },
+  waiting: { text: '?', color: C.wait },
+  stalled: { text: 'z', color: C.wait },
+}
+
+/** One branch of the trunk: the agents of a task, or a workflow run, or the ones with no task. */
+type Branch = {
+  key: string
+  kind: 'task' | 'run' | 'none'
+  label: string
+  glyph: string
+  glyphColor?: string
+  nodes: TreeNode[]
+  agents: AgentRow[]
+  start: number
+}
+
+/** What the map draws, in order: main, a branch's row, a node (two rows), a nested run's row, or the `+ n done` line that stands for finished children. */
 type Item =
-  | { kind: 'node'; node: TreeNode; depth: 0 | 1 | 2; tether?: Tether; folded: boolean; problem: boolean }
-  | { kind: 'done'; key: string; n: number; depth: 0 | 1 | 2; tether: Tether }
-
-const clampDepth = (d: number): 0 | 1 | 2 => (d <= 0 ? 0 : d === 1 ? 1 : 2)
+  | { kind: 'branch'; branch: Branch; last: boolean; folded: boolean; problem: boolean }
+  | { kind: 'node'; node: TreeNode; level: number; last: boolean; guides: boolean[]; problem: boolean }
+  | { kind: 'run'; node: TreeNode; level: number; last: boolean; guides: boolean[]; folded: boolean; problem: boolean }
+  | { kind: 'done'; key: string; n: number; level: number; last: boolean; guides: boolean[] }
 
 /** The agents in a subtree, the node itself included when it is one (main and runs not counted). */
 function agentsIn(node: TreeNode): AgentRow[] {
@@ -46,104 +71,239 @@ function isSettled(node: TreeNode, ids: Set<string>, open: string | undefined): 
   return !hasProblemIn(node, ids) && node.key !== open
 }
 
-/** The tree as items. Only the `run:` keys in `folded` fold a node; a branch of finished agents becomes one `+ n done` line. */
-function itemsOf(root: TreeNode, folded: string[], ids: Set<string>, open: string | undefined): Item[] {
-  const out: Item[] = []
-  // `outer`: the parent has siblings below, so a `┆` runs down beside this level.
-  const walk = (node: TreeNode, actual: number, tether: Tether | undefined, outer: boolean) => {
-    const depth = clampDepth(actual)
-    const isFolded = node.kind === 'run' && folded.includes(node.key)
-    const own = node.kind === 'agent' && node.agent !== undefined && ids.has(node.agent.id)
-    out.push({
-      kind: 'node', node, depth, ...(tether !== undefined ? { tether } : {}), folded: isFolded,
-      problem: own || (isFolded && hasProblemIn(node, ids)),
-    })
-    if (isFolded) return
-    const shown = node.children.filter(c => !isSettled(c, ids, open))
-    const hidden = node.children.filter(c => isSettled(c, ids, open))
-    const hiddenAgents = hidden.reduce((n, c) => n + agentsIn(c).length, 0)
-    // `outer` for the children: this node has siblings below it (a depth-0 node has none).
-    const below = tether !== undefined && !tether.last
-    shown.forEach((c, i) => {
-      const last = i === shown.length - 1 && hiddenAgents === 0
-      walk(c, actual + 1, { last, outer: below }, below)
-    })
-    if (hiddenAgents > 0) {
-      out.push({ kind: 'done', key: node.key, n: hiddenAgents, depth: clampDepth(actual + 1), tether: { last: true, outer: below } })
+const startOf = (nodes: TreeNode[]): number =>
+  nodes.reduce((m, n) => Math.min(m, n.agent?.startedAt ?? n.run?.startedAt ?? Infinity), Infinity)
+
+/**
+ * The trunk's branches: one per task that has agents (an agent's `taskId`),
+ * one per workflow run, and one for the agents with no task; by start. A task the timeline no longer holds is named by its id.
+ */
+export function branchesOf(tasks: TaskItem[], root: TreeNode): Branch[] {
+  const byTask = new Map<string, TreeNode[]>()
+  const none: TreeNode[] = []
+  const out: Branch[] = []
+  for (const c of root.children) {
+    if (c.kind === 'run') {
+      out.push({
+        key: c.key,
+        kind: 'run',
+        label: c.run?.name ?? c.key,
+        glyph: RUN_GLYPH,
+        nodes: c.children,
+        agents: agentsIn(c),
+        start: c.run?.startedAt ?? 0,
+      })
+      continue
     }
+    const id = c.agent?.taskId
+    if (id === undefined) none.push(c)
+    else byTask.set(id, [...(byTask.get(id) ?? []), c])
   }
-  walk(root, 0, undefined, false)
+  for (const [id, nodes] of byTask) {
+    const task = tasks.find(x => x.id === id)
+    const glyph = task === undefined ? '▫' : task.status === 'completed' ? '▪' : task.status === 'in_progress' ? '▸' : '▫'
+    out.push({
+      key: `task:${id}`,
+      kind: 'task',
+      label: task !== undefined ? `${id} ${task.subject}` : `task ${id}`,
+      glyph,
+      ...(task?.status === 'in_progress' ? { glyphColor: C.live } : {}),
+      nodes,
+      agents: nodes.flatMap(agentsIn),
+      start: startOf(nodes),
+    })
+  }
+  if (none.length > 0) {
+    out.push({ key: 'task:none', kind: 'none', label: 'no task', glyph: '◇', nodes: none, agents: none.flatMap(agentsIn), start: startOf(none) })
+  }
+  return out.sort((a, b) => a.start - b.start)
+}
+
+/** The map as items. Only the branch and run keys in `folded` fold; finished children become one `+ n done` line. */
+function itemsOf(branches: Branch[], folded: string[], ids: Set<string>, open: string | undefined): Item[] {
+  const out: Item[] = []
+  const walk = (nodes: TreeNode[], level: number, guides: boolean[]) => {
+    const shown = nodes.filter(n => !isSettled(n, ids, open))
+    const hidden = nodes.filter(n => isSettled(n, ids, open))
+    const hiddenAgents = hidden.reduce((n, c) => n + agentsIn(c).length, 0)
+    shown.forEach((node, i) => {
+      const last = i === shown.length - 1 && hiddenAgents === 0
+      // A node deeper than MAX_LEVEL keeps the guides of the level it shares.
+      const next = level < MAX_LEVEL ? [...guides, !last] : guides
+      const nextLevel = Math.min(level + 1, MAX_LEVEL)
+      if (node.kind === 'run') {
+        const isFolded = folded.includes(node.key)
+        out.push({ kind: 'run', node, level, last, guides, folded: isFolded, problem: isFolded && hasProblemIn(node, ids) })
+        if (!isFolded) walk(node.children, nextLevel, next)
+        return
+      }
+      out.push({ kind: 'node', node, level, last, guides, problem: node.agent !== undefined && ids.has(node.agent.id) })
+      walk(node.children, nextLevel, next)
+    })
+    if (hiddenAgents > 0) out.push({ kind: 'done', key: `${level}:${nodes[0]?.key ?? ''}`, n: hiddenAgents, level, last: true, guides })
+  }
+  branches.forEach((b, i) => {
+    const last = i === branches.length - 1
+    const isFolded = folded.includes(b.key)
+    out.push({
+      kind: 'branch',
+      branch: b,
+      last,
+      folded: isFolded,
+      problem: isFolded && b.nodes.some(n => hasProblemIn(n, ids)),
+    })
+    if (!isFolded) walk(b.nodes, 1, [!last])
+  })
   return out
 }
 
-/** `╰╌+ 3 done` at the child depth: the tether (and the `┆` outer guide) in `subtle`, `+` where a hull would be. */
-function doneLine(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'done' }>): RenderElement {
-  const { Text } = $.ui.resolve(ctx.e)
-  const indent = 2 * it.depth
-  const guide = tether(it.depth, it.tether.last, it.tether.outer)
-  const lead = guide.length - guide.trimStart().length
-  const segs: (Run & Seg)[] = [
-    { ...at(COL.glyph + lead, guide.trimStart()), color: C.subtle },
-    { ...at(COL.glyph + indent, '+'), dim: true },
-    { ...at(COL.name + indent, fit(`${it.n} done`, Math.max(0, ctx.cols - COL.name - indent))), dim: true },
-  ].filter(s => s.text !== '')
-  return (
-    <Text key={`done-${it.key}`} wrap="truncate-end">
-      {placed(segs, 0).flatMap((p, i) => [p.gap, runText(p.seg, ctx.e, $, `done-${it.key}-${i}`)])}
-    </Text>
-  )
+/**
+ * The tether rows left of a node or a branch: the flag at 0, the trunk's `│`
+ * and each ancestor's guide while it has siblings below, then this level's
+ * `├╌` or `╰╌` on the first row (a branch's is `├╌╌`) and a `│` under it on
+ * the second while siblings follow. `subtle`, as Neo's tethers.
+ */
+export function prefixOf(level: number, guides: boolean[], last: boolean, flag: Flag | undefined): [Run[], Run[]] {
+  const own = tetherCol(level)
+  const width = own + (level === 0 ? 3 : 2)
+  const make = (row: 0 | 1): Run[] => {
+    const cells: string[] = Array.from({ length: width }, () => ' ')
+    for (let k = 0; k < level; k++) if (guides[k] === true) cells[tetherCol(k)] = '│'
+    if (row === 0) {
+      cells[own] = last ? '╰' : '├'
+      cells[own + 1] = '╌'
+      if (level === 0) cells[own + 2] = '╌'
+    } else if (!last) {
+      cells[own] = '│'
+    }
+    const runs: Run[] = []
+    const push = (text: string, color?: string) => {
+      if (text === '') return
+      const prev = runs[runs.length - 1]
+      if (prev !== undefined && prev.color === color) runs[runs.length - 1] = { ...prev, text: prev.text + text }
+      else runs.push({ text, ...(color !== undefined ? { color } : {}) })
+    }
+    const f = row === 0 && flag !== undefined ? FLAG_RUN[flag] : undefined
+    push(f !== undefined ? f.text : ' ', f?.color)
+    push(' ')
+    for (const ch of cells.slice(2)) push(ch, ch === ' ' ? undefined : C.subtle)
+    return runs
+  }
+  return [make(0), make(1)]
 }
 
-/** A run's tokens: the sum over its agents, `–` when none reported. */
-function runTokens(node: TreeNode): string {
+/** A branch's or run's tokens: the sum over its agents, `–` when none reported. */
+function tokensIn(agents: AgentRow[]): string {
   let sum: number | undefined
-  for (const a of agentsIn(node)) {
+  for (const a of agents) {
     const n = tokensOf(a)
     if (n !== undefined) sum = (sum ?? 0) + n
   }
   return sum === undefined ? '–' : tokenText(sum)
 }
 
-function runTime(ctx: ViewCtx, node: TreeNode): string {
-  const run = node.run
-  if (run === undefined) return ''
-  const agents = agentsIn(node)
-  if (agents.some(a => a.status === 'running')) return elapsed(run.startedAt, ctx.now)
-  const end = agents.reduce((m, a) => Math.max(m, a.endedAt ?? a.startedAt), run.startedAt)
-  return elapsed(run.startedAt, end)
+/** A branch's time: from its start to now while anything runs, else to the last end. */
+function timeIn(ctx: ViewCtx, agents: AgentRow[], start: number): string {
+  if (!Number.isFinite(start)) return ''
+  if (agents.length === 0 || agents.some(a => a.status === 'running')) return elapsed(start, ctx.now)
+  const end = agents.reduce((m, a) => Math.max(m, a.endedAt ?? a.startedAt), start)
+  return elapsed(start, end)
 }
 
-function runRow(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'node' }>): RenderElement {
-  const { node } = it
-  const key = node.key
-  const label = node.run?.name ?? key
-  const name: Run[] = [{ text: label }]
-  if (it.folded) name.push({ text: ` · ${agentsIn(node).length} agents`, dim: true })
-  return row(ctx, $, {
-    key: `node-${key}`,
-    glyph: RUN_GLYPH,
-    name,
-    metric: runTokens(node),
-    time: runTime(ctx, node),
-    depth: it.depth,
-    ...(it.tether !== undefined ? { tether: it.tether } : {}),
-    ...(it.problem ? { flag: 'problem' as const } : {}),
-    onPress: () =>
-      updateUi($, u => ({
-        ...u,
-        folded: u.folded.includes(key) ? u.folded.filter(k => k !== key) : [...u.folded, key],
-      })),
-  })
+type LineOpts = {
+  key: string
+  level: number
+  guides: boolean[]
+  last: boolean
+  flag?: Flag
+  glyph: string
+  glyphColor?: string
+  label: string
+  /** Kept whole after the label (`· 4 agents` on a folded branch): the label gives up room for it. */
+  suffix?: string
+  tokens: string
+  time: string
+  onPress: () => void | Promise<void>
+}
+
+/** A branch's row, or a nested run's: the tether, a glyph, the label as the row's one Button, tokens and time on the table's columns. */
+function branchLine(ctx: ViewCtx, $: EngineInterface, o: LineOpts): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const [first] = prefixOf(o.level, o.guides, o.last, o.flag)
+  const start = first.reduce((n, r) => n + r.text.length, 0)
+  const tc = tableCols(ctx.cols)
+  const nameCol = start + 2
+  const nameEnd = Math.min(tc.nameEnd, ctx.cols)
+  const suffix = o.suffix ?? ''
+  const segs: (Run & { col: number })[] = [
+    { col: start, text: o.glyph, ...(o.glyphColor !== undefined ? { color: o.glyphColor } : { dim: true }) },
+    { col: nameCol, text: wordFit(o.label, Math.max(1, nameEnd - nameCol - suffix.length)), bold: true },
+  ]
+  if (suffix !== '') segs.push({ col: nameCol + segs[1]!.text.length, text: suffix, dim: true })
+  if (tc.metric !== undefined) segs.push({ col: tc.metric, text: fit(o.tokens, Math.min(10, ctx.cols - tc.metric)), dim: true })
+  if (tc.time !== undefined && o.time !== '') segs.push({ col: tc.time, text: fit(o.time, Math.min(10, ctx.cols - tc.time)), dim: true })
+  const body = placed(segs, start).flatMap((p, i) => [p.gap, runText(p.seg, ctx.e, $, `${o.key}-s${i}`)])
+  return (
+    <Box key={`row-${o.key}`} flexDirection="row">
+      <Text key={`${o.key}-prefix`}>{first.map((r, i) => runText(r, ctx.e, $, `${o.key}-p${i}`))}</Text>
+      <Button key={o.key} plain onPress={o.onPress}>
+        {body}
+      </Button>
+    </Box>
+  )
+}
+
+/** `╰╌+ 3 done` at the child level: the tether in `subtle`, then the count, dim. */
+function doneLine(ctx: ViewCtx, $: EngineInterface, it: Extract<Item, { kind: 'done' }>): RenderElement {
+  const { Text } = $.ui.resolve(ctx.e)
+  const [first] = prefixOf(it.level, it.guides, true, undefined)
+  return (
+    <Text key={`done-${it.key}`} wrap="truncate-end">
+      {first.map((r, i) => runText(r, ctx.e, $, `done-${it.key}-p${i}`))}
+      {runText({ text: fit(`+ ${it.n} done`, Math.max(1, ctx.cols - tetherCol(it.level) - 2)), dim: true }, ctx.e, $, `done-${it.key}-t`)}
+    </Text>
+  )
+}
+
+/** Main on top: its large character, its name as a Button, its facts and what it is doing. */
+function mainNode(ctx: ViewCtx, $: EngineInterface, agent: AgentRow, state: PodState | undefined, problem: boolean): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const pod = podOf(state !== undefined ? { ...agent, state } : agent, ctx.now)
+  const flag: Flag | undefined = signalFlag(pod) ?? (problem ? 'problem' : undefined)
+  const f = flag !== undefined ? FLAG_RUN[flag] : undefined
+  const room = Math.max(1, ctx.cols - DECK.gauge)
+  return (
+    <Box key="map-main" flexDirection="row">
+      <Box key="map-main-flag" width={GRID.margin} flexShrink={0}>
+        <Text color={f?.color} bold={f !== undefined && f.text !== '◂'}>{f !== undefined ? `${f.text} ` : '  '}</Text>
+      </Box>
+      <Box key="map-main-who" width={DECK.gauge - GRID.margin} flexShrink={0}>
+        {inst(ctx, $, { key: 'who-main', ...spriteOf(agent, ctx.now, state) })}
+      </Box>
+      <Box key="map-main-text" flexDirection="column">
+        <Button key="node-main" plain onPress={() => toggleOpen($, 'main')}>
+          <Text bold>main</Text>
+        </Button>
+        <Text key="map-main-facts" dimColor wrap="truncate-end">{wordFit(factsOf(ctx, agent, state, true), room)}</Text>
+        {agent.doing !== '' ? (
+          <Text key="map-main-doing" dimColor wrap="truncate-end">{wordFit(agent.doing, room)}</Text>
+        ) : null}
+      </Box>
+    </Box>
+  )
 }
 
 /**
- * The tree under the shared head: `┌ AGENTS` and main with every agent and run
- * under it. Tethers (`├╌ ╰╌`, and `┆` as the outer guide two deep) are `subtle`
- * at columns 2 and 4, hulls sit at 4 and 6, names at 6 and 8,
- * tokens and time on the same two columns as the list. A node with a problem,
- * and a folded run that holds one, carry `!`. Finished branches fold to
- * `+ n done`; a press on a run folds it, a press on an agent opens it.
- * `ids` are the agents with a problem; `targets` are the rows `n`/`p` visit.
+ * The crew map (spec "Agents, map"; the Tree grown up): main large at the
+ * top; a trunk down from it with one branch per task (the agents it spawned
+ * under that task), per workflow run, and one for agents with no task; the
+ * agents hang under their branch as small characters on tethers, a nested
+ * agent under its parent. A node is two rows (the character and the name,
+ * its one Button, then its facts); a press on it opens it in place, on a
+ * branch folds it. Finished children fold to `+ n done`. `!` `?` `z` climb to
+ * the gutter. The text look draws the same map with hull glyphs in the
+ * characters' place. `ids` are the agents with a problem; `targets` are the
+ * rows `n`/`p` visit.
  */
 export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Map<string, PodState> = new Map()): { el: RenderElement; targets: Jump[] } {
   const { Box, Text } = $.ui.resolve(ctx.e)
@@ -151,49 +311,88 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, sta
   try {
     const full = agentTree(t)
     const root = u.runningOnly ? runningOnlyTree(full) : full
-    const items = itemsOf(root, u.folded, ids, u.agentOpen)
+    const branches = branchesOf(t.tasks, root)
+    const items = itemsOf(branches, u.folded, ids, u.agentOpen)
     const targets: Jump[] = []
     const rows: RenderElement[] = []
-    items.forEach((it, i) => {
+    const main = root.agent
+    if (main !== undefined) {
+      const problem = ids.has('main')
+      if (problem) targets.push({ key: 'node-main', open: 'main' })
+      rows.push(mainNode(ctx, $, main, states.get('main'), problem))
+      const detail = openedAgent(ctx, $, main)
+      if (detail !== null) rows.push(<Box key="blk-main" flexDirection="column">{detail}</Box>)
+    }
+    for (const it of items) {
       if (it.kind === 'done') {
         rows.push(doneLine(ctx, $, it))
-        return
+        continue
       }
-      const { node } = it
-      if (it.problem) targets.push({ key: `node-${node.key}`, open: node.key })
-      const agent = node.agent
-      if (node.kind === 'run' || agent === undefined) {
-        rows.push(runRow(ctx, $, it))
-        return
+      if (it.kind === 'branch') {
+        const b = it.branch
+        if (it.problem) targets.push({ key: `node-${b.key}`, open: b.key })
+        rows.push(
+          branchLine(ctx, $, {
+            key: `node-${b.key}`,
+            level: 0,
+            guides: [],
+            last: it.last,
+            ...(it.problem ? { flag: 'problem' as const } : {}),
+            glyph: b.glyph,
+            ...(b.glyphColor !== undefined ? { glyphColor: b.glyphColor } : {}),
+            label: b.label,
+            ...(it.folded ? { suffix: ` · ${b.agents.length} agents` } : {}),
+            tokens: tokensIn(b.agents),
+            time: timeIn(ctx, b.agents, b.start),
+            onPress: () => updateUi($, cur => toggleFold(cur, b.key)),
+          }),
+        )
+        continue
       }
-      const line = agentRow(ctx, $, agent, {
-        key: `node-${node.key}`,
-        depth: it.depth,
-        ...(it.tether !== undefined ? { tether: it.tether } : {}),
-        ...(states.has(agent.id) ? { state: states.get(agent.id)! } : {}),
-        ...(it.problem ? { flag: 'problem' as const } : {}),
+      if (it.kind === 'run') {
+        const { node } = it
+        if (it.problem) targets.push({ key: `node-${node.key}`, open: node.key })
+        const agents = agentsIn(node)
+        rows.push(
+          branchLine(ctx, $, {
+            key: `node-${node.key}`,
+            level: it.level,
+            guides: it.guides,
+            last: it.last,
+            ...(it.problem ? { flag: 'problem' as const } : {}),
+            glyph: RUN_GLYPH,
+            label: node.run?.name ?? node.key,
+            ...(it.folded ? { suffix: ` · ${agents.length} agents` } : {}),
+            tokens: tokensIn(agents),
+            time: timeIn(ctx, agents, node.run?.startedAt ?? Infinity),
+            onPress: () => updateUi($, cur => toggleFold(cur, node.key)),
+          }),
+        )
+        continue
+      }
+      const agent = it.node.agent
+      if (agent === undefined) continue
+      if (it.problem) targets.push({ key: `node-${it.node.key}`, open: it.node.key })
+      const state = states.get(agent.id)
+      const flag: Flag | undefined = it.problem ? 'problem' : undefined
+      const [p0, p1] = prefixOf(it.level, it.guides, it.last, signalFlag(podOf(state !== undefined ? { ...agent, state } : agent, ctx.now)) ?? flag)
+      const line = crewNode(ctx, $, agent, {
+        key: `node-${it.node.key}`,
+        ...(state !== undefined ? { state } : {}),
+        ...(flag !== undefined ? { flag } : {}),
+        prefix: [p0, p1],
+        facts: factsOf(ctx, agent, state, true),
       })
-      const detail = agentOpened(ctx, $, agent)
-      if (detail === null) {
-        rows.push(line)
-        return
-      }
-      rows.push(
-        <Box key={`blk-${node.key}`} flexDirection="column">
-          {i === 0 ? null : blank(ctx, $, `pre-${node.key}`)}
-          {line}
-          {detail}
-          {i === items.length - 1 ? null : blank(ctx, $, `post-${node.key}`)}
-        </Box>,
-      )
-    })
+      const detail = openedAgent(ctx, $, agent)
+      rows.push(detail === null ? line : <Box key={`blk-${it.node.key}`} flexDirection="column">{line}{detail}</Box>)
+    }
     const lonely = full.children.length === 0
     const idle = !lonely && root.children.length === 0
     const note = lonely ? EMPTY : idle ? 'Nothing is running.' : ''
     return {
       el: (
         <Box key="tree" flexDirection="column">
-          {section(ctx, $, 'AGENTS', 'tokens', 'time')}
+          {section(ctx, $, 'MAP', 'tokens', 'time')}
           {rows}
           {note !== ''
             ? wrapWords(note, Math.max(1, cols - GRID.margin), 4).map((l, i) => (
@@ -206,6 +405,11 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, sta
     }
   } catch (err) {
     debug($, `tree view failed: ${errText(err)}`)
-    return { el: <Text dimColor>{fit(`Agents tree: ${errText(err)}`, cols)}</Text>, targets: [] }
+    return { el: <Text dimColor>{fit(`Agents map: ${errText(err)}`, cols)}</Text>, targets: [] }
   }
+}
+
+/** The fold toggle of a branch or run key. */
+function toggleFold<U extends { folded: string[] }>(u: U, key: string): U {
+  return { ...u, folded: u.folded.includes(key) ? u.folded.filter(k => k !== key) : [...u.folded, key] }
 }

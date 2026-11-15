@@ -1,11 +1,14 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, Step } from '../../types'
-import { debug, errText, leaveDetail, readUi, updateUi } from '../state'
+import type { AgentRow, Step, Timeline } from '../../types'
+import { journalOf, readBody } from '../journal'
+import { pathsOf } from '../model/label'
+import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
 import { modelName, tokenText } from './budget'
 import { clock, elapsed } from './fit'
 import { opened, row, viewAgent } from './parts'
 import type { Action, Detail, Flag, Run } from './parts'
+import { openPage } from './pagenav'
 import type { ViewCtx } from './shell'
 import { podOf, roleOf } from './style'
 import type { Pod, PodState } from './style'
@@ -137,7 +140,7 @@ export function agentDetails(a: AgentRow): Detail[] {
 }
 
 /** Scrolls the chat to the call that spawned the agent. A press only; a refusal is toasted. */
-async function chatAgent($: EngineInterface, a: AgentRow): Promise<void> {
+export async function chatAgent($: EngineInterface, a: AgentRow): Promise<void> {
   try {
     if (a.spawnStep === undefined) {
       $.ui.toast('Not shown in chat: this agent has no spawn call.')
@@ -193,4 +196,115 @@ export async function jumpToProblem($: EngineInterface, targets: Jump[], dir: 1 
   } catch (err) {
     debug($, `jump to problem failed: ${errText(err)}`)
   }
+}
+/** What a pod's state is called on a row's facts line and on the agent page. */
+export const STATE_WORD: Record<PodState, string> = {
+  queued: 'queued',
+  working: 'working',
+  waiting: 'asks permission',
+  stalled: 'stalled',
+  failed: 'failed',
+  done: 'done',
+}
+
+// ---------- the agent page's data: files, and the answer ----------
+
+const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+
+/** Full paths and answers read from the journal on a press: a view may not read the disk, so the page draws what has arrived. */
+const stepPaths = new Map<string, string>()
+const answers = new Map<string, string>()
+const CACHE_MAX = 400
+
+function remember(m: Map<string, string>, k: string, v: string): void {
+  if (m.size >= CACHE_MAX && !m.has(k)) {
+    const oldest = m.keys().next().value
+    if (oldest !== undefined) m.delete(oldest)
+  }
+  m.set(k, v)
+}
+
+/** One file an agent touched: its path as far as is known, whether it only read it, and how many steps did. */
+export type AgentFile = { path: string; read: boolean; times: number; image: boolean }
+
+const IMAGE = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i
+export const isImage = (path: string): boolean => IMAGE.test(path)
+
+const tailOf = (label: string, tool: string): string => (label.startsWith(`${tool} `) ? label.slice(tool.length + 1) : label)
+const slashed = (p: string): string => p.replace(/\\/g, '/')
+
+/**
+ * The files an agent read or edited, newest first, from its steps. A path is
+ * the full one from the step's input (a running step keeps it; a finished
+ * step's is read from the journal when the agent's page is opened and kept
+ * here), else a changed path that ends with the label's two segments, else
+ * the label's own.
+ */
+export function agentFiles(t: Timeline, agentId: string): AgentFile[] {
+  const out = new Map<string, AgentFile & { seq: number }>()
+  for (const s of t.steps) {
+    if (s.agent !== agentId || !FILE_TOOLS.has(s.tool)) continue
+    const tail = tailOf(s.label, s.tool)
+    const known = s.pending !== undefined ? pathsOf(s.tool, s.pending)[0] : undefined
+    const matched = tail === '' ? undefined : t.changed.find(c => slashed(c) === slashed(tail) || slashed(c).endsWith(`/${slashed(tail)}`))
+    const path = known ?? stepPaths.get(s.id) ?? matched ?? tail
+    if (path === '') continue
+    const read = s.tool === 'Read'
+    const cur = out.get(path)
+    if (cur === undefined) out.set(path, { path, read, times: 1, image: isImage(path), seq: s.seq })
+    else {
+      cur.times += 1
+      cur.read = cur.read && read
+      cur.seq = Math.max(cur.seq, s.seq)
+    }
+  }
+  return [...out.values()].sort((a, b) => b.seq - a.seq).map(({ seq: _seq, ...f }) => f)
+}
+
+/** The agent's full answer once the journal has given it (the text of the call that spawned it), else undefined. */
+export function answerOf(agentId: string): string | undefined {
+  return answers.get(agentId)
+}
+
+const LOAD_STEPS = 120
+
+/**
+ * Reads what the agent's page shows from the journal: the full path of each
+ * file step and the spawn call's text (the agent's answer). From a press
+ * (the page's opening); then writes the pane's state again so it redraws.
+ * Never throws.
+ */
+export async function primeAgentPage($: EngineInterface, agentId: string): Promise<void> {
+  try {
+    const t = await readTimeline($)
+    const a = t.agents[agentId]
+    if (a === undefined) return
+    const journal = await journalOf($, t)
+    let got = false
+    if (a.spawnStep !== undefined && !answers.has(a.id)) {
+      const body = await readBody($, journal, a.spawnStep)
+      if (body !== undefined && body.text.trim() !== '') {
+        remember(answers, a.id, body.text)
+        got = true
+      }
+    }
+    const steps = t.steps.filter(s => s.agent === agentId && FILE_TOOLS.has(s.tool) && !stepPaths.has(s.id)).slice(-LOAD_STEPS)
+    for (const s of steps) {
+      const body = await readBody($, journal, s.id)
+      const p = body !== undefined ? pathsOf(s.tool, body.input)[0] : undefined
+      if (p !== undefined) {
+        remember(stepPaths, s.id, p)
+        got = true
+      }
+    }
+    if (got) await updateUi($, u => ({ ...u }))
+  } catch (err) {
+    debug($, `prime agent page failed: ${errText(err)}`)
+  }
+}
+
+/** Opens the agent's page (`ui.page`) and starts reading what it shows. A press only. */
+export async function openAgentPage($: EngineInterface, agentId: string): Promise<void> {
+  await openPage($, 'agent', agentId)
+  await primeAgentPage($, agentId)
 }

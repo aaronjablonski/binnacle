@@ -30,10 +30,6 @@ const OPENED_AGENTS = 3
 const PLAN_MAX = 34
 const PLAN_ROWS = 3
 
-/** The lintel's readout only where it clears the pill (the lintel Raster draws it whole or not at all). */
-const readout = (cols: number, pill: string, text: string): { right?: string } =>
-  text.length <= cols - (DECK.gauge + pill.length + 2) - 2 ? { right: text } : {}
-
 /** A task's identity in the pane: its owner and id (ids repeat across agents). */
 const keyOf = (x: TaskItem): string => `${x.owner}:${x.id}`
 
@@ -227,7 +223,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       key: 'tasks-deck',
       frame: (() => {
         const pill = anyLive || active.length > 0 ? 'WORKING' : 'IDLE'
-        return { pill, ...readout(cols, pill, `${done.length} of ${total}`) }
+        return { pill, right: `${done.length} of ${total}` }
       })(),
     })
     // The strip names its heaviest and current column (the rich form only: the text deck has no room).
@@ -523,7 +519,7 @@ export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
 
   return page(ctx, $, {
     key: 'task-page',
-    frame: { pill: PILL[task.status], ...readout(cols, PILL[task.status], `task ${index + 1} of ${t.tasks.length}`) },
+    frame: { pill: PILL[task.status], right: `task ${index + 1} of ${t.tasks.length}` },
     title: task.subject,
     ...(task.activeForm !== undefined ? { body: task.activeForm } : {}),
     fields,

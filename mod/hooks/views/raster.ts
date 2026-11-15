@@ -672,20 +672,42 @@ export type LintelOptions = FrameOptions & {
   rightHue?: Ink
 }
 
-/** The deck's top: a clamp top left (`█▀▀▀`), a hairline, the pill, a readout at the right. */
+/**
+ * What a lintel of `width` has room for (the one collision rule; `lintel`
+ * and the text form in parts.tsx both obey it):
+ * - `pill`: whether the pill fits, past the clamp and with its last cap at
+ *   most at `width - 2`;
+ * - `right`: the longest readout that ends at `width - 3` and leaves one
+ *   hairline cell after the pill (with no pill, after the clamp); 0 for none.
+ */
+export function lintelRoom(width: number, o: { pill?: string; pillCol?: number; clamp?: number }): { pill: boolean; right: number } {
+  const clamp = o.clamp ?? 3
+  const pc = o.pillCol ?? 13
+  const pill = o.pill !== undefined && pc > clamp && pc + [...o.pill].length + 2 <= width - 1
+  const after = pill ? pc + [...(o.pill ?? '')].length + 2 : clamp + 1
+  return { pill, right: Math.max(0, width - 3 - after) }
+}
+
+/**
+ * The deck's top: a clamp top left (`█▀▀▀`), a hairline, the pill, a readout
+ * at the right. A pill or readout without room (`lintelRoom`) is left out,
+ * so no width can make a cell hold both.
+ */
 export function lintel(width: number, o: LintelOptions = {}): Grid {
   const g = new Grid(width, 1, o.pal)
   const hue = o.hue ?? 'iris'
-  const clamp = o.clamp ?? 3
+  const clamp = Math.max(0, Math.min(o.clamp ?? 3, width - 1))
   g.full(0, 0, hue)
-  for (let i = 1; i <= clamp; i++) g.px(i, 0, hue)
+  for (let i = 1; i <= clamp && i < width; i++) g.px(i, 0, hue)
   const pc = o.pillCol ?? 13
+  const room = lintelRoom(width, { ...o, clamp })
   let e = pc
-  if (o.pill !== undefined) e = drawPill(g, pc, 0, o.pill, o.pillHue ?? hue)
-  const right = o.right ?? ''
+  const withPill = o.pill !== undefined && room.pill
+  if (withPill) e = drawPill(g, pc, 0, o.pill ?? '', o.pillHue ?? hue)
+  const right = o.right !== undefined && [...o.right].length <= room.right ? o.right : ''
   const rs = width - 2 - [...right].length
   for (let i = clamp + 1; i < width; i++) {
-    if (o.pill !== undefined && i >= pc - 1 && i <= e) continue
+    if (withPill && i >= pc - 1 && i <= e) continue
     if (right !== '' && i >= rs - 1 && i <= width - 2) continue
     g.ht(i, 0, 'rest')
   }

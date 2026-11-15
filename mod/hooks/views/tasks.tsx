@@ -41,7 +41,7 @@ function agentsOn(t: Timeline, task: TaskItem): AgentRow[] {
     return owner !== undefined ? [owner] : []
   }
   return Object.values(t.agents)
-    .filter(a => a.id !== 'main' && a.taskId === task.id)
+    .filter(a => a.id !== 'main' && a.parent === 'main' && a.taskId === task.id)
     .sort((a, b) => a.startedAt - b.startedAt)
 }
 
@@ -110,7 +110,7 @@ const PLAN_TEXT: Record<PlanCol['state'], Omit<Run, 'text'>> = { done: { dim: tr
 function planInst(t: Timeline, meter: TaskMeterRow[], heaviest: string | undefined, room: number): InstSpec {
   const { cols, pitch } = planCols(meter, room)
   const vals = cols.map(c => c.tokens)
-  const heavy = heaviest !== undefined ? meter.findIndex(m => m.task.id === heaviest) : -1
+  const heavy = heaviest !== undefined ? meter.findIndex(m => keyOf(m.task) === heaviest) : -1
   let peak = -1
   cols.forEach((c, i) => {
     if (heavy >= 0 && c.first <= heavy) peak = i
@@ -226,7 +226,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       })(),
     })
     // The strip names its heaviest and current column (the rich form only: the text deck has no room).
-    const heavyAt = meter.heaviest !== undefined ? meter.rows.findIndex(m => m.task.id === meter.heaviest) : -1
+    const heavyAt = meter.heaviest !== undefined ? meter.rows.findIndex(m => keyOf(m.task) === meter.heaviest) : -1
     const nowAt = meter.rows.findIndex(m => m.task.status === 'in_progress')
     const capRoom = Math.max(0, cols - (DECK.gauge + 2) - 1)
     const heavyText = heavyAt >= 0 ? `▴${heavyAt + 1} heaviest` : ''

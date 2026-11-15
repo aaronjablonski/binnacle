@@ -439,7 +439,8 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
         : [],
   })
 
-  const task = a.taskId !== undefined ? t.tasks.find(x => x.id === a.taskId) : undefined
+  // Its parent's task: ids repeat across owners.
+  const task = a.taskId !== undefined ? t.tasks.find(x => x.owner === a.parent && x.id === a.taskId) : undefined
   if (task !== undefined) {
     const glyph = task.status === 'completed' ? '▪' : task.status === 'in_progress' ? '▸' : '▫'
     fields.push({

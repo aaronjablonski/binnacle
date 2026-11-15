@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { Step, Tab, Timeline } from '../../types'
-import { cacheLine, pace, taskMeter, thisTurn, turnClock } from '../model/meter'
+import { cacheLine, pace, taskKey, taskMeter, thisTurn, turnClock } from '../model/meter'
 import { summary } from '../model/select'
 import { leaveDetail, updateUi } from '../state'
 import { budgetMeters, budgetView, exportLedger, isBudgetOpen, setBudgetOpen, tokenText } from './budget'
@@ -810,11 +810,11 @@ const taskGlyph = { in_progress: '▸', pending: '▫', completed: '▪' } as co
 function tasksBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement[] {
   const { t } = ctx
   if (t.tasks.length === 0 || n <= 0) return []
-  const meter = new Map(taskMeter(t).rows.map(r => [r.task.id, r]))
+  const meter = new Map(taskMeter(t).rows.map(r => [taskKey(r.task), r]))
   const of = (status: 'in_progress' | 'pending' | 'completed') => t.tasks.filter(x => x.status === status)
   const items = [...of('in_progress'), ...of('pending'), ...of('completed').sort((a, b) => b.updatedAt - a.updatedAt)]
   const rows = listRows(ctx, $, items, n, x => {
-    const m = meter.get(x.id)
+    const m = meter.get(taskKey(x))
     const isActive = x.status === 'in_progress'
     return row(ctx, $, {
       key: `task-${x.owner}-${x.id}`,

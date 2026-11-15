@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Ev, Timeline } from '../mod/types'
+import type { AgentRow, Ev, Timeline } from '../mod/types'
 import { MAX_SAMPLES } from '../mod/hooks/model/limits'
 import { cacheLine, doneTurn, notifies, pace, roles, runLevel, taskMeter, thisTurn, turnShare, usualMs } from '../mod/hooks/model/meter'
 import { empty, reduce } from '../mod/hooks/model/reduce'
@@ -198,7 +198,7 @@ describe('taskMeter', () => {
     expect(one.agents).toBe(1)
     expect(two.tokens).toBe(20)
     expect(two.ms).toBe(20_000)
-    expect(m.heaviest).toBe(one.task.id)
+    expect(m.heaviest).toBe(`main:${one.task.id}`)
   })
 
   it('a turn that closed the task it worked on goes to that task', () => {
@@ -208,6 +208,27 @@ describe('taskMeter', () => {
       usage(T0 + MIN, 'main', { in: 50, out: 50, ms: MIN }),
     ])
     expect(taskMeter(t).rows[0]!.tokens).toBe(100)
+  })
+
+  it('keys tasks by owner and id: main and a subagent that both hold task 1 keep their own tokens', () => {
+    const agent = (id: string, parent: string, tokens: number): AgentRow => ({
+      id, parent, type: 'Explore', description: id, status: 'done', startedAt: T0, doing: '', stepCount: 1, taskId: '1', tokensIn: tokens, tokensOut: 0,
+    })
+    const t: Timeline = {
+      ...empty,
+      tasks: [
+        { id: '1', subject: 'main one', status: 'in_progress', owner: 'main', updatedAt: T0 },
+        { id: '1', subject: 'sub one', status: 'in_progress', owner: 'a1', updatedAt: T0 },
+      ],
+      // a1 spawned under main's task 1; b1 under a1's own task 1.
+      agents: { main: empty.agents.main!, a1: agent('a1', 'main', 100), b1: agent('b1', 'a1', 7000) },
+    }
+    const m = taskMeter(t)
+    const mainOne = m.rows.find((r) => r.task.owner === 'main')!
+    const subOne = m.rows.find((r) => r.task.owner === 'a1')!
+    expect([mainOne.tokens, mainOne.agents]).toEqual([100, 1])
+    expect([subOne.tokens, subOne.agents]).toEqual([7000, 1])
+    expect(m.heaviest).toBe('a1:1')
   })
 
   it('counts the live agents of the active task', () => {

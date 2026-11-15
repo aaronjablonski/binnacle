@@ -100,7 +100,7 @@ export function branchesOf(tasks: TaskItem[], root: TreeNode): Branch[] {
     else byTask.set(id, [...(byTask.get(id) ?? []), c])
   }
   for (const [id, nodes] of byTask) {
-    const task = tasks.find(x => x.id === id)
+    const task = tasks.find(x => x.owner === (root.agent?.id ?? 'main') && x.id === id)
     const glyph = task === undefined ? '▫' : task.status === 'completed' ? '▪' : task.status === 'in_progress' ? '▸' : '▫'
     out.push({
       key: `task:${id}`,

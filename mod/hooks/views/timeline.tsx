@@ -189,14 +189,6 @@ function fitChips(chips: Chip[], cells: number): Chip[] {
   return out.slice(0, Math.max(0, cells))
 }
 
-// The footer's hints that fit the width: from column 2, 3 apart, dropped from the end.
-function fitHints(hints: Hint[], cols: number): Hint[] {
-  const width = (h: Hint): number => ('hotkey' in h ? h.hotkey.length + 2 + h.label.length : h.text.length)
-  const out = [...hints]
-  while (out.length > 1 && GRID.margin + out.reduce((n, h) => n + width(h), 0) + 3 * (out.length - 1) > cols) out.pop()
-  return out
-}
-
 // The pane's scroll seat, read off the render input (K4: never viewport.rows).
 function scrollOf(ctx: ViewCtx): { offset: number; bodyRows: number } {
   const props = ctx.e.props as { scroll?: { offset?: number; bodyRows?: number } }
@@ -514,7 +506,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     } else {
       hints = [{ text: '↵ open' }, { text: 'esc prompt' }]
     }
-    const foot = footer(ctx, $, fitHints(hints, cols))
+    const foot = footer(ctx, $, hints)
 
     return (
       <Box flexDirection="column">

@@ -461,6 +461,24 @@ export function sparkCell(buckets: number[], color: string = C.live): Run[] {
 /** One footer hint: a hotkeyed Button (so its key is armed), or an engine key as dim text (`↵ open`, `esc prompt`). */
 export type Hint = { hotkey: string; label: string; key: string; onPress: () => void | Promise<void> } | { text: string }
 
+const hintWidth = (h: Hint): number => ('hotkey' in h ? h.hotkey.length + 2 + h.label.length : h.text.length)
+
+/**
+ * The hints that fit a footer of `cols`: it draws from column 2 with 3 columns
+ * between them, and at most 3. A narrow pane gives up the engine-key text
+ * (`↵ open`) first, then hints from the end, so the armed hotkeys stay as long
+ * as they can. One hint always stays.
+ */
+export function fitHints(hints: Hint[], cols: number): Hint[] {
+  const kept = hints.slice(0, 3)
+  const total = (): number => GRID.margin + kept.reduce((n, h) => n + hintWidth(h), 0) + 3 * Math.max(0, kept.length - 1)
+  while (kept.length > 1 && total() > cols) {
+    const text = kept.findIndex(h => !('hotkey' in h))
+    kept.splice(text >= 0 ? text : kept.length - 1, 1)
+  }
+  return kept
+}
+
 /**
  * The footer: at most 3 dim hints from column 2, 3 apart. Drawn only while
  * the pane has the focus (`ctx.isFocused`); otherwise nothing.
@@ -472,7 +490,7 @@ export function footer(ctx: ViewCtx, $: EngineInterface, hints: Hint[]): RenderE
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   return (
     <Box key="footer" flexDirection="row" paddingLeft={GRID.margin} columnGap={3}>
-      {hints.slice(0, 3).map((hint, i) =>
+      {fitHints(hints, ctx.cols).map((hint, i) =>
         'hotkey' in hint ? (
           <Button key={hint.key} hotkey={hint.hotkey} plain dimColor onPress={hint.onPress}>
             {hint.label}

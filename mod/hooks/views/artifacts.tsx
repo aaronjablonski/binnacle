@@ -5,7 +5,6 @@ import { debug, errText, updateUi } from '../state'
 import { clock, elapsed, fitLeft, shortPaths, wordFit, wrapWords } from './fit'
 import { showInChat } from './find'
 import { exportDigest } from './handoff'
-import { fitHints } from './hints'
 import { openStep } from './openstep'
 import { blank, footer, more, opened, row, section } from './parts'
 import type { Action, Detail, Hint, Run } from './parts'
@@ -141,7 +140,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       if (out.length > 0) out.push(blank(ctx, $, `gap-${out.length}`))
       out.push(...lines)
     }
-    const foot = footer(ctx, $, fitHints(hints, cols))
+    const foot = footer(ctx, $, hints)
     if (foot !== null) {
       out.push(blank(ctx, $, 'gap-footer'))
       out.push(foot)

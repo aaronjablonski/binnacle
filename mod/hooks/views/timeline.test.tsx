@@ -913,3 +913,16 @@ test('at 32 columns only the cells that fit are drawn, and the open filter is ke
   expect(chips.length <= 32).toBe(true)
   await ui.unmount()
 })
+
+test('focused, every row of Steps, footer included, fits 32 and 40 columns', async ($, on) => {
+  world(on, twoErrors(), TL_UI)
+  for (const columns of [32, 40]) {
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...FOCUSED(columns), surface })
+      const rows = screen(await ui.drawn())
+      expect(rows.some(r => r.includes('n: '))).toBe(true)
+      for (const r of rows) expect(r.length <= columns).toBe(true)
+      await ui.unmount()
+    }
+  }
+})

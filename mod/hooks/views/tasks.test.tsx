@@ -355,3 +355,16 @@ test('no row longer than the pane on any surface at 62, 40 and 32', async ($, on
     }
   }
 })
+
+test('focused, every row of Tasks, footer included, fits 32 and 40 columns', async ($, on) => {
+  seed(on, BUSY, TASKS_UI)
+  for (const columns of [32, 40]) {
+    for (const surface of SURFACES) {
+      const ui = await mount($, surface, columns, true)
+      const rows = await drawnRows(ui)
+      expect(rows.some(r => r.includes('d: '))).toBe(true)
+      for (const r of rows) expect(r.length <= columns).toBe(true)
+      await ui.unmount()
+    }
+  }
+})

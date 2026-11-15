@@ -4,7 +4,6 @@ import type { AgentRow, TaskItem, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
 import { buckets10, elapsed, spark10, wrapWords } from './fit'
 import { exportDigest } from './handoff'
-import { fitHints } from './hints'
 import { barCell, blank, footer, more, opened, readout, row, section } from './parts'
 import type { Detail, Hint, ReadoutCell, Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -172,7 +171,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       if (out.length > 0) out.push(blank(ctx, $, `gap-${out.length}`))
       out.push(...lines)
     }
-    const foot = footer(ctx, $, fitHints(hints, cols))
+    const foot = footer(ctx, $, hints)
     if (foot !== null) {
       out.push(blank(ctx, $, 'gap-footer'))
       out.push(foot)

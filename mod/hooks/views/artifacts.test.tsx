@@ -416,3 +416,16 @@ test('no row longer than the pane on any surface at 62, 40 and 32, full and empt
     }
   }
 })
+
+test('focused, every row of Artifacts, footer included, fits 32 and 40 columns', async ($, on) => {
+  seed(on, FOUR, ART_UI)
+  for (const columns of [32, 40]) {
+    for (const surface of SURFACES) {
+      const ui = await mount($, surface, columns, true)
+      const rows = await drawnRows(ui)
+      expect(rows.some(r => r.includes('o: ') || r.includes('c: '))).toBe(true)
+      for (const r of rows) expect(r.length <= columns).toBe(true)
+      await ui.unmount()
+    }
+  }
+})

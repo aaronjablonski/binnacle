@@ -58,7 +58,7 @@ const FORMS: [string, string, string][] = [
   ['5', 'artifacts', 'Artifacts'],
 ]
 
-const UNKNOWN = 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim or strip.'
+const UNKNOWN = 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim, strip or options.'
 
 for (const [arg, tab, label] of FORMS) {
   test(`/mc ${arg} switches to ${tab}, clears detail and opens the pane`, async ($, on) => {
@@ -269,7 +269,7 @@ const TAB_TIERS: [number, number, string[]][] = [
 ]
 
 for (const [cols, cell, labels] of TAB_TIERS) {
-  test(`at ${cols} columns the tabs are one line of ${cell}-column cells from column 2, then the track and a blank row`, async ($, on) => {
+  test(`at ${cols} columns the tabs are one line of ${cell}-column cells from column 2, then the track and a blank row (or 0: options)`, async ($, on) => {
     world(on, empty, { ...initialUi, tab: 'agents' })
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...PANE(cols), surface })
@@ -285,7 +285,15 @@ for (const [cols, cell, labels] of TAB_TIERS) {
       expect(colOf(track, '─')).toBe(2)
       expect((track ?? '').slice(from, from + open.length)).toBe('━'.repeat(open.length))
       expect((track ?? '').length).toBe(Math.min(cols, 2 + 5 * cell))
-      expect(gap).toBe('')
+      // 0: options follows the tabs where the row has room, else ends the blank row under the track.
+      const onTabs = 2 + 5 * cell + 2 + '0: options'.length <= cols
+      if (onTabs) {
+        expect(colOf(tabs, '0: options')).toBe(2 + 5 * cell + 2)
+        expect(gap).toBe('')
+      } else {
+        expect((gap ?? '').trimStart()).toBe('0: options')
+        expect((gap ?? '').length).toBe(cols)
+      }
       const row = await ui.find({ type: 'Box', key: 'tabs' })
       expect(row?.props.flexWrap).toBe(undefined)
       expect((await ui.findAll({ type: 'Text', text: '│' })).length).toBe(0)
@@ -299,7 +307,8 @@ for (const [cols, cell, labels] of TAB_TIERS) {
 }
 
 for (const cols of [31, 28, 24, 20]) {
-  test(`at ${cols} columns there is no tab bar: the slim view draws, within the width`, async ($, on) => {
+  // LOOK TEST (edited for Rich): the slim head asserted here is the text form's (`┏  IDLE`); the rich slim is tested in rich2.test.tsx.
+  test(`text form: at ${cols} columns there is no tab bar: the slim view draws, within the width`, { options: { look: 'text' } }, async ($, on) => {
     world(on, { ...empty, now: { focus: 'Grouping timeline steps by agent and humanising labels', at: 1 } })
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...PANE(cols), surface })

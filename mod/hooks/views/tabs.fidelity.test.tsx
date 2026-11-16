@@ -108,10 +108,6 @@ const retime = (row: string, time: string): string => flush(row.replace(/ +[0-9]
 /** A section head as the engine draws it: the title, a hairline, the sum flush right, one space either side of the hairline. */
 const head = (title: string, sum: string): string => `  ${title} ${'─'.repeat(60 - 2 - title.length - 2 - sum.length)} ${sum}`
 
-/** The shell's footer carries the Options key flush right (task C6): `0 options` ends at column 59. */
-const FOOTER_OPTIONS = 'shell footer: `0 options` flush right at 51 to 59 (the Options key, drawn by the shell in every footer)'
-const withOptions = (row: number) => (rows: string[]): void => void (rows[row] = flush(rows[row]!.trimEnd(), '0 options'))
-
 function check(name: string, b: Board, got: string[], width = 62): void {
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide(name, b.rows, got, b.names, width)).toBe('matches')
@@ -132,7 +128,6 @@ test('fidelity: CockpitTasks at 62 columns matches the mock but for the listed d
     rows[19] = '    ¤¤¤¤¤'
   })
   b.patch('column heads: tokens ends at 49 like its figures (the mock ends it at 50)', rows => void (rows[27] = head('Done', '9  ·  tokens      time')))
-  b.patch(FOOTER_OPTIONS, withOptions(45))
   check('CockpitTasks', b, got)
 })
 
@@ -167,8 +162,6 @@ test('fidelity: CockpitSteps at 62 columns matches the mock but for the listed d
     rows[20] = retime(rows[20]!, '4m 00s')
     rows[21] = retime(rows[21]!, '9m 00s')
   })
-  b.patch('footer: n is armed by the footer, so it is a Button and the engine draws its colon; p prev stays beside it so the walk goes both ways (a fourth hint)', b.sub(45, 'n next error   f find', 'n: next error   p: prev   f find'))
-  b.patch(FOOTER_OPTIONS, withOptions(45))
   check('CockpitSteps', b, got)
 })
 
@@ -197,7 +190,6 @@ test('fidelity: CockpitArtifacts at 62 columns matches the mock but for the list
     rows[29] = fig('  ★ The limiter runs after bodyLimit', 'Write', '6 min')
     rows[30] = fig('  ★ limiter order matters', 'Read', '9 min')
   })
-  b.patch(FOOTER_OPTIONS, withOptions(45))
   check('CockpitArtifacts', b, got)
 })
 

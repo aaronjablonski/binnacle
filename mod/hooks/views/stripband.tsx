@@ -3,9 +3,10 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 import { blank, heightOf } from './parts'
 import { needsSlot } from './needs'
 import {
-  agentsSection, cardAgents, dealRows, footerRow, HEADER_ROWS, isRest, nowHeader, nowState, todoSection, todoWants,
+  agentsSection, cardAgents, dealRows, HEADER_ROWS, isRest, nowHeader, nowState, todoSection, todoWants,
 } from './overview'
 import type { NowState } from './overview'
+import { footerRow } from './tabkit'
 import type { ViewCtx } from './shell'
 import { TAB_ROWS } from './shell'
 import type { Press } from './watch'

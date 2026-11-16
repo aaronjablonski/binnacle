@@ -7,7 +7,6 @@ import { debug, errText, updateUi } from '../state'
 import {
   EMPTY,
   STATE_WORD,
-  STEP_GLYPH,
   agentFiles,
   agentActions,
   answerOf,
@@ -26,7 +25,7 @@ import { agentLine, failedBlock, lineOf, liveCard, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
 import { clock, ruleBar, span, wordFit, wrapWords } from './fit'
 import { openInEditor } from './editor'
-import { footerRow } from './overview'
+import { footerSlot, stepGlyph } from './tabkit'
 import type { FootHint } from './overview'
 import { blank, frameFootInst, frameTopInst, heightOf, inst, page, section } from './parts'
 import type { Action, DeckCell, FrameSpec, PageField, Run } from './parts'
@@ -35,7 +34,7 @@ import { runBoardView } from './runboard'
 import { TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
 import { needsYou, waitStates } from './needs'
-import { C, CK, DECK, edges, podOf, roleOf, statusColor } from './style'
+import { C, CK, DECK, edges, podOf, statusColor, typeName } from './style'
 import type { PodState } from './style'
 import { treeView } from './tree'
 
@@ -311,11 +310,12 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     let targets: Jump[] = []
     let hints: FootHint[] = [{ key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
     const jump = (dir: 1 | -1) => () => void jumpToProblem($, targets, dir)
-    const nextPrev = (): FootHint[] =>
+    // `n` is drawn only on the map ("next flag"); `p` is armed without a hint, and on the list both are (the mock's list footer has neither).
+    const nextPrev = (shown: boolean): FootHint[] =>
       targets.length > 0
         ? [
-            { hotkey: 'n', label: 'next !', id: 'hint-next', onPress: jump(1) },
-            { hotkey: 'p', label: 'prev', id: 'hint-prev', onPress: jump(-1) },
+            { hotkey: 'n', label: 'next flag', id: 'hint-next', onPress: jump(1), hidden: !shown },
+            { hotkey: 'p', label: 'prev', id: 'hint-prev', onPress: jump(-1), hidden: true },
           ]
         : []
     if (u.agentsMode === 'tree') {
@@ -325,7 +325,7 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       hints = [
         { key: '↵', label: 'open' },
         ...(map.unfoldable || hasOpen(u.folded) ? [{ hotkey: 'd', label: hasOpen(u.folded) ? 'fold done' : 'unfold done', id: 'hint-unfold', onPress: () => void updateUi($, cur => toggleAllOpen(cur)) }] : []),
-        ...(targets.length > 0 ? [...nextPrev(), { key: 'esc', label: 'prompt' }, { key: 'r', label: 'working only' }] : [{ key: 'r', label: 'working only' }, { key: 'esc', label: 'prompt' }]),
+        ...(targets.length > 0 ? [...nextPrev(true), { key: 'esc', label: 'prompt' }, { key: 'r', label: 'working only' }] : [{ key: 'r', label: 'working only' }, { key: 'esc', label: 'prompt' }]),
       ]
     } else if (subs.length === 0 && !hasRuns) {
       out.push(modes, blank(ctx, $, 'gap-toggles'), emptyNote(ctx, $))
@@ -334,9 +334,9 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       targets = list.targets
       if (subs.length > 0) out.push(...listHeader(ctx, $, subs), blank(ctx, $, 'gap-readout'))
       out.push(modes, blank(ctx, $, 'gap-toggles'), list.el)
-      hints = [{ key: '↵', label: 'open agent' }, ...(list.failed > 0 ? [{ key: 'v', label: 'transcript' }] : []), ...nextPrev(), { key: 'esc', label: 'prompt' }]
+      hints = [{ key: '↵', label: 'open agent' }, ...(list.failed > 0 ? [{ key: 'v', label: 'transcript' }] : []), ...nextPrev(false), { key: 'esc', label: 'prompt' }]
     }
-    const foot = footerRow(ctx, $, hints)
+    const foot = footerSlot(ctx, $, hints)
     if (foot !== null) {
       const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
       const used = out.reduce((n, el) => n + heightOf(el), 0)
@@ -373,7 +373,7 @@ const STEPS_MAX = 60
 /**
  * The agent page (`ui.page = { kind: 'agent', id: <AgentKey> }`; spec
  * "Detail pages"): its large character, full description (wrapped, never
- * cut), what it is doing; AGENT (type, role, model), TOKENS in and out,
+ * cut), what it is doing; AGENT (type, model), TOKENS in and out,
  * TIME and start, STATE, TASK (a press opens the task's page); every file
  * its steps read or edited, each a line that `o: open`s it in the editor
  * (images too); STEPS as a list; its full result or answer. Actions: `v`
@@ -388,13 +388,11 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   const state = waits.get(id)
   const pod = podOf(state !== undefined ? { ...a, state } : a, now)
   const pill = PILL[pod.state]
-  const role = isMain ? 'lead' : roleOf(a.type)
   const model = a.model !== undefined && a.model !== '' ? modelName(a.model) : undefined
   const order = Object.values(t.agents).sort((x, y) => (x.id === 'main' ? -1 : y.id === 'main' ? 1 : x.startedAt - y.startedAt))
   const index = order.findIndex(x => x.id === id) + 1
 
-  const kind = isMain ? 'main' : a.type
-  const kindLine = [kind, ...(role !== kind ? [role] : []), ...(model !== undefined ? [model] : [])].join(' · ')
+  const kindLine = [typeName(isMain ? 'main' : a.type), ...(model !== undefined ? [model] : [])].join(' · ')
   const fields: PageField[] = [{ key: 'agent-page-type', label: 'Agent', value: kindLine }]
 
   const tokensIn = a.tokensIn
@@ -460,7 +458,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
     fields.push({
       key: `agent-step-${s.id}`,
       label: clock(s.startedAt, true),
-      value: `${STEP_GLYPH[s.status]} ${s.label}`,
+      value: `${stepGlyph(s.status)} ${s.label}`,
       cells: [{ col: DECK.aside, runs: [{ text: STEP_STATUS[s.status] ?? s.status, dim: s.status === 'done', color: statusColor(s.status) }] }],
       onPress: () => openPage($, 'step', s.id),
     })
@@ -518,7 +516,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
       pillHue: pill.hue,
       ...(pod.state === 'waiting' || pod.state === 'stalled' ? { tone: 'warning' as const } : {}),
     },
-    title: isMain ? 'main' : a.description !== '' ? a.description : a.type,
+    title: isMain ? typeName('main') : a.description !== '' ? a.description : typeName(a.type),
     ...(a.status === 'running' && a.doing !== '' ? { body: a.doing } : {}),
     fields,
     blocks,

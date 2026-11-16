@@ -6,8 +6,7 @@ import type { AgentRow, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { absolute, fileHref } from './editor'
-import { deck, hero, inst, page, richDeck } from './parts'
-import type { RichRow } from './parts'
+import { deck, hero, inst, page } from './parts'
 import { Grid, ring } from './raster'
 import { screen } from './screen.testkit'
 import type { ViewCtx } from './shell'
@@ -126,55 +125,6 @@ test('inst: frames of the wrong size are refused, not drawn', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE('rich-test', 62), surface: 'terminal' })
   expect(err).toContain('7x4, not 9x4')
   await ui.unmount()
-})
-
-const ROWS: RichRow[] = [
-  { key: 'deck-focus', label: 'FOCUS', cells: [{ col: DECK.gauge, runs: [{ text: 'Wiring the limiter', bold: true }] }] },
-  {
-    key: 'deck-crew', label: 'CREW', onPress: () => {}, sub: '4 live',
-    inst: { key: 'crew', ...spriteOf(lead, NOW, undefined, 'S') },
-    cells: [{ col: DECK.gauge, runs: '◈ ◉ ▣', whole: true }, { col: DECK.value, runs: [{ text: '4', bold: true }, { text: ' live', dim: true }] }],
-  },
-  { key: 'deck-tasks', label: 'TASKS', onPress: () => {}, cells: [{ col: DECK.gauge, runs: '▪▪▸▫' }, { col: DECK.value, runs: '9/14' }] },
-]
-
-test('richDeck on the terminal: lintel and sill Rasters, labels at 2 as their own Buttons, no Raster inside a Button', async ($, on) => {
-  draws(on, (ctx, $) => richDeck(ctx, $, ROWS, { key: 'now', frame: { pill: 'WORKING', right: 'turn 6 41m' } }))
-  const ui = await $.ui.mount({ ...PANE('rich-test', 62), surface: 'terminal' })
-  const drawn = await ui.drawn()
-  expect(await ui.find({ type: 'Raster', key: 'now-lintel' })).toBeTruthy()
-  expect(await ui.find({ type: 'Raster', key: 'now-sill' })).toBeTruthy()
-  expect((await ui.find({ type: 'Raster', key: 'crew' }))?.props.columns).toBe(5)
-  expect(rasterInButton(drawn)).toBe(false)
-  const rows = screen(drawn)
-  // lintel, focus, crew (2 rows: label, sub), tasks, sill
-  expect(rows).toHaveLength(6)
-  expect(rows[1]!.indexOf('FOCUS')).toBe(2)
-  expect(rows[1]!.indexOf('Wiring the limiter')).toBe(14)
-  expect(rows[2]!.indexOf('CREW')).toBe(2)
-  expect(rows[3]!.indexOf('4 live')).toBe(2)
-  expect(rows[4]!.indexOf('9/14')).toBe(38)
-  await ui.unmount()
-})
-
-test('richDeck elsewhere is the Neo text deck as built, no Raster in the tree', async ($, on) => {
-  draws(on, (ctx, $) => {
-    const { Box } = $.ui.resolve(ctx.e)
-    return (
-      <Box flexDirection="column">
-        {richDeck(ctx, $, ROWS, { key: 'rich', frame: { pill: 'WORKING' } }) ?? ''}
-        {deck(ctx, $, ROWS.map(({ inst: _i, sub: _s, ...r }) => r), { key: 'neo' }) ?? ''}
-      </Box>
-    )
-  })
-  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
-    const ui = await $.ui.mount({ ...PANE('rich-test', 62), surface })
-    const drawn = await ui.drawn()
-    expect(count(drawn, 'Raster')).toBe(0)
-    const rows = screen(drawn)
-    expect(rows.slice(0, 3)).toEqual(rows.slice(3, 6))
-    await ui.unmount()
-  }
 })
 
 test('hero: the character at 2, lines at 14, the rings at 39 when 62 columns hold them, dropped below', async ($, on) => {

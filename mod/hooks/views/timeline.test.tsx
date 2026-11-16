@@ -513,17 +513,17 @@ test('n and p step through the errors when there is no query, opening each in pl
   const stored = world(on, twoErrors(), TL_UI)
   on('ui.focus', () => ({}))
   const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
-  await ui.press({ key: 'hint-n' })
+  await ui.press({ key: 'arm-hint-n' })
   expect((stored.get('ui') as UiState).stepOpen).toBe('s4')
   await ui.unmount()
   const second = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
-  await second.press({ key: 'hint-n' })
+  await second.press({ key: 'arm-hint-n' })
   const u = stored.get('ui') as UiState
   expect(u.stepOpen).toBe('s2')
   expect(u.openTurns).toContain('t1')
   await second.unmount()
   const third = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
-  await third.press({ key: 'hint-p' })
+  await third.press({ key: 'arm-hint-p' })
   expect((stored.get('ui') as UiState).stepOpen).toBe('s4')
   await third.unmount()
 })
@@ -533,8 +533,8 @@ test('with a query n and p step through the hits and the footer names them', asy
   on('ui.focus', () => ({}))
   const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
   const rows = await drawnRows(ui)
-  expect(rows[rows.length - 1]).toContain('n: next hit')
-  await ui.press({ key: 'hint-n' })
+  expect(rows[rows.length - 1]).toContain('n next hit')
+  await ui.press({ key: 'arm-hint-n' })
   expect((stored.get('ui') as UiState).stepOpen).toBe('s3')
   await ui.unmount()
 })
@@ -546,7 +546,7 @@ test('with a step open and no errors or query the footer reads ↵ full step, q 
   const rows = await drawnRows(ui)
   const foot = rows[rows.length - 1] ?? ''
   expect(colOf(foot, '↵ full step')).toBe(2)
-  expect(foot).toContain('q: quote')
+  expect(foot).toContain('q quote')
   expect(foot).toContain('esc close')
   await ui.unmount()
 })
@@ -623,7 +623,7 @@ test('focused, every row of Steps, footer included, fits 32 and 40 columns', asy
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...FOCUSED(columns), surface })
       const rows = screen(await ui.drawn())
-      expect(rows.some(r => r.includes('n: '))).toBe(true)
+      expect(rows.some(r => r.includes('n next'))).toBe(true)
       for (const r of rows) expect(r.length <= columns).toBe(true)
       await ui.unmount()
     }
@@ -1053,34 +1053,38 @@ test('the opened row shows a kept note instead of a second result line', async (
   await ui.unmount()
 })
 
-// LOOK TEST (rewritten for the cockpit): replaces "the footer shows only while the pane is focused, at most 3 entries": the mock's footer is ↵ open step, n next error, f find; `p prev` stays beside n so the walk goes both ways (a fourth hint, named in the report).
-test('the footer reads ↵ open step, n next error, p prev, f find, on the last row, only while focused', async ($, on) => {
+// LOOK TEST (rewritten for the cockpit): replaces "the footer shows only while the pane is focused, at most 3 entries". The footer is exactly the mock's three hints, ↵ open step, n next error, f find (R28 amended); `p` is armed by a hidden Button with no hint, as `n` is.
+test('the footer reads ↵ open step, n next error, f find, on the last row; unfocused it keeps its row, blank', async ($, on) => {
   world(on, twoTurns(), TL_UI)
   const idle = await mount($, 'terminal')
-  expect(await idle.find({ key: 'hint-n' })).toBeUndefined()
+  expect(screen(await idle.drawn()).some(r => r.includes('↵ open step'))).toBe(false)
+  const idleRows = (await drawnRows(idle)).length
+  expect(await idle.find({ key: 'arm-hint-n' })).toBeUndefined()
   await idle.unmount()
   const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
   const rows = await drawnRows(ui)
   const foot = rows[rows.length - 1] ?? ''
-  expect(foot).toContain('↵ open step   n: next error   p: prev   f find')
+  expect(foot.trim()).toBe('↵ open step   n next error   f find')
   expect(colOf(foot, '↵ open step')).toBe(2)
-  // `n` and `p` are Buttons the footer arms (the engine draws the colon); `f` is armed by the find row, so it is text.
-  expect(await ui.find({ key: 'hint-n' })).toBeDefined()
-  expect(await ui.find({ key: 'hint-p' })).toBeDefined()
+  expect(rows.length).toBe(idleRows)
+  // `n` and `p` are hidden Buttons the footer arms; `f` is armed by the find row, so it is text.
+  expect(await ui.find({ key: 'arm-hint-n' })).toBeDefined()
+  expect(await ui.find({ key: 'arm-hint-p' })).toBeDefined()
   const found = await ui.findAll({ type: 'Text' })
   expect((found.find(f => f.text === '↵')?.props as { color?: string }).color).toBe('suggestion')
   expect((found.find(f => f.text === 'f')?.props as { color?: string }).color).toBe('suggestion')
   await ui.unmount()
 })
 
-// LOOK TEST (rewritten for the cockpit): the mock's footer for an opened step with errors to visit is the same four hints, `↵ open step` (Enter on the opened row opens its page).
-test('with a step open and errors to visit the footer keeps n and p beside ↵ open step', async ($, on) => {
+// LOOK TEST (rewritten for the cockpit): the mock's footer for an opened step with errors to visit is the same three hints, `↵ open step` (Enter on the opened row opens its page); `p` stays armed with no hint.
+test('with a step open and errors to visit the footer keeps n beside ↵ open step, and p armed', async ($, on) => {
   world(on, twoTurns(), { ...TL_UI, stepOpen: 's3' })
   const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
   const foot = (await drawnRows(ui)).at(-1) ?? ''
-  expect(foot).toContain('n: next error')
-  expect(foot).toContain('p: prev')
+  expect(foot).toContain('n next error')
+  expect(foot).not.toContain('p prev')
   expect(foot).toContain('↵ open step')
+  expect(await ui.find({ key: 'arm-hint-p' })).toBeDefined()
   await ui.unmount()
 })
 

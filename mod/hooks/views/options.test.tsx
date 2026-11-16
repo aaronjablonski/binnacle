@@ -81,7 +81,8 @@ for (const surface of SURFACES) {
     // The test's own state.get subscribes nothing: a new mount draws what the press wrote.
     const again = await $.ui.mount({ ...PANE(80), surface })
     const rows = screen(await again.drawn())
-    expect(rows.some(r => r.includes('NEVER'))).toBe(true)
+    expect(rows.some(r => r.trimStart().startsWith('Never '))).toBe(true)
+    expect(rows.join('\n')).not.toMatch(/NEVER|PREVIEW|OPTIONS/)
 
     await again.press({ key: 'tab-options' })
     expect((stored.get('ui') as UiState).page).toBe(undefined)
@@ -109,7 +110,7 @@ test('/mc options opens the pane on the Options page', async ($, on) => {
   expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: '' })
 })
 
-test('the card lists every option with its value and when it applies, and a NEVER section', async ($, on) => {
+test('the card lists every option with its value and when it applies, and a Never section', async ($, on) => {
   world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   const rows = screen(await ui.drawn())
@@ -122,7 +123,7 @@ test('the card lists every option with its value and when it applies, and a NEVE
   expect(rowOf('Agent time limit').slice(38, 41)).toBe('60m')
   expect(rowOf('Open at start').slice(50)).toBe('next start')
   expect(rowOf('Accent').slice(50)).toBe('coming')
-  const never = rows.findIndex(r => r.includes('NEVER'))
+  const never = rows.findIndex(r => r.trimStart().startsWith('Never '))
   expect(never > 0).toBe(true)
   const after = rows.slice(never + 1, never + 5).join('\n')
   for (const words of ['model', 'effort', 'crew', 'cache warm']) expect(after).toContain(words)
@@ -189,15 +190,17 @@ test('b closes the card', async ($, on) => {
   await ui.unmount()
 })
 
-test('the PREVIEW is a Raster on the terminal and text on the desktop', async ($, on) => {
+test('the preview is three critters, Rasters on the terminal and text on the desktop, with the accent named (R38: the cockpit look, no PREVIEW label)', async ($, on) => {
   world(on, OPTIONS_UI)
   const term = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  expect(await term.find({ type: 'Raster', key: 'opt-preview' })).not.toBe(undefined)
+  for (const i of [0, 1, 2]) expect(await term.find({ type: 'Raster', key: `opt-critter-${i}-inst` })).not.toBe(undefined)
   await term.unmount()
   const desk = await $.ui.mount({ ...PANE(80), surface: 'desktop' })
   expect(await desk.find({ type: 'Raster' })).toBe(undefined)
   const rows = screen(await desk.drawn())
-  expect(rows.some(r => r.includes('PREVIEW'))).toBe(true)
+  expect(rows.some(r => r.includes('iris'))).toBe(true)
+  expect(rows.some(r => r.includes('the accent'))).toBe(true)
+  expect(rows.some(r => r.includes('PREVIEW'))).toBe(false)
   await desk.unmount()
 })
 
@@ -219,7 +222,7 @@ test('the Look row is a choice of auto, rich and text, auto by default; text is 
   const { stored, sets } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   expect(await ui.find({ type: 'Raster' })).not.toBe(undefined)
-  const row = screen(await ui.drawn()).find(r => r.includes('Look'))
+  const row = screen(await ui.drawn()).find(r => /^ {4}Look( |$)/.test(r))
   expect(row).toContain('auto')
   await ui.press({ key: 'opt-look' })
   expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: 'look' })
@@ -292,9 +295,10 @@ test('look auto draws text where the surface has no Raster', { options: { look: 
   await ui.unmount()
 })
 
-// C6: the Options key is drawn, in R28 notation (`0 options`, the key in the accent), where the mocks keep their hints.
+// R28 amended (review I-2, Fable I8): `0 options` is plain footer text on Now only, as the mock draws it; the other tabs draw none. The one `0` hotkey is the hidden `tab-options` Button in the shell, on every tab.
 for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts'] as const) {
-  test(`the footer on ${tab} draws \`0 options\` as a pressable Button, once; a press opens the Options page`, async ($, on) => {
+  const says = tab === 'overview' ? 'says 0 options as plain text, once' : 'has no 0 options'
+  test(`the footer on ${tab} ${says}; the hidden Button arms 0 and a press opens the Options page`, async ($, on) => {
     const { stored } = world(on, { ...initialUi, tab })
     // A session with a step, a task and an agent, so every tab has rows and so a footer.
     stored.set('timeline', {
@@ -306,36 +310,32 @@ for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts'] as co
     for (const cols of [62, 80]) {
       const ui = await $.ui.mount({ ...PANE(cols), surface: 'mobile' })
       const rows = screen(await ui.drawn())
-      expect(rows.filter(r => r.includes('0 options')).length).toBe(1)
-      const foot = rows.find(r => r.includes('0 options'))!
-      // On Now the hint stands where the mock puts it; on the other tabs it ends at the right edge (column cols - 3).
-      if (tab !== 'overview') expect(foot.length).toBe(cols - 2)
-      const button = await ui.find({ type: 'Button', key: 'footer-options' })
-      expect(button).toBeDefined()
-      expect(button?.props).toMatchObject({ plain: true })
-      expect(button?.props.hotkey).toBe(undefined)
-      const [key, word] = (button as unknown as { children: { props: Record<string, unknown>; children: string[] }[] }).children
-      expect([key!.children, key!.props.color]).toEqual([['0'], 'suggestion'])
-      expect([word!.children, word!.props.dimColor]).toEqual([[' options'], true])
-      // The hidden `0` stays the one hotkey.
+      expect(rows.filter(r => r.includes('0 options')).length).toBe(tab === 'overview' ? 1 : 0)
+      // Never a Button: the footer is text, and nothing keyed footer-options exists.
+      expect(await ui.find({ type: 'Button', key: 'footer-options' })).toBe(undefined)
+      if (tab === 'overview') {
+        const hints = await ui.findAll({ type: 'Text', text: /^0$/ })
+        expect(hints.some(h => h.props.color === 'suggestion')).toBe(true)
+      }
+      // The hidden 0 is the one hotkey, in a Box of no size.
       expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0' })
       await ui.unmount()
     }
     const ui = await $.ui.mount({ ...PANE(62), surface: 'mobile' })
-    await ui.press({ key: 'footer-options' })
+    await ui.press({ key: 'tab-options' })
     expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: '' })
     await ui.unmount()
   })
 }
 
-test('the Options page draws no second `0 options`; an unfocused pane has no footer and so no footer Button', async ($, on) => {
+test('the Options page draws no `0 options` hint; an unfocused pane has no footer text and keeps the hidden 0', async ($, on) => {
   const { stored } = world(on, OPTIONS_UI)
   const page = await $.ui.mount({ ...PANE(62), surface: 'mobile' })
-  expect(await page.find({ type: 'Button', key: 'footer-options' })).toBe(undefined)
+  expect(screen(await page.drawn()).some(r => r.includes('0 options'))).toBe(false)
   await page.unmount()
   stored.set('ui', { ...initialUi, tab: 'tasks' })
   const quiet = await $.ui.mount({ ...PANE(62), props: { ...PANE(62).props, isFocused: false }, surface: 'mobile' })
-  expect(await quiet.find({ type: 'Button', key: 'footer-options' })).toBe(undefined)
+  expect(screen(await quiet.drawn()).some(r => r.includes('0 options'))).toBe(false)
   expect((await quiet.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0' })
   await quiet.unmount()
 })

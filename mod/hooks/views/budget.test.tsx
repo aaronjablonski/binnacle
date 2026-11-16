@@ -131,16 +131,16 @@ async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns
   return m
 }
 
-// LOOK TEST (rewritten for the cockpit, task C3b): the budget view is the cockpit's: lintel, a BUDGET pill that goes back, the three rings with
+// LOOK TEST (rewritten for the cockpit, task C3b; the head is plain bold text since a pill is for a state only, O M8): the budget view is the cockpit's: lintel, a Budget head that goes back, the three rings with
 // their words under them at 29, 40 and 51 (62 columns), the sill; no Neo deck, no beads, no bracket.
-test('the budget view: lintel, the BUDGET pill, three rings of context, 5 hours and this week with words under them, sill', { options: { look: 'text' } }, async ($, on) => {
+test('the budget view: lintel, the Budget head, three rings of context, 5 hours and this week with words under them, sill', { options: { look: 'text' } }, async ($, on) => {
   world(on, withBudget(budget({ contextTokens: 620_000, windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 32 }] })))
   for (const surface of SURFACES) {
     const m = await openBudget($, surface, 62)
     const rows = screen(await m.drawn())
     const top = rows.findIndex(r => r.startsWith('┏━━'))
     expect(top).toBe(3)
-    expect(rows[top + 1]).toMatch(/^ {3}BUDGET {3}\S/)
+    expect(rows[top + 1]).toMatch(/^ {2}Budget {2}\S/)
     // The figure beside the rings (620k of 1M), then 62%, 71% and 32% centred in their 9 cells at 29, 40 and 51.
     const mid = rows[top + 4]!
     expect(colOf(mid, '620k of 1M')).toBe(2)

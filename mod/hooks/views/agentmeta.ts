@@ -7,11 +7,11 @@ import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../
 import { tokenText } from './budget'
 import { span } from './fit'
 import { viewAgent } from './parts'
-import type { Action, Flag } from './parts'
+import type { Action } from './parts'
 import { openPage } from './pagenav'
 import type { ViewCtx } from './shell'
 import { edges } from './style'
-import type { Pod, PodState } from './style'
+import type { PodState } from './style'
 
 export const STEP_GLYPH: Record<Step['status'], string> = {
   running: '·',
@@ -22,7 +22,6 @@ export const STEP_GLYPH: Record<Step['status'], string> = {
 }
 /** A workflow run's row glyph. */
 export const RUN_GLYPH = '≡'
-export const WORKFLOW_TYPE = 'workflow-subagent'
 export const EMPTY = 'No agents yet. Subagents and workflow agents appear here while they run.'
 
 /** The pane's own id: the target of a `$.ui.focus`. */
@@ -82,12 +81,6 @@ export function timeCell(ctx: ViewCtx, a: AgentRow): string {
 export function agentCols(cols: number): { left: number; right: number; time: number; tokens?: number; state?: number } {
   const { left, right } = edges(cols)
   return { left, right, time: right, ...(cols >= 46 ? { tokens: right - 10 } : {}), ...(cols >= 56 ? { state: right - 23 } : {}) }
-}
-
-/** The gutter flag a pod's signal is: `!` problem, `?` waiting, `z` stalled; none without a signal. */
-export function signalFlag(pod: Pod): Flag | undefined {
-  const text = pod.signal?.text
-  return text === '!' ? 'problem' : text === '?' ? 'waiting' : text === 'z' ? 'stalled' : undefined
 }
 
 /** Scrolls the chat to the call that spawned the agent. A press only; a refusal is toasted. */

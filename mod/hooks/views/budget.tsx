@@ -1,6 +1,6 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, Budget, BudgetWindow, LedgerRow, Timeline } from '../../types'
+import type { Budget, BudgetWindow, LedgerRow, Timeline } from '../../types'
 import { stamp } from '../model/digest'
 import { ledgerCsv, week } from '../model/ledger'
 import type { LedgerDay } from '../model/ledger'
@@ -10,7 +10,7 @@ import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
-import { bar, clock, elapsed, growLists, listSplit, meter, pctBar, ruleBar, shortPaths, span, warmWords, wordFit, fitRuns } from './fit'
+import { bar, clock, elapsed, growLists, listSplit, pctBar, ruleBar, shortPaths, span, warmWords, wordFit, fitRuns } from './fit'
 import { podFor, waitStates } from './needs'
 import { blank, frameFootInst, frameTopInst, heightOf, inst, more, runText, section } from './parts'
 import type { InstSpec, ReadoutCell, Run } from './parts'
@@ -59,18 +59,6 @@ export function resetText(at: number, now: number): string {
 const dollars = (usd: number): string => `$${usd.toFixed(2)}`
 const percent = (pct: number): string => `${Math.round(pct)}%`
 
-/** The agent's model and tokens as `sonnet 41k`; `…` while it runs with no usage; '' when there is nothing to say. */
-export function usageText(agent: AgentRow): string {
-  const model = agent.model !== undefined ? modelName(agent.model) : ''
-  const has = agent.tokensIn !== undefined || agent.tokensOut !== undefined
-  if (!has) {
-    if (agent.status === 'running') return model !== '' ? `${model} …` : '…'
-    return model
-  }
-  const total = tokenText((agent.tokensIn ?? 0) + (agent.tokensOut ?? 0))
-  return model !== '' ? `${model} ${total}` : total
-}
-
 /** One total per model, biggest first, over every agent that reported both a model and tokens. */
 export function modelTotals(t: Timeline): { model: string; tokens: number; agents: number }[] {
   const by = new Map<string, { model: string; tokens: number; agents: number }>()
@@ -83,29 +71,6 @@ export function modelTotals(t: Timeline): { model: string; tokens: number; agent
     by.set(model, row)
   }
   return [...by.values()].sort((a, b) => b.tokens - a.tokens || a.model.localeCompare(b.model))
-}
-
-type Row = { label: string; pct: number; reset?: string; at?: number; key?: string }
-
-function rowsOf(b: Budget, now: number): Row[] {
-  const rows: Row[] = []
-  if (b.contextPct !== undefined) rows.push({ label: 'ctx', pct: b.contextPct, key: 'context' })
-  for (const w of b.windows) {
-    const row: Row = { label: windowName(w.name), pct: w.pct, key: w.name }
-    if (w.resetsAt !== undefined) {
-      row.reset = resetText(w.resetsAt, now)
-      row.at = w.resetsAt
-    }
-    rows.push(row)
-  }
-  return rows
-}
-
-/** `ctx 62% · 5h 71%`, with the cost when asked for; '' when there is nothing to show. */
-export function budgetLine(b: Budget, showCost: boolean): string {
-  const parts = rowsOf(b, 0).map(r => `${r.label} ${percent(r.pct)}`)
-  if (showCost && b.costUsd !== undefined) parts.push(dollars(b.costUsd))
-  return parts.join(' · ')
 }
 
 // ---------- the Now BUDGET row and the budget view ----------
@@ -143,22 +108,6 @@ export function resetClock(at: number, now: number): string {
   if (at <= now) return 'now'
   if (at - now < DAY) return clock(at)
   return `${WEEKDAYS[new Date(at).getDay()] ?? ''} ${clock(at)}`
-}
-
-/**
- * The meters of Now's BUDGET row, left to right: CTX, then the 5-hour and
- * 7-day windows, those the reading has (`CTX ◔ 9%`, each at most 10 wide).
- */
-export function budgetMeters(t: Timeline): Run[][] {
-  const b = t.budget
-  if (b === undefined) return []
-  const out: Run[][] = []
-  if (b.contextPct !== undefined) out.push(meter('CTX', b.contextPct))
-  for (const [name, label] of [['five_hour', '5H'], ['seven_day', '7D']] as const) {
-    const w = b.windows.find(x => x.name === name)
-    if (w !== undefined) out.push(meter(label, w.pct))
-  }
-  return out
 }
 
 /** The two heaviest models as readout cells: the model and its share of all tokens. */
@@ -401,7 +350,8 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
 }
 
 /** The pill: ` BUDGET ` on the accent, as Now's pill is. */
-const BUDGET_PILL: Run = { text: ' BUDGET ', color: CK.inverse, bg: CK.accent, bold: true }
+// The head row's word: plain bold text, since a pill is for a state only (O M8).
+const BUDGET_PILL: Run = { text: 'Budget', bold: true }
 
 /**
  * The header: lintel, the pill row (one plain Button, `budget-back`: a press
@@ -715,11 +665,6 @@ export async function seedBudget($: EngineInterface, opts: { skipIfFresh?: boole
 // render hook cannot await the store, so the press that opens the view loads
 // them (`loadLedger`) and redraws; a reload starts empty and loads again.
 let ledger: LedgerRow[] = []
-
-/** The ledger rows the view draws from (what the last `loadLedger` read). */
-export function ledgerRows(): LedgerRow[] {
-  return ledger
-}
 
 /** Replaces the rows the view draws from. For `loadLedger` and tests. */
 export function setLedgerRows(rows: LedgerRow[]): void {

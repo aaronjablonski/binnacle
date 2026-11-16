@@ -259,9 +259,30 @@ export function mapBuckets(steps: readonly Step[], now: number, n: number, seen:
  * height the steps in the slice, an error red, the run in view bright
  * (iris), the rest soft. Its text form is the same box in eighth blocks.
  */
-function mapInst(buckets: MapBucket[], ground: 'night' | 'day'): InstSpec {
+/** Motion sketch 5: the new step's map column grows in two steps of 120 ms. */
+export const MAP_GROW_MS = [120, 120] as const
+/** Motion sketch 5: a running step this new carries the accent mark on its row (one beat of the 1 s clock). */
+export const STEP_MARK_MS = 1000
+/** A step this new, when the map first counts it, grows its column in. */
+const MAP_GROW_FRESH_MS = 2000
+
+function mapInst(buckets: MapBucket[], ground: 'night' | 'day', o: { steps?: number; newest?: number; now?: number } = {}): InstSpec {
   const n = buckets.length
   const lv = levels(buckets.map(b => b.count), MAP_ROWS)
+  const grid = (last?: number): Grid => {
+    const g = new Grid(n, MAP_ROWS, palette(ground))
+    buckets.forEach((b, i) => {
+      const v = i === n - 1 && last !== undefined ? last : (lv[i] ?? 0)
+      const hue = b.error ? 'red' : b.view ? 'iris' : 'irisSoft'
+      for (let k = 0; k < MAP_ROWS; k++) {
+        const part = Math.max(0, Math.min(8, v - k * 8))
+        const rr = MAP_ROWS - 1 - k
+        if (part > 0) g.lv(i, rr, part, hue)
+        else if (k === 0) g.lv(i, rr, 1, 'rest')
+      }
+    })
+    return g
+  }
   const style = (b: MapBucket): Omit<Run, 'text'> => (b.error ? { color: CK.fail } : b.view ? { color: CK.accent } : { color: CK.accent, dim: true })
   const rows: Run[][] = [[], []]
   buckets.forEach((b, i) => {
@@ -276,21 +297,20 @@ function mapInst(buckets: MapBucket[], ground: 'night' | 'day'): InstSpec {
     columns: n,
     rows: MAP_ROWS,
     sig: `map:${ground}:${accentName()}:${buckets.map(b => `${b.count}${b.error ? 'e' : ''}${b.view ? 'v' : ''}`).join(',')}`,
-    frames: () => {
-      const g = new Grid(n, MAP_ROWS, palette(ground))
-      buckets.forEach((b, i) => {
-        const v = lv[i] ?? 0
-        const hue = b.error ? 'red' : b.view ? 'iris' : 'irisSoft'
-        for (let k = 0; k < MAP_ROWS; k++) {
-          const part = Math.max(0, Math.min(8, v - k * 8))
-          const rr = MAP_ROWS - 1 - k
-          if (part > 0) g.lv(i, rr, part, hue)
-          else if (k === 0) g.lv(i, rr, 1, 'rest')
-        }
-      })
-      return [g]
-    },
+    frames: () => [grid()],
     fallback: rows,
+    ...(o.steps !== undefined
+      ? {
+          tag: String(o.steps),
+          // A new step lands in the newest column: it grows in (a third, two thirds, then whole), blits only.
+          burst: (prev: string | undefined, now: number) => {
+            const was = prev === undefined ? undefined : Number(prev)
+            const full = lv[n - 1] ?? 0
+            if (was === undefined || !(o.steps! > was) || o.newest === undefined || now - o.newest >= MAP_GROW_FRESH_MS || full < 2) return undefined
+            return { frames: () => [grid(Math.max(1, Math.round(full / 3))), grid(Math.max(1, Math.round((2 * full) / 3)))], ms: MAP_GROW_MS }
+          },
+        }
+      : {}),
   }
 }
 
@@ -426,7 +446,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const mapEl =
       mapWidth >= 4 ? (
         <Box key="map-row" flexDirection="row" paddingLeft={left}>
-          {inst(ctx, $, mapInst(mapBuckets(t.steps, ctx.now, mapWidth, seen), ground))}
+          {inst(ctx, $, mapInst(mapBuckets(t.steps, ctx.now, mapWidth, seen), ground, { steps: t.steps.length, ...(t.steps.length > 0 ? { newest: Math.max(...t.steps.map(s => s.startedAt)) } : {}) }))}
         </Box>
       ) : null
     const caption: Seg[] = [{ col: left, text: 'start', dim: true }, ...flushRight([{ text: 'now', dim: true }], right)]
@@ -499,9 +519,11 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         const who: Run = hit ? { text: whoText, color: C.accent } : { text: whoText, dim: true }
         if (mid !== undefined) body.push(...flushRight([who], mid))
         if (hasTime(cols)) body.push(...flushRight([{ text: live ? 'now' : span(end - s.startedAt, { steps: true }), dim: true }], right))
+        // Motion sketch 5: a step that just started carries an accent mark for one beat (the 1 s redraw takes it off); the text look too.
+        const fresh = live && ctx.motion === true && ctx.e.surface === 'terminal' && ctx.now - s.startedAt >= 0 && ctx.now - s.startedAt < STEP_MARK_MS
         return lineOf(ctx, $, {
           key: `step-${s.id}`,
-          ...(seen(s.id) ? { pre: [{ col: 0, text: '◂', color: C.live }] } : {}),
+          ...(fresh ? { pre: [{ col: 0, text: '▍', color: C.live }] } : seen(s.id) ? { pre: [{ col: 0, text: '◂', color: C.live }] } : {}),
           body,
           // Enter on a step row opens its page (rich rule 4); `b` comes back to the row.
           onPress: () => openStep($, s.id, `step-${s.id}`),

@@ -18,7 +18,10 @@ import { openPage } from './pagenav'
 import { openStep } from './openstep'
 import { agentCard, blank, header, heightOf, inst, runText, section } from './parts'
 import type { InstSpec, Run } from './parts'
-import { drawCritter, Grid } from './raster'
+import { drawCritter, Grid, mix, MOVE_MS, sweepPose } from './raster'
+import type { Ground, Ink, Palette, PoseFrame } from './raster'
+import { bursting, tagOf } from './paint'
+import { sweepFrame, sweepShows } from './delights'
 import type { CritterRole } from './raster'
 import type { ViewCtx } from './shell'
 import { TAB_ROWS } from './shell'
@@ -112,6 +115,12 @@ export function headWords(ctx: ViewCtx, view: NeedsView, hs: HeaderState, todo: 
   }
 }
 
+/** The lead's pose on the finish sweep's frame (motion sketch 10), or undefined when no sweep shows. */
+function leadPose(ctx: ViewCtx): PoseFrame | undefined {
+  const f = sweepShows(ctx) ? sweepFrame() : undefined
+  return f === undefined ? undefined : sweepPose(f)
+}
+
 /** The rows `nowHeader` takes: 9, or the Svg's on the desktop app. */
 export const HEADER_ROWS = 9
 
@@ -140,7 +149,8 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
     pill: w.pill,
     ...(w.pillColor !== undefined ? { pillColor: w.pillColor } : {}),
     meta: w.meta,
-    critter: critterArgs('lead', w.lead, { ground, motion: ctx.motion === true }),
+    // Motion sketch 10: on the finish sweep's frames the lead squashes, hops and greys (it rides the sweep's own redraws).
+    critter: critterArgs('lead', w.lead, { ground, motion: ctx.motion === true, ...(leadPose(ctx) !== undefined ? { pose: leadPose(ctx)! } : {}) }),
     kicker: w.kicker,
     title: headline(ctx.t).text,
     ...(headline(ctx.t).isPast === true ? { dimTitle: true } : {}),
@@ -153,6 +163,83 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
 }
 
 // ---------- To do (R11 to R14) ----------
+
+/** Motion sketch 1: the to-do bar's three in-between frames, 160 ms each (the done segment flashes, settles, the next half lit). */
+export const TODO_FLASH_MS = [160, 160, 160] as const
+
+/** Each task's cells `[from, to)` on a to-do bar of `cells` (as `todoBar` lays them), or undefined when the bar is proportional (more tasks than cells). */
+export function todoSegs(cells: number, total: number): [number, number][] | undefined {
+  const n = Math.max(0, Math.floor(cells))
+  const t = Math.max(0, Math.floor(total))
+  if (t === 0 || t > n) return undefined
+  const at = (i: number) => Math.floor((i * (n + 1)) / t)
+  const segs = Array.from({ length: t }, (_, i): [number, number] => [at(i), at(i + 1) - 1])
+  if (Math.min(...segs.map(([a, b]) => b - a)) >= 1) return segs
+  return Array.from({ length: t }, (_, i): [number, number] => [Math.floor((i * n) / t), Math.floor((i * n) / t) + 1])
+}
+
+/** The Raster ink of a to-do bar run's style. */
+function barInk(r: Run): Ink {
+  if (r.color === CK.ask) return 'amber'
+  if (r.color === C.result) return 'mint'
+  if (r.color === C.subtle) return 'rest'
+  return r.dim === true ? 'irisSoft' : 'iris'
+}
+
+/** A to-do bar as a Raster: each `━` of `todoBar`'s runs in its ink; `over` recolours cells `[from, to)`. */
+function barGrid(runs: Run[], cells: number, pal: Palette, over: { from: number; to: number; ink: Ink }[] = []): Grid {
+  const g = new Grid(Math.max(1, cells), 1, pal)
+  let x = 0
+  for (const r of runs) {
+    for (const ch of r.text) {
+      if (ch === '━' && x < g.columns) g.glyph(x, 0, '━', barInk(r))
+      x += 1
+    }
+  }
+  for (const o of over) for (let i = o.from; i < Math.min(o.to, g.columns); i++) g.glyph(i, 0, '━', o.ink)
+  return g
+}
+
+/**
+ * Now's to-do bar as an instrument (a Raster in the rich look, the same `━`
+ * runs as text elsewhere). When a task lands (the done count goes up, the
+ * total the same), motion sketch 1: the newly done segment flashes bright,
+ * settles, and the next one lights in two steps (3 x 160 ms, blits only).
+ */
+export function todoBarInst(cells: number, todo: TodoBlock, ground: Ground): InstSpec {
+  const current = todo.current !== undefined ? 1 : 0
+  const o = todo.paused ? { current: { color: CK.ask } } : {}
+  const runs = todoBar(cells, todo.total, todo.done, current, o)
+  const pal = palette(ground)
+  return {
+    key: 'todo-bar',
+    columns: Math.max(1, cells),
+    rows: 1,
+    sig: `todo-bar:${cells}:${todo.total}:${todo.done}:${current}:${todo.paused ? 'p' : ''}:${ground}:${accentName()}`,
+    frames: () => [barGrid(runs, cells, pal)],
+    fallback: [runs],
+    tag: `${todo.done}/${todo.total}`,
+    burst: prev => {
+      const m = prev !== undefined ? /^(\d+)\/(\d+)$/.exec(prev) : null
+      if (m === null || Number(m[2]) !== todo.total || Number(m[1]) >= todo.done || todo.done < 1) return undefined
+      const segs = todoSegs(cells, todo.total)
+      const landed = segs?.[todo.done - 1]
+      if (segs === undefined || landed === undefined) return undefined
+      // The done part as it ends, with no current yet: the flash and the settle sit on it.
+      const base = todoBar(cells, todo.total, todo.done, 0)
+      const next = current === 1 ? segs[todo.done] : undefined
+      const half = mix(pal.rest, todo.paused ? pal.amber : pal.iris, 0.5)
+      return {
+        frames: () => [
+          barGrid(base, cells, pal, [{ from: landed[0], to: landed[1], ink: 'ink' }]),
+          barGrid(base, cells, pal),
+          barGrid(base, cells, pal, next !== undefined ? [{ from: next[0], to: next[1], ink: half }] : []),
+        ],
+        ms: TODO_FLASH_MS,
+      }
+    },
+  }
+}
 
 /** The list rows To do draws in `n` rows: the done row, the current task, the open ones, `+ k more`. */
 type TodoPlan = { lastDone?: TaskItem; current?: TaskItem; open: TaskItem[]; more: number; allDone: boolean }
@@ -224,10 +311,9 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
   }
   const out: RenderElement[] = [
     section(ctx, $, 'To do', [{ text: String(todo.done), bold: true }, { text: ` of ${todo.total} done`, dim: true }], { key: 'sec-todo', onPress: openTasks }),
-    <Text key="todo-bar">
-      {' '.repeat(left)}
-      {todoBar(content, todo.total, todo.done, todo.current !== undefined ? 1 : 0, todo.paused ? { current: { color: CK.ask } } : {}).map((r, i) => runText(r, ctx.e, $, `todo-bar-${i}`))}
-    </Text>,
+    <Box key="todo-bar-row" flexDirection="row" paddingLeft={left}>
+      {inst(ctx, $, todoBarInst(content, todo, ctx.ground ?? 'night'))}
+    </Box>,
     blank(ctx, $, 'todo-gap'),
   ]
   const p = todoPlan(todo, n)
@@ -326,11 +412,37 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
 
 // ---------- Agents ----------
 
-/** The agents Now draws a card for: the live ones (oldest first), then the ones that failed in this request (newest first). */
-export function cardAgents(t: Timeline): AgentRow[] {
+/** How long a finished agent's card stays after its finish (motion sketch 3): the nod and fade (2 x 150 ms) and the 700 ms rest. */
+export const SETTLE_HOLD_MS = MOVE_MS.settle.reduce((n, ms) => n + ms, 0)
+
+/**
+ * The agents whose card stays a moment after they finished (motion sketch 3),
+ * in the rich look with `motion` on: the card's critter is playing its nod
+ * and fade, or was drawn live and the finish is under `SETTLE_HOLD_MS` old
+ * (this draw starts the nod). The burst's last step redraws, and the card folds.
+ */
+export function settlingIds(ctx: ViewCtx): Set<string> {
+  const out = new Set<string>()
+  if (ctx.motion !== true || ctx.look !== 'rich') return out
+  const site = ctx.site ?? 'binnacle'
+  for (const a of subagents(ctx.t)) {
+    if (a.status !== 'done' || a.endedAt === undefined) continue
+    const key = `agent-${a.id}-who`
+    const was = tagOf(site, key)?.split('@')[0]
+    const live = was === 'working' || was === 'waiting' || was === 'stalled'
+    if (bursting(site, key) || (live && ctx.now - a.endedAt < SETTLE_HOLD_MS)) out.add(a.id)
+  }
+  return out
+}
+
+/**
+ * The agents Now draws a card for: the live ones (oldest first, with any whose
+ * card is settling, `hold`), then the ones that failed in this request (newest first).
+ */
+export function cardAgents(t: Timeline, hold: ReadonlySet<string> = new Set()): AgentRow[] {
   const from = requestStart(t)
   const subs = subagents(t)
-  const live = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
+  const live = subs.filter(a => a.status === 'running' || (a.status === 'done' && hold.has(a.id))).sort((a, b) => a.startedAt - b.startedAt)
   const failed = subs.filter(a => a.status === 'error' && (a.endedAt ?? a.startedAt) >= from).sort((a, b) => b.startedAt - a.startedAt)
   return [...live, ...failed]
 }
@@ -343,18 +455,18 @@ function runningStep(t: Timeline, agent: string): Step | undefined {
 }
 
 /** How many rows the Agents block takes with `cards` cards. */
-export function agentsHeight(t: Timeline, rest: boolean, cards: number): number {
-  const all = cardAgents(t)
-  const finished = subagents(t).filter(a => a.status === 'done').length
+export function agentsHeight(t: Timeline, rest: boolean, cards: number, hold: ReadonlySet<string> = new Set()): number {
+  const all = cardAgents(t, hold)
+  const finished = subagents(t).filter(a => a.status === 'done' && !hold.has(a.id)).length
   if (rest || all.length === 0) return rest || finished > 0 ? 1 + (rest ? 2 : 1) : 0
   const shown = Math.min(cards, all.length)
   return 1 + 3 * shown + (all.length > shown ? 1 : 0) + (finished > 0 ? 1 : 0)
 }
 
 /** Whether the Agents block ends on a card's empty third row (then no gap follows it). */
-export function agentsEndOnCard(t: Timeline, rest: boolean, cards: number): boolean {
-  const all = cardAgents(t)
-  const finished = subagents(t).filter(a => a.status === 'done').length
+export function agentsEndOnCard(t: Timeline, rest: boolean, cards: number, hold: ReadonlySet<string> = new Set()): boolean {
+  const all = cardAgents(t, hold)
+  const finished = subagents(t).filter(a => a.status === 'done' && !hold.has(a.id)).length
   return !rest && all.length > 0 && all.length <= cards && finished === 0
 }
 
@@ -403,8 +515,9 @@ export function agentsSection(
   const press = o.press ?? asIs
   const { left } = edges(ctx.cols)
   const ground = ctx.ground ?? 'night'
-  const all = cardAgents(t)
-  const finished = subagents(t).filter(a => a.status === 'done').length
+  const hold = settlingIds(ctx)
+  const all = cardAgents(t, hold)
+  const finished = subagents(t).filter(a => a.status === 'done' && !hold.has(a.id)).length
   const openAgents = press(() => openTab($, 'agents'))
   if (o.rest || all.length === 0) {
     if (!o.rest && finished === 0) return []
@@ -461,7 +574,7 @@ export function agentsSection(
   const longRun = new Set(o.watch.filter(w => w.kind === 'long-run').map(w => w.agent))
   const live = all.filter(a => a.status === 'running')
   const waiting = live.filter(a => asking.has(a.id)).length
-  const failed = all.length - live.length
+  const failed = all.filter(a => a.status === 'error').length
   const sum: Run[] = [{ text: String(live.length - waiting), bold: true }, { text: ' working', dim: true }]
   if (waiting > 0) sum.push({ text: ' · ', dim: true }, { text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
   if (failed > 0) sum.push({ text: ' · ', dim: true }, { text: String(failed), color: CK.fail, bold: true }, { text: ' failed', color: CK.fail })
@@ -745,7 +858,8 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const headEl = nowHeader(ctx, $, view, hs, todo, compact ? { compact: true } : {})
   const turn = rest ? turnSection(ctx, $) : []
   const tw = todoWants(todo)
-  const cards = cardAgents(ctx.t).length
+  const hold = settlingIds(ctx)
+  const cards = cardAgents(ctx.t, hold).length
   const ag = rest || cards === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(3, cards) }
   const nn = noteItems(ctx.t).length
   const nw = nn === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(4, nn) }
@@ -756,7 +870,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     (watch.length > 0 ? watchHeight(ctx, watch, WATCH_CAP) + 1 : 0) +
     (todo.empty ? (noRequest(ctx.t) ? 0 : 1) : 3) + todoWrapRows(todo, ctx.cols) + (todo.empty && noRequest(ctx.t) ? 0 : 1) +
     (turn.length > 0 ? turn.length + 1 : 0) +
-    agentsHeight(ctx.t, rest, ag.floor) - 3 * ag.floor + 1 +
+    agentsHeight(ctx.t, rest, ag.floor, hold) - 3 * ag.floor + 1 +
     (nn > 0 ? 1 : 0)
   const deal = dealRows(rows - footRows - fixed - tw.floor - 3 * ag.floor - nw.floor, tw, ag, nw)
 
@@ -770,7 +884,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     notesSection(ctx, $, Math.max(1, deal.notes)),
   ]
   // A card's third row is empty: when the Agents block ends on one, it is the gap.
-  const endsOnCard = agentsEndOnCard(ctx.t, rest, Math.max(1, deal.cards))
+  const endsOnCard = agentsEndOnCard(ctx.t, rest, Math.max(1, deal.cards), hold)
   const out: RenderElement[] = []
   let prev = -1
   blocks.forEach((b, i) => {

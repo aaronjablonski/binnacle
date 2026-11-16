@@ -8,12 +8,13 @@ import { todoBar, wordFit } from './fit'
 import { needsLimits, paneCovered, paneWatching } from './needs'
 import { inst, runText } from './parts'
 import type { Run } from './parts'
-import { begin } from './paint'
+import { begin, cue, cueOn, cueStarted } from './paint'
+import { todoBlock } from '../model/todo'
 import { lookOption } from './options'
 import { leaveStrip } from './shell'
 import { stripBandView } from './stripband'
 import type { ViewCtx } from './shell'
-import { CK, critterArgs, groundOf, lookAsked, themeOf } from './style'
+import { C, CK, critterArgs, groundOf, lookAsked, motionOn, themeOf } from './style'
 import { bandSvgOf, lookFor } from './svgview'
 
 // The band above the prompt (cockpit spec "CockpitBand", mock CockpitBand;
@@ -37,6 +38,10 @@ const BAR_GAP = 2
 const MIN_FOCUS = 8
 const MC = '/mc'
 const BAND_SITE = 'binnacle-band'
+/** Motion sketch 1: the band's one change cue, the new done count in the accent for one beat. */
+export const COUNT_CUE_MS = 1000
+/** A task done this recently, when the band first sees it, starts the cue. */
+const COUNT_CUE_FRESH_MS = 2000
 
 const widthOf = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
 const spaces = (n: number): Run => ({ text: ' '.repeat(Math.max(0, n)) })
@@ -256,13 +261,13 @@ function rowOne(m: BandModel, room: number): Run[] {
 }
 
 /** Row 2: the to-do bar and its words, `/mc` at the right. */
-function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number): RenderElement {
+function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number, countCue = false): RenderElement {
   const mc = [dim(MC)]
   const cells = Math.max(10, Math.min(BAR_CELLS, room - 34))
   const hasBar = m.total > 0
   const start = hasBar ? cells + BAR_GAP : 0
   const space = room - start - 1 - MC.length
-  const count: Run[] = [bold(String(m.done)), dim(` of ${m.total} done`)]
+  const count: Run[] = [countCue ? { text: String(m.done), bold: true, color: C.accent } : bold(String(m.done)), dim(` of ${m.total} done`)]
   const agents: Run[] = m.working > 0 ? [dim(agentsWords(m))] : []
   const pieces: Run[][] = []
   if (m.ask !== undefined && commandBelow(m, room)) {
@@ -287,7 +292,7 @@ function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number): R
 }
 
 /** The two rows: the micro critter at 0, the words from 6. */
-function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel): RenderElement {
+function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel, countCue = false): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
   const room = ctx.cols - CRITTER_COLUMNS - CRITTER_GAP
   const c = critterArgs(m.critter.role, m.critter.state, { size: 'micro', ground: ctx.ground ?? 'night' })
@@ -297,7 +302,7 @@ function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel): RenderElement 
       <Box key="band-gap" width={CRITTER_GAP} flexShrink={0} />
       <Box key="band-words" flexDirection="column" width={room} flexShrink={0}>
         {line(ctx, $, 'band-row-1', rowOne(m, room))}
-        {rowTwo(ctx, $, m, room)}
+        {rowTwo(ctx, $, m, room, countCue)}
       </Box>
     </Box>
   )
@@ -311,7 +316,22 @@ function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel): RenderElement 
  * it opens the pane. The desktop app draws the band as one Svg with `/mc`
  * beside it as a Button.
  */
-export function registerBand(on: On, options: { look?: string; ground?: unknown; accent?: unknown } = {}): void {
+/**
+ * Whether the band draws the done count in the accent now (motion sketch 1):
+ * the `motion` option on, a task just done when the band first sees it. Starts
+ * the cue there; one redraw ends it `COUNT_CUE_MS` later. In the rich and the
+ * text look alike (the sketch's text cue); the critter never moves (R24).
+ */
+function countCueOn($: EngineInterface, ctx: ViewCtx, motion: boolean): boolean {
+  if (!motion) return false
+  const last = todoBlock(ctx.t).lastDone
+  if (last === undefined) return false
+  const name = `todo:${last.id}:${last.updatedAt}`
+  if (!cueStarted(name) && ctx.now - last.updatedAt >= 0 && ctx.now - last.updatedAt < COUNT_CUE_FRESH_MS) cue($, name, ctx.now, COUNT_CUE_MS)
+  return cueOn(name)
+}
+
+export function registerBand(on: On, options: { look?: string; ground?: unknown; accent?: unknown; motion?: unknown } = {}): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     try {
@@ -337,7 +357,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const one = line(ctx, $, 'band', oneRow(m, cols))
       if (isStrip) return stripBandView(ctx, $, { maxRows: e.props.maxRows, line: one, after: () => leaveStrip($) })
       const two = u.paneOpen !== true && cols >= TWO_ROWS_FROM && e.props.maxRows >= 2 && m.form !== 'idle'
-      return two ? twoRows(ctx, $, m) : one
+      return two ? twoRows(ctx, $, m, countCueOn($, ctx, motionOn(options.motion))) : one
     } catch (err) {
       debug($, `band failed: ${errText(err)}`)
       return next(e)

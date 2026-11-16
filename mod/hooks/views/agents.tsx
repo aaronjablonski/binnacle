@@ -27,6 +27,7 @@ import { clock, ruleBar, span, wordFit, wrapWords } from './fit'
 import { openInEditor } from './editor'
 import { footerSlot, stepGlyph } from './tabkit'
 import type { FootHint } from './overview'
+import { settlingIds } from './overview'
 import { blank, frameFootInst, frameTopInst, heightOf, inst, page, section } from './parts'
 import type { Action, DeckCell, FrameSpec, PageField, Run } from './parts'
 import { openPage } from './pagenav'
@@ -246,9 +247,11 @@ function listBody(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Ma
     .filter(g => !u.runningOnly || g.agents.some(a => a.status === 'running'))
   const targets: Jump[] = []
   const blocks: Block[] = []
-  const working = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
+  // Motion sketch 3: a card that just finished stays among the working a moment (its nod and fade), then folds into Finished.
+  const hold = settlingIds(ctx)
+  const working = subs.filter(a => a.status === 'running' || (a.status === 'done' && hold.has(a.id))).sort((a, b) => a.startedAt - b.startedAt)
   const failed = u.runningOnly ? [] : subs.filter(a => a.status === 'error').sort((a, b) => b.startedAt - a.startedAt)
-  const done = u.runningOnly ? [] : subs.filter(a => a.status === 'done').sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+  const done = u.runningOnly ? [] : subs.filter(a => a.status === 'done' && !hold.has(a.id)).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   if (working.length > 0) {
     const els: RenderElement[] = [section(ctx, $, 'Working', String(working.length), { key: 'sec-working' })]
     for (const a of working) {

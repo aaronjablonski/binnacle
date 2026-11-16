@@ -15,7 +15,8 @@ import { allClear, inst, runText, section } from './parts'
 import type { Run } from './parts'
 import { clockLive } from './shell'
 import type { ViewCtx } from './shell'
-import { CK, COCKPIT, critterArgs, critterOf, edges, podOf, typeName } from './style'
+import { cue, cueOn, cueStarted } from './paint'
+import { APPEAR_FRESH_MS, CK, COCKPIT, critterArgs, critterOf, edges, podOf, typeName } from './style'
 import type { CritterArgs, Pod, PodState } from './style'
 
 // The ask delays live in the model now (limits.ts; the rule is alerts.ts's `needs`).
@@ -26,6 +27,12 @@ const FRESH_MS = 15_000
 const COUNTDOWN_REDRAW_MS = 60_000
 /** Agent-finished toasts wait this long for the others still running, so a batch folds into one (R36, M13). */
 export const FOLD_HOLD_MS = 30_000
+/**
+ * Motion sketch 3: an agent-finished toast waits until its newest finish is
+ * this old, so it goes up after the card's nod, fade and fold (1 s) and
+ * finishes that land together fold into one toast.
+ */
+export const FINISH_HOLD_MS = 1500
 /** At most one agent-finished toast this often (M13): forty agents ending over an hour are not forty toasts. */
 export const TOAST_EVERY_MS = 60_000
 /** A finish waits for its toast at most this long (the fold and the rate limit). */
@@ -296,9 +303,27 @@ export async function openNeed($: EngineInterface, n: Need): Promise<void> {
   })
 }
 
+/** How long a fresh ask's block stays at half strength (motion sketch 4): one frame, then full amber. */
+export const ASK_SOFT_MS = 140
+
+/**
+ * Whether the opened need's block draws at half strength now (motion sketch
+ * 4): the `motion` option on, the terminal (rich or text look; the desktop's
+ * Svg stays still, R32), and the need fresh when first drawn. Starts its one
+ * cue there: `ASK_SOFT_MS` later one redraw brings full amber. Never again
+ * for that need.
+ */
+function softAsk(ctx: ViewCtx, $: EngineInterface, n: Need): boolean {
+  if (ctx.motion !== true || ctx.e.surface !== 'terminal') return false
+  const name = `ask:${n.key}:${n.since}`
+  if (!cueStarted(name) && ctx.now - n.since >= 0 && ctx.now - n.since < APPEAR_FRESH_MS) cue($, name, ctx.now, ASK_SOFT_MS)
+  return cueOn(name)
+}
+
 /** The asker's critter, waiting (`?`): the lead's, or a subagent's from its row. */
 export function askerCritter(ctx: ViewCtx, n: Need, size: 'small' | 'micro' = 'small'): CritterArgs {
-  const o = { size, ground: ctx.ground ?? 'night' }
+  // Motion sketch 4: the asker glances toward its badge and hops once when the ask arrives (pane only; `since` names the ask).
+  const o = { size, ground: ctx.ground ?? 'night', motion: ctx.motion === true, since: n.since }
   if (n.agent === 'main') return critterArgs('lead', 'waiting', o)
   const a = ctx.t.agents[n.agent]
   return critterOf({ id: n.agent, type: a?.type ?? n.agent, status: a?.status ?? 'running' }, { ...o, state: 'waiting' })
@@ -436,8 +461,11 @@ export function needsSlot(
   const at = openedNeed(items.length)
   const n = items[at]!
   const sum = needsSum(items)
+  // Motion sketch 4: a fresh ask's block comes in at half strength (dim amber) for one frame, then full amber; never again.
+  const soft = softAsk(ctx, $, n)
+  const amber = (r: Run): Run => (soft && r.color === CK.ask ? { ...r, dim: true } : r)
   const out: RenderElement[] = [
-    section(ctx, $, 'Needs you', [{ text: String(sum.n), color: CK.ask, bold: true }, { text: ` ${sum.noun}`, color: CK.ask }], { tone: 'ask', key: 'sec-needs' }),
+    section(ctx, $, 'Needs you', [{ text: String(sum.n), color: CK.ask, bold: true }, { text: ` ${sum.noun}`, color: CK.ask }].map(amber), { tone: soft ? 'askSoft' : 'ask', key: 'sec-needs' }),
   ]
   const textCol = COCKPIT.text
   const room = Math.max(1, right - textCol + 1)
@@ -455,7 +483,7 @@ export function needsSlot(
   const asks = askLines(n, room)
   const key = `open-${n.key}`
   const marker = (k: string): RenderElement => (
-    <Text key={k} color={CK.ask}>
+    <Text key={k} color={CK.ask} {...(soft ? { dimColor: true } : {})}>
       {'▍'}
     </Text>
   )
@@ -482,7 +510,7 @@ export function needsSlot(
           </Text>
         ))}
         <Text key="need-prompt" wrap="truncate-end">
-          {promptRuns(n, ctx.isFocused === true, room).map((r, i) => runText(r, ctx.e, $, `need-prompt-${i}`))}
+          {promptRuns(n, ctx.isFocused === true, room).map((r, i) => runText(soft && r.bg === CK.ask ? { ...r, dim: true } : r, ctx.e, $, `need-prompt-${i}`))}
         </Text>
       </Box>
     </Box>,
@@ -606,7 +634,7 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
         }
       }
     }
-    const toasts: { id: string; text: string }[] = []
+    const toasts: { id: string; text: string; endedAt: number }[] = []
     for (const a of Object.values(t.agents)) {
       if (a.id === 'main' || a.status === 'running' || a.endedAt === undefined) continue
       const id = `agent-done:${a.id}`
@@ -618,7 +646,7 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       // A workflow agent's answer is empty and its doing is its last step: its result says more.
       const result = a.result !== undefined ? oneLine(a.result) : ''
       const first = result !== '' ? result : oneLine(a.doing.split('\n')[0] ?? '')
-      toasts.push({ id, text: `${typeName(a.type)} finished${first !== '' ? `: ${first}` : ''}` })
+      toasts.push({ id, text: `${typeName(a.type)} finished${first !== '' ? `: ${first}` : ''}`, endedAt: a.endedAt })
     }
     // R36, M13: finishes fold into one toast. While other agents still run, the first finish waits up to
     // FOLD_HOLD_MS for the rest; and never more than one agent toast in TOAST_EVERY_MS.
@@ -628,8 +656,9 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       foldSince ??= now
       const holding = othersRunning && now - foldSince < FOLD_HOLD_MS
       const tooSoon = toastAt !== undefined && now - toastAt < TOAST_EVERY_MS
+      const settling = now - Math.max(...toasts.map(x => x.endedAt)) < FINISH_HOLD_MS
       // A held toast is never dropped: when the clock is about to stop (nothing live), it goes up at once.
-      if ((holding || tooSoon) && clockLive(t, now)) toasts.length = 0
+      if ((holding || tooSoon || settling) && clockLive(t, now)) toasts.length = 0
       else foldSince = undefined
     }
     if (notes.length === 0 && toasts.length === 0) return

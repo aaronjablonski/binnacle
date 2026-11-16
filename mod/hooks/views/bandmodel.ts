@@ -11,14 +11,14 @@
 // ASK_MS, then the same (C-1, I-1, R2 amendment). No Button, no blink, no
 // clamp, no pill.
 
-import type { Timeline, UiState } from '../../types'
+import type { Timeline, TurnRow, UiState } from '../../types'
 import { askedVerb, CHECKING_TEXT, headerState, needs, watch } from '../model/alerts'
 import type { Need } from '../model/alerts'
 import type { RunLimits } from '../model/meter'
 import { cacheLine, thisTurn } from '../model/meter'
 import { summary } from '../model/select'
 import { todoBlock } from '../model/todo'
-import { shortPaths, span, toolName, warmWords } from './fit'
+import { span, toolName, warmWords } from './fit'
 import { crewRole } from './style'
 import type { PodState, Role } from './style'
 
@@ -72,14 +72,25 @@ export type BandModel = {
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
-/** The headline of Now and of slim: Claude's focus, else the task, else the step in flight or the newest, else idle. */
-export function headline(t: Timeline): { text: string; isIdle: boolean; at?: number } {
-  const s = summary(t)
-  if (s.focus !== undefined) return { text: s.focus.replace(/\s+/g, ' ').trim(), isIdle: false, ...(s.focusAt !== undefined ? { at: s.focusAt } : {}) }
-  const bySeq = [...t.steps].sort((a, b) => b.seq - a.seq)
-  const step = bySeq.find(x => x.status === 'running') ?? bySeq[0]
-  if (step !== undefined) return { text: shortPaths(step.label.replace(/\s+/g, ' ').trim()), isIdle: false }
-  return { text: 'Idle. Nothing running yet.', isIdle: true }
+/** The words the headline falls back to when the request names no goal and no task (I3). */
+export const IDLE_HEADLINE = 'Idle. Nothing running yet.'
+
+/**
+ * The headline of Now and of slim (R14, I3): it belongs to the current
+ * request. Claude's focus while it was sent during the newest main turn
+ * (`isPast` once that turn has ended: between requests the last request's
+ * goal stands, for the views to dim); else the lead's current task; else the
+ * idle words. Never a step's label, and never a focus an earlier request set.
+ */
+export function headline(t: Timeline): { text: string; isIdle: boolean; at?: number; isPast?: true } {
+  let lead: TurnRow | undefined
+  for (const x of t.turns) if (x.agent === 'main' && (lead === undefined || x.startedAt >= lead.startedAt)) lead = x
+  const past = lead !== undefined && lead.endedAt !== undefined ? { isPast: true as const } : {}
+  const focus = oneLine(t.now?.focus ?? '')
+  if (t.now !== undefined && focus !== '' && (lead === undefined || t.now.at >= lead.startedAt)) return { text: focus, isIdle: false, at: t.now.at, ...past }
+  const current = todoBlock(t).current
+  if (current !== undefined) return { text: oneLine(current.activeForm ?? current.subject), isIdle: false, ...past }
+  return { text: IDLE_HEADLINE, isIdle: true }
 }
 
 /** The request's goal: Now's headline (R14, M15), '' while idle. */

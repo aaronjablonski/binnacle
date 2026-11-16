@@ -3,7 +3,7 @@ import type { Register } from 'claude-code'
 import { registerCapture } from './capture'
 import { registerGuide, startGuide } from './guide'
 import { END_RESERVE_MS, restore, restoreAfterClear, saveForClear } from './journal'
-import { debug, errText, saveLedger } from './state'
+import { apply, debug, errText, hasTimeline, saveLedger } from './state'
 import { registerBand } from './views/band'
 import { seedBudget } from './views/budget'
 import { configureNeeds } from './views/needs'
@@ -70,12 +70,17 @@ export const register: Register = (on, options) => {
   // A /clear, a resume or a fork goes on under another session id with no
   // session.start. A /clear adopts the record the mark names (spec goal 6);
   // a resume or fork loads that session's snapshot, following its link.
+  // After a /clear the record is kept for Steps and Artifacts, but the
+  // cleared conversation's headline, list and request fold away (C1).
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     try {
-      if (e.source === 'clear') await restoreAfterClear($, e.session_id)
-      else await restore($, e.session_id, { prune: false })
-    } catch {
-      // both report their own failures
+      if (e.source === 'clear') {
+        await restoreAfterClear($, e.session_id)
+        if (await hasTimeline($)) await apply($, { kind: 'clear', at: await $.clock.now() })
+      } else await restore($, e.session_id, { prune: false })
+    } catch (err) {
+      // restore and restoreAfterClear report their own failures
+      debug($, `session start (${e.source}) failed: ${errText(err)}`)
     }
     // A /clear resets $.state while the pane stays up: take the flag from the engine again.
     await syncPaneOpen($)

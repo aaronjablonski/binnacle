@@ -4,6 +4,7 @@ import type { NeedKind, NeedsOptions } from './alerts'
 import { sigOf } from './label'
 import { FAILED_TURN_MS } from './limits'
 import type { RunLimits } from './meter'
+import { inConversation } from './todo'
 import { budgetOf, usageOf } from './usage'
 
 const byStart = (a: { startedAt: number }, b: { startedAt: number }) => a.startedAt - b.startedAt
@@ -104,13 +105,48 @@ function matches(s: Step, f: StepFilter): boolean {
   }
 }
 
-/** Steps that pass the filter, grouped by turn: newest turn first, newest step first. */
+/**
+ * The main turn a subagent's turn serves (C2): the one it names (`lead`, set
+ * when it started), else, for a row an earlier version stored, the main turn
+ * that was open when it started. Undefined when none was.
+ */
+function leadTurn(t: Timeline, turns: Map<string, TurnRow>, x: TurnRow): TurnRow | undefined {
+  if (x.lead !== undefined) {
+    const named = turns.get(x.lead)
+    if (named !== undefined) return named
+  }
+  let best: TurnRow | undefined
+  for (const m of t.turns) {
+    if (m.agent !== 'main' || m.startedAt > x.startedAt || (m.endedAt !== undefined && m.endedAt < x.startedAt)) continue
+    if (best === undefined || m.startedAt >= best.startedAt) best = m
+  }
+  return best
+}
+
+/**
+ * Steps that pass the filter, grouped by request: newest first, newest step
+ * first. A subagent's steps carry its own run's turn; they are filed under
+ * the main turn that run serves, so a subagent never pushes the lead's
+ * running turn down to "Earlier turns" (C2). A subagent turn no main turn
+ * was open for stays a group of its own.
+ */
 export function stepGroups(t: Timeline, f: StepFilter): { turn?: TurnRow; steps: Step[] }[] {
   const turns = new Map(t.turns.map((x) => [x.id, x]))
   const groups = new Map<string, { turn?: TurnRow; steps: Step[]; key: number }>()
   const steps = t.steps.filter((s) => matches(s, f)).sort((a, b) => b.seq - a.seq)
+  const filed = new Map<string, TurnRow>()
+  const fileOf = (x: TurnRow): TurnRow => {
+    if (x.agent === 'main') return x
+    let to = filed.get(x.id)
+    if (to === undefined) {
+      to = leadTurn(t, turns, x) ?? x
+      filed.set(x.id, to)
+    }
+    return to
+  }
   for (const s of steps) {
-    const turn = s.turnId !== undefined ? turns.get(s.turnId) : undefined
+    const own = s.turnId !== undefined ? turns.get(s.turnId) : undefined
+    const turn = own !== undefined ? fileOf(own) : undefined
     const id = turn ? `t:${turn.id}` : ''
     let g = groups.get(id)
     if (!g) {
@@ -133,14 +169,16 @@ export type Summary = {
 
 /** What the overview and the band show. */
 export function summary(t: Timeline): Summary {
+  // A conversation a /clear ended counts no more (C1).
+  const tasks = t.tasks.filter((x) => inConversation(x, t.clearedAt))
   let current: TaskItem | undefined
-  for (const x of t.tasks) if (x.status === 'in_progress' && (!current || x.updatedAt >= current.updatedAt)) current = x
-  const upcoming = t.tasks.find((x) => x.status === 'pending')
+  for (const x of tasks) if (x.status === 'in_progress' && (!current || x.updatedAt >= current.updatedAt)) current = x
+  const upcoming = tasks.find((x) => x.status === 'pending')
   const all = subagents(t)
   const s: Summary = {
     fromClaude: t.now !== undefined,
-    done: t.tasks.filter((x) => x.status === 'completed').length,
-    total: t.tasks.length,
+    done: tasks.filter((x) => x.status === 'completed').length,
+    total: tasks.length,
     running: all.filter((a) => a.status === 'running').sort(byStart),
     finished: all.filter((a) => a.status !== 'running').length,
     latest: [...t.steps].sort((a, b) => b.seq - a.seq).slice(0, 4),

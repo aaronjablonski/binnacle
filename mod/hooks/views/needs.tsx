@@ -1,8 +1,8 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, NotifyMode, Step, Timeline } from '../../types'
-import { alertNotes, answeredAsks, autoFocuses, CHECKING_TEXT, headerState, needs, settledAsks, spanText, watch } from '../model/alerts'
-import type { Need, NeedsView, Watch } from '../model/alerts'
+import { alertNotes, answeredAsks, askedVerb, autoFocuses, CHECKING_TEXT, headerState, needs, settledAsks, spanText, watch } from '../model/alerts'
+import type { Need, NeedsOptions, NeedsView, Watch } from '../model/alerts'
 import { oneLine } from '../model/label'
 import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
 import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '../model/meter'
@@ -23,9 +23,19 @@ export { ASK_MS, NOTIFY_ASK_MS }
 const FRESH_MS = 15_000
 // The warm countdown's words change once a minute (`warmWords`, R40), so it redraws once a minute.
 const COUNTDOWN_REDRAW_MS = 60_000
-/** Agent-finished toasts wait this long for the others still running, so a batch folds into one (R36). */
-const FOLD_HOLD_MS = 2_000
+/** Agent-finished toasts wait this long for the others still running, so a batch folds into one (R36, M13). */
+export const FOLD_HOLD_MS = 30_000
+/** At most one agent-finished toast this often (M13): forty agents ending over an hour are not forty toasts. */
+export const TOAST_EVERY_MS = 60_000
+/** A finish waits for its toast at most this long (the fold and the rate limit). */
+const TOAST_FRESH_MS = FOLD_HOLD_MS + TOAST_EVERY_MS + 15_000
+const MAX_SEEN_FINISHES = 400
+// When the first finish still unshown was seen, and when the last agent toast went up. Ephemeral: a reload starts them over.
 let foldSince: number | undefined
+let toastAt: number | undefined
+// Each finish as the clock first saw it: true when it was fresh then (FRESH_MS) and may be toasted,
+// false when it was already old (a restore, a reload), so a held toast never replays one.
+const seenFinish = new Map<string, boolean>()
 
 export type { NotifyMode }
 
@@ -42,6 +52,10 @@ export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unkn
   limits = runLimits(o)
   doneSound = o?.doneSound === true
   watchNotify = o?.watchNotify === true
+  // A (re)load starts the toast fold and its rate limit over.
+  foldSince = undefined
+  toastAt = undefined
+  seenFinish.clear()
 }
 
 /** The long-run limits in force (minutes; 0 is off). */
@@ -85,7 +99,7 @@ export type CrewAlerts = {
 }
 
 /** The crew's alerts: Now's `needs` and `watch` selectors, so every tab says the same of an agent. Pure; writes nothing. */
-export function crewAlerts(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'>): CrewAlerts {
+export function crewAlerts(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): CrewAlerts {
   const view = doingView(ctx)
   const rows = watch(ctx.t, ctx.now, ctx.u.dismissed, limits)
   const states = new Map<string, PodState>()
@@ -100,7 +114,7 @@ export function crewAlerts(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCover
 }
 
 /** The agents' wait states (`crewAlerts(ctx).states`). */
-export function waitStates(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'>): Map<string, PodState> {
+export function waitStates(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): Map<string, PodState> {
   return crewAlerts(ctx).states
 }
 
@@ -225,18 +239,36 @@ async function clearAnswered($: EngineInterface, t: Timeline, now: number): Prom
   return ids.size
 }
 
-/** What blocks the session now, with the pane's `isPromptCovered` (R2: covered, an ask shows at once). A terminal pane's drawing also notes what it saw (`observeCover`). */
+/**
+ * How a pane drawing reads the needs (I1). The terminal pane is the watcher:
+ * its `isPromptCovered` says whether a dialog holds the prompt. A pane drawn
+ * on another surface (desktop, VS Code) is not: the type file speaks of the
+ * prop in terms of the terminal's keys, so where it is absent such a pane
+ * reads as the band does with what the terminal pane saw, if it drew lately
+ * (`paneCovered`, `paneWatching`), so with no terminal pane a permission is
+ * a need for its first minute and then a dim "asked … · running". Where
+ * such a surface does pass the prop, a covered drawing shows the ask at once.
+ */
+export function paneNeedsOptions(ctx: Pick<ViewCtx, 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): NeedsOptions {
+  const covered = ctx.isPromptCovered === true
+  const surface = ctx.e?.surface
+  if (surface === undefined || surface === 'terminal') return { covered }
+  const seen = paneCovered(ctx.now)
+  return { covered: covered || seen, watching: covered || seen || paneWatching(ctx.now) }
+}
+
+/** What blocks the session now, with the pane's `isPromptCovered` (R2: covered, an ask shows at once). A terminal pane's drawing also notes what it saw (`observeCover`); another surface's reads as `paneNeedsOptions` says. */
 export function needsView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): NeedsView {
   observeCover(ctx)
-  return needs(ctx.t, ctx.now, { covered: ctx.isPromptCovered === true })
+  return needs(ctx.t, ctx.now, paneNeedsOptions(ctx))
 }
 
 /**
  * The needs view a card's `doing` reads (F I1): the same answer as `needsView`
  * but without noting what the pane saw, so a card may ask it as often as it likes.
  */
-export function doingView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'>): NeedsView {
-  return needs(ctx.t, ctx.now, { covered: ctx.isPromptCovered === true })
+export function doingView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): NeedsView {
+  return needs(ctx.t, ctx.now, paneNeedsOptions(ctx))
 }
 
 /** The needs slot's line under a stopped turn (F I2): no tick, plain words. */
@@ -288,6 +320,35 @@ export function promptRuns(n: Pick<Need, 'kind'>, isFocused: boolean, room = Inf
   return tail !== '' && form.length + tail.length <= room ? [chip, { text: tail, dim: true }] : [chip]
 }
 
+/**
+ * The ask's rows at `room` columns (I5): `askRuns` on one row when it fits;
+ * else the words go on to a second row before anything is cut: the tool and
+ * the command's words that fit, then the rest of the command (cut at a word
+ * only when even two rows cannot hold it).
+ */
+export function askLines(n: Need, room: number): Run[][] {
+  const runs = askRuns(n)
+  const width = runs.reduce((k, r) => k + r.text.length, 0)
+  if (width <= room || room <= 0) return [runs]
+  const toolRun = n.kind === 'permission' && n.tool !== undefined ? runs[0]! : undefined
+  const body = (toolRun !== undefined ? runs.slice(1) : runs).map(r => r.text).join('').trim()
+  const style = toolRun !== undefined || runs[0]?.bold === true ? { bold: true } : { dim: true }
+  const words = body.split(' ').filter(w => w !== '')
+  const lead = toolRun !== undefined ? toolRun.text.length + 2 : 0
+  let head = ''
+  let i = 0
+  for (; i < words.length; i++) {
+    const next = head === '' ? words[i]! : `${head} ${words[i]}`
+    if (lead + next.length > room) break
+    head = next
+  }
+  const rest = words.slice(i).join(' ')
+  const first: Run[] = toolRun !== undefined ? [toolRun, ...(head !== '' ? [{ text: `  ${head}`, ...style }] : [])] : [{ text: head, ...style }]
+  if (rest === '') return [first]
+  const second: Run[] = [{ text: wordFit(rest, room), ...style }]
+  return head === '' && toolRun === undefined ? [second] : [first, second]
+}
+
 /** What the opened need's second row says: the tool in amber bold and its command bold; the question, plan or message bold. */
 export function askRuns(n: Need): Run[] {
   const cmd = (n.kind === 'input' ? n.message ?? '' : n.command ?? '').replace(/\s+/g, ' ').trim()
@@ -309,14 +370,19 @@ export function needSentence(n: Pick<Need, 'who' | 'verb' | 'since'>, now: numbe
   return { fitsAge, lines: fitsAge || sentence.length <= room ? [sentence] : wrapWords(sentence, room, 2) }
 }
 
-/** Rows of the slot for `view`, `cap` other needs listed: 1, or the head, the opened need's 3 (4 when its sentence wraps, with `cols`) and the rest. */
+/** Rows of the slot for `view`, `cap` other needs listed: 1, or the head, the opened need's 3 (one more when its sentence wraps, one more when its ask does, with `cols`) and the rest. */
 export function needsSlotHeight(view: NeedsView, cap = 3, o: { cols?: number; now?: number } = {}): number {
   if (view.items.length === 0) return 1
   const others = view.items.length - 1
   const shown = Math.min(others, cap)
-  const wraps = o.cols !== undefined && o.now !== undefined && needSentence(view.items[openedNeed(view.items.length)]!, o.now, o.cols).lines.length > 1
-  return 1 + 3 + (wraps ? 1 : 0) + shown + (others > shown ? 1 : 0)
+  const n = view.items[openedNeed(view.items.length)]!
+  const wraps = o.cols !== undefined && o.now !== undefined && needSentence(n, o.now, o.cols).lines.length > 1
+  const askWraps = o.cols !== undefined && askLines(n, askRoom(o.cols)).length > 1
+  return 1 + 3 + (wraps ? 1 : 0) + (askWraps ? 1 : 0) + shown + (others > shown ? 1 : 0)
 }
+
+/** The opened need's text room at `cols`: from the text column to the right edge. */
+const askRoom = (cols: number): number => Math.max(1, edges(cols).right - COCKPIT.text + 1)
 
 /**
  * The needs slot (cockpit spec principle 1: the same row with and without an
@@ -348,8 +414,11 @@ export function needsSlot(
   if (view.items.length === 0) {
     // F I2: no green tick under a stopped turn or a request that ended with tasks open.
     const hs = view.checking ? undefined : headerState(ctx.t, now, view)
+    const asked = view.asked?.[0]
     const words: Run | undefined =
       view.checking ? { text: CHECKING_TEXT, dim: true }
+      // I1: a permission nothing can see answered, past its first minute: dim, never the tick.
+      : asked !== undefined ? { text: `${askedVerb(asked)} · running`, dim: true }
       : hs?.state === 'stopped' ? { text: STOPPED_TEXT }
       : hs?.state === 'idle-open' ? { text: `${hs.open} to do still open`, dim: true }
       : undefined
@@ -382,6 +451,7 @@ export function needsSlot(
   }
   const first = fitsAge ? spreadRuns([who, { text: ` ${n.verb}` }], age, room) : runsOfLine(lines[0]!, 0)
   const second = lines[1] !== undefined ? runsOfLine(lines[1], 1) : undefined
+  const asks = askLines(n, room)
   const key = `open-${n.key}`
   const marker = (k: string): RenderElement => (
     <Text key={k} color={CK.ask}>
@@ -391,7 +461,7 @@ export function needsSlot(
   out.push(
     <Box key="need-open" flexDirection="row">
       <Box key="need-marks" flexDirection="column" width={left} flexShrink={0}>
-        {Array.from({ length: 3 + (second !== undefined ? 1 : 0) }, (_, i) => marker(`need-mark-${i}`))}
+        {Array.from({ length: 2 + asks.length + (second !== undefined ? 1 : 0) }, (_, i) => marker(`need-mark-${i}`))}
       </Box>
       <Box key="need-who" width={textCol - left} flexShrink={0}>
         {inst(ctx, $, { key: 'asker', ...askerCritter(ctx, n) })}
@@ -405,9 +475,11 @@ export function needsSlot(
             {second.map((r, i) => runText(r, ctx.e, $, `need-sentence-2-${i}`))}
           </Text>
         ) : null}
-        <Text key="need-ask" wrap="truncate-end">
-          {fit(askRuns(n)).map((r, i) => runText(r, ctx.e, $, `need-ask-${i}`))}
-        </Text>
+        {asks.map((runs, j) => (
+          <Text key={j === 0 ? 'need-ask' : `need-ask-${j + 1}`} wrap="truncate-end">
+            {fit(runs).map((r, i) => runText(r, ctx.e, $, `need-ask${j === 0 ? '' : `-${j + 1}`}-${i}`))}
+          </Text>
+        ))}
         <Text key="need-prompt" wrap="truncate-end">
           {promptRuns(n, ctx.isFocused === true, room).map((r, i) => runText(r, ctx.e, $, `need-prompt-${i}`))}
         </Text>
@@ -536,19 +608,27 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
     for (const a of Object.values(t.agents)) {
       if (a.id === 'main' || a.status === 'running' || a.endedAt === undefined) continue
       const id = `agent-done:${a.id}`
-      if (now - a.endedAt > FRESH_MS || u.toasted.includes(id)) continue
+      if (!seenFinish.has(id)) {
+        seenFinish.set(id, now - a.endedAt <= FRESH_MS)
+        while (seenFinish.size > MAX_SEEN_FINISHES) seenFinish.delete(seenFinish.keys().next().value!)
+      }
+      if (seenFinish.get(id) !== true || now - a.endedAt > TOAST_FRESH_MS || u.toasted.includes(id)) continue
       // A workflow agent's answer is empty and its doing is its last step: its result says more.
       const result = a.result !== undefined ? oneLine(a.result) : ''
       const first = result !== '' ? result : oneLine(a.doing.split('\n')[0] ?? '')
       toasts.push({ id, text: `${typeName(a.type)} finished${first !== '' ? `: ${first}` : ''}` })
     }
-    // R36: finishes fold into one toast. While other agents still run, the first finish waits a moment for the rest.
+    // R36, M13: finishes fold into one toast. While other agents still run, the first finish waits up to
+    // FOLD_HOLD_MS for the rest; and never more than one agent toast in TOAST_EVERY_MS.
     const othersRunning = Object.values(t.agents).some(a => a.id !== 'main' && a.status === 'running')
     if (toasts.length === 0) foldSince = undefined
-    else if (othersRunning && (foldSince === undefined || now - foldSince < FOLD_HOLD_MS)) {
+    else {
       foldSince ??= now
-      toasts.length = 0
-    } else foldSince = undefined
+      const holding = othersRunning && now - foldSince < FOLD_HOLD_MS
+      const tooSoon = toastAt !== undefined && now - toastAt < TOAST_EVERY_MS
+      if (holding || tooSoon) toasts.length = 0
+      else foldSince = undefined
+    }
     if (notes.length === 0 && toasts.length === 0) return
 
     await updateUi($, cur => ({
@@ -570,7 +650,11 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
         }
       }
     }
-    if (toasts.length > 0) $.ui.toast(toasts.length === 1 ? toasts[0]!.text : `${toasts.length} agents finished`)
+    if (toasts.length > 0) {
+      toastAt = now
+      // Folded, the toast says how many, never an answer's words.
+      $.ui.toast(toasts.length === 1 ? toasts[0]!.text : `${toasts.length} agents finished`)
+    }
   } catch (err) {
     debug($, `needs tick failed: ${errText(err)}`)
   }

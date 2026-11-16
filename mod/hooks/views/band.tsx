@@ -67,13 +67,23 @@ function gauges(m: BandModel, which: 'both' | 'context' | 'none'): Run[] {
   return out
 }
 
-/** `text` cut at a word to `room`, with no ellipsis (the mock's 64-column row); '' when not even a word fits. */
-function cutWords(text: string, room: number): string {
+/** Words a cut goal never ends on (M9): "Wiring the limiter into the" reads as broken. */
+const DANGLING = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'of', 'to', 'into', 'onto', 'in', 'on', 'at', 'by', 'for', 'from', 'with', 'as', 'its', 'their', 'our', 'your', 'my', 'this', 'that'])
+
+/**
+ * `text` cut at a word to `room`, with no ellipsis (the mock's 64-column
+ * row); '' when not even a word fits. A cut never ends on an article,
+ * conjunction or preposition (M9): those words go too.
+ */
+export function cutWords(text: string, room: number): string {
   if (room <= 0) return ''
   if (text.length <= room) return text
   const head = text.slice(0, room + 1)
   const space = head.lastIndexOf(' ', room)
-  return space > 0 ? text.slice(0, space).trimEnd() : ''
+  if (space <= 0) return ''
+  const words = text.slice(0, space).trimEnd().split(' ')
+  while (words.length > 1 && DANGLING.has(words[words.length - 1]!.toLowerCase())) words.pop()
+  return words.join(' ')
 }
 
 /** Runs trimmed to `room` at a word with a closing `…` (where the row has to cut), whole when they fit. */
@@ -207,17 +217,27 @@ function oneRow(m: BandModel, cols: number): Run[] {
 
 // ---------- the two-row form ----------
 
+/**
+ * Whether the ask's command goes on row 2 (M9, I5): it is drawn whole, and
+ * when row 1 has no room for it whole beside the sentence and the tool, it
+ * moves to row 2 in place of the to-do words rather than being cut.
+ */
+function commandBelow(m: BandModel, room: number): boolean {
+  if (m.form !== 'asked' || m.ask === undefined || m.ask.command === '') return false
+  const a = m.ask
+  const essential = 'Needs you'.length + `   ${a.sentence}  `.length + a.tool.length
+  return essential + 2 + a.command.length + 2 + 'answer below ↓'.length > room
+}
+
 /** Row 1: the kicker and what it is about at the left, the gauges (or "answer below") at the right. */
 function rowOne(m: BandModel, room: number): Run[] {
   if (m.form === 'asked' && m.ask !== undefined) {
     const a = m.ask
-    const essential: Run[] = [{ text: 'Needs you', color: CK.ask, bold: true }, plain(`   ${a.sentence}  `), bold(a.tool)]
+    const below = commandBelow(m, room)
+    const essential: Run[] = [{ text: 'Needs you', color: CK.ask, bold: true }, plain(`   ${a.sentence}`), ...(below ? [] : [plain('  '), bold(a.tool)])]
     const right: Run[] = [{ text: 'answer below ↓', color: CK.ask }]
-    // F I4: the command is its own run after a plain separator, and is dropped whole when not even two words of it fit.
-    const cmdRoom = room - widthOf(essential) - 2 - 2 - widthOf(right)
-    const cut = a.command !== '' && cmdRoom > 0 ? wordFit(a.command, cmdRoom) : ''
-    const command = cut.replace(/…$/, '').trim().includes(' ') || cut === a.command ? cut : ''
-    const left: Run[] = [...essential, ...(command !== '' ? [plain('  '), bold(command)] : [])]
+    // M9: the command whole on row 1, or on row 2 with its tool (commandBelow); never cut here.
+    const left: Run[] = [...essential, ...(!below && a.command !== '' ? [plain('  '), bold(a.command)] : [])]
     return spread(left, right, room, widthOf(essential))
   }
   const head: Run[] = m.form === 'stopped' ? [{ text: 'Stopped', color: CK.fail, bold: true }, plain('   ')] : [dim(`${m.kicker}   `)]
@@ -245,6 +265,12 @@ function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number): R
   const count: Run[] = [bold(String(m.done)), dim(` of ${m.total} done`)]
   const agents: Run[] = m.working > 0 ? [dim(agentsWords(m))] : []
   const pieces: Run[][] = []
+  if (m.ask !== undefined && commandBelow(m, room)) {
+    // M9, I5: the ask's tool and its command whole, in place of the to-do words; cut at a word only past the row.
+    const cmd: Run[] = [bold(m.ask.tool), plain('  '), bold(m.ask.command)]
+    const fitted = widthOf(cmd) + 1 + MC.length <= room ? cmd : trimRuns(cmd, room - 1 - MC.length)
+    return line(ctx, $, 'band-row-2', spread(fitted, mc, room))
+  }
   if (m.form === 'asked') {
     const waiting: Run = { text: `${m.waiting} waiting`, color: CK.ask }
     pieces.push(...(hasBar ? [count] : []), m.working > 0 ? [dim(`${m.working} ${m.working === 1 ? 'agent' : 'agents'} working, `), waiting] : [waiting])

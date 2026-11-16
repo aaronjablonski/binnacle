@@ -4,17 +4,31 @@ import type { AgentKey, TaskItem, Timeline } from '../../types'
 // request, the counts a subagent's card shows, and the scoping rules. Pure.
 
 /**
- * Whether a lead task belongs to the current request's list: a task completed
- * before `listFrom` (a prompt that started with the whole list done) is
- * "Earlier"; every other task is current.
+ * Whether a task belongs to the conversation that stands: one last written
+ * before a `/clear` (`clearedAt`, C1) belongs to the cleared one, whatever
+ * its state. Every task when there was no `/clear`.
  */
-export function inLeadList(x: TaskItem, listFrom: number | undefined): boolean {
-  return !(listFrom !== undefined && x.status === 'completed' && x.updatedAt < listFrom)
+export function inConversation(x: TaskItem, clearedAt: number | undefined): boolean {
+  return clearedAt === undefined || x.updatedAt >= clearedAt
 }
 
-/** Whether `owner` keeps its list with the task tools (TaskCreate, TaskUpdate, TodoWrite): then the update tool's `tasks` is ignored for it (R16). */
+/**
+ * Whether a lead task belongs to the current request's list: a task completed
+ * before `listFrom` (a prompt that started with the whole list done) is
+ * "Earlier", and so is every task of a conversation a `/clear` ended
+ * (`clearedAt`, C1); every other task is current.
+ */
+export function inLeadList(x: TaskItem, listFrom: number | undefined, clearedAt?: number): boolean {
+  return inConversation(x, clearedAt) && !(listFrom !== undefined && x.status === 'completed' && x.updatedAt < listFrom)
+}
+
+/**
+ * Whether `owner` keeps its list with the task tools (TaskCreate, TaskUpdate,
+ * TodoWrite) in the conversation that stands: then the update tool's `tasks`
+ * is ignored for it (R16). A cleared conversation's tasks do not count (C1).
+ */
 export function usesTaskTools(t: Timeline, owner: AgentKey): boolean {
-  return t.tasks.some((x) => x.owner === owner && !x.id.startsWith('list:'))
+  return t.tasks.some((x) => x.owner === owner && !x.id.startsWith('list:') && inConversation(x, t.clearedAt))
 }
 
 /** Where the lead's list comes from: the task tools, the update tool's `tasks` field, or nowhere yet. */
@@ -57,14 +71,14 @@ export const NO_LIST_TEXT = 'No to-do list for this request'
  * earlier build stored with both).
  */
 function ownList(t: Timeline, owner: AgentKey): TaskItem[] {
-  const all = t.tasks.filter((x) => x.owner === owner && (owner !== 'main' || inLeadList(x, t.listFrom)))
+  const all = t.tasks.filter((x) => x.owner === owner && (owner !== 'main' ? inConversation(x, t.clearedAt) : inLeadList(x, t.listFrom, t.clearedAt)))
   return all.some((x) => !x.id.startsWith('list:')) ? all.filter((x) => !x.id.startsWith('list:')) : all
 }
 
 export function todoBlock(t: Timeline, askers: readonly AgentKey[] = []): TodoBlock {
   const lead = t.tasks.filter((x) => x.owner === 'main')
   const items = ownList(t, 'main')
-  const earlier = lead.filter((x) => !inLeadList(x, t.listFrom))
+  const earlier = lead.filter((x) => !inLeadList(x, t.listFrom, t.clearedAt))
   let current: TaskItem | undefined
   let lastDone: TaskItem | undefined
   for (const x of items) {
@@ -93,4 +107,19 @@ export function todoBlock(t: Timeline, askers: readonly AgentKey[] = []): TodoBl
 export function listCounts(t: Timeline, agent: AgentKey): { done: number; total: number } {
   const items = ownList(t, agent)
   return { done: items.filter((x) => x.status === 'completed').length, total: items.length }
+}
+
+/**
+ * M14: the words the Effort block says once, dim, while a task's tokens are
+ * still to come. The model has no live per-task tokens: a main turn's usage
+ * arrives with `turn.complete` and goes to the task in progress then
+ * (reduce.ts `addUsage`), so during one long turn Effort stays flat.
+ */
+export const EFFORT_LATER_TEXT = 'counted when the turn ends'
+
+/** Whether the lead's turn is running with a task in progress, whose tokens are counted only when the turn ends (M14). */
+export function effortCountedLater(t: Timeline): boolean {
+  let lead: Timeline['turns'][number] | undefined
+  for (const x of t.turns) if (x.agent === 'main' && (lead === undefined || x.startedAt >= lead.startedAt)) lead = x
+  return lead !== undefined && lead.endedAt === undefined && todoBlock(t).current !== undefined
 }

@@ -51,7 +51,8 @@ describe('C1: /clear folds the cleared conversation away', () => {
     expect(todo.current).toBeUndefined()
     // The cleared list is kept, folded away as "Earlier", whatever its states.
     expect(todo.earlier.map(x => x.subject)).toEqual(['Read the upload route', 'Write the limiter', 'Wire the limiter into the chain', 'Test it', 'Document it'])
-    expect(headline(t)).toEqual({ text: IDLE_HEADLINE, isIdle: true })
+    // The new request runs with no goal and no task yet: its own prompt is the headline (controller ruling on concern 2).
+    expect(headline(t)).toEqual({ text: 'why is the build slow on CI?', isIdle: false })
     expect(summary(t).current).toBeUndefined()
     expect(summary(t).total).toBe(0)
     // Steps stay for the Steps tab.
@@ -181,7 +182,7 @@ describe('I3: the headline belongs to the current request', () => {
       turnStart('t2', 'what does HTTP 429 mean?'),
     ])
     expect(headline(t).text).not.toBe('Rate limiting is wired in and tested')
-    expect(headline(t)).toEqual({ text: IDLE_HEADLINE, isIdle: true })
+    expect(headline(t)).toEqual({ text: 'what does HTTP 429 mean?', isIdle: false })
   })
 
   it('between requests the last request\'s goal stands, marked past for the views to dim', () => {
@@ -199,9 +200,23 @@ describe('I3: the headline belongs to the current request', () => {
     expect(headline(t)).toEqual({ text: 'Wire the limiter', isIdle: false })
   })
 
-  it('with no focus and no task the headline is the idle words, not the running step', () => {
-    const t = fold([turnStart('t1', 'go'), start('s1', 'Edit', { file_path: 'src/rateLimit.test.ts' })])
-    expect(headline(t)).toEqual({ text: IDLE_HEADLINE, isIdle: true })
+  it('a running request with no focus and no task reads the first sentence of its prompt, cut at a word; never the idle words or the running step', () => {
+    const long = 'Add rate limiting to the upload route so that one client cannot flood the server with requests and starve everyone else. Then write tests.'
+    const t = fold([turnStart('t1', long), start('s1', 'Edit', { file_path: 'src/rateLimit.test.ts' })])
+    const h = headline(t)
+    expect(h.isIdle).toBe(false)
+    expect(h.text).not.toBe(IDLE_HEADLINE)
+    expect(h.text.length <= 80).toBe(true)
+    expect(h.text.endsWith('…')).toBe(true)
+    expect(long.startsWith(h.text.slice(0, -1))).toBe(true)
+    expect(h.text).not.toContain('Then write tests')
+    expect(headline(fold([turnStart('t2', 'Fix the bug. Then ship it.')])).text).toBe('Fix the bug.')
+  })
+
+  it('the idle words only when nothing runs', () => {
+    expect(headline(empty)).toEqual({ text: IDLE_HEADLINE, isIdle: true })
+    const ended = fold([turnStart('t1', 'go'), turnEnd('t1')])
+    expect(headline(ended)).toEqual({ text: IDLE_HEADLINE, isIdle: true })
   })
 })
 

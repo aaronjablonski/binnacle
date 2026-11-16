@@ -18,7 +18,7 @@ import type { RunLimits } from '../model/meter'
 import { cacheLine, thisTurn } from '../model/meter'
 import { summary } from '../model/select'
 import { todoBlock } from '../model/todo'
-import { span, toolName, warmWords } from './fit'
+import { span, toolName, warmWords, wordFit } from './fit'
 import { crewRole } from './style'
 import type { PodState, Role } from './style'
 
@@ -79,8 +79,9 @@ export const IDLE_HEADLINE = 'Idle. Nothing running yet.'
  * The headline of Now and of slim (R14, I3): it belongs to the current
  * request. Claude's focus while it was sent during the newest main turn
  * (`isPast` once that turn has ended: between requests the last request's
- * goal stands, for the views to dim); else the lead's current task; else the
- * idle words. Never a step's label, and never a focus an earlier request set.
+ * goal stands, for the views to dim); else the lead's current task; else,
+ * while the request runs, its prompt (first sentence, cut at a word); else
+ * the idle words. Never a step's label, and never a focus an earlier request set.
  */
 export function headline(t: Timeline): { text: string; isIdle: boolean; at?: number; isPast?: true } {
   let lead: TurnRow | undefined
@@ -90,7 +91,23 @@ export function headline(t: Timeline): { text: string; isIdle: boolean; at?: num
   if (t.now !== undefined && focus !== '' && (lead === undefined || t.now.at >= lead.startedAt)) return { text: focus, isIdle: false, at: t.now.at, ...past }
   const current = todoBlock(t).current
   if (current !== undefined) return { text: oneLine(current.activeForm ?? current.subject), isIdle: false, ...past }
+  // A request running with no goal and no task yet: its own prompt, never the idle words under WORKING.
+  if (lead !== undefined && lead.endedAt === undefined) {
+    const said = promptHeadline(lead.prompt)
+    if (said !== '') return { text: said, isIdle: false }
+  }
   return { text: IDLE_HEADLINE, isIdle: true }
+}
+
+/** The most a prompt headline holds before it is cut at a word. */
+const PROMPT_HEADLINE_MAX = 80
+
+/** A prompt as a headline: its first sentence, cut at a word to PROMPT_HEADLINE_MAX. */
+export function promptHeadline(prompt: string): string {
+  const text = oneLine(prompt)
+  const end = /[.!?](\s|$)/.exec(text)
+  const first = end !== null ? text.slice(0, end.index + 1) : text
+  return wordFit(first, PROMPT_HEADLINE_MAX)
 }
 
 /** The request's goal: Now's headline (R14, M15), '' while idle. */

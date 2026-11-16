@@ -13,6 +13,7 @@ import { fitRuns, shortPaths, span, toolName, wordFit, wrapWords } from './fit'
 import { openStepInline } from './openstep'
 import { allClear, inst, runText, section } from './parts'
 import type { Run } from './parts'
+import { clockLive } from './shell'
 import type { ViewCtx } from './shell'
 import { CK, COCKPIT, critterArgs, critterOf, edges, podOf, typeName } from './style'
 import type { CritterArgs, Pod, PodState } from './style'
@@ -626,7 +627,8 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       foldSince ??= now
       const holding = othersRunning && now - foldSince < FOLD_HOLD_MS
       const tooSoon = toastAt !== undefined && now - toastAt < TOAST_EVERY_MS
-      if (holding || tooSoon) toasts.length = 0
+      // A held toast is never dropped: when the clock is about to stop (nothing live), it goes up at once.
+      if ((holding || tooSoon) && clockLive(t, now)) toasts.length = 0
       else foldSince = undefined
     }
     if (notes.length === 0 && toasts.length === 0) return

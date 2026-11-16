@@ -1,7 +1,8 @@
 import type { AgentKey, AgentRow, ArtifactRow, Ev, Note, Run, Step, StepFilter, TaskItem, Timeline, TurnRow } from '../../types'
-import { oneLine, sigOf } from './label'
-import { FAILED_TURN_MS, STALL_MS } from './limits'
-import { runLevel, runLimits, usualMs } from './meter'
+import { dismissKey, needs, signatureOf, watch } from './alerts'
+import type { NeedKind, NeedsOptions } from './alerts'
+import { sigOf } from './label'
+import { FAILED_TURN_MS } from './limits'
 import type { RunLimits } from './meter'
 import { budgetOf, usageOf } from './usage'
 
@@ -217,39 +218,18 @@ export function summary(t: Timeline): Summary {
   return s
 }
 
-// ---- Problems: what needs the person ------------------------------------------
+// ---- Problems: the legacy union the views read until wave 2 -------------------
 
 export type ProblemKind = 'asking' | 'repeat' | 'loop' | 'stalled' | 'failed-turn' | 'long-run'
 export type Problem = {
   key: string; kind: ProblemKind; label: string; agent: AgentKey
   stepId?: string; since: number; count?: number
   limitMs?: number; usualMs?: number     // long-run only: the limit it passed, and the median time of finished agents of its type
+  sentence?: string                      // the alert model's words for it (alerts.ts)
+  need?: NeedKind                        // asking only: which dialog
 }
 
-/**
- * Tools whose runs repeat as a matter of course (todo and task updates, reads,
- * edits of one file in several hunks): three in a turn are a loop only when
- * one of them failed.
- */
-const ROUTINE_TOOLS = new Set([
-  'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
-  'Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
-])
-
-/**
- * A step's call signature: its tool and its `sig`, the hash of its normalised
- * input (`Bash:1x2y3z`). Two calls share it when they run the same command,
- * touch the same file or give the same input. A step without a sig (stored by
- * an earlier version) falls back to its label without the leading tool name,
- * whitespace collapsed (`Bash:npm test`).
- */
-export function signatureOf(step: Step): string {
-  if (typeof step.sig === 'string' && step.sig !== '') return `${step.tool}:${step.sig}`
-  let rest = oneLine(step.label)
-  if (rest === step.tool) rest = ''
-  else if (rest.startsWith(`${step.tool} `)) rest = rest.slice(step.tool.length + 1)
-  return `${step.tool}:${rest}`
-}
+export { dismissKey, signatureOf }
 
 /**
  * The step a permission prompt was raised for: the newest running step of
@@ -271,122 +251,53 @@ export function promptedStep(t: Timeline, tool: string, input: unknown, agent: A
   return any
 }
 
-/** What UiState.dismissed holds for a problem: its key, and its count when it has one, so a grown count is new. */
-export function dismissKey(p: Problem): string {
-  return p.count === undefined ? p.key : `${p.key}#${p.count}`
-}
-
 const endOf = (s: Step): number => s.endedAt ?? s.startedAt
 const byKey = (a: { key: string }, b: { key: string }) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
 
 /**
- * The failures since a signature's newest success, newest first: walking its
- * runs back from the newest, `error` ones are taken and the first `done` one
- * stops the walk; running, denied and interrupted runs are passed over.
+ * The alert model's needs, watch rows and recent failed turns as one list of
+ * problems, newest first, for the views that still read one list (wave 2
+ * splits them: `needs`, `watch` and `headerState` in alerts.ts).
+ * - `asking`: a need (permission, question, plan, MCP input). With `covered`
+ *   left out every ask is listed at once; pass the pane's state to apply R2;
+ * - `stalled`: a stalled step or a quiet loop (R6);
+ * - `long-run`, `repeat`, `loop`: as `watch`;
+ * - `failed-turn`: a turn that ended failed within FAILED_TURN_MS of `now`.
+ * A problem whose `dismissKey` is in `dismissed` is left out. The views still
+ * offer `x` on an ask until wave 2 removes it; the model's `needs` takes no
+ * dismissals (owner ruling 4: no `x` on a permission).
  */
-function trailingFailures(runs: Step[]): Step[] {
-  const out: Step[] = []
-  const newestFirst = [...runs].sort((a, b) => b.seq - a.seq)
-  for (const s of newestFirst) {
-    if (s.status === 'done') break
-    if (s.status === 'error') out.push(s)
-  }
-  return out
-}
-
-/** Steps grouped by a key `keyOf` gives; a step it gives no key for is left out. */
-function groupBy(steps: Step[], keyOf: (s: Step) => string | undefined): Map<string, Step[]> {
-  const out = new Map<string, Step[]>()
-  for (const s of steps) {
-    const k = keyOf(s)
-    if (k === undefined) continue
-    const list = out.get(k)
-    if (list) list.push(s)
-    else out.set(k, [s])
-  }
-  return out
-}
-
-/**
- * What needs the person, newest first (by `since`):
- * - `asking`: a running step a permission prompt was raised for (since: the prompt);
- * - `repeat`: one signature's newest runs ended `error` twice or more in a row, with no run of it
- *   ending `done` in between or since (since: the newest failure's end; keyed by the run of
- *   failures' first step, so a new run after a pass is a new problem);
- * - `loop`: one signature ran three times or more in one turn, unless it is already a repeat, or
- *   its tool is routine (ROUTINE_TOOLS) and none of those runs failed (since: the newest run's start);
- * - `stalled`: a running subagent that started no step for more than STALL_MS (since: its last step, or its start);
- * - `failed-turn`: a turn that ended failed within FAILED_TURN_MS of `now` (since: its end);
- * - `long-run`: a running subagent past `limits.agentLimitMin` (default 20) that is not stalled, keyed
- *   by its id, or the open main turn past `limits.turnLimitMin` (default 60), keyed by its turn id
- *   (since: when it passed the limit); one key per run, so a dismissed one stays dismissed. 0 is off.
- * A problem whose `dismissKey` is in `dismissed` is left out; a repeat or loop
- * comes back once its count grows.
- */
-export function problems(t: Timeline, now: number, dismissed: string[], limits?: RunLimits): Problem[] {
+export function problems(t: Timeline, now: number, dismissed: string[], limits?: RunLimits, o: NeedsOptions = { covered: true }): Problem[] {
   const out: Problem[] = []
-  for (const s of t.steps) {
-    if (s.status === 'running' && s.asking !== undefined) {
-      out.push({ key: `asking:${s.id}`, kind: 'asking', label: s.label, agent: s.agent, stepId: s.id, since: s.asking })
-    }
-  }
-
-  const repeats = new Set<string>()
-  for (const [sig, list] of groupBy(t.steps, signatureOf)) {
-    const failed = trailingFailures(list)
-    if (failed.length < 2) continue
-    repeats.add(sig)
-    const last = failed[0]!
-    const first = failed[failed.length - 1]!
-    out.push({
-      key: `repeat:${sig}:${first.id}`, kind: 'repeat', label: last.label, agent: last.agent,
-      stepId: last.id, since: endOf(last), count: failed.length,
-    })
-  }
-
-  const inTurn = groupBy(t.steps, (s) => {
-    if (s.turnId === undefined) return undefined
-    const sig = signatureOf(s)
-    return repeats.has(sig) ? undefined : JSON.stringify([s.turnId, sig])
-  })
-  for (const list of inTurn.values()) {
-    if (list.length < 3) continue
-    if (ROUTINE_TOOLS.has(list[0]!.tool) && !list.some((s) => s.status === 'error')) continue
-    const last = list.reduce((a, b) => (b.seq >= a.seq ? b : a))
-    out.push({
-      key: `loop:${last.turnId}:${signatureOf(last)}`, kind: 'loop', label: last.label, agent: last.agent,
-      stepId: last.id, since: last.startedAt, count: list.length,
-    })
-  }
-
-  for (const a of subagents(t)) {
-    if (a.status !== 'running') continue
-    const since = a.lastStepAt ?? a.startedAt
-    if (now - since > STALL_MS) out.push({ key: `stalled:${a.id}`, kind: 'stalled', label: a.description || a.type, agent: a.id, since })
-  }
-
-  const { agentLimitMin, turnLimitMin } = runLimits(limits)
-  for (const a of subagents(t)) {
-    if (a.status !== 'running' || now - (a.lastStepAt ?? a.startedAt) > STALL_MS) continue
-    if (runLevel(now - a.startedAt, agentLimitMin) !== 'over') continue
-    const limitMs = agentLimitMin * 60_000
-    const p: Problem = { key: `long-run:${a.id}`, kind: 'long-run', label: a.description || a.type, agent: a.id, since: a.startedAt + limitMs, limitMs }
-    const usual = usualMs(t, a.type)
-    if (usual !== undefined) p.usualMs = usual
+  const labelOfStep = (id: string | undefined) => (id !== undefined ? t.steps.find((s) => s.id === id)?.label : undefined)
+  for (const n of needs(t, now, o).items) {
+    const p: Problem = { key: n.key, kind: 'asking', label: labelOfStep(n.stepId) ?? n.sentence, agent: n.agent, since: n.since, sentence: n.sentence, need: n.kind }
+    if (n.stepId !== undefined) p.stepId = n.stepId
     out.push(p)
   }
-  const turn = [...t.turns].reverse().find((x) => x.agent === 'main')
-  if (turn !== undefined && turn.endedAt === undefined && runLevel(now - turn.startedAt, turnLimitMin) === 'over') {
-    const limitMs = turnLimitMin * 60_000
-    out.push({ key: `long-run:turn:${turn.id}`, kind: 'long-run', label: turn.prompt, agent: 'main', since: turn.startedAt + limitMs, limitMs })
+  const quiet = new Set(dismissed)
+  for (const w of watch(t, now, [], limits)) {
+    const a = t.agents[w.agent]
+    const agentLabel = w.agent === 'main' ? '' : a?.description || a?.type || ''
+    const turn = w.agent === 'main' ? [...t.turns].reverse().find((x) => x.agent === 'main') : undefined
+    const label = w.stepId !== undefined ? labelOfStep(w.stepId) ?? w.sentence : agentLabel || turn?.prompt || w.sentence
+    // A quiet loop keeps the legacy stall's key and time (its last activity), which the views and their dismissals read.
+    const isQuiet = w.kind === 'quiet'
+    const p: Problem = {
+      key: isQuiet ? `stalled:${w.agent}` : w.key, kind: w.kind === 'quiet' ? 'stalled' : w.kind, label, agent: w.agent,
+      since: isQuiet ? now - (w.ranMs ?? 0) : w.since, sentence: w.sentence,
+    }
+    if (w.stepId !== undefined) p.stepId = w.stepId
+    if (w.count !== undefined) p.count = w.count
+    if (w.limitMs !== undefined) p.limitMs = w.limitMs
+    if (w.usualMs !== undefined) p.usualMs = w.usualMs
+    out.push(p)
   }
-
   for (const x of t.turns) {
     if (x.failed !== true || x.endedAt === undefined || now - x.endedAt > FAILED_TURN_MS) continue
-    out.push({ key: `failed-turn:${x.id}`, kind: 'failed-turn', label: x.prompt, agent: x.agent, since: x.endedAt })
+    const p: Problem = { key: `failed-turn:${x.id}`, kind: 'failed-turn', label: x.prompt, agent: x.agent, since: x.endedAt }
+    out.push(p)
   }
-
-  const quiet = new Set(dismissed)
   return out.filter((p) => !quiet.has(dismissKey(p))).sort((a, b) => b.since - a.since || byKey(a, b))
 }
 

@@ -64,7 +64,10 @@ describe('digest', () => {
   it('lists open problems and says None when empty', () => {
     const asking: Timeline = { ...tl, steps: [step('r', { status: 'running', asking: 5, label: 'Bash rm' })] }
     expect(digest(asking, {}, NOW)).toContain('- asking: Bash rm')
-    expect(out).toContain('## Open problems\n\n_None._')
+    // The fixture's turn is still open, 33 min without activity: the lead is quiet (R6).
+    expect(out).toContain('## Open problems\n\n- stalled: Add rate limiting to uploads')
+    const ended: Timeline = { ...tl, turns: [{ ...tl.turns[0]!, endedAt: 2 }] }
+    expect(digest(ended, {}, NOW)).toContain('## Open problems\n\n_None._')
     expect(digest(empty, {}, NOW)).toContain('# Session handoff')
   })
 

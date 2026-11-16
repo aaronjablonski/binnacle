@@ -26,7 +26,7 @@
     "notify": {
       "type": "string",
       "title": "Notifications",
-      "description": "Raise a native notification when Claude has waited on you for 20 seconds (waits), also when a turn over 60 seconds finishes (done), also when a turn fails (all), or never (off).",
+      "description": "Raise a native notification when Claude has waited on you (a permission, a question, a plan or an input request) for a minute (waits), also when a turn over 60 seconds finishes (done), also when a turn fails (all), or never (off).",
       "options": ["off", "waits", "done", "all"],
       "default": "waits"
     },
@@ -51,14 +51,41 @@
     "agentLimitMin": {
       "type": "number",
       "title": "Agent time limit (minutes)",
-      "description": "A subagent still working after this many minutes is flagged once as a long run in NEEDS YOU. It only reports; it never stops an agent. 0 turns it off.",
-      "default": 20
+      "description": "A subagent still working after this many minutes shows once as a long run under Watch. It only reports; it never stops an agent. 0 turns it off.",
+      "default": 60
     },
     "turnLimitMin": {
       "type": "number",
       "title": "Turn time limit (minutes)",
-      "description": "A main turn still running after this many minutes is flagged once as a long run in NEEDS YOU. 0 turns it off.",
-      "default": 60
+      "description": "A main turn still running after this many minutes shows once as a long run under Watch. 0 turns it off.",
+      "default": 120
+    },
+    "watchNotify": {
+      "type": "boolean",
+      "title": "Notify for Watch",
+      "description": "Also raise a notification, once, when something has stood under Watch (a stalled step, a quiet agent, a long run, a repeat or a loop) for 10 minutes. Off by default: Watch asks nothing of you.",
+      "default": false
+    },
+    "ground": {
+      "type": "string",
+      "title": "Ground",
+      "description": "The background the crew pictures are drawn for: auto (from the theme: light themes give day, the rest night), night or day.",
+      "options": ["auto", "night", "day"],
+      "default": "auto"
+    },
+    "motion": {
+      "type": "string",
+      "title": "Motion",
+      "description": "Let the crew blink now and then and play the short sweep when a request finishes cleanly (on), or keep everything still (off).",
+      "options": ["on", "off"],
+      "default": "on"
+    },
+    "accent": {
+      "type": "string",
+      "title": "Accent",
+      "description": "The colour of headings, the marker and the filled button: iris (violet-blue), sky (light blue) or slate (grey-blue).",
+      "options": ["iris", "sky", "slate"],
+      "default": "iris"
     }
   }
 }

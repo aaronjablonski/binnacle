@@ -1,0 +1,93 @@
+import type { AgentKey, TaskItem, Timeline } from '../../types'
+
+// The to-do block's data (R11 to R14): the lead's list for the current
+// request, the counts a subagent's card shows, and the scoping rules. Pure.
+
+/**
+ * Whether a lead task belongs to the current request's list: a task completed
+ * before `listFrom` (a prompt that started with the whole list done) is
+ * "Earlier"; every other task is current.
+ */
+export function inLeadList(x: TaskItem, listFrom: number | undefined): boolean {
+  return !(listFrom !== undefined && x.status === 'completed' && x.updatedAt < listFrom)
+}
+
+/** Whether `owner` keeps its list with the task tools (TaskCreate, TaskUpdate, TodoWrite): then the update tool's `tasks` is ignored for it (R16). */
+export function usesTaskTools(t: Timeline, owner: AgentKey): boolean {
+  return t.tasks.some((x) => x.owner === owner && !x.id.startsWith('list:'))
+}
+
+/** Where the lead's list comes from: the task tools, the update tool's `tasks` field, or nowhere yet. */
+export type ListSource = 'tools' | 'update' | 'none'
+
+export type TodoBlock = {
+  /** The lead's current list, in the order it was written (R11: the lead's only). */
+  items: TaskItem[]
+  done: number
+  total: number
+  /** Tasks not completed. */
+  open: number
+  /** The task in progress (the newest one when several are). */
+  current?: TaskItem
+  /** The first pending task. */
+  next?: TaskItem
+  /** The one done row drawn above the current task (R14): the newest completed task. */
+  lastDone?: TaskItem
+  /** Lead tasks of earlier requests, folded away (the Tasks tab's "Earlier"). */
+  earlier: TaskItem[]
+  /** No list for this request: the block draws its head and "No to-do list for this request" (R12). */
+  empty: boolean
+  /** True while a need blocks the current task (R5): the asker is the lead, or nothing else is running. */
+  paused: boolean
+  source: ListSource
+  /** When the current request began: the newest main turn's start; undefined before any. */
+  since?: number
+}
+
+/** The words the empty To do block draws (R12). */
+export const NO_LIST_TEXT = 'No to-do list for this request'
+
+/**
+ * The lead's to-do block. `askers` are the agents with an open need
+ * (`needs(...).items.map(n => n.agent)`); paused follows R5.
+ */
+export function todoBlock(t: Timeline, askers: readonly AgentKey[] = []): TodoBlock {
+  const lead = t.tasks.filter((x) => x.owner === 'main')
+  const items = lead.filter((x) => inLeadList(x, t.listFrom))
+  const earlier = lead.filter((x) => !inLeadList(x, t.listFrom))
+  let current: TaskItem | undefined
+  let lastDone: TaskItem | undefined
+  for (const x of items) {
+    if (x.status === 'in_progress' && (current === undefined || x.updatedAt >= current.updatedAt)) current = x
+    if (x.status === 'completed' && (lastDone === undefined || x.updatedAt >= lastDone.updatedAt)) lastDone = x
+  }
+  const next = items.find((x) => x.status === 'pending')
+  const done = items.filter((x) => x.status === 'completed').length
+  const othersRunning = Object.values(t.agents).some((a) => a.id !== 'main' && a.status === 'running')
+  const paused = current !== undefined && askers.length > 0 && (askers.includes('main') || !othersRunning)
+  const source: ListSource = items.length === 0 ? 'none' : items.some((x) => !x.id.startsWith('list:')) ? 'tools' : 'update'
+  const out: TodoBlock = { items, done, total: items.length, open: items.length - done, earlier, empty: items.length === 0, paused, source }
+  if (current !== undefined) out.current = current
+  if (next !== undefined) out.next = next
+  if (lastDone !== undefined) out.lastDone = lastDone
+  for (let i = t.turns.length - 1; i >= 0; i--) {
+    if (t.turns[i]!.agent === 'main') {
+      out.since = t.turns[i]!.startedAt
+      break
+    }
+  }
+  return out
+}
+
+/** A subagent's own list as its card counts it ("3 of 5", R11); total 0 when it keeps none. */
+export function listCounts(t: Timeline, agent: AgentKey): { done: number; total: number } {
+  let done = 0
+  let total = 0
+  for (const x of t.tasks) {
+    if (x.owner !== agent) continue
+    if (agent === 'main' && !inLeadList(x, t.listFrom)) continue
+    total++
+    if (x.status === 'completed') done++
+  }
+  return { done, total }
+}

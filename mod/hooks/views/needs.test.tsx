@@ -94,8 +94,10 @@ const sub = (id: string, extra: Partial<AgentRow> = {}): AgentRow => ({
   ...extra,
 })
 const main: AgentRow = { ...empty.agents.main! }
+// Asked in auto mode, where the 20 s threshold applies (R2: outside auto an ask shows at once).
 const asked = (seconds: number): Timeline => ({
   ...empty,
+  autoAsk: true,
   seq: 1,
   steps: [step('s1', 'Bash rm -rf build', { asking: NOW - seconds * 1000 })],
   agents: { main },
@@ -222,7 +224,7 @@ test('text form: the NEEDS YOU bracket closes on the last row at 50, 40 and 32 c
 test('text form: the crew shows who asks (?) and who stalled (z): lit hulls in warning with their signals', { options: { look: 'text' } }, async ($, on) => {
   world(on, {
     ...asked(30),
-    agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
+    agents: { main, a1: sub('a1', { lastStepAt: NOW - 700_000, startedAt: NOW - 800_000 }) },
   })
   const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
   const rows = await rowsOf(ui)
@@ -292,7 +294,7 @@ test('the footer is at most 3 entries, drawn only while the pane has the focus',
 test('text form: a stalled agent is a ▲ in warning named by its description, and g opens its transcript', { options: { look: 'text' } }, async ($, on) => {
   world(on, {
     ...empty,
-    agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
+    agents: { main, a1: sub('a1', { lastStepAt: NOW - 700_000, startedAt: NOW - 800_000 }) },
   })
   const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
   const rows = await rowsOf(ui)
@@ -310,7 +312,7 @@ test('pressing an asking row opens its step; pressing an agent-only problem filt
   const { stored } = world(on, {
     ...empty,
     steps: [step('s1', 'Bash rm -rf build', { asking: NOW - 30_000 })],
-    agents: { main, a1: sub('a1', { lastStepAt: NOW - 400_000, startedAt: NOW - 500_000 }) },
+    agents: { main, a1: sub('a1', { lastStepAt: NOW - 700_000, startedAt: NOW - 800_000 }) },
   })
   // The row's Button is found by its label.
   for (const surface of SURFACES) {

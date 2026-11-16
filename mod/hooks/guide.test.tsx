@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Timeline } from '../types'
-import { GUIDE_TEXT } from './guide'
+import { DESCRIPTION, GUIDE_FIELD, GUIDE_TASKS, GUIDE_TODO, guideText, guideVariant } from './guide'
 
 type Box = { timeline?: Timeline; registered: Record<string, unknown>[] }
 
@@ -55,9 +55,16 @@ test('registers the update tool, not deferred', async ($, on) => {
   const spec = box.registered[0] as { name: string; description: string; isDeferred: boolean; inputSchema: Record<string, unknown> }
   expect(spec.name).toBe('update')
   expect(spec.isDeferred).toBe(false)
-  expect(spec.description).toBe(
-    'Keep the Mission Control overview current for the person watching this session. Cheap; returns nothing useful.',
+  // Round 1 section 4: the description the model reads at call time names `focus` and `tasks`.
+  expect(spec.description).toBe(DESCRIPTION)
+  expect(DESCRIPTION).toBe(
+    'Keep the Mission Control panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful.',
   )
+  const tasks = (spec.inputSchema.properties as Record<string, { maxItems?: number; items?: { properties: Record<string, { maxLength?: number; enum?: string[] }>; required: string[] } }>).tasks!
+  expect(tasks.maxItems).toBe(12)
+  expect(tasks.items?.properties.title?.maxLength).toBe(60)
+  expect(tasks.items?.properties.state?.enum).toEqual(['todo', 'doing', 'done'])
+  expect(tasks.items?.required).toEqual(['title', 'state'])
   expect(spec.inputSchema.additionalProperties).toBe(false)
   const artifact = (spec.inputSchema.properties as Record<string, { properties: Record<string, { maxLength?: number }> }>).artifact!
   expect(artifact.properties.title?.maxLength).toBe(200)
@@ -127,7 +134,7 @@ test('a 5,000-character focus is stored cut to 200', async ($, on) => {
   expect(focus.length <= 200).toBe(true)
 })
 
-test("prompt.compose gains exactly one section, last, equal to GUIDE_TEXT, and the engine's sections are untouched", async ($, on) => {
+test("prompt.compose gains exactly one section, last, the guide text for its tools, and the engine's sections are untouched", async ($, on) => {
   world(on)
   on('prompt.compose', () => ({ sections: ENGINE_SECTIONS }))
 
@@ -137,9 +144,76 @@ test("prompt.compose gains exactly one section, last, equal to GUIDE_TEXT, and t
   expect(first.sections.length).toBe(ENGINE_SECTIONS.length + 1)
   expect(first.sections.slice(0, ENGINE_SECTIONS.length)).toEqual(ENGINE_SECTIONS)
   const added = first.sections[first.sections.length - 1]
-  expect(added?.text).toBe(GUIDE_TEXT)
+  // Only the update tool offered: variant C, the `tasks` field.
+  expect(added?.text).toBe(GUIDE_FIELD)
   expect(added?.scope).toBe('session')
+  // The same text on every call: the prompt cache holds.
   expect(second).toEqual(first)
+})
+
+test('with the task tools offered the guide names TaskCreate; with TodoWrite, TodoWrite; with neither, the `tasks` field', async ($, on) => {
+  world(on)
+  on('prompt.compose', () => ({ sections: ENGINE_SECTIONS }))
+  const textFor = async (tools: string[]) => (await $.prompt.compose({ ...COMPOSE, tools: [UPDATE, ...tools] })).sections.at(-1)?.text
+
+  const a = await textFor(['Read', 'TaskCreate', 'TaskUpdate', 'TaskList'])
+  const b = await textFor(['Read', 'TodoWrite'])
+  const c = await textFor(['Read', 'Bash'])
+  // A deferred task tool is not in `tools`: it counts as not offered.
+  const deferred = await textFor(['Read', 'ToolSearch'])
+
+  expect(a).toBe(GUIDE_TASKS)
+  expect(a).toContain('create the list with TaskCreate before any other tool call')
+  expect(a).toContain('Mark one task in_progress')
+  expect(a).not.toContain('`tasks` field')
+  expect(b).toBe(GUIDE_TODO)
+  expect(b).toContain('create the list with TodoWrite before any other tool call')
+  expect(b).toContain('Mark one item in_progress')
+  expect(c).toBe(GUIDE_FIELD)
+  expect(c).toContain('send the list in the `tasks` field of mcp__mission-control__update')
+  expect(c).not.toContain('TaskCreate')
+  expect(deferred).toBe(GUIDE_FIELD)
+  // Each variant is a fixed string, the same on every call.
+  expect(await textFor(['Read', 'TaskCreate', 'TaskUpdate'])).toBe(a)
+  expect(guideVariant(['TaskCreate'])).toBe('field')
+  expect(guideVariant(['TaskCreate', 'TaskUpdate', 'TodoWrite'])).toBe('tasks')
+  expect(guideText(['TodoWrite'])).toBe(GUIDE_TODO)
+  for (const text of [GUIDE_TASKS, GUIDE_TODO, GUIDE_FIELD]) {
+    expect(text.startsWith('# Mission Control\n')).toBe(true)
+    expect(text).toContain('A request of one or two steps needs no list.')
+    expect(text).toContain('with `focus`: the goal of the whole request as a plain clause of at most 8 words')
+  }
+})
+
+test('the `tasks` field replaces the caller\'s own list, bounded; a subagent\'s list never touches the lead\'s', async ($, on) => {
+  const box = world(on)
+  on('tool.call', () => ({ result: 'engine' }))
+
+  await $.tool.call({ tool: UPDATE, tasks: [{ title: 'Read the route', state: 'doing' }, { title: 'Write the limiter', state: 'todo' }] } as never)
+  expect(box.timeline?.tasks.map(x => [x.subject, x.status, x.owner])).toEqual([
+    ['Read the route', 'in_progress', 'main'],
+    ['Write the limiter', 'pending', 'main'],
+  ])
+
+  // The whole list again, with a state changed: replaced, never merged.
+  await $.tool.call({ tool: UPDATE, tasks: [{ title: 'Read the route', state: 'done' }, { title: 'Write the limiter', state: 'doing' }, { title: 'Test it', state: 'todo' }] } as never)
+  expect(box.timeline?.tasks.map(x => [x.subject, x.status])).toEqual([
+    ['Read the route', 'completed'],
+    ['Write the limiter', 'in_progress'],
+    ['Test it', 'pending'],
+  ])
+
+  // A subagent's list is its own.
+  await $.tool.call({ tool: UPDATE, agentId: 'a1', tasks: [{ title: 'Scan', state: 'doing' }] } as never)
+  expect(box.timeline?.tasks.filter(x => x.owner === 'main').length).toBe(3)
+  expect(box.timeline?.tasks.filter(x => x.owner === 'a1').map(x => x.subject)).toEqual(['Scan'])
+
+  // Bounded: 12 items, titles cut to 60, bad items skipped.
+  const many = Array.from({ length: 20 }, (_, i) => ({ title: `${'t'.repeat(100)}${i}`, state: 'todo' }))
+  await $.tool.call({ tool: UPDATE, tasks: [{ title: '', state: 'todo' }, { title: 'x', state: 'maybe' }, ...many] } as never)
+  const lead = box.timeline?.tasks.filter(x => x.owner === 'main') ?? []
+  expect(lead.length).toBe(12)
+  expect(lead.every(x => x.subject.length <= 60)).toBe(true)
 })
 
 test('prompt.compose adds no section when the request does not offer the update tool', async ($, on) => {

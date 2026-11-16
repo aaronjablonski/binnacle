@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Ev, Timeline } from '../mod/types'
 import {
   MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_STEPS, MAX_TASKS, MAX_TURNS,
-  MAX_SAMPLES, MAX_SIG, MAX_STEP_ID, MAX_WINDOW_NAME, MAX_WINDOWS,
+  MAX_SAMPLES, MAX_SIG, MAX_STEP_ID, MAX_WINDOW_NAME, MAX_WINDOWS, MAX_ASKS, MAX_ASK_TEXT, MAX_REASON,
 } from '../mod/hooks/model/limits'
 import { empty, reduce } from '../mod/hooks/model/reduce'
 
@@ -85,6 +85,12 @@ function* everyListPastItsBound(opts: { finish: boolean } = { finish: true }): G
     if (!opts.finish) yield { kind: 'step.ask', at: at(), id: toolId(100_000 + i) }
   }
   if (opts.finish) yield { kind: 'turn.end', at: at(), turnId: turnId(MAX_TURNS + 49), agent: 'main', answer: long('done'), failed: false }
+  // The alert model's fields (C2): open input requests past their bound, a
+  // failed turn's reason. (listFrom and autoAsk are a number and a flag.)
+  for (let i = 0; i < MAX_ASKS + 3; i++) {
+    yield { kind: 'input.ask', at: at(), id: long(`el${i}`), agent: agentId(i), server: long('server'), message: long('message') }
+  }
+  yield { kind: 'turn.fail', agent: 'main', reason: long('reason') }
 }
 
 /**
@@ -128,6 +134,9 @@ function atBounds(t: Timeline) {
   expect(t.lastExport!.path.length).toBe(MAX_REF)
   expect(t.cache).toBeDefined()
   for (const x of t.tasks) expect([x.tokens, x.ms]).toEqual([HUGE, HUGE])
+  expect(t.asks).toHaveLength(MAX_ASKS)
+  for (const x of t.asks!) expect([x.id.length, x.server.length, x.message.length]).toEqual([MAX_STEP_ID, MAX_MODEL, MAX_ASK_TEXT])
+  expect(t.failure!.reason.length).toBe(MAX_REASON)
 }
 
 describe('bounds', () => {

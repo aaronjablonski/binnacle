@@ -1,6 +1,6 @@
 import type { AgentRow, NotifyMode, TaskItem, Timeline, TurnRow } from '../../types'
 import {
-  AGENT_LIMIT_MIN, CACHE_HOUR_MS, CACHE_TTL_MS, DONE_TURN_MS, NEAR_SHARE, PACE_MIN_MS, PACE_MIN_POINTS, PACE_SPAN_MS, TURN_LIMIT_MIN,
+  AGENT_LIMIT_MIN, CACHE_HOUR_MS, CACHE_TTL_MS, DONE_TURN_MS, PACE_MIN_MS, PACE_MIN_POINTS, PACE_SPAN_MS, TURN_LIMIT_MIN,
 } from './limits'
 
 // The distilled features' selectors: pace, the cache line, the task meter,
@@ -251,14 +251,12 @@ export function runLimits(o: { agentLimitMin?: unknown; turnLimitMin?: unknown }
   return { agentLimitMin: minutes(o?.agentLimitMin, AGENT_LIMIT_MIN), turnLimitMin: minutes(o?.turnLimitMin, TURN_LIMIT_MIN) }
 }
 
-export type RunLevel = 'ok' | 'near' | 'over'
+export type RunLevel = 'ok' | 'over'
 
-/** How a run `elapsed` ms long stands against `limitMin`: over past it, near from 80 % (amber, no row), else ok; ok when the limit is 0 (off). */
+/** How a run `elapsed` ms long stands against `limitMin`: over past it, else ok (no near amber: R6); ok when the limit is 0 (off). */
 export function runLevel(elapsed: number, limitMin: number): RunLevel {
   if (!(limitMin > 0)) return 'ok'
-  const limit = limitMin * MIN
-  if (elapsed > limit) return 'over'
-  return elapsed >= limit * NEAR_SHARE ? 'near' : 'ok'
+  return elapsed > limitMin * MIN ? 'over' : 'ok'
 }
 
 /** The main turn running now, how long it has run and how that stands against its limit; undefined when none runs. */

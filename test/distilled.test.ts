@@ -275,9 +275,10 @@ describe('long run', () => {
     expect(problems(t, T0 + 19 * MIN, [], { agentLimitMin: 20 }).some((p) => p.kind === 'long-run')).toBe(false)
   })
 
-  it('defaults to 20 minutes for an agent', () => {
-    const t = fold(working(T0, T0 + 20 * MIN))
-    expect(problems(t, T0 + 21 * MIN, []).some((p) => p.kind === 'long-run')).toBe(true)
+  it('defaults to 60 minutes for an agent (owner ruling 4)', () => {
+    const t = fold(working(T0, T0 + 55 * MIN))
+    expect(problems(t, T0 + 59 * MIN, []).some((p) => p.kind === 'long-run')).toBe(false)
+    expect(problems(t, T0 + 61 * MIN, []).some((p) => p.kind === 'long-run')).toBe(true)
   })
 
   it('leaves a silent agent to stalled', () => {
@@ -287,17 +288,18 @@ describe('long run', () => {
     expect(got.some((p) => p.kind === 'long-run')).toBe(false)
   })
 
-  it('flags a main turn past its own limit (60 minutes by default), 0 off', () => {
+  it('flags a main turn past its own limit (120 minutes by default), 0 off', () => {
     const t = fold([turnStart(T0, 'm1')])
-    expect(problems(t, T0 + 59 * MIN, []).some((p) => p.kind === 'long-run')).toBe(false)
-    const got = problems(t, T0 + 61 * MIN, []).filter((p) => p.kind === 'long-run')
+    expect(problems(t, T0 + 119 * MIN, []).some((p) => p.kind === 'long-run')).toBe(false)
+    const got = problems(t, T0 + 121 * MIN, []).filter((p) => p.kind === 'long-run')
     expect(got.map((p) => [p.key, p.agent])).toEqual([['long-run:turn:m1', 'main']])
-    expect(problems(t, T0 + 61 * MIN, [], { turnLimitMin: 0 }).some((p) => p.kind === 'long-run')).toBe(false)
+    expect(problems(t, T0 + 121 * MIN, [], { turnLimitMin: 0 }).some((p) => p.kind === 'long-run')).toBe(false)
   })
 
-  it('runLevel: near at 80 % of the limit (no row), over past it, ok at 0', () => {
+  // R6: the near amber is gone; a run is ok until it passes its limit.
+  it('runLevel: ok up to the limit (no near level), over past it, ok at 0', () => {
     expect(runLevel(15 * MIN, 20)).toBe('ok')
-    expect(runLevel(16 * MIN, 20)).toBe('near')
+    expect(runLevel(19 * MIN, 20)).toBe('ok')
     expect(runLevel(21 * MIN, 20)).toBe('over')
     expect(runLevel(500 * MIN, 0)).toBe('ok')
     const t = fold(working(T0, T0 + 16 * MIN))

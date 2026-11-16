@@ -9,7 +9,7 @@ import { beadsSpec, lintelSpec, sillSpec, toneOf } from './richkit'
 import { bar, crewRow, GAUGE, pillRun, pips, wordFit, wrapWords } from './fit'
 import { argOf, headline, laid, runsLine } from './lay'
 import type { Placed } from './lay'
-import { chatFor, crewPods, dismissNeed, needGlyph, needName, needsYou, openProblem, paneState, podFor, waitStates } from './needs'
+import { chatFor, crewPods, dismissNeed, focusable, needGlyph, needName, needsYou, openProblem, paneState, podFor, waitStates } from './needs'
 import { blank, deck, inst, more, row } from './parts'
 import type { DeckRow, Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -135,7 +135,7 @@ function needsBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
   const wrapped = fits(text, room) ? wrapWords(text, room, 2) : [wordFit(text, room)]
   const els: RenderElement[] = [
     label(ctx, $, 'NEEDS YOU', { text: String(list.length), color: C.wait }, 'slim-go-needs', () => openProblem($, first), 'wait'),
-    <Button key={`open-${first.key}`} plain autoFocus onPress={() => openProblem($, first)}>
+    <Button key={`open-${first.key}`} plain autoFocus={focusable(first) ? true : undefined} onPress={() => openProblem($, first)}>
       {laid(
         [
           { col: COL.glyph, text: mark.glyph, color: mark.color },

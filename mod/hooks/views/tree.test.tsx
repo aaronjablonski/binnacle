@@ -248,14 +248,15 @@ test('only main: one row, the empty-state note, and nothing running when r is on
   await idle.unmount()
 })
 
+// Quiet past ten minutes (R6: an agent thinking for less is no alert).
 const stalledFamily = (): Timeline =>
   busy({
     runs: { r1: run },
     agents: {
       main: withMainWork,
-      a1: at(agent('a1', 'Explore', 'find callers', 'Grep'), 400_000, { lastStepAt: NOW - 300_000 }),
+      a1: at(agent('a1', 'Explore', 'find callers', 'Grep'), 800_000, { lastStepAt: NOW - 700_000 }),
       a2: at(agent('a2', 'general-purpose', 'limiter tests', 'Edit'), 30_000),
-      w1: at(wf('w1', 0, 'review: bugs', 'x', 'running'), 400_000, { lastStepAt: NOW - 300_000 }),
+      w1: at(wf('w1', 0, 'review: bugs', 'x', 'running'), 800_000, { lastStepAt: NOW - 700_000 }),
       w2: at(wf('w2', 1, 'review: perf', 'x', 'running'), 30_000),
     },
   })

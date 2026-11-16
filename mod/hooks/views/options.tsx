@@ -60,7 +60,8 @@ const ACCENTS: Record<string, { hue: Hue; key: string }> = {
  */
 const FIELDS: readonly Field[] = [
   { field: 'look', label: 'Look', section: 'LOOK', applies: 'now', kind: 'choice', choices: ['rich', 'text'] },
-  { field: 'accent', label: 'Accent', section: 'LOOK', applies: 'now', kind: 'choice', choices: Object.keys(ACCENTS) },
+  // Declared in the manifest (C2) with R35's choices; it takes effect with C7, so the card says coming.
+  { field: 'accent', label: 'Accent', section: 'LOOK', applies: 'coming', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
   { field: 'notify', label: 'Notify', section: 'SIGNALS', applies: 'now', kind: 'choice', choices: ['off', 'waits', 'done', 'all'] },
   { field: 'doneSound', label: 'Done sound', section: 'SIGNALS', applies: 'now', kind: 'boolean' },
   {

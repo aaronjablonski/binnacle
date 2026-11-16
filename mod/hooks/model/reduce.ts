@@ -1,9 +1,10 @@
-import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, Run, Sample, Samples, Step, TaskItem, Timeline, TurnRow } from '../../types'
+import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, InputAsk, Run, Sample, Samples, Step, TaskItem, Timeline, TurnRow } from '../../types'
 import { basename, cut, isDoc, labelOf, oneLine, pathsOf, sigOf, tail2 } from './label'
 import {
-  CACHE_TTL_MS, MAX_AGENTS, MAX_ARTIFACTS, MAX_CHANGED, MAX_LINE, MAX_MODEL, MAX_NOTES, MAX_PENDING, MAX_PENDING_STEPS, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_SAMPLES,
-  MAX_STEP_ID, MAX_STEPS, MAX_TASKS, MAX_TURNS, MAX_WINDOWS, SAMPLE_GAP_MS,
+  CACHE_TTL_MS, MAX_AGENTS, MAX_ARTIFACTS, MAX_ASK_TEXT, MAX_ASKS, MAX_CHANGED, MAX_LINE, MAX_LIST_ITEMS, MAX_LIST_TITLE, MAX_MODEL, MAX_NOTES, MAX_PENDING,
+  MAX_PENDING_STEPS, MAX_REASON, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_SAMPLES, MAX_STEP_ID, MAX_STEPS, MAX_TASKS, MAX_TURNS, MAX_WINDOWS, SAMPLE_GAP_MS,
 } from './limits'
+import { inLeadList, usesTaskTools } from './todo'
 import { windowsOf } from './usage'
 
 const DOING_MAX = 80
@@ -365,6 +366,7 @@ function applyUpdate(t: Timeline, ev: Extract<Ev, { kind: 'update' }>): Timeline
   if (note !== undefined) {
     next = { ...next, notes: dropPast([...next.notes, { text: note, agent: ev.agent, at: ev.at }], MAX_NOTES) }
   }
+  if (Array.isArray(u.tasks)) next = applyList(next, ev.agent, u.tasks, ev.at)
   const art = u.artifact
   if (isObj(art) && (art.kind === 'result' || art.kind === 'link')) {
     const title = line(art.title)
@@ -380,9 +382,49 @@ function applyUpdate(t: Timeline, ev: Extract<Ev, { kind: 'update' }>): Timeline
   return next
 }
 
+const LIST_STATE: Record<string, TaskItem['status']> = { todo: 'pending', doing: 'in_progress', done: 'completed' }
+
+/**
+ * The update tool's `tasks` list: the caller's whole list, replacing only its
+ * own list made this way (the lead's current one; its folded "Earlier" items
+ * stay). Ignored for an owner that uses the task tools (R16: they win, never
+ * merged). At most MAX_LIST_ITEMS items, each title one line cut to
+ * MAX_LIST_TITLE; an item without a title or a known state is skipped. An item
+ * sent again unchanged keeps its time and the turns attributed to it.
+ */
+function applyList(t: Timeline, agent: AgentKey, raw: unknown[], at: number): Timeline {
+  if (usesTaskTools(t, agent)) return t
+  const base = agent === 'main' ? t.listFrom ?? 0 : 0
+  const prefix = `list:${agent}:${base}:`
+  const before = new Map(t.tasks.filter((x) => x.id.startsWith(prefix)).map((x) => [x.id, x]))
+  const items: TaskItem[] = []
+  for (const it of raw) {
+    if (items.length >= MAX_LIST_ITEMS) break
+    if (!isObj(it) || typeof it.title !== 'string' || typeof it.state !== 'string') continue
+    const subject = cut(oneLine(it.title), MAX_LIST_TITLE)
+    const status = LIST_STATE[it.state]
+    if (subject === '' || status === undefined) continue
+    const item: TaskItem = { id: `${prefix}${items.length}`, subject, status, owner: agent, updatedAt: at }
+    const old = before.get(item.id)
+    if (old !== undefined) {
+      if (old.subject === item.subject && old.status === item.status) item.updatedAt = old.updatedAt
+      if (old.tokens !== undefined) item.tokens = old.tokens
+      if (old.ms !== undefined) item.ms = old.ms
+    }
+    items.push(item)
+  }
+  const kept = t.tasks.filter((x) => !(x.owner === agent && x.id.startsWith('list:') && (agent !== 'main' || inLeadList(x, t.listFrom))))
+  return { ...t, tasks: boundTasks([...kept, ...items]) }
+}
+
 function turnStart(t: Timeline, ev: Extract<Ev, { kind: 'turn.start' }>): Timeline {
   const row = { id: ev.turnId, agent: ev.agent, prompt: cut(oneLine(str(ev.prompt) ?? ''), MAX_LINE), startedAt: ev.at }
   const next: Timeline = { ...t, turns: dropPast([...t.turns, row], MAX_TURNS) }
+  // A new main prompt with every task of the lead's list complete folds that list away (R12).
+  if (ev.agent === 'main') {
+    const list = t.tasks.filter((x) => x.owner === 'main' && inLeadList(x, t.listFrom))
+    if (list.length > 0 && list.every((x) => x.status === 'completed')) next.listFrom = ev.at
+  }
   // A main turn's cost share starts from the session's cost as it stands.
   if (ev.agent === 'main') {
     delete next.turnCost
@@ -407,6 +449,19 @@ function turnEnd(t: Timeline, ev: Extract<Ev, { kind: 'turn.end' }>): Timeline {
   })
   const first = cut(oneLine((str(ev.answer) ?? '').trim().split(/\r?\n/)[0] ?? ''), DOING_MAX)
   const ended: Timeline = { ...t, turns, steps }
+  // An input request lives inside the turn's tool call: none outlives the turn.
+  if (t.asks !== undefined) {
+    const asks = t.asks.filter((a) => a.agent !== ev.agent)
+    if (asks.length > 0) ended.asks = asks
+    else delete ended.asks
+  }
+  if (ev.agent === 'main' && turns.some((x) => x.id === ev.turnId)) {
+    if (ev.failed === true && ev.aborted !== true) {
+      const given = typeof ev.reason === 'string' ? cut(oneLine(ev.reason), MAX_REASON) : ''
+      const held = t.failure?.turnId === ev.turnId ? t.failure.reason : ''
+      ended.failure = { turnId: ev.turnId, reason: given || held || 'An API error ended the turn' }
+    } else delete ended.failure
+  }
   const usd = t.budget?.costUsd
   if (ev.agent === 'main' && t.turnCost !== undefined && t.turnCost.turnId === ev.turnId && usd !== undefined) {
     ended.turnCost = { ...t.turnCost, to: usd }
@@ -428,7 +483,45 @@ function stepAsk(t: Timeline, ev: Extract<Ev, { kind: 'step.ask' }>): Timeline {
   if (i < 0) return t
   const s = t.steps[i]!
   if (s.status !== 'running' || s.asking !== undefined || typeof ev.at !== 'number') return t
-  return { ...t, steps: t.steps.map((x, j) => (j === i ? { ...s, asking: ev.at } : x)) }
+  const next: Timeline = { ...t, steps: t.steps.map((x, j) => (j === i ? { ...s, asking: ev.at } : x)) }
+  // The session's mode at the ask, for the ASK_MS rule (R2).
+  if (ev.auto === true) next.autoAsk = true
+  else delete next.autoAsk
+  return next
+}
+
+/** An MCP server asked the person for input: kept until its result (or the turn's end); past MAX_ASKS the oldest goes. */
+function inputAsk(t: Timeline, ev: Extract<Ev, { kind: 'input.ask' }>): Timeline {
+  if (typeof ev.at !== 'number' || typeof ev.server !== 'string') return t
+  const server = cut(oneLine(ev.server), MAX_MODEL)
+  const id = cut(typeof ev.id === 'string' && ev.id !== '' ? ev.id : `${server}:${ev.at}`, MAX_STEP_ID)
+  const agent = typeof ev.agent === 'string' && ev.agent !== '' ? ev.agent : 'main'
+  const row: InputAsk = { id, agent, server, message: cut(oneLine(str(ev.message) ?? ''), MAX_ASK_TEXT), at: ev.at }
+  return { ...t, asks: dropPast([...(t.asks ?? []).filter((a) => a.id !== id), row], MAX_ASKS) }
+}
+
+/** An input request answered: the one with its id, else the oldest from its server. */
+function inputDone(t: Timeline, ev: Extract<Ev, { kind: 'input.done' }>): Timeline {
+  const asks = t.asks ?? []
+  const id = typeof ev.id === 'string' && ev.id !== '' ? cut(ev.id, MAX_STEP_ID) : undefined
+  let i = id !== undefined ? asks.findIndex((a) => a.id === id) : -1
+  if (i < 0) i = asks.findIndex((a) => a.server === ev.server)
+  if (i < 0) return t
+  const left = asks.filter((_, j) => j !== i)
+  const next: Timeline = { ...t }
+  if (left.length > 0) next.asks = left
+  else delete next.asks
+  return next
+}
+
+/** Why a main turn failed (StopFailure): kept for the newest main turn, whichever of this and its end comes first. */
+function turnFail(t: Timeline, ev: Extract<Ev, { kind: 'turn.fail' }>): Timeline {
+  if (ev.agent !== 'main' || typeof ev.reason !== 'string') return t
+  const reason = cut(oneLine(ev.reason), MAX_REASON)
+  let turn: TurnRow | undefined
+  for (let i = t.turns.length - 1; i >= 0 && turn === undefined; i--) if (t.turns[i]!.agent === 'main') turn = t.turns[i]
+  if (turn === undefined || reason === '') return t
+  return { ...t, failure: { turnId: turn.id, reason } }
 }
 
 /**
@@ -589,6 +682,9 @@ export function reduce(t: Timeline, ev: Ev): Timeline {
       case 'unpin': return pin(t, ev.id, undefined)
       case 'step.ask': return stepAsk(t, ev)
       case 'step.unask': return typeof ev.id === 'string' ? unask(t, ev.id) : t
+      case 'input.ask': return inputAsk(t, ev)
+      case 'input.done': return inputDone(t, ev)
+      case 'turn.fail': return turnFail(t, ev)
       case 'usage': return addUsage(t, ev)
       case 'agent.model': return agentModel(t, ev)
       case 'measure': return measure(t, ev)
@@ -626,5 +722,7 @@ export function settle(t: Timeline): Timeline {
   for (const [id, a] of Object.entries(t.agents)) {
     agents[id] = a.id === 'main' || a.status !== 'running' ? a : { ...a, status: 'done', endedAt: last }
   }
-  return { ...t, steps, agents }
+  const out: Timeline = { ...t, steps, agents }
+  delete out.asks
+  return out
 }

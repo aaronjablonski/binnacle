@@ -1,16 +1,16 @@
-import type { EngineInterface, RenderElement } from 'claude-code'
+import type { EngineInterface } from 'claude-code'
 
 import type { AgentRow, Step, Timeline } from '../../types'
 import { journalOf, readBody } from '../journal'
 import { pathsOf } from '../model/label'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
-import { modelName, tokenText } from './budget'
-import { clock, elapsed } from './fit'
-import { opened, row, viewAgent } from './parts'
-import type { Action, Detail, Flag, Run } from './parts'
+import { tokenText } from './budget'
+import { span } from './fit'
+import { viewAgent } from './parts'
+import type { Action, Flag } from './parts'
 import { openPage } from './pagenav'
 import type { ViewCtx } from './shell'
-import { podOf, roleOf } from './style'
+import { edges } from './style'
 import type { Pod, PodState } from './style'
 
 export const STEP_GLYPH: Record<Step['status'], string> = {
@@ -20,14 +20,6 @@ export const STEP_GLYPH: Record<Step['status'], string> = {
   denied: '⊘',
   interrupted: '◌',
 }
-/**
- * An agent's row glyph: live in the accent (`statusColor`), a failure in error, done dim.
- * @deprecated Neo draws agents as hulls: `podOf(agent, ctx.now).hull` (style.ts).
- */
-export const AGENT_GLYPH: Record<AgentRow['status'], string> = { running: '▸', done: '✓', error: '✖' }
-// `main` stays 'running' for the whole session, so it gets no status glyph.
-/** @deprecated Neo draws main as the lead's hull: `podOf(main, ctx.now).hull` (style.ts). */
-export const MAIN_GLYPH = '◆'
 /** A workflow run's row glyph. */
 export const RUN_GLYPH = '≡'
 export const WORKFLOW_TYPE = 'workflow-subagent'
@@ -59,74 +51,43 @@ export function tokensCell(a: AgentRow): string {
   return a.status === 'running' ? '…' : '–'
 }
 
+/**
+ * A duration for a table's time cell (R27's words), at most 9 wide so it
+ * never meets the tokens column at 49: `14 min`, `1 h 5 min`; where hours
+ * and minutes do not fit (`1 h 48 min`) the map's short form `1h 48m`.
+ */
+export function cellTime(ms: number): string {
+  const s = span(ms)
+  if (s.length <= 9) return s
+  const m = Math.floor(Math.max(0, ms) / 60_000)
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
 /** The time: how long it ran (main: since its first step; '' before it has one). */
 export function timeCell(ctx: ViewCtx, a: AgentRow): string {
   if (a.id === 'main') {
     const since = mainSince(ctx)
-    return since === undefined ? '' : elapsed(since, ctx.now)
+    return since === undefined ? '' : cellTime(ctx.now - since)
   }
   const end = a.status === 'running' ? ctx.now : (a.endedAt ?? ctx.now)
-  return elapsed(a.startedAt, end)
+  return cellTime(end - a.startedAt)
+}
+
+/**
+ * The columns of an agent table (the list's rows, the map): the time ends at
+ * the right edge (59 at 62), the tokens 10 before it (49), the map's state
+ * word starts 23 before it (36). Narrower panes drop the state under 56
+ * columns and the tokens under 46; the time stays.
+ */
+export function agentCols(cols: number): { left: number; right: number; time: number; tokens?: number; state?: number } {
+  const { left, right } = edges(cols)
+  return { left, right, time: right, ...(cols >= 46 ? { tokens: right - 10 } : {}), ...(cols >= 56 ? { state: right - 23 } : {}) }
 }
 
 /** The gutter flag a pod's signal is: `!` problem, `?` waiting, `z` stalled; none without a signal. */
 export function signalFlag(pod: Pod): Flag | undefined {
   const text = pod.signal?.text
   return text === '!' ? 'problem' : text === '?' ? 'waiting' : text === 'z' ? 'stalled' : undefined
-}
-
-/** What `row` draws for an agent, and what its press does (open it). */
-export type AgentRowOpts = {
-  key: string
-  /** A problem the pod has no signal for (a repeat or a loop) shows `!`. */
-  flag?: Flag
-  /** `waiting` or `stalled` (see `waitStates`); absent, the pod follows the agent's status. */
-  state?: PodState
-  depth?: 0 | 1 | 2
-  /** The tethered tree's prefix (`├╌ ╰╌ ┆`), in place of a guide. */
-  tether?: { last?: boolean; outer?: boolean }
-  /** Replaces the description (a tree row may carry styled runs). */
-  name?: string | Run[]
-}
-
-/**
- * One agent as a table row: its hull at 2 (`podOf`: shape for the role, fill
- * for the state), description, tokens at 38 and time at 50. The pod's signal
- * is the gutter flag: `!` (failed), `?` (waiting), `z` (stalled). A press opens its page.
- */
-export function agentRow(ctx: ViewCtx, $: EngineInterface, a: AgentRow, o: AgentRowOpts): RenderElement {
-  const isMain = a.id === 'main'
-  const pod = podOf(o.state !== undefined ? { ...a, state: o.state } : a, ctx.now)
-  const flag: Flag | undefined = signalFlag(pod) ?? o.flag
-  const name = o.name ?? (isMain ? 'main' : a.description !== '' ? a.description : a.type)
-  return row(ctx, $, {
-    key: o.key,
-    glyph: pod.hull.text,
-    ...(pod.hull.color !== undefined ? { glyphColor: pod.hull.color } : {}),
-    name,
-    bold: ctx.u.agentOpen === a.id,
-    metric: tokensCell(a),
-    time: timeCell(ctx, a),
-    ...(flag !== undefined ? { flag } : {}),
-    ...(o.depth !== undefined ? { depth: o.depth } : {}),
-    ...(o.tether !== undefined ? { tether: o.tether } : {}),
-    // Enter on an agent row opens its page (rich rule 4); `b` comes back to the row.
-    onPress: () => openAgentPage($, a.id, o.key),
-  })
-}
-
-/** The `result` (or what it is doing, or did last) and `agent` lines of an opened row. */
-export function agentDetails(a: AgentRow): Detail[] {
-  const out: Detail[] = []
-  if (a.result !== undefined && a.result !== '') out.push({ key: 'result', value: a.result })
-  else if (a.doing !== '') out.push({ key: a.status === 'running' ? 'doing' : 'last', value: a.doing })
-  const model = a.model !== undefined ? modelName(a.model) : ''
-  const kind = a.id === 'main' ? 'main' : a.type
-  const role = a.id === 'main' ? 'lead' : roleOf(a.type)
-  const parts = [role, ...(kind !== role ? [kind] : []), ...(model !== '' ? [model] : []), `${a.stepCount} steps`]
-  if (a.id !== 'main') parts.push(clock(a.startedAt))
-  out.push({ key: 'agent', value: parts.join(' · ') })
-  return out
 }
 
 /** Scrolls the chat to the call that spawned the agent. A press only; a refusal is toasted. */
@@ -158,12 +119,6 @@ export function agentActions($: EngineInterface, a: AgentRow): Action[] {
     { hotkey: 'v', label: 'transcript', key: `agent-view-${a.id}`, onPress: () => viewAgent($, a.id) },
     { hotkey: 'g', label: 'chat', key: `agent-chat-${a.id}`, onPress: () => chatAgent($, a) },
   ]
-}
-
-/** The opened part under an agent's row, or null while it is closed. */
-export function agentOpened(ctx: ViewCtx, $: EngineInterface, a: AgentRow): RenderElement | null {
-  if (ctx.u.agentOpen !== a.id) return null
-  return opened(ctx, $, agentDetails(a), agentActions($, a))
 }
 
 /** A row `n`/`p` can jump to: its element key, and the `agentOpen` value that marks the cursor on it. */
@@ -297,4 +252,51 @@ export async function primeAgentPage($: EngineInterface, agentId: string): Promi
 export async function openAgentPage($: EngineInterface, agentId: string, from?: string): Promise<void> {
   await openPage($, 'agent', agentId, from)
   await primeAgentPage($, agentId)
+}
+
+// ---------- what the cockpit's list and map read of an agent ----------
+
+/** The newest running step of an agent. */
+export function runningStep(t: Timeline, agent: string): Step | undefined {
+  let out: Step | undefined
+  for (const s of t.steps) if (s.agent === agent && s.status === 'running' && (out === undefined || s.seq > out.seq)) out = s
+  return out
+}
+
+/** The first non-blank line of a text, whitespace collapsed. */
+const firstLine = (text: string | undefined): string => (text ?? '').split('\n').map(l => l.replace(/\s+/g, ' ').trim()).find(l => l !== '') ?? ''
+
+/**
+ * Why a failed agent stopped, in one sentence: "Stopped: <what it said>",
+ * from its result, else the step that failed last, else what it was doing;
+ * "Stopped by an error" when the timeline holds no words for it.
+ */
+export function failReason(t: Timeline, a: AgentRow): string {
+  let said = firstLine(a.result)
+  if (said === '') {
+    const failed = t.steps.filter(s => s.agent === a.id && s.status === 'error').sort((x, y) => y.seq - x.seq)[0]
+    said = failed !== undefined ? `${firstLine(failed.label)} failed` : firstLine(a.doing)
+  }
+  return said === '' ? 'Stopped by an error' : `Stopped: ${said.replace(/^stopped:?\s*/i, '')}`
+}
+
+/**
+ * What the person unfolded on the map and the list, kept in `ui.folded`
+ * beside the fold keys older versions wrote: `open:<key>` for one branch or
+ * chip, `open:all` for every folded group (`d`). Done groups are folded by
+ * default, so a key here means "show them".
+ */
+export const OPEN_ALL = 'open:all'
+export const isOpen = (folded: readonly string[], key: string): boolean => folded.includes(OPEN_ALL) || folded.includes(`open:${key}`)
+export const hasOpen = (folded: readonly string[]): boolean => folded.some(k => k.startsWith('open:'))
+
+/** Unfolds or folds one group (a key already shown by `open:all` has nothing to fold). */
+export function toggleOpen<U extends { folded: string[] }>(u: U, key: string): U {
+  const k = `open:${key}`
+  return { ...u, folded: u.folded.includes(k) ? u.folded.filter(x => x !== k) : [...u.folded, k].slice(-200) }
+}
+
+/** `d`: unfold every done group, or fold them all again. */
+export function toggleAllOpen<U extends { folded: string[] }>(u: U): U {
+  return { ...u, folded: hasOpen(u.folded) ? u.folded.filter(k => !k.startsWith('open:')) : [...u.folded, OPEN_ALL].slice(-200) }
 }

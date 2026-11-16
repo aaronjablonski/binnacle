@@ -95,8 +95,8 @@ const VIEWS: { name: string; tab: UiState['tab']; rows: ($: Engine) => Promise<s
   { name: 'band (one row)', tab: 'overview', rows: $ => bandRows($, 80) },
 ]
 
-// LOOK TEST (edited for Rich): the ? is a glyph of the text form (a hull's suffix or a gutter flag); on Now and the three-row band the rich form draws it in a character, so those are read in the text form here (the rich band is tested in band.test.tsx, the rich Now in rich2.test.tsx).
-const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (three rows)' ? { options: { look: 'text' } } : {})
+// LOOK TEST (edited for Rich): the ? is a glyph of the text form (a hull's suffix or a gutter flag); on Now, Agents and the three-row band the rich form draws it in a character, so those are read in the text form here (the rich band is tested in band.test.tsx, the rich Now in rich2.test.tsx).
+const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (three rows)' || view.name === 'Agents' ? { options: { look: 'text' } } : {})
 
 for (const view of VIEWS) {
   test(`a waiting agent shows ? on ${view.name}`, LOOK(view), async ($, on) => {
@@ -115,7 +115,7 @@ for (const view of VIEWS) {
 }
 
 for (const mode of ['list', 'tree'] as const) {
-  test(`an ask 5 s old marks nothing in the Agents ${mode}: no !, ? or z`, async ($, on) => {
+  test(`an ask 5 s old marks nothing in the Agents ${mode}: no !, ? or z`, { options: { look: 'text' } }, async ($, on) => {
     seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, { ...uiOf('agents', []), agentsMode: mode })
     const rows = await paneRows($)
     expect(rows.some(r => r.includes('find callers'))).toBe(true)
@@ -124,13 +124,20 @@ for (const mode of ['list', 'tree'] as const) {
     expect(marked(rows, '?')).toBe(false)
     expect(marked(rows, 'z')).toBe(false)
   })
-  test(`an ask 30 s old is ? in the Agents ${mode} gutter, and no !`, async ($, on) => {
+  // R26: the ? and ! stand in column 0 on the map only; the list shows the ask on the critter (its badge).
+  test(`an ask 30 s old is ? ${mode === 'tree' ? 'in the Agents tree gutter' : 'on the Agents list critter, and no gutter flag'}, and no !`, { options: { look: 'text' } }, async ($, on) => {
     seed(on, T, { ...uiOf('agents', []), agentsMode: mode })
     const rows = await paneRows($)
     const flagged = rows.filter(r => /^[!?z] /.test(r))
-    expect(flagged.length > 0).toBe(true)
-    expect(flagged.every(r => r.startsWith('? '))).toBe(true)
-    expect(flagged.some(r => r.includes('find callers'))).toBe(true)
+    if (mode === 'tree') {
+      expect(flagged.length > 0).toBe(true)
+      expect(flagged.every(r => r.startsWith('? '))).toBe(true)
+      expect(flagged.some(r => r.includes('find callers'))).toBe(true)
+    } else {
+      expect(flagged).toEqual([])
+      expect(marked(rows, '?')).toBe(true)
+    }
+    expect(marked(rows, '!')).toBe(false)
   })
 }
 

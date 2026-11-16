@@ -1,38 +1,33 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine, MockClock } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { AgentRow, Run, Step, TaskItem, Timeline, UiState } from '../../types'
+import type { AgentRow, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
+import { NOW, agent, flaggedSession, mapSession, step } from './agents.fixtures.testkit'
+import { hueHex } from './crewnode'
 import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
-/** The text look on every surface: the layout the Raster-free tables keep (hull glyphs in the characters' boxes). */
+// The crew map rules (crew spec "Crew map rules", re-laid per R26): each rule
+// has its test. The fidelity of the whole board is agents.fidelity.test.tsx.
+
+/** The text look on every surface: the critters draw as their text forms. */
 const TEXT = { options: { look: 'text' } } as const
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
-const NOW = 1_000_000
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
 
-// The engine's $.state beneath the mod: seeded with a timeline, remembering
-// every write so a press can be read back.
-function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockClock } {
-  const stored: Stored = new Map()
-  stored.set('timeline', t)
-  if (u) stored.set('ui', u)
+function world(on: On, t: Timeline, u: UiState): Stored {
+  const stored: Stored = new Map<string, unknown>([['timeline', t], ['ui', u]])
   const versions = new Map<string, number>()
-  const clock = mock.clock(on, { now: NOW })
+  mock.clock(on, { now: NOW })
   LOGS.length = 0
   on('ui.log', keepLog)
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
     const v = stored.get(key)
-    return {
-      value: {
-        value: v === undefined ? undefined : { shape: SHAPES[key], value: v },
-        version: versions.get(key) ?? 0,
-      },
-    }
+    return { value: { value: v === undefined ? undefined : { shape: SHAPES[key], value: v }, version: versions.get(key) ?? 0 } }
   })
   on('state.set', (_, e) => {
     const w = e as unknown as { key: string; value: { value: unknown } }
@@ -41,653 +36,485 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
     stored.set(w.key, w.value.value)
     return { value: { isSet: true as const, version } }
   })
-  return { stored, clock }
+  return stored
 }
 
-const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).stored
+const MAP_UI: UiState = {
+  tab: 'agents', filter: { kind: 'all' }, agentsMode: 'tree', folded: [], openTurns: [],
+  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
+}
 
-
-const PANE = (columns: number, focused = false) =>
+const PANE = (columns: number, focused: boolean, bodyRows: number) =>
   ({
     plugin: 'mission-control',
     component: 'Pane',
     requestId: 'mission-control',
-    props: {
-      title: 'Mission Control',
-      isFocused: focused,
-      bodyColumns: columns,
-      placement: 'dock',
-      scroll: { offset: 0, bodyRows: 40 },
-      view: {},
-    },
+    props: { title: 'Mission Control', isFocused: focused, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
   }) as const
 
-const task = (id: string, subject: string, status: TaskItem['status'], extra: Partial<TaskItem> = {}): TaskItem => ({
-  id,
-  subject,
-  status,
-  owner: 'main',
-  updatedAt: NOW - 120_000,
-  ...extra,
-})
-const step = (id: string, seq: number, label: string, status: Step['status'], extra: Partial<Step> = {}): Step => ({
-  id,
-  seq,
-  agent: 'main',
-  tool: 'Edit',
-  label,
-  status,
-  startedAt: NOW - 5000,
-  ...extra,
-})
-const agent = (
-  id: string,
-  type: string,
-  description: string,
-  doing: string,
-  status: AgentRow['status'] = 'running',
-): AgentRow => ({
-  id,
-  parent: 'main',
-  type,
-  description,
-  status,
-  startedAt: NOW - 60_000,
-  doing,
-  stepCount: 1,
-})
-
-const main: AgentRow = { ...empty.agents.main! }
-
-async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62, focused = false) {
-  return $.ui.mount({ ...PANE(columns, focused), surface })
+async function mount($: Engine, surface: (typeof SURFACES)[number] = 'terminal', columns = 62, focused = false, bodyRows = 60) {
+  return $.ui.mount({ ...PANE(columns, focused, bodyRows), surface })
 }
-
-const texts = async (ui: Awaited<ReturnType<typeof mount>>): Promise<string[]> => {
-  const found = await ui.findAll({ type: 'Text' })
-  return found.map(f => f.text ?? '')
-}
-
-const TREE_UI: UiState = {
-  tab: 'agents', filter: { kind: 'all' }, agentsMode: 'tree', folded: [], openTurns: [],
-  dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
-}
-const run: Run = { runId: 'r1', name: 'review-changes', parent: 'main', startedAt: NOW - 90_000 }
-const wf = (id: string, index: number, description: string, doing: string, status: AgentRow['status']): AgentRow => ({
-  ...agent(id, 'workflow-subagent', description, doing, status),
-  runId: 'r1',
-  agentIndex: index,
-})
-const withMainWork: AgentRow = { ...main, stepCount: 14, doing: 'Edit src/index.ts' }
-const busy = (t: Partial<Timeline>): Timeline => ({
-  ...empty,
-  steps: [step('s1', 1, 'Edit a.ts', 'done', { startedAt: NOW - 360_000 })],
-  ...t,
-})
-
-
-// Replaces what the world holds, for the next surface.
-function put(stored: Stored, t: Timeline, u: UiState): void {
-  stored.clear()
-  stored.set('timeline', t)
-  stored.set('ui', u)
-}
-
-const at = (a: AgentRow, ago: number, extra: Partial<AgentRow> = {}): AgentRow => ({ ...a, startedAt: NOW - ago, ...extra })
-
 type Mounted = Awaited<ReturnType<typeof mount>>
 type Found = Awaited<ReturnType<Mounted['findAll']>>[number]
 const propsOf = (f: Found | undefined): { color?: string; dimColor?: boolean; bold?: boolean } =>
   (f?.props ?? {}) as { color?: string; dimColor?: boolean; bold?: boolean }
-
 const rows = async (ui: Mounted): Promise<string[]> => screen(await ui.drawn())
 const rowWith = (all: string[], text: string): string => all.find(r => r.includes(text)) ?? ''
 const idxWith = (all: string[], text: string): number => all.findIndex(r => r.includes(text))
-
-const tok = (n: number, extra: Partial<AgentRow> = {}): Partial<AgentRow> => ({ tokensIn: n, tokensOut: 0, ...extra })
-
-// main
-// ├╌ find callers (live)
-// ├╌ write tests (live)
-// ┆ ├╌ review hooks (live)
-// ┆ ├╌ review views (failed)
-// ┆ ╰╌+ 2 done (two finished helpers)
-// ╰╌+ 1 done
-const branchy = (): Timeline =>
-  busy({
-    agents: {
-      main: { ...withMainWork, ...tok(993_000) },
-      a1: { ...at(agent('a1', 'Explore', 'find callers', 'Grep'), 60_000), ...tok(72_000) },
-      a2: { ...at(agent('a2', 'general-purpose', 'write tests', 'Edit'), 40_000), ...tok(88_000) },
-      g1: { ...at(agent('g1', 'Explore', 'review hooks', 'Read', 'running'), 30_000, { parent: 'a2' }), ...tok(64_000) },
-      g2: { ...at(agent('g2', 'Explore', 'review views', 'oops', 'error'), 25_000, { parent: 'a2', endedAt: NOW - 1000 }), ...tok(81_000) },
-      g3: at(agent('g3', 'Explore', 'helper one', 'x', 'done'), 20_000, { parent: 'a2', endedAt: NOW - 2000 }),
-      g4: at(agent('g4', 'Explore', 'helper two', 'x', 'done'), 19_000, { parent: 'a2', endedAt: NOW - 2000 }),
-      d1: at(agent('d1', 'Explore', 'old job', 'x', 'done'), 80_000, { endedAt: NOW - 30_000 }),
-    },
-  })
-
-test('a done agent with a running child stays, and a done branch holding the opened row stays', async ($, on) => {
-  const t = busy({
-    agents: {
-      main,
-      a1: at(agent('a1', 'Explore', 'map the path', 'x', 'done'), 400_000, { endedAt: NOW - 10_000 }),
-      g1: at(agent('g1', 'Explore', 'find helpers', 'Grep'), 300_000, { parent: 'a1' }),
-      a2: at(agent('a2', 'Explore', 'limiter tests', 'x', 'done'), 30_000, { endedAt: NOW - 5000 }),
-    },
-  })
-  const stored = seed(on, t, TREE_UI)
-  const ui = await mount($, 'terminal')
-  expect(await ui.find({ key: 'node-a1' })).toBeDefined()
-  expect(await ui.find({ key: 'node-g1' })).toBeDefined()
-  expect(await ui.find({ key: 'node-a2' })).toBeUndefined()
-  await ui.unmount()
-  put(stored, t, { ...TREE_UI, agentOpen: 'a2' })
-  const open = await mount($, 'terminal')
-  expect(await open.find({ key: 'node-a2' })).toBeDefined()
-  await open.unmount()
-})
-
-test('a stored fold of an agent key is ignored: only runs fold', async ($, on) => {
-  seed(on, branchy(), { ...TREE_UI, folded: ['a2'] })
-  const ui = await mount($, 'terminal')
-  expect(await ui.find({ key: 'node-g1' })).toBeDefined()
-  await ui.unmount()
-})
-
-// BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
-test('Enter on a crew node opens its page; b returns to the map with the node focused', async ($, on) => {
-  const stored = seed(on, branchy(), TREE_UI)
-  for (const surface of SURFACES) {
-    put(stored, branchy(), TREE_UI)
-    LOGS.length = 0
-    const ui = await mount($, surface)
-    await ui.press({ key: 'node-g1' })
-    const u = stored.get('ui') as UiState
-    expect(u.page).toEqual({ kind: 'agent', id: 'g1', from: 'node-g1' })
-    expect(u.tab).toBe('agents')
-    await ui.redraw()
-    await ui.press({ key: 'page-back' })
-    expect((stored.get('ui') as UiState).page).toBeUndefined()
-    expect(backTo()).toEqual(['node-g1'])
-    await ui.unmount()
-  }
-})
-
-test('the s and v actions of an opened node filter Steps and view the transcript', async ($, on) => {
-  const calls: unknown[] = []
-  on('ui.view', (_, e) => {
-    calls.push(e)
-    return { value: {} }
-  })
-  const stored = seed(on, branchy(), { ...TREE_UI, agentOpen: 'g1' })
-  const ui = await mount($, 'terminal')
-  expect(calls.length).toBe(0)
-  await ui.press({ key: 'agent-view-g1' })
-  expect(JSON.stringify(calls)).toContain('g1')
-  await ui.press({ key: 'agent-steps-g1' })
-  const u = stored.get('ui') as UiState
-  expect(u.tab).toBe('timeline')
-  expect(u.filter).toEqual({ kind: 'agent', id: 'g1' })
-  await ui.unmount()
-})
-
-test('only main: one row, the empty-state note, and nothing running when r is on', async ($, on) => {
-  const stored = seed(on, empty, TREE_UI)
-  for (const surface of SURFACES) {
-    put(stored, empty, TREE_UI)
-    const ui = await mount($, surface)
-    expect((await ui.findAll({ type: 'Button' })).filter(b => (b.key ?? '').startsWith('node-')).length).toBe(1)
-    const joined = (await rows(ui)).map(r => r.trim()).join(' ')
-    expect(joined).toContain('No agents yet. Subagents and workflow agents appear here while they run.')
-    await ui.unmount()
-  }
-  put(stored, busy({ agents: { main, a1: at(agent('a1', 'Explore', 'x', 'y', 'done'), 10_000, { endedAt: NOW - 1000 }) } }), { ...TREE_UI, runningOnly: true })
-  const idle = await mount($, 'terminal')
-  expect((await rows(idle)).join('\n')).toContain('Nothing is running.')
-  await idle.unmount()
-})
-
-// Quiet past ten minutes (R6: an agent thinking for less is no alert).
-const stalledFamily = (): Timeline =>
-  busy({
-    runs: { r1: run },
-    agents: {
-      main: withMainWork,
-      a1: at(agent('a1', 'Explore', 'find callers', 'Grep'), 800_000, { lastStepAt: NOW - 700_000 }),
-      a2: at(agent('a2', 'general-purpose', 'limiter tests', 'Edit'), 30_000),
-      w1: at(wf('w1', 0, 'review: bugs', 'x', 'running'), 800_000, { lastStepAt: NOW - 700_000 }),
-      w2: at(wf('w2', 1, 'review: perf', 'x', 'running'), 30_000),
-    },
-  })
-
-test('LOOK: a folded run with no problem has no !, and a dismissed problem leaves no z', async ($, on) => {
-  const stored = seed(on, stalledFamily(), { ...TREE_UI, dismissed: ['stalled:a1', 'stalled:w1'], folded: ['run:r1'] })
-  const ui = await mount($, 'terminal')
-  expect((await rows(ui)).filter(r => /^[!z]/.test(r)).length).toBe(0)
-  await ui.unmount()
-  put(stored, stalledFamily(), { ...TREE_UI, dismissed: ['stalled:w1'], folded: ['run:r1'] })
-  const again = await mount($, 'terminal')
-  const all = await rows(again)
-  expect(rowWith(all, 'review-changes').startsWith(' ')).toBe(true)
-  expect(colOf(rowWith(all, 'find callers'), 'z')).toBe(0)
-  await again.unmount()
-})
-
-test('n and p visit the ! rows: agents open, a folded run becomes the cursor', async ($, on) => {
-  const stored = seed(on, stalledFamily(), { ...TREE_UI, folded: ['run:r1'] })
-  const ui = await mount($, 'terminal', 62, true)
-  const foot = rowWith(await rows(ui), '↵ open')
-  expect(foot.trim()).toBe('↵ open   n: next !   p: prev')
-  await ui.press({ key: 'hint-next' })
-  expect((stored.get('ui') as UiState).agentOpen).toBe('a1')
-  await ui.press({ key: 'hint-next' })
-  expect((stored.get('ui') as UiState).agentOpen).toBe('run:r1')
-  await ui.press({ key: 'hint-prev' })
-  expect((stored.get('ui') as UiState).agentOpen).toBe('a1')
-  await ui.unmount()
-})
-
-test('the running toggle writes ui.runningOnly from the tree', async ($, on) => {
-  const stored = seed(on, branchy(), TREE_UI)
-  for (const surface of SURFACES) {
-    put(stored, branchy(), TREE_UI)
-    const ui = await mount($, surface)
-    expect(rowWith(await rows(ui), 'r: Running')).toContain('t: Map')
-    await ui.press({ key: 'mode-running' })
-    expect((stored.get('ui') as UiState).runningOnly).toBe(true)
-    await ui.unmount()
-    put(stored, branchy(), { ...TREE_UI, runningOnly: true })
-    const again = await mount($, surface)
-    await again.press({ key: 'mode-running' })
-    expect((stored.get('ui') as UiState).runningOnly).toBe(false)
-    await again.unmount()
-  }
-})
-
-test('r hides everything but running branches, and keeps the ancestors of running nodes', async ($, on) => {
-  const t = busy({
-    agents: {
-      main,
-      a1: at(agent('a1', 'Explore', 'map the path', 'x', 'done'), 400_000, { endedAt: NOW - 10_000 }),
-      g1: at(agent('g1', 'Explore', 'find helpers', 'Grep'), 300_000, { parent: 'a1' }),
-      a2: at(agent('a2', 'general-purpose', 'limiter tests', 'x', 'done'), 30_000, { endedAt: NOW - 5000 }),
-      a3: at(agent('a3', 'Explore', 'broke', 'x', 'error'), 20_000, { endedAt: NOW - 5000 }),
-    },
-  })
-  seed(on, t, { ...TREE_UI, runningOnly: true })
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    expect(await ui.find({ key: 'node-main' })).toBeDefined()
-    expect(await ui.find({ key: 'node-a1' })).toBeDefined()
-    expect(await ui.find({ key: 'node-g1' })).toBeDefined()
-    expect(await ui.find({ key: 'node-a2' })).toBeUndefined()
-    expect(await ui.find({ key: 'node-a3' })).toBeUndefined()
-    // nothing folds into `+ n done`: finished branches are not in the map at all
-    expect((await rows(ui)).join('\n')).not.toMatch(/\+ \d+ done/)
-    await ui.unmount()
-  }
-})
-
-test('depth 8 draws at most two levels in, and every row fits 32', async ($, on) => {
-  const agents: Record<string, AgentRow> = { main: withMainWork }
-  for (let i = 1; i <= 8; i++) {
-    agents[`c${i}`] = at(
-      agent(`c${i}`, 'general-purpose', 'write limiter tests for the endpoint', 'Edit test/rateLimit.test.ts now'),
-      60_000 - i * 1000,
-      { parent: i === 1 ? 'main' : `c${i - 1}` },
-    )
-  }
-  seed(on, busy({ agents }), TREE_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 32)
-    const all = await rows(ui)
-    for (const r of all) expect(r.length).toBeLessThanOrEqual(32)
-    expect(await ui.find({ key: 'node-c8' })).toBeDefined()
-    for (const r of all.filter(x => x.includes('write limiter') || x.includes('write limit'))) expect(colOf(r, 'write limit')).toBeLessThanOrEqual(21)
-    await ui.unmount()
-  }
-})
-
-// ---------- Neo Rich: the crew map ----------
-
 const rasters = async (ui: Mounted): Promise<{ key: string; columns: number; rows: number }[]> =>
   (await ui.findAll({ type: 'Raster' })).map(r => {
     const p = (r.props ?? {}) as { key?: string; columns?: number; rows?: number }
     return { key: String(p.key), columns: p.columns ?? 0, rows: p.rows ?? 0 }
   })
+const characters = async (ui: Mounted) => (await rasters(ui)).filter(r => r.key.startsWith('who-')).map(r => [r.key, r.columns, r.rows])
 
-// task 9 (done) holds d1; task 10 holds a1 and a2 (with its three children); run r1 holds w1 and w2; z1 has no task
-const crewmap = (): Timeline =>
-  busy({
-    runs: { r1: run },
-    tasks: [task('9', 'Add limiter config', 'completed'), task('10', 'Wire limiter into the chain', 'in_progress')],
-    agents: {
-      main: { ...withMainWork, ...tok(993_000) },
-      d1: { ...at(agent('d1', 'Explore', 'old job', 'x', 'done'), 200_000, { endedAt: NOW - 30_000, taskId: '9' }), ...tok(41_000) },
-      a1: { ...at(agent('a1', 'Explore', 'find callers', 'Grep'), 60_000, { taskId: '10' }), ...tok(72_000) },
-      a2: { ...at(agent('a2', 'general-purpose', 'write tests', 'Edit'), 40_000, { taskId: '10' }), ...tok(88_000) },
-      g1: { ...at(agent('g1', 'Explore', 'review hooks', 'Read'), 30_000, { parent: 'a2' }), ...tok(64_000) },
-      g2: { ...at(agent('g2', 'Explore', 'review views', 'oops', 'error'), 25_000, { parent: 'a2', endedAt: NOW - 1000 }), ...tok(81_000) },
-      g3: at(agent('g3', 'Explore', 'helper one', 'x', 'done'), 20_000, { parent: 'a2', endedAt: NOW - 2000 }),
-      w1: { ...at(wf('w1', 0, 'review: bugs', 'Read a.ts', 'running'), 80_000), ...tok(10_000) },
-      w2: { ...at(wf('w2', 1, 'review: perf', 'Read b.ts', 'done'), 70_000, { endedAt: NOW - 3000 }), ...tok(20_000) },
-      z1: { ...at(agent('z1', 'Explore', 'map the order', 'x', 'error'), 10_000, { endedAt: NOW - 1000 }), ...tok(9_000) },
-    },
-  })
+// ---------- rule 1: only working agents get a character ----------
 
-test('LOOK (rich): the map has main large on top, a trunk at 5, branches at 5, small characters on tethers at 9 and 13', async ($, on) => {
-  seed(on, crewmap(), TREE_UI)
-  const ui = await mount($, 'terminal', 62)
-  const found = await rasters(ui)
-  expect(found.find(r => r.key === 'who-main')).toEqual({ key: 'who-main', columns: 9, rows: 4 })
-  for (const id of ['a1', 'a2', 'g1', 'g2', 'w1', 'z1']) expect(found.find(r => r.key === `who-${id}`)).toEqual({ key: `who-${id}`, columns: 5, rows: 2 })
-  const all = await rows(ui)
-  const head = rowWith(all, '┌ MAP')
-  expect([colOf(head, '┌'), colOf(head, 'MAP'), colOf(head, 'tokens'), colOf(head, 'time')]).toEqual([0, 2, 38, 50])
-  // main: its name at 14 over its facts and what it is doing
-  const mainAt = all.findIndex(r => r.trim() === 'main')
-  expect(colOf(all[mainAt], 'main')).toBe(14)
-  expect(all[mainAt + 1]).toContain('lead · working · 993k')
-  expect(all[mainAt + 2]?.trim()).toBe('Edit src/index.ts')
-  // a branch: its tether at 5, glyph at 8, label at 10, tokens at 38 and time at 50
-  const t10 = rowWith(all, 'Wire limiter')
-  expect([colOf(t10, '├╌╌'), colOf(t10, '▸'), colOf(t10, '10 Wire'), colOf(t10, '305k'), colOf(t10, '1m')]).toEqual([5, 8, 10, 38, 50])
-  // a node: the trunk at 5, its tether at 9, the character 11 to 15, the name at 17, its facts under the name
-  const a1 = rowWith(all, 'find callers')
-  expect([colOf(a1, '│'), colOf(a1, '├╌'), colOf(a1, 'find callers')]).toEqual([5, 9, 17])
-  const facts = all[all.indexOf(a1) + 1]
-  expect(facts).toContain('scout · working · 72k · 1m')
-  expect(colOf(facts, 'scout')).toBe(17)
-  // a nested agent hangs from its parent: its tether at 13, its name at 21
-  const g1 = rowWith(all, 'review hooks')
-  expect([colOf(g1, '├╌'), colOf(g1, 'review hooks')]).toEqual([13, 21])
-  // the last branch ends the trunk
-  expect(colOf(rowWith(all, 'no task'), '╰╌╌')).toBe(5)
+test('rule 1: only the lead and the working agent are characters (6 x 3 with the badge column); no done agent is', async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  expect(await characters(ui)).toEqual([
+    ['who-node-main', 6, 3],
+    ['who-node-live', 6, 3],
+  ])
   await ui.unmount()
 })
 
-test('the map groups by task, then run, then no task, and a nested agent hangs from its parent', async ($, on) => {
-  seed(on, crewmap(), TREE_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const all = await rows(ui)
-    const where = (text: string): number => all.findIndex(r => r.includes(text))
-    // the branches, by when their agents began
-    const branches = ['9 Add limiter config', 'review-changes', '10 Wire limiter', 'no task'].map(where)
-    expect(branches.every(i => i > 0)).toBe(true)
-    expect([...branches].sort((a, b) => a - b)).toEqual(branches)
-    const under = (i: number): string => all.slice(branches[i]! + 1, branches[i + 1] ?? all.length).join('\n')
-    // a task's agents sit under it, a run's under the run, the rest under no task
-    expect(under(0)).toContain('1 done')
-    expect(under(1)).toContain('review: bugs')
-    expect(under(1)).not.toContain('find callers')
-    expect(under(2)).toContain('find callers')
-    expect(under(2)).toContain('write tests')
-    expect(under(2)).toContain('review hooks')
-    expect(under(2)).not.toContain('map the order')
-    expect(under(3)).toContain('map the order')
-    // the children of write tests hang from it, in the same branch
-    expect(where('review hooks')).toBeGreaterThan(where('write tests'))
-    for (const key of ['node-task:10', 'node-task:9', 'node-task:none', 'node-run:r1']) expect(await ui.find({ key })).toBeDefined()
-    await ui.unmount()
-  }
-})
-
-test('LOOK: with every agent a child of main the map still has its trunk, a no task branch and tethered characters', async ($, on) => {
-  seed(on, branchy(), TREE_UI)
-  const ui = await mount($, 'terminal', 62)
-  const all = await rows(ui)
-  expect(colOf(rowWith(all, 'no task'), '╰╌╌◇')).toBe(5)
-  const a1 = rowWith(all, 'find callers')
-  expect([colOf(a1, '├╌'), colOf(a1, 'find callers')]).toEqual([9, 17])
-  // nested agents go a level in, with the branch's guide beside them
-  const g1 = rowWith(all, 'review hooks')
-  expect([colOf(g1, '│'), colOf(g1, '├╌'), colOf(g1, 'review hooks')]).toEqual([9, 13, 21])
-  // none of the List's shapes: no section called AGENTS, no table of hulls
-  expect(all.join('\n')).not.toContain('┌ AGENTS')
-  expect(all.join('\n')).not.toMatch(/^ {2}[◈◉▣◬○●■□△◇◆] /m)
+test('rule 1: a waiting agent is a character too, a failed one a micro (5 x 2); everyone else folds', async ($, on) => {
+  world(on, flaggedSession(), MAP_UI)
+  const ui = await mount($)
+  const got = await characters(ui)
+  expect(got).toContainEqual(['who-node-ask', 6, 3])
+  expect(got).toContainEqual(['who-node-boom', 5, 2])
+  expect(got.map(g => g[0]).sort()).toEqual(['who-node-ask', 'who-node-boom', 'who-node-live', 'who-node-main'])
   await ui.unmount()
 })
 
-test('LOOK (text form): the map draws each character as its hull glyph in the same box, with the same tethers', TEXT, async ($, on) => {
-  seed(on, crewmap(), TREE_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const all = await rows(ui)
+test('a surface without Raster draws the critters as their text forms and no Raster at all', async ($, on) => {
+  world(on, flaggedSession(), MAP_UI)
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    const ui = await mount($, surface)
     expect(await rasters(ui)).toEqual([])
-    const a1 = rowWith(all, 'find callers')
-    // the hull at the character's first cell (11), the name at 17, as on the Raster look
-    expect([colOf(a1, '◉'), colOf(a1, 'find callers')]).toEqual([11, 17])
-    // main: its hull in the large character's first cell (2), its name beside it (14)
-    const mainRow = all.find(r => /^ {2}◈ +main$/.test(r)) ?? ''
-    expect([colOf(mainRow, '◈'), colOf(mainRow, 'main')]).toEqual([2, 14])
-    expect(colOf(rowWith(all, 'review views'), '○')).toBe(15)
-    await ui.unmount()
-  }
-})
-
-test('LOOK: tethers and trunk are subtle; the flag climbs to the gutter', async ($, on) => {
-  seed(on, crewmap(), TREE_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const found = await ui.findAll({ type: 'Text' })
-    const tethers = found.filter(f => /[├╰│╌]/.test(f.text ?? '') && /^[ ├╰│╌]+$/.test(f.text ?? ''))
-    expect(tethers.length > 0).toBe(true)
-    // the failed nodes carry ! in error at the gutter, a live one nothing
-    const bangs = found.filter(f => f.text === '!')
-    expect(bangs.length > 0).toBe(true)
-    for (const b of bangs) expect(propsOf(b).color).toBe('error')
     const all = await rows(ui)
-    expect(colOf(rowWith(all, 'review views'), '!')).toBe(0)
-    expect(colOf(rowWith(all, 'map the order'), '!')).toBe(0)
-    expect(rowWith(all, 'find callers').startsWith(' ')).toBe(true)
+    expect(all.some(r => /^ {2}● {6}Claude/.test(r))).toBe(true)
     await ui.unmount()
   }
 })
 
-test('LOOK: finished children fold to ╰╌+ n done under their parent, with the tether', async ($, on) => {
-  seed(on, crewmap(), TREE_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const all = await rows(ui)
-    // helper one, under write tests (level 2): the branch guide at 5, the parent's at 9, the tether at 13
-    const inner = all.find(r => r.includes('1 done') && r.indexOf('╰╌+') === 13) ?? ''
-    expect([colOf(inner, '│'), colOf(inner, '╰╌+ 1 done')]).toEqual([5, 13])
-    // old job, under task 9 (level 1)
-    const outer = all.find(r => r.includes('1 done') && r.indexOf('╰╌+') === 9) ?? ''
-    expect(colOf(outer, '╰╌+ 1 done')).toBe(9)
-    const text = all.join('\n')
-    for (const gone of ['helper one', 'old job', 'review: perf']) expect(text).not.toContain(gone)
-    expect(await ui.find({ key: 'node-g3' })).toBeUndefined()
-    expect(await ui.find({ key: 'node-d1' })).toBeUndefined()
-    await ui.unmount()
-  }
-})
+// ---------- rule 2: done agents fold ----------
 
-test('the last shown child takes ╰╌ and the ones above it ├╌; the parent’s guide runs only while it has siblings below', async ($, on) => {
-  const t = busy({
-    agents: {
-      main,
-      a1: at(agent('a1', 'Explore', 'first parent', 'x'), 60_000),
-      g1: at(agent('g1', 'Explore', 'child under first', 'x'), 50_000, { parent: 'a1' }),
-      a2: at(agent('a2', 'Explore', 'last parent', 'x'), 40_000),
-      g2: at(agent('g2', 'Explore', 'child under last', 'x'), 30_000, { parent: 'a2' }),
-    },
-  })
-  seed(on, t, TREE_UI)
-  const ui = await mount($, 'terminal', 62)
-  const all = await rows(ui)
-  const first = rowWith(all, 'first parent')
-  const under = rowWith(all, 'child under first')
-  const last = rowWith(all, 'last parent')
-  const underLast = rowWith(all, 'child under last')
-  expect(colOf(first, '├╌')).toBe(9)
-  expect(colOf(last, '╰╌')).toBe(9)
-  expect([colOf(under, '│'), colOf(under, '╰╌')]).toEqual([9, 13])
-  // under the last parent no guide runs at 9, and the trunk ended with the one branch
-  expect(underLast.slice(0, 13)).toBe(' '.repeat(13))
-  expect(underLast[9]).toBe(' ')
-  expect(colOf(underLast, '╰╌')).toBe(13)
-  await ui.unmount()
-})
-
-test('LOOK: a workflow run is a ≡ branch holding its agents; its tokens are the sum of theirs', async ($, on) => {
-  seed(
-    on,
-    busy({
-      runs: { r1: run },
-      agents: {
-        main,
-        w1: { ...at(wf('w1', 0, 'review: bugs', 'Read a.ts', 'running'), 80_000), ...tok(10_000) },
-        w2: { ...at(wf('w2', 1, 'review: perf', 'Read b.ts', 'running'), 70_000), ...tok(20_000) },
-      },
-    }),
-    TREE_UI,
-  )
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const all = await rows(ui)
-    const r = rowWith(all, 'review-changes')
-    expect([colOf(r, '╰╌╌'), colOf(r, '≡'), colOf(r, 'review-changes'), colOf(r, '30k'), colOf(r, '1m')]).toEqual([5, 8, 10, 38, 50])
-    expect(colOf(rowWith(all, 'review: bugs'), 'review: bugs')).toBe(17)
-    expect(await ui.find({ key: 'node-w1' })).toBeDefined()
-    expect(await ui.find({ key: 'node-w2' })).toBeDefined()
-    await ui.unmount()
-  }
-})
-
-test('pressing a branch folds it and shows its agent count; pressing again unfolds', async ($, on) => {
-  const stored = seed(on, crewmap(), TREE_UI)
-  for (const surface of SURFACES) {
-    put(stored, crewmap(), TREE_UI)
-    let ui = await mount($, surface)
-    await ui.press({ key: 'node-task:10' })
-    expect((stored.get('ui') as UiState).folded).toEqual(['task:10'])
-    await ui.unmount()
-    put(stored, crewmap(), { ...TREE_UI, folded: ['task:10'] })
-    ui = await mount($, surface)
-    expect(await ui.find({ key: 'node-a1' })).toBeUndefined()
-    expect(await ui.find({ key: 'node-g1' })).toBeUndefined()
-    // the label gives up room so the count stays whole
-    expect(rowWith(await rows(ui), '· 5 agents')).toContain('10 Wire')
-    await ui.press({ key: 'node-task:10' })
-    expect((stored.get('ui') as UiState).folded).toEqual([])
-    await ui.unmount()
-  }
-})
-
-// BEHAVIOUR CHANGE (rich rule 4): the opened node (n/p move it) has no e: page line; Enter on the node opens the page.
-test('an opened node: its details and action line follow its two rows', TEXT, async ($, on) => {
-  seed(on, branchy(), { ...TREE_UI, agentOpen: 'g1' })
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const all = await rows(ui)
-    const at = idxWith(all, 'review hooks')
-    // the node's facts line, then the opened part
-    expect(all[at + 1]).toContain('scout · working')
-    expect(colOf(all[at + 2], 'doing')).toBe(6)
-    expect(colOf(all[at + 2], 'Read')).toBe(14)
-    expect(colOf(all[at + 3], 'agent')).toBe(6)
-    expect(all[at + 4]).toBe('      s: steps   v: transcript   g: chat')
-    expect(all[at + 5] ?? '').not.toContain('e: page')
-    expect(all.join('\n')).not.toContain('View')
-    const found = await ui.findAll({ type: 'Text' })
-    expect(found.some(f => f.text === 'review hooks' && propsOf(f).bold === true)).toBe(true)
-    await ui.unmount()
-  }
-})
-
-test('LOOK: an agent whose parent never spawned hangs from main, under the no task branch', async ($, on) => {
-  seed(on, busy({ agents: { main, a1: at(agent('a1', 'Explore', 'orphan', 'x'), 10_000, { parent: 'ghost' }) } }), TREE_UI)
+test('rule 2: a done task is one row; its agents are pips in their role hues and `+ n done`, never a character or a row', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = await rows(ui)
-    expect(colOf(rowWith(all, 'no task'), '╰╌╌◇')).toBe(5)
-    const r = rowWith(all, 'orphan')
-    expect([colOf(r, '╰╌'), colOf(r, 'orphan')]).toEqual([9, 17])
+    const t11 = rowWith(all, '11 Add limiter')
+    expect(t11).toContain('▪▪▪▪▪▪ + 6 done')
+    // none of the six agents has a row of its own
+    expect(all.join('\n')).not.toContain('scout job t11')
+    expect(all.filter(r => r.includes('+ 6 done')).length).toBe(1)
+    const found = await ui.findAll({ type: 'Text' })
+    // two scouts, three builders, one checker: teal, iris, orchid
+    const pips = found.filter(f => /^▪+$/.test(f.text ?? '') && (f.text ?? '').length > 1 && f.props?.color !== undefined)
+    const at = (hue: 'scout' | 'build' | 'check', n: number) => pips.some(p => p.text === '▪'.repeat(n) && propsOf(p).color === hueHex(hue === 'build' ? 'build' : hue))
+    expect(at('scout', 2) && at('build', 3)).toBe(true)
+    expect(found.some(f => f.text === '▪' && propsOf(f).color === hueHex('check'))).toBe(true)
     await ui.unmount()
   }
 })
 
-test('LOOK: a stalled node carries z in the gutter in warning; a folded run that holds a problem carries !', async ($, on) => {
-  const stored = seed(on, stalledFamily(), TREE_UI)
+test('rule 2: the working task keeps its done agents as a chip under its working one: ╰╌ + 3 done, pips, "done", their sums', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  const chip = rowWith(all, '+ 3 done')
+  expect(chip).toMatch(/^ {4}│ {2}╰╌ \+ 3 done {14}▪▪▪ done {7}78k {4}13 min$/)
+  // the chip sits last under the live agent's three rows, on the tether
+  const live = idxWith(all, 'wire limiter')
+  expect(all[live]).toMatch(/^ {4}│ {2}├╌ /)
+  expect(all[live + 3]).toBe(chip)
+  await ui.unmount()
+})
+
+test('rule 2: the done agents carry their sums on the group row, the done counts in a column', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  expect(rowWith(all, '9 Redis adapter')).toMatch(/▪▪▪▪ \+ 4 done {3}74k {4}12 min$/)
+  expect(rowWith(all, '5 Read the middleware')).toMatch(/▪▪ \+ 2 done {3}22k {5}3 min$/)
+  expect(rowWith(all, 'no task')).toMatch(/◇ no task {15}▪▪▪▪ \+ 4 done {3}38k {5}6 min$/)
+  await ui.unmount()
+})
+
+// ---------- rule 3: three bands ----------
+
+test('rule 3: the bands read Doing now, Up next, Done, top-down, in plain words; a queued task is drawn only under Up next', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
   for (const surface of SURFACES) {
-    put(stored, stalledFamily(), TREE_UI)
-    let ui = await mount($, surface)
-    let all = await rows(ui)
-    expect(colOf(rowWith(all, 'find callers'), 'z')).toBe(0)
-    expect(colOf(rowWith(all, 'review: bugs'), 'z')).toBe(0)
-    expect(rowWith(all, 'limiter tests').startsWith(' ')).toBe(true)
-    expect(rowWith(all, 'review: perf').startsWith(' ')).toBe(true)
-    expect(rowWith(all, 'review-changes').startsWith(' ')).toBe(true)
-    const zs = (await ui.findAll({ type: 'Text' })).filter(f => f.text === 'z')
-    expect(zs.length >= 2).toBe(true)
-    for (const z of zs) expect(propsOf(z).color).toBe('warning')
-    await ui.unmount()
-    put(stored, stalledFamily(), { ...TREE_UI, folded: ['run:r1'] })
-    ui = await mount($, surface)
-    all = await rows(ui)
-    expect(await ui.find({ key: 'node-w1' })).toBeUndefined()
-    expect(colOf(rowWith(all, 'review-changes'), '!')).toBe(0)
+    const ui = await mount($, surface)
+    const all = await rows(ui)
+    const [now, next, done] = ['Doing now', 'Up next', 'Done'].map(w => idxWith(all, `│  ${w}`))
+    expect([now, next, done].every(i => (i ?? -1) >= 0)).toBe(true)
+    expect(now! < next! && next! < done!).toBe(true)
+    const queued = idxWith(all, '13 Document the limits')
+    expect(queued > next! && queued < done!).toBe(true)
+    expect(idxWith(all, 'no task') > next! && idxWith(all, 'no task') < done!).toBe(true)
+    // the working task is under Doing now; the done tasks under Done, newest first
+    expect(idxWith(all, '12 Wire limiter') > now! && idxWith(all, '12 Wire limiter') < next!).toBe(true)
+    const order = ['11 Add', '10 Token', '9 Redis', '8 Upload', '7 Error', '6 Fixtures', '5 Read'].map(x => idxWith(all, x))
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    expect(order[0]).toBeGreaterThan(done!)
+    // no caps labels, no live
+    expect(all.join('\n')).not.toMatch(/\b(NOW|DONE|NEXT|TOTAL|STATE|TOKENS|TIME|CREW MAP)\b|\blive\b/)
     await ui.unmount()
   }
 })
 
-test('a waiting node carries ? in the gutter in warning, and a folded task branch that holds a problem carries !', async ($, on) => {
-  const t = busy({
-    tasks: [task('10', 'Wire limiter', 'in_progress')],
-    agents: {
-      main,
-      a1: at(agent('a1', 'Explore', 'find callers', 'Bash'), 60_000, { taskId: '10' }),
-      a2: at(agent('a2', 'Explore', 'broke it', 'x', 'error'), 50_000, { taskId: '10', endedAt: NOW - 1000 }),
-    },
-    steps: [step('s2', 2, 'Bash npm publish', 'running', { agent: 'a1', tool: 'Bash', asking: NOW - 30_000 })],
-  })
-  const stored = seed(on, t, TREE_UI)
+test('rule 3: a task with a working agent is under Doing now, with "1 working"; the trunk ends on the last row', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  expect(rowWith(all, '12 Wire limiter')).toContain('1 working')
+  expect(all[idxWith(all, '5 Read the middleware')]).toMatch(/^ {4}╰─ ▪ /)
+  expect(all.filter(r => r.startsWith('    ╰─'))).toHaveLength(1)
+  await ui.unmount()
+})
+
+// ---------- rule 4 and 5: indents and the table ----------
+
+test('rule 4: trunk at 4, task marks at 7 and names at 9, tethers at 7, agents at 10 and their names at 17', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  const task = rowWith(all, '12 Wire limiter')
+  expect([colOf(task, '├'), colOf(task, '▸'), colOf(task, '12 Wire')]).toEqual([4, 7, 9])
+  const live = rowWith(all, 'wire limiter')
+  expect([colOf(live, '│'), colOf(live, '├╌'), colOf(live, '●'), colOf(live, 'wire limiter')]).toEqual([4, 7, 10, 17])
+  expect(colOf(rowWith(all, 'Claude'), 'Claude')).toBe(9)
+  await ui.unmount()
+})
+
+test('rule 5 (R26): the right side is a table: state from 36, tokens ending at 49, time ending at 59, on every row', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
   for (const surface of SURFACES) {
-    put(stored, t, TREE_UI)
-    let ui = await mount($, surface)
-    let all = await rows(ui)
-    expect(colOf(rowWith(all, 'find callers'), '?')).toBe(0)
-    expect(colOf(rowWith(all, 'broke it'), '!')).toBe(0)
-    await ui.unmount()
-    put(stored, t, { ...TREE_UI, folded: ['task:10'] })
-    ui = await mount($, surface)
-    all = await rows(ui)
-    expect(colOf(rowWith(all, 'Wire limiter'), '!')).toBe(0)
-    await ui.unmount()
-  }
-})
-
-test('LOOK: narrow tiers: branch tokens and time follow the table columns, and nothing is wider than the pane', async ($, on) => {
-  const t = crewmap()
-  const long = { ...t.agents.a1!, description: 'find every caller of the stepRow function in the views' }
-  seed(on, { ...t, agents: { ...t.agents, a1: long } }, TREE_UI)
-  const expected: [number, number | undefined, number | undefined][] = [
-    [62, 38, 50],
-    [55, undefined, 38],
-    [40, undefined, 26],
-    [32, undefined, undefined],
-  ]
-  for (const [columns, metric, time] of expected) {
-    for (const surface of ['terminal', 'desktop'] as const) {
-      const ui = await mount($, surface, columns)
-      const all = await rows(ui)
-      for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
-      const branch = rowWith(all, 'Wire')
-      if (metric !== undefined) expect(colOf(branch, '305k')).toBe(metric)
-      else expect(branch).not.toContain('305k')
-      if (time !== undefined) expect(colOf(branch, '1m')).toBe(time)
-      else expect(branch).not.toContain('1m')
-      // a name is cut at a word, never inside one
-      const name = rowWith(all, 'find every').slice(17).trim()
-      if (name.endsWith('…')) {
-        const kept = name.slice(0, -1)
-        expect(long.description.startsWith(kept)).toBe(true)
-        expect(long.description[kept.length]).toBe(' ')
-      }
-      await ui.unmount()
+    const ui = await mount($, surface)
+    const all = await rows(ui)
+    const head = rowWith(all, 'Crew map')
+    expect([colOf(head, 'State'), colOf(head, 'Tokens') + 'Tokens'.length - 1, colOf(head, 'Time') + 'Time'.length - 1]).toEqual([36, 49, 59])
+    for (const [text, state, tokens, time] of [
+      ['Claude', 'working', '184k', '1h 48m'],
+      ['12 Wire limiter', '1 working', '96k', '14 min'],
+      ['wire limiter', 'working', '18k', '48s'],
+      ['+ 3 done', 'done', '78k', '13 min'],
+      ['13 Document', 'queued', '', ''],
+      ['11 Add', '+ 6 done', '141k', '22 min'],
+      ['Total', '34 done', '832k', '1h 48m'],
+    ] as const) {
+      const r = rowWith(all, text)
+      expect([text, r.lastIndexOf(state)]).toEqual([text, 36])
+      if (tokens !== '') expect([text, colOf(r, tokens) + tokens.length - 1]).toEqual([text, 49])
+      if (time !== '') expect([text, r.length - 1]).toEqual([text, 59])
     }
+    await ui.unmount()
   }
+})
+
+test('rule 5: the total row closes the map: Total, the agents and tasks counted, the done count, the sums', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  const total = all.filter(r => r.startsWith('  Total'))
+  expect(total).toHaveLength(1)
+  expect(total[0]).toContain('35 agents · 8 tasks')
+  expect(all.indexOf(total[0]!)).toBeGreaterThan(idxWith(all, '5 Read the middleware'))
+  await ui.unmount()
+})
+
+test('rule: 35 agents fit 33 rows at 62 columns, footer and tabs included', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  const ui = await mount($, 'terminal', 62, true, 33)
+  const all = await rows(ui)
+  expect(all.length).toBeLessThanOrEqual(33)
+  expect(all[all.length - 1]).toContain('↵ open')
+  await ui.unmount()
+})
+
+test('narrow tiers: nothing is wider than the pane at 62, 56, 50, 40 and 32; the state goes under 56 and the tokens under 46; names are cut at a word', TEXT, async ($, on) => {
+  world(on, flaggedSession(), MAP_UI)
+  for (const columns of [62, 56, 50, 40, 32]) {
+    const ui = await mount($, 'terminal', columns, true)
+    const all = await rows(ui)
+    for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
+    const task = rowWith(all, '12 Wire')
+    expect(task.trimEnd().length).toBe(columns - 3 + 1)
+    if (columns < 56) expect(task).not.toContain('1 working')
+    else expect(colOf(task, '1 working')).toBe(columns - 3 - 23)
+    if (columns < 46) expect(task).not.toContain('96k')
+    // a name cut with … ends at a whole word of the task's subject
+    const name = task.slice(9).split(/ {2,}/)[0] ?? ''
+    if (name.endsWith('…')) {
+      const kept = name.slice(0, -1).replace(/^12 /, '')
+      expect('Wire limiter into the chain'.startsWith(kept)).toBe(true)
+      expect('Wire limiter into the chain'[kept.length]).toBe(' ')
+    }
+    await ui.unmount()
+  }
+})
+
+// ---------- rule 6: flags climb ----------
+
+test('rule 6: a waiting or failed agent is never folded; its task moves to Doing now; ? and ! are in column 0 on the map only', TEXT, async ($, on) => {
+  world(on, flaggedSession(), MAP_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const all = await rows(ui)
+    const now = idxWith(all, '│  Doing now')
+    const next = idxWith(all, '│  Up next')
+    // the failed agent's task (11) climbed from Done to Doing now, and the waiting one's (13) from Up next
+    expect(idxWith(all, '11 Add limiter')).toBeLessThan(next)
+    expect(idxWith(all, '11 Add limiter')).toBeGreaterThan(now)
+    expect(idxWith(all, '13 Document')).toBeLessThan(next)
+    const ask = rowWith(all, 'deploy to staging')
+    const boom = rowWith(all, 'read the config')
+    expect([ask.startsWith('? '), boom.startsWith('! ')]).toEqual([true, true])
+    // only those two rows carry a gutter flag
+    expect(all.filter(r => /^[!?z] /.test(r))).toHaveLength(2)
+    // the rest of task 11 still folds under its failed agent
+    expect(all.join('\n')).toContain('+ 6 done')
+    await ui.unmount()
+  }
+})
+
+test('rule 6: the list has no gutter flags (R26): the badge sits on the critter', TEXT, async ($, on) => {
+  world(on, flaggedSession(), { ...MAP_UI, agentsMode: 'list' })
+  const ui = await mount($)
+  const all = await rows(ui)
+  expect(all.filter(r => /^[!?z] /.test(r))).toEqual([])
+  expect(all.some(r => /^ {2}● {4}\? Builder/.test(r))).toBe(true)
+  expect(all.some(r => /^ {2}× {3}! {2}Explorer/.test(r))).toBe(true)
+  await ui.unmount()
+})
+
+test('rule 6: the flags are drawn in warning and error', TEXT, async ($, on) => {
+  world(on, flaggedSession(), MAP_UI)
+  const ui = await mount($)
+  const found = await ui.findAll({ type: 'Text' })
+  expect(found.filter(f => f.text === '?').map(f => propsOf(f).color)).toContain('warning')
+  expect(found.filter(f => f.text === '!').map(f => propsOf(f).color)).toContain('error')
+  await ui.unmount()
+})
+
+test('a dismissed ask leaves no ? on the map', TEXT, async ($, on) => {
+  world(on, flaggedSession(), { ...MAP_UI, dismissed: ['asking:s-ask'] })
+  const ui = await mount($)
+  expect((await rows(ui)).filter(r => r.startsWith('? '))).toEqual([])
+  await ui.unmount()
+})
+
+// ---------- failed: a micro critter with a red ! and its reason ----------
+
+test('a failed agent on the map is a micro critter with a red !, its name in bold, "failed" and its reason', TEXT, async ($, on) => {
+  world(on, flaggedSession(), MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  const at = idxWith(all, 'read the config')
+  expect(all[at]).toMatch(/^! {3}│ {2}├╌ × {3}! {2}read the config…? +failed/)
+  expect(colOf(all[at + 1]!, 'Stopped: the schema file is missing')).toBe(17)
+  expect(all[at + 1]).toContain('scout')
+  const found = await ui.findAll({ type: 'Text' })
+  expect(found.filter(f => f.text === '!').map(f => propsOf(f).color)).toContain('error')
+  expect(found.filter(f => (f.text ?? '').startsWith('read the')).map(f => propsOf(f).bold)).toContain(true)
+  await ui.unmount()
+})
+
+// ---------- R23: the role word is the real type ----------
+
+test('R23: an agent\'s second line is its real type in friendly case and its model, never the hat', TEXT, async ($, on) => {
+  const t: Timeline = {
+    ...empty,
+    now: { focus: 'Working', at: NOW },
+    agents: {
+      main: { ...empty.agents.main! },
+      g1: agent('g1', 'general-purpose', 'write the tests', NOW - 60_000, { model: 'claude-sonnet-5' }),
+      c1: agent('c1', 'code-reviewer', 'review the limiter', NOW - 50_000, { model: 'claude-opus-5-5' }),
+      m1: agent('m1', 'mystery-agent', 'do a thing', NOW - 40_000),
+    },
+    steps: [step('s1', 1, 'g1', 'Edit', 'Edit a.ts', 'running', NOW - 5000)],
+  }
+  world(on, t, MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  expect(rowWith(all, 'General · sonnet')).toBeTruthy()
+  expect(rowWith(all, 'Code reviewer · opus')).toBeTruthy()
+  expect(rowWith(all, 'Mystery agent')).toBeTruthy()
+  expect(all.join('\n')).not.toMatch(/ build · | check · | scout · /)
+  await ui.unmount()
+})
+
+// ---------- rule 7: d unfolds ----------
+
+test('rule 7: d unfolds every done group: one row each with a pip, its real type and its job, still no characters', TEXT, async ($, on) => {
+  const stored = world(on, mapSession(), { ...MAP_UI, folded: ['open:all'] })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const all = await rows(ui)
+    const rowsOf11 = all.filter(r => /^ {4}[│ ] {2}[├╰]╌ ▪ /.test(r))
+    // 6 + 5 + 4 + 4 + 3 + 3 + 2 done agents under tasks, 3 under the working one
+    expect(rowsOf11.length).toBe(27 + 3 + 4)
+    expect(all.join('\n')).not.toContain('+ 6 done                 ')
+    await ui.unmount()
+  }
+  expect(stored.get('ui')).toBeDefined()
+})
+
+test('rule 7: unfolded rows draw no characters: the lead and the working agent are the only ones', async ($, on) => {
+  world(on, mapSession(), { ...MAP_UI, folded: ['open:all'] })
+  const ui = await mount($)
+  expect(await characters(ui)).toEqual([['who-node-main', 6, 3], ['who-node-live', 6, 3]])
+  await ui.unmount()
+})
+
+test('rule 7: pressing d writes open:all (and folds them again); the hint reads unfold done, then fold done', async ($, on) => {
+  const stored = world(on, mapSession(), MAP_UI)
+  const ui = await mount($, 'terminal', 62, true)
+  expect(rowWith(await rows(ui), '↵ open')).toContain('d: unfold done')
+  await ui.press({ key: 'hint-unfold' })
+  expect((stored.get('ui') as UiState).folded).toEqual(['open:all'])
+  await ui.redraw()
+  expect(rowWith(await rows(ui), '↵ open')).toContain('d: fold done')
+  await ui.press({ key: 'hint-unfold' })
+  expect((stored.get('ui') as UiState).folded).toEqual([])
+  await ui.unmount()
+})
+
+test('rule 7: a press on a done task or a chip unfolds that one group; the rest stay folded', TEXT, async ($, on) => {
+  const stored = world(on, mapSession(), MAP_UI)
+  let ui = await mount($)
+  await ui.press({ key: 'group-task:11' })
+  expect((stored.get('ui') as UiState).folded).toEqual(['open:task:11'])
+  await ui.unmount()
+  ui = await mount($)
+  const all = await rows(ui)
+  expect(rowWith(all, '11 Add limiter')).toContain('▾')
+  expect(all.filter(r => /^ {4}[│ ] {2}[├╰]╌ ▪ /.test(r))).toHaveLength(6)
+  expect(rowWith(all, '10 Token bucket')).toContain('▪▪▪▪▪ + 5 done')
+  await ui.press({ key: 'group-task:11' })
+  expect((stored.get('ui') as UiState).folded).toEqual([])
+  await ui.press({ key: 'chip:task:12' })
+  expect((stored.get('ui') as UiState).folded).toEqual(['open:task:12'])
+  await ui.unmount()
+})
+
+test('a stored fold key of an older version is ignored: only open: keys unfold', TEXT, async ($, on) => {
+  world(on, mapSession(), { ...MAP_UI, folded: ['task:11', 'main', 'r1'] })
+  const ui = await mount($)
+  expect(rowWith(await rows(ui), '11 Add limiter')).toContain('+ 6 done')
+  await ui.unmount()
+})
+
+// ---------- r: working only ----------
+
+test('r (Working only) keeps only the groups with a working or flagged agent and no folded chips', TEXT, async ($, on) => {
+  world(on, flaggedSession(), { ...MAP_UI, runningOnly: true })
+  const ui = await mount($)
+  const all = await rows(ui)
+  expect(all.join('\n')).toContain('12 Wire limiter')
+  expect(all.join('\n')).toContain('deploy to staging')
+  expect(all.join('\n')).not.toContain('Redis adapter')
+  expect(all.join('\n')).not.toContain('│  Done')
+  expect(all.join('\n')).not.toContain('+ 3 done')
+  await ui.unmount()
+})
+
+test('the Working only toggle writes ui.runningOnly from the map', async ($, on) => {
+  const stored = world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  await ui.press({ key: 'mode-running' })
+  expect((stored.get('ui') as UiState).runningOnly).toBe(true)
+  await ui.press({ key: 'mode-tree' })
+  expect((stored.get('ui') as UiState).agentsMode).toBe('tree')
+  await ui.unmount()
+})
+
+// ---------- presses and keys ----------
+
+test('Enter on an agent node opens its page and b returns to the map with the node focused; main opens its own page', async ($, on) => {
+  const stored = world(on, mapSession(), MAP_UI)
+  const ui = await mount($)
+  await ui.press({ key: 'node-live' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'live', from: 'node-live' })
+  await ui.redraw()
+  await ui.press({ key: 'page-back' })
+  expect(backTo()).toEqual(['node-live'])
+  await ui.redraw()
+  await ui.press({ key: 'node-main' })
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'agent', id: 'main', from: 'node-main' })
+  await ui.unmount()
+})
+
+test('n and p visit the flagged agents, wrapping; no flagged agent, no n or p', async ($, on) => {
+  const stored = world(on, flaggedSession(), MAP_UI)
+  const ui = await mount($, 'terminal', 62, true)
+  expect(rowWith(await rows(ui), '↵ open')).toContain('n: next !')
+  await ui.press({ key: 'hint-next' })
+  const first = (stored.get('ui') as UiState).agentOpen
+  await ui.press({ key: 'hint-next' })
+  const second = (stored.get('ui') as UiState).agentOpen
+  await ui.press({ key: 'hint-next' })
+  expect([first, second].sort()).toEqual(['ask', 'boom'])
+  expect((stored.get('ui') as UiState).agentOpen).toBe(first)
+  await ui.press({ key: 'hint-prev' })
+  expect((stored.get('ui') as UiState).agentOpen).toBe(second)
+  await ui.unmount()
+})
+
+test('the footer reads ↵ open, d: unfold done, r working only, esc prompt, and shows only while focused', TEXT, async ($, on) => {
+  world(on, mapSession(), MAP_UI)
+  let ui = await mount($, 'terminal', 62, false)
+  expect((await rows(ui)).join('\n')).not.toContain('↵ open')
+  await ui.unmount()
+  ui = await mount($, 'terminal', 62, true)
+  expect(rowWith(await rows(ui), '↵ open')).toBe('  ↵ open   d: unfold done   r working only   esc prompt')
+  await ui.unmount()
+})
+
+// ---------- empty and idle ----------
+
+test('only main: the empty-state note, and nothing running when r is on', TEXT, async ($, on) => {
+  const stored = world(on, { ...empty, agents: { main: { ...empty.agents.main! } } }, MAP_UI)
+  let ui = await mount($)
+  let all = await rows(ui)
+  expect(all.map(r => r.trim()).join(' ')).toContain('No agents yet.')
+  expect(all.join('\n')).not.toContain('Total')
+  await ui.unmount()
+  stored.set('timeline', mapSession())
+  stored.set('ui', { ...MAP_UI, runningOnly: true })
+  const done: Timeline = { ...mapSession(), agents: Object.fromEntries(Object.entries(mapSession().agents).filter(([id]) => id !== 'live')), steps: [] }
+  stored.set('timeline', done)
+  ui = await mount($)
+  all = await rows(ui)
+  expect(all.join('\n')).toContain('Nothing is running.')
+  await ui.unmount()
+})
+
+test('a done agent with a running child under it stays drawn through its child', TEXT, async ($, on) => {
+  const base = mapSession()
+  const t: Timeline = { ...base, agents: { ...base.agents, kid: agent('kid', 'builder', 'child job', NOW - 30_000, { parent: 'live', taskId: '12' }) } }
+  world(on, t, MAP_UI)
+  const ui = await mount($)
+  const all = await rows(ui)
+  // nested agents are flattened under their task (one indent per level)
+  expect(colOf(rowWith(all, 'child job'), 'child job')).toBe(17)
+  await ui.unmount()
+})
+
+test('every agent in the map has a distinct key', async ($, on) => {
+  const t = mapSession()
+  const same: AgentRow[] = [agent('s1', 'Explore', 'same', NOW - 20_000, {}), agent('s2', 'Explore', 'same', NOW - 20_000, {})]
+  world(on, { ...t, agents: { ...t.agents, s1: same[0]!, s2: same[1]! } }, MAP_UI)
+  const ui = await mount($)
+  expect(await ui.find({ key: 'node-s1' })).toBeDefined()
+  expect(await ui.find({ key: 'node-s2' })).toBeDefined()
+  await ui.unmount()
 })

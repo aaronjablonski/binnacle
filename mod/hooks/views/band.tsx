@@ -2,7 +2,7 @@ import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-cod
 
 import type { UiState } from '../../types'
 import { debug, errText, readTimeline, readUi } from '../state'
-import { bandModel, agentsWords } from './bandmodel'
+import { bandModel, agentsWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
 import { todoBar, wordFit } from './fit'
 import { needsLimits } from './needs'
@@ -244,7 +244,7 @@ function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number): R
   } else if (m.form === 'stopped') {
     pieces.push(...(hasBar ? [count] : []))
   } else {
-    pieces.push(...(hasBar ? [count] : []), ...(agents.length > 0 ? [agents] : []), [dim(m.watch > 0 ? `${m.watch} to watch` : 'nothing needs you')])
+    pieces.push(...(hasBar ? [count] : []), ...(agents.length > 0 ? [agents] : []), [dim(needsPiece(m))])
   }
   let words: Run[] = joined(pieces, 3)
   for (let n = pieces.length; n > 0 && widthOf(words) > space; n--) words = joined(pieces.slice(0, n - 1), 3)

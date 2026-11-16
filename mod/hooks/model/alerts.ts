@@ -158,6 +158,26 @@ export function needs(t: Timeline, now: number, o: NeedsOptions = {}): NeedsView
 }
 
 /**
+ * The permission asks the person answered while the pane watched (F C1):
+ * steps still running and still marked `asking` whose dialog the pane saw
+ * covering the prompt (`coveredAt`: by step id, the number of the drawing
+ * that saw it) and, in a later drawing, saw gone (`uncoveredAt`: the number
+ * of the latest drawing without `isPromptCovered`). The clock
+ * takes each off the Timeline with `step.unask`; the band, the cards and the
+ * notifications then follow it. Pure.
+ */
+export function answeredAsks(t: Timeline, coveredAt: ReadonlyMap<string, number>, uncoveredAt: number | undefined): string[] {
+  if (uncoveredAt === undefined || coveredAt.size === 0) return []
+  const out: string[] = []
+  for (const s of t.steps) {
+    if (s.status !== 'running' || s.asking === undefined || DIALOG_TOOLS[s.tool] !== undefined) continue
+    const at = coveredAt.get(s.id)
+    if (at !== undefined && uncoveredAt > at) out.push(s.id)
+  }
+  return out
+}
+
+/**
  * The control a need draws (R3). No call hands the keys back to the prompt
  * (`$.ui.focus` moves only the plugin's own rings), so nothing pretends to be
  * a button: while the pane holds the keys, the words name the key that leaves
@@ -169,7 +189,7 @@ export function promptHint(isFocused: boolean): string {
 
 // ---- Watch (R6) --------------------------------------------------------------------------
 
-export type WatchKind = 'stalled' | 'quiet' | 'long-run' | 'repeat' | 'loop'
+export type WatchKind = 'stalled' | 'long-step' | 'quiet' | 'long-run' | 'repeat' | 'loop'
 export type Watch = {
   key: string                // stable per thing watched; with `count`, the dismiss key (`dismissKey`)
   kind: WatchKind
@@ -180,7 +200,7 @@ export type Watch = {
   stepId?: string
   command?: string
   count?: number             // repeat and loop: the runs counted
-  ranMs?: number             // stalled and long-run: how long it has run; quiet: how long without activity
+  ranMs?: number             // stalled, long-step and long-run: how long it has run; quiet: how long without activity
   limitMs?: number           // long-run: the limit it passed
   usualMs?: number           // long-run: the median of finished agents of its type
 }
@@ -227,18 +247,29 @@ function groupBy(steps: Step[], keyOf: (s: Step) => string | undefined): Map<str
   return out
 }
 
-/** The median run time of finished (done or error) steps of each tool in this session. */
-function toolMedians(t: Timeline): Map<string, number> {
+/**
+ * The median run time of the finished (done or error) earlier runs of each
+ * call signature in this session (R41): `npm test` is measured against
+ * `npm test`, never against every Bash call.
+ */
+function signatureMedians(t: Timeline): Map<string, number> {
   const times = new Map<string, number[]>()
   for (const s of t.steps) {
     if ((s.status !== 'done' && s.status !== 'error') || s.endedAt === undefined) continue
-    const list = times.get(s.tool)
+    const sig = signatureOf(s)
+    const list = times.get(sig)
     if (list) list.push(s.endedAt - s.startedAt)
-    else times.set(s.tool, [s.endedAt - s.startedAt])
+    else times.set(sig, [s.endedAt - s.startedAt])
   }
   const out = new Map<string, number>()
-  for (const [tool, list] of times) out.set(tool, median(list)!)
+  for (const [sig, list] of times) out.set(sig, median(list)!)
   return out
+}
+
+/** A run time in a long-run sentence (M2): whole minutes under 2 h, so it reads beside the limit (`64 min (limit 60)`); `2 h 5 min` from there. */
+function runText(ms: number): string {
+  const m = Math.floor(Math.max(0, ms) / MIN)
+  return m >= 1 && m < 120 ? `${m} min` : spanText(ms)
 }
 
 /** The key a dismissal stores for a watch row (or a problem): its key, and its count when it has one, so a grown count is new. */
@@ -253,9 +284,10 @@ function withCommand(who: string, command: string, rest: string): string {
 /**
  * What is worth a glance and asks nothing, newest first (by `since`):
  * - `stalled`: one running step past STALL_MIN_MS and past STALL_FACTOR times
- *   its tool's median this session (with no median yet, past STALL_MIN_MS
- *   alone, as R6 reads); never a step that is a need, nor an Agent, Workflow or
- *   dialog step;
+ *   the median of the earlier finished runs of its call signature (R41);
+ *   never a step that is a need, nor an Agent, Workflow or dialog step;
+ * - `long-step`: such a step past STALL_MIN_MS with no earlier run of its
+ *   signature to measure against (R41): a glance, never a notification;
  * - `quiet`: a running loop (the lead's open turn, or a subagent) with no step
  *   running and no activity for QUIET_MS (it may be thinking); the lead is not
  *   quiet while a subagent runs;
@@ -272,18 +304,19 @@ export function watch(t: Timeline, now: number, dismissed: readonly string[] = [
   const out: Watch[] = []
   const running = (agent: AgentKey) => agent === 'main' || t.agents[agent]?.status === 'running'
 
-  // Stalled steps.
-  const medians = toolMedians(t)
+  // Stalled steps (with earlier runs of the same call to measure against), else long steps (R41).
+  const medians = signatureMedians(t)
   for (const s of t.steps) {
     if (s.status !== 'running' || s.asking !== undefined || NO_STALL_TOOLS.has(s.tool) || !running(s.agent)) continue
     const ran = now - s.startedAt
-    const median = medians.get(s.tool)
+    const median = medians.get(signatureOf(s))
     const limit = median === undefined ? STALL_MIN_MS : Math.max(STALL_MIN_MS, STALL_FACTOR * median)
     if (ran <= limit) continue
+    const kind: WatchKind = median === undefined ? 'long-step' : 'stalled'
     const who = agentName(t, s.agent)
     const command = commandOf(s) || s.tool
     out.push({
-      key: `stalled:${s.id}`, kind: 'stalled', agent: s.agent, since: s.startedAt + limit, who, stepId: s.id, command, ranMs: ran,
+      key: `${kind}:${s.id}`, kind, agent: s.agent, since: s.startedAt + limit, who, stepId: s.id, command, ranMs: ran,
       sentence: withCommand(who, command, `has run ${spanText(ran)}`),
     })
   }
@@ -318,7 +351,7 @@ export function watch(t: Timeline, now: number, dismissed: readonly string[] = [
     const usual = usualMs(t, a.type)
     const w: Watch = {
       key: `long-run:${a.id}`, kind: 'long-run', agent: a.id, since: a.startedAt + limitMs, who, ranMs: ran, limitMs,
-      sentence: `${who} has run ${spanText(ran)} (limit ${agentLimitMin})${usual !== undefined ? `, usually ${spanText(usual)}` : ''}`,
+      sentence: `${who} has run ${runText(ran)} (limit ${agentLimitMin})${usual !== undefined ? `, usually ${spanText(usual)}` : ''}`,
     }
     if (usual !== undefined) w.usualMs = usual
     out.push(w)
@@ -328,7 +361,7 @@ export function watch(t: Timeline, now: number, dismissed: readonly string[] = [
     const ran = now - turn.startedAt
     out.push({
       key: `long-run:turn:${turn.id}`, kind: 'long-run', agent: 'main', since: turn.startedAt + limitMs, who: 'This turn', ranMs: ran, limitMs,
-      sentence: `This turn has run ${spanText(ran)} (limit ${turnLimitMin})`,
+      sentence: `This turn has run ${runText(ran)} (limit ${turnLimitMin})`,
     })
   }
 
@@ -440,15 +473,30 @@ export function autoFocuses(kind: NeedKind | WatchKind | 'failed-turn'): boolean
 // ---- Notifications (R8, R10) ------------------------------------------------------------
 
 export type AlertNote = { id: string; text: string }
-export type AlertOptions = { mode?: NotifyMode; watchNotify?: boolean; limits?: RunLimits; freshMs: number }
+export type AlertOptions = {
+  mode?: NotifyMode; watchNotify?: boolean; limits?: RunLimits; freshMs: number
+  /**
+   * Whether the pane is watching the prompt: it drew on the terminal lately,
+   * so an ask the person answered was taken off the Timeline (`step.unask`)
+   * when the pane saw its dialog close. Without it the model cannot tell an
+   * answered permission from a waiting one.
+   */
+  watching?: boolean
+}
 
 /**
  * The notifications the clock raises now, each once by id (`u.notified`):
  * - a need (with `waits` or more), once it has waited ASK_MS on Agent or
  *   Workflow and NOTIFY_ASK_MS on any other tool or dialog (a real dialog
- *   raises Claude Code's own notification first);
+ *   raises Claude Code's own notification first). A permission on any tool
+ *   but Agent and Workflow notifies only while the pane is `watching`: with
+ *   no pane nothing clears an answered ask before its step ends, and the
+ *   engine notifies for a dialog that really waits. An Agent or Workflow ask
+ *   clears when its agent spawns, and a question, plan or input need lasts
+ *   exactly as long as its dialog, so those notify either way;
  * - a turn that failed within `freshMs` (with `all`; R8);
- * - a watch row that has stood WATCH_NOTIFY_MS, only with `watchNotify` (R10).
+ * - a watch row that has stood WATCH_NOTIFY_MS, only with `watchNotify` (R10),
+ *   and never a `long-step` row (R41).
  * Never a watch row otherwise.
  */
 export function alertNotes(t: Timeline, u: Pick<UiState, 'notified' | 'dismissed'>, now: number, o: AlertOptions): AlertNote[] {
@@ -461,7 +509,9 @@ export function alertNotes(t: Timeline, u: Pick<UiState, 'notified' | 'dismissed
       const id = n.stepId ?? n.key
       // The views still offer `x` on an ask until wave 2: a dismissed one is not raised.
       if (seen.has(id) || gone.has(n.key)) continue
-      const wait = n.tool !== undefined && SPAWNING_TOOLS.has(n.tool) ? ASK_MS : NOTIFY_ASK_MS
+      const spawns = n.tool !== undefined && SPAWNING_TOOLS.has(n.tool)
+      if (n.kind === 'permission' && !spawns && o.watching !== true) continue
+      const wait = spawns ? ASK_MS : NOTIFY_ASK_MS
       if (now - n.since < wait) continue
       const what = n.kind === 'permission' && n.command !== undefined && n.command !== '' ? `${n.tool} ${n.command}` : n.sentence
       out.push({ id, text: `Waiting on you: ${oneLine(what)}` })
@@ -477,7 +527,7 @@ export function alertNotes(t: Timeline, u: Pick<UiState, 'notified' | 'dismissed
   if (o.watchNotify === true) {
     for (const w of watch(t, now, u.dismissed, o.limits)) {
       const id = `watch:${dismissKey(w)}`
-      if (seen.has(id) || now - w.since < WATCH_NOTIFY_MS) continue
+      if (w.kind === 'long-step' || seen.has(id) || now - w.since < WATCH_NOTIFY_MS) continue
       out.push({ id, text: `Watch: ${w.sentence}` })
     }
   }

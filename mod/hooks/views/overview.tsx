@@ -72,6 +72,8 @@ export function headWords(ctx: ViewCtx, view: NeedsView, hs: HeaderState, todo: 
   const { t, now } = ctx
   const ended = turnEnd(t)
   const ago: Run[] = ended !== undefined ? [{ text: `finished ${span(now - ended)} ago`, dim: true }] : []
+  // F M12a: a request that ended with tasks open stopped; it did not finish.
+  const stoppedAgo: Run[] = ended !== undefined ? [{ text: `stopped ${span(now - ended)} ago`, dim: true }] : []
   switch (hs.state) {
     case 'working': {
       const meta: Run[] = hs.turnMs !== undefined ? [{ text: `${span(hs.turnMs)} this turn`, dim: true }] : []
@@ -95,7 +97,7 @@ export function headWords(ctx: ViewCtx, view: NeedsView, hs: HeaderState, todo: 
     case 'stopped':
       return { tone: 'red', pill: 'STOPPED', meta: [{ text: hs.reason ?? 'An error ended the turn', color: CK.fail }], kicker: 'Stopped by an error', lead: 'failed' }
     case 'idle-open':
-      return { tone: 'iris', pill: 'IDLE', pillColor: C.subtle, meta: ago, kicker: `Stopped with ${hs.open} to do open`, lead: 'done' }
+      return { tone: 'iris', pill: 'IDLE', pillColor: C.subtle, meta: stoppedAgo, kicker: `Stopped with ${hs.open} to do open`, lead: 'done' }
     case 'all-done':
       return { tone: 'mint', pill: 'ALL DONE', meta: ago, kicker: 'Finished', lead: 'done' }
     default:
@@ -335,8 +337,8 @@ export function restingSpec(t: Timeline, ground: 'night' | 'day'): InstSpec {
  * working"; the title opens Agents), a card for each live agent (and each
  * that failed in this request) up to `cards`, `+ k more working`, and
  * "31 finished earlier". A card's critter waits (`?`) while its agent asks,
- * dozes (`z`) while it is stalled; its time is amber while it waits and bold
- * past its limit (R6). At rest: the resting crew and two dim lines.
+ * dozes (`z`) while it is stalled; its time is its own run time (the wait is
+ * the block's, R30), bold past its limit (R6). At rest: the resting crew and two dim lines.
  */
 export function agentsSection(
   ctx: ViewCtx,
@@ -399,20 +401,20 @@ export function agentsSection(
     const need = asking.get(a.id)
     const state: PodState = a.status === 'error' ? 'failed' : need !== undefined ? 'waiting' : dozing.has(a.id) ? 'stalled' : a.status === 'done' ? 'done' : 'working'
     const key = `agent-${a.id}`
+    // R30 (F M11): the wait shows in the pill and the block, not again on the card: the card keeps the agent's own time.
     const time: string | Run[] =
       a.status === 'error'
         ? [{ text: 'failed', color: CK.fail }]
-        : need !== undefined
-          ? [{ text: span(now - need.since), color: CK.ask }]
-          : longRun.has(a.id)
-            ? [{ text: span(now - a.startedAt), bold: true, dim: true }]
-            : span(now - a.startedAt)
+        : longRun.has(a.id)
+          ? [{ text: span(now - a.startedAt), bold: true, dim: true }]
+          : span(now - a.startedAt)
+    // F I1: in auto mode's checking gap the card says "Checking a permission", as the needs slot and the band do.
     const what: string | Run[] =
       a.status === 'error'
         ? [{ text: oneLine((a.result ?? a.doing ?? '').split('\n')[0] ?? '') || 'Stopped by an error', color: CK.fail }]
         : need !== undefined
           ? [{ text: 'Waiting for your answer', color: CK.ask }]
-          : doing(runningStep(t, a.id))
+          : doing(runningStep(t, a.id), o.view)
     out.push(
       agentCard(ctx, $, {
         key,

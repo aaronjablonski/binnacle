@@ -282,7 +282,8 @@ describe('long run', () => {
   })
 
   it('leaves a silent agent to stalled', () => {
-    const t = fold(working(T0, T0 + MIN))
+    // R41: a stall needs an earlier run of the same call to measure against (here 1 min).
+    const t = fold([step(T0 - 3 * MIN, 's0', 'Bash', { command: 'npm test' }), stepEnd(T0 - 2 * MIN, 's0'), ...working(T0, T0 + MIN)])
     const got = problems(t, T0 + 25 * MIN, [])
     expect(got.some((p) => p.kind === 'stalled')).toBe(true)
     expect(got.some((p) => p.kind === 'long-run')).toBe(false)

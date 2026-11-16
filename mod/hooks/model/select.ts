@@ -277,6 +277,8 @@ export function problems(t: Timeline, now: number, dismissed: string[], limits?:
   }
   const quiet = new Set(dismissed)
   for (const w of watch(t, now, [], limits)) {
+    // A long step has nothing to measure against (R41): a glance on Now's Watch, not a problem the other views flag.
+    if (w.kind === 'long-step') continue
     const a = t.agents[w.agent]
     const agentLabel = w.agent === 'main' ? '' : a?.description || a?.type || ''
     const turn = w.agent === 'main' ? [...t.turns].reverse().find((x) => x.agent === 'main') : undefined

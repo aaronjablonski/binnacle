@@ -31,6 +31,7 @@ export function watchRows(ctx: Pick<ViewCtx, 't' | 'u' | 'now'>): Watch[] {
 export const WATCH_KIND: Record<Watch['kind'], { glyph: string; word: string }> = {
   'long-run': { glyph: '◔', word: 'Long run' },
   stalled: { glyph: '◔', word: 'Stalled' },
+  'long-step': { glyph: '◔', word: 'Long step' },
   quiet: { glyph: '◌', word: 'Quiet' },
   repeat: { glyph: '↻', word: 'Repeat' },
   loop: { glyph: '↻', word: 'Loop' },

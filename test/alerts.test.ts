@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Ev, Timeline } from '../mod/types'
 import {
-  agentName, alertNotes, autoFocuses, bandLead, CHECKING_TEXT, headerState, needs, promptHint, spanText, watch,
+  agentName, alertNotes, answeredAsks, autoFocuses, bandLead, CHECKING_TEXT, headerState, needs, promptHint, spanText, watch,
 } from '../mod/hooks/model/alerts'
 import { ASK_MS, QUIET_MS, WATCH_NOTIFY_MS } from '../mod/hooks/model/limits'
 import { empty, reduce } from '../mod/hooks/model/reduce'
@@ -25,7 +25,7 @@ const list = (agent: string, items: [string, 'todo' | 'doing' | 'done'][], when 
 const UI = { notified: [] as string[], dismissed: [] as string[] }
 
 describe('needs', () => {
-  it('a permission request is one need with its tool, command and asker, and clears when answered', () => {
+  it('a permission request is one need with its tool, command and asker, and clears when its step ends', () => {
     const t = fold([spawn('a1', 'general-purpose'), start('s1', 'Bash', { command: 'npm run deploy -- --env staging' }, 'a1'), ask('s1')])
     const v = needs(t, clock)
     expect(v.checking).toBe(false)
@@ -101,7 +101,7 @@ describe('watch', () => {
     expect(watch(fold([start('s', 'Bash', { command: 'sleep' }, 'main', 1)], lead), QUIET_MS + 2).some((w) => w.kind === 'quiet')).toBe(false)
   })
 
-  it('stalled: one step past 5 min and past 3x its tool median; 5 min with no median', () => {
+  it('stalled: one step past 5 min and past 3x the median of earlier runs of the same call; with none, a Long step (R41)', () => {
     const base = fold([
       start('b1', 'Bash', { command: 'npm test' }, 'main', 0), end('b1', 'done', 2 * MIN),
       start('b2', 'Bash', { command: 'npm test' }, 'main', 2 * MIN), end('b2', 'done', 4 * MIN),
@@ -111,12 +111,21 @@ describe('watch', () => {
     expect(watch(base, 4 * MIN + 6 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
     const got = watch(base, 4 * MIN + 14 * MIN).filter((w) => w.kind === 'stalled')
     expect(got.map((w) => w.sentence)).toEqual(['Claude: npm test has run 14 min'])
-    // No median yet: past 5 min alone (R6 as written; fix round 1).
+    expect(watch(base, 4 * MIN + 14 * MIN).some((w) => w.kind === 'long-step')).toBe(false)
+    // No earlier run of the call: past 5 min it is a Long step, never Stalled.
     const first = fold([start('g', 'Grep', { pattern: 'x' }, 'main', 0)])
-    expect(watch(first, 5 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
-    expect(watch(first, 5 * MIN + 1).some((w) => w.kind === 'stalled')).toBe(true)
+    expect(watch(first, 5 * MIN).some((w) => w.kind === 'stalled' || w.kind === 'long-step')).toBe(false)
+    expect(watch(first, 5 * MIN + 1).some((w) => w.kind === 'stalled')).toBe(false)
+    expect(watch(first, 5 * MIN + 1).filter((w) => w.kind === 'long-step').map((w) => [w.key, w.sentence])).toEqual([['long-step:g', 'Claude: "x" has run 5 min']])
+    // Quick runs of other commands of the same tool are no history: `npm run build` after three fast `ls` is a Long step.
+    const other = fold([
+      start('l1', 'Bash', { command: 'ls' }, 'main', 0), end('l1', 'done', 1000),
+      start('l2', 'Bash', { command: 'ls' }, 'main', 2000), end('l2', 'done', 3000),
+      start('nb', 'Bash', { command: 'npm run build' }, 'main', 4000),
+    ])
+    expect(watch(other, 4000 + 6 * MIN).map((w) => w.kind)).toEqual(['long-step'])
     // An Agent call runs as long as its agent: never stalled.
-    expect(watch(fold([start('ag', 'Agent', {}, 'main', 0)]), 60 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
+    expect(watch(fold([start('ag', 'Agent', {}, 'main', 0)]), 60 * MIN).some((w) => w.kind === 'stalled' || w.kind === 'long-step')).toBe(false)
   })
 
   it('long run: 60 min an agent and 120 a turn by default, 0 disables; never a need', () => {
@@ -125,7 +134,8 @@ describe('watch', () => {
     expect(watch(busy(59 * MIN), 59 * MIN).some((w) => w.kind === 'long-run')).toBe(false)
     const at64 = busy(64 * MIN)
     const rows = watch(at64, 64 * MIN).filter((w) => w.kind === 'long-run')
-    expect(rows.map((w) => w.sentence)).toEqual(['Explorer has run 1 h 4 min (limit 60)'])
+    // M2: one unit beside the limit while under 2 h.
+    expect(rows.map((w) => w.sentence)).toEqual(['Explorer has run 64 min (limit 60)'])
     expect(watch(at64, 64 * MIN, [], { agentLimitMin: 0 }).some((w) => w.kind === 'long-run')).toBe(false)
     const late = busy(121 * MIN)
     expect(watch(late, 121 * MIN).filter((w) => w.key.startsWith('long-run:turn')).map((w) => w.sentence)).toEqual(['This turn has run 2 h 1 min (limit 120)'])
@@ -176,7 +186,20 @@ describe('Watch never leads the band, never autoFocuses, never notifies', () => 
 
   it('autoFocus is for needs only', () => {
     for (const k of ['permission', 'question', 'plan', 'input'] as const) expect(autoFocuses(k)).toBe(true)
-    for (const k of ['stalled', 'quiet', 'long-run', 'repeat', 'loop', 'failed-turn'] as const) expect(autoFocuses(k)).toBe(false)
+    for (const k of ['stalled', 'long-step', 'quiet', 'long-run', 'repeat', 'loop', 'failed-turn'] as const) expect(autoFocuses(k)).toBe(false)
+  })
+
+  it('R41: a Long step never notifies, even with watchNotify; a Stalled step does', () => {
+    const long = fold([start('nb', 'Bash', { command: 'npm run build' }, 'main', 0)])
+    const at = 5 * MIN + WATCH_NOTIFY_MS + 1
+    expect(watch(long, at).map((w) => w.kind)).toEqual(['long-step'])
+    expect(alertNotes(long, UI, at, { mode: 'all', watchNotify: true, freshMs: 15_000 })).toEqual([])
+    const stalled = fold([
+      start('b1', 'Bash', { command: 'npm test' }, 'main', 0), end('b1', 'done', MIN),
+      start('b2', 'Bash', { command: 'npm test' }, 'main', MIN),
+    ])
+    const later = MIN + 5 * MIN + WATCH_NOTIFY_MS + 1
+    expect(alertNotes(stalled, UI, later, { mode: 'all', watchNotify: true, freshMs: 15_000 }).map((n) => n.id)).toEqual(['watch:stalled:b2'])
   })
 
   it('no notification for a Watch row unless watchNotify, and then once after 10 min', () => {
@@ -189,11 +212,51 @@ describe('Watch never leads the band, never autoFocuses, never notifies', () => 
 
   it('a need notifies after a minute (20 s on Agent), a fresh failed turn with all', () => {
     const t = fold([start('s1', 'Bash', { command: 'npm test' }, 'main', 0), ask('s1', false, 0)])
-    expect(alertNotes(t, UI, 59_000, { freshMs: 15_000 })).toEqual([])
-    expect(alertNotes(t, UI, 60_000, { freshMs: 15_000 })).toEqual([{ id: 's1', text: 'Waiting on you: Bash npm test' }])
+    expect(alertNotes(t, UI, 59_000, { freshMs: 15_000, watching: true })).toEqual([])
+    expect(alertNotes(t, UI, 60_000, { freshMs: 15_000, watching: true })).toEqual([{ id: 's1', text: 'Waiting on you: Bash npm test' }])
+    const agent = fold([start('s2', 'Agent', { description: 'find callers' }, 'main', 0), ask('s2', false, 0)])
+    expect(alertNotes(agent, UI, ASK_MS, { freshMs: 15_000 }).map((n) => n.id)).toEqual(['s2'])
     const f = fold([turnStart('tf', 0), turnEnd('tf', { failed: true }, 1000)])
     expect(alertNotes(f, UI, 2000, { mode: 'waits', freshMs: 15_000 })).toEqual([])
     expect(alertNotes(f, UI, 2000, { mode: 'all', freshMs: 15_000 }).map((n) => n.id)).toEqual(['failed-turn:tf'])
+  })
+})
+
+describe('an answered ask (F C1)', () => {
+  it('the pane saw the dialog cover the prompt and then close: the ask is answered, and only that one', () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm run deploy' }), ask('s1'), start('s2', 'Bash', { command: 'ls' }), ask('s2')])
+    // s1 seen covered by drawing 3; s2 never seen covered.
+    expect(answeredAsks(t, new Map([['s1', 3]]), 4)).toEqual(['s1'])
+    expect(answeredAsks(t, new Map([['s1', 3]]), 3)).toEqual([])
+    expect(answeredAsks(t, new Map([['s1', 3]]), 2)).toEqual([])
+    expect(answeredAsks(t, new Map([['s1', 3]]), undefined)).toEqual([])
+    // A question or a plan lasts as long as its own step: the pane never answers it.
+    const q = fold([start('q1', 'AskUserQuestion', { questions: [] }), ask('q1')])
+    expect(answeredAsks(q, new Map([['q1', 1]]), 2)).toEqual([])
+  })
+
+  it('after step.unask the step keeps running and nothing needs you: the header works, the band leads with nothing, no notification', () => {
+    const t = fold([turnStart('tr', 0), start('s1', 'Bash', { command: 'npm run deploy -- --env staging' }, 'main', 0), ask('s1', false, 0)])
+    expect(needs(t, 1000).items.map((n) => n.key)).toEqual(['asking:s1'])
+    const answered = fold([{ kind: 'step.unask', id: 's1' }], t)
+    const s1 = answered.steps.find((s) => s.id === 's1')!
+    expect([s1.status, s1.asking]).toEqual(['running', undefined])
+    const at = 3 * MIN
+    const view = needs(answered, at)
+    expect(view).toEqual({ items: [], checking: false })
+    expect(headerState(answered, at, view).state).toBe('working')
+    expect(bandLead(view)).toBeUndefined()
+    expect(alertNotes(answered, UI, at, { mode: 'all', freshMs: 15_000, watching: true })).toEqual([])
+  })
+
+  it('with no pane watching, a permission on a running step never notifies; an Agent ask, a question and an input request still do', () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm test' }, 'main', 0), ask('s1', false, 0)])
+    expect(alertNotes(t, UI, 10 * MIN, { freshMs: 15_000 })).toEqual([])
+    expect(alertNotes(t, UI, 10 * MIN, { freshMs: 15_000, watching: false })).toEqual([])
+    const q = fold([start('q1', 'AskUserQuestion', { questions: [] }, 'main', 0)])
+    expect(alertNotes(q, UI, MIN, { freshMs: 15_000 }).map((n) => n.id)).toEqual(['q1'])
+    const input = fold([{ kind: 'input.ask', at: 0, id: 'el1', agent: 'main', server: 'github', message: 'Pick' }])
+    expect(alertNotes(input, UI, MIN, { freshMs: 15_000 }).map((n) => n.id)).toEqual(['input:el1'])
   })
 })
 

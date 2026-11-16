@@ -164,6 +164,7 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
   b.patch(R25, badgeCol(29, 34, 7))
   b.patch('R23: General', b.sub(32, 'Builder  wire the limiter middleware      ', 'General  wire the limiter middleware      '))
   b.patch('R27: 2 min', b.sub(29, '     2m 14s', '      2 min'))
+  b.patch("R30 (F M11): the wait shows in the pill and the block only; the asker's card keeps its own time, 1 min", b.sub(32, '            40s', '          1 min'))
   b.patch('R3: the footer offers no "go to prompt"; `n next ask` only with more than one ask', b.sub(45, '↵ go to prompt   n next ask   esc prompt', '↵ open   esc prompt'))
   b.patch('C6 (brief): the footer carries the Options key', rows => void (rows[45] = put(rows[45]!, 51, '0 options')))
   // On a mismatch the received value is both boards side by side.
@@ -177,7 +178,7 @@ test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the liste
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitNowWatch')
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
-  b.patch('R6 and R27: the long run reads "Explorer has run 1 h 4 min (limit 60)" (no median for its type here)', b.sub(16, 'Explorer has run 64 min, past the usual 60', 'Explorer has run 1 h 4 min (limit 60)'))
+  b.patch('R6 and F M2: the long run reads "Explorer has run 64 min (limit 60)" (no median for its type here)', b.sub(16, 'Explorer has run 64 min, past the usual 60', 'Explorer has run 64 min (limit 60)'))
   b.patch('height rule: spare rows go to To do (up to 7), so the two open tasks show in place of "+ 2 more to do"', rows => {
     rows[27] = '  ○ Update the changelog'
     return addRow(28, '  ○ Open the pull request')(rows)

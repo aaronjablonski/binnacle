@@ -70,24 +70,25 @@ const PANE = (surface: 'terminal' | 'vscode') =>
     props: { title: 'Mission Control', isFocused: false, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
   }) as const
 
-test('warm and idle with the rich Now open: the budget line counts down, the pane redraws at most every 10 s, and no lintel is blitted', async ($, on) => {
+// O I-3 / R40: the words are whole minutes, so the clock redraws when the minute changes (it was every 10 s).
+test('warm and idle with the rich Now open: the budget line counts down, the pane redraws only when the minute changes, and no lintel is blitted', async ($, on) => {
   const w = world(on, { ...initialUi, paneOpen: true })
   await start($)
   const ui = await $.ui.mount(PANE('terminal') as never)
   await w.clock.advance(60_000)
   expect(w.invalidated()).toBeGreaterThan(0)
-  expect(w.invalidated()).toBeLessThanOrEqual(6)
+  expect(w.invalidated()).toBeLessThanOrEqual(2)
   expect(w.blits.filter(k => k === 'now-lintel').length).toBe(0)
   await ui.unmount()
 })
 
-test('warm and idle without a lintel Raster: at most one redraw every 10 s', async ($, on) => {
+test('warm and idle without a lintel Raster: one redraw when the minute changes', async ($, on) => {
   const w = world(on, { ...initialUi, paneOpen: true })
   await start($)
   const ui = await $.ui.mount(PANE('vscode') as never)
   await w.clock.advance(60_000)
   expect(w.invalidated()).toBeGreaterThan(0)
-  expect(w.invalidated()).toBeLessThanOrEqual(6)
+  expect(w.invalidated()).toBeLessThanOrEqual(2)
   await ui.unmount()
 })
 
@@ -98,9 +99,9 @@ test('once the cache is cold the countdown stops: no redraw after the last one',
   // Past the 4 minutes left, and then some.
   await w.clock.advance(250_000)
   const invalidated = w.invalidated()
-  // One redraw each 10 s while warm (about 24), and the cold redraw that clears the words.
-  expect(invalidated).toBeGreaterThan(10)
-  expect(invalidated).toBeLessThanOrEqual(26)
+  // One redraw each minute while warm (4 minutes left: about 5), and the cold redraw that clears the words.
+  expect(invalidated).toBeGreaterThanOrEqual(4)
+  expect(invalidated).toBeLessThanOrEqual(6)
   await w.clock.advance(60_000)
   expect(w.invalidated()).toBe(invalidated)
   await ui.unmount()

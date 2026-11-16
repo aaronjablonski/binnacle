@@ -5,6 +5,7 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import type { Timeline, UiState } from '../../types'
+import type { BandModel } from './bandmodel'
 import type { ViewCtx } from './shell'
 import { lookOf } from './style'
 import type { Look, LookOptions } from './style'
@@ -59,7 +60,7 @@ export function deckSvg(ctx: ViewCtx, $: EngineInterface, presses: SvgPress[] = 
 }
 
 /** What the band's Svg reads: the band's render input and its look, the state, the clock and its width; `presses` go beside it. */
-export type BandSvgArgs = { e: RenderInput; look: Look; t: Timeline; u: UiState; now: number; cols: number; presses?: SvgPress[] }
+export type BandSvgArgs = { e: RenderInput; look: Look; t: Timeline; u: UiState; now: number; cols: number; model?: BandModel; presses?: SvgPress[] }
 
 /**
  * The band as one interactive Svg when the look is `svg`, else null: the
@@ -74,7 +75,7 @@ export function bandSvgOf($: EngineInterface, a: BandSvgArgs): RenderElement | n
   const { Box, Svg } = table
   return (
     <Box key="band-svg" flexDirection="row" columnGap={1}>
-      <Svg source={bandSvg(a.t, a.u, a.now, a.cols)} alt={bandAlt(a.t, a.u, a.now)} isInteractive />
+      <Svg source={bandSvg(a.t, a.u, a.now, a.cols, a.model)} alt={bandAlt(a.t, a.u, a.now, a.model)} isInteractive />
       {pressRow($, a.e, 'band-svg-presses', a.presses ?? [])}
     </Box>
   )

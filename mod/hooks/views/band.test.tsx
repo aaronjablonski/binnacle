@@ -5,7 +5,9 @@ import type { On } from 'claude-code'
 import type { AgentRow, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { colOf, screen } from './screen.testkit'
+import { encode, critterBox } from './raster'
+import { asked as askedFixture, endedOpen, idle, NOW as FX_NOW, stopped, watching, busy } from './now.fixtures.testkit'
+import { screen } from './screen.testkit'
 
 // AbovePrompt is raised on terminal, desktop and mobile only; the desktop draws an Svg (svgwire.test.tsx), so these tests use mobile for the text form.
 const SURFACES = ['terminal', 'mobile'] as const
@@ -21,10 +23,10 @@ const reseed = (t: Timeline, ui?: Partial<UiState>): void => {
   currentUi = ui
 }
 
-function seed(on: On, t: Timeline, ui?: Partial<UiState>): void {
+function seed(on: On, t: Timeline, ui?: Partial<UiState>, at = NOW): void {
   current = t
   currentUi = ui
-  mock.clock(on, { now: NOW })
+  mock.clock(on, { now: at })
   on('ui.log', () => ({ value: undefined }))
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
@@ -127,219 +129,6 @@ async function textsAt($: Engine, cols: number, surface: (typeof SURFACES)[numbe
   return found
 }
 
-// ---- the three-row form -----------------------------------------------------------
-
-// LOOK TEST (edited for Rich): the Neo bracket form is what the surfaces without a Raster draw; the terminal's is the rich band below.
-test('text form: pane closed at 110: three rows, each rail to rail, the cells on the grid', async ($, on) => {
-  seed(on, BUSY)
-  for (const surface of TEXT) {
-    const rows = await bandRows($, 110, surface)
-    expect(rows.length).toBe(3)
-    expect(rows.map(r => r.length)).toEqual([110, 110, 110])
-    expect(rows.map(r => r[0])).toEqual(['┏', '┃', '┗'])
-    expect(rows.map(r => r[109])).toEqual(['┓', '┃', '┛'])
-    // row 1: pill at 2, focus at 14, age at 50, the dials on the last three cells
-    expect([colOf(rows[0], ' WORKING '), colOf(rows[0], FOCUS), colOf(rows[0], '20s')]).toEqual([2, 14, 50])
-    expect([colOf(rows[0], 'CTX ◔ 9%'), colOf(rows[0], '7D ◔ 22%')]).toEqual([74, 98])
-    // row 2: CREW, the pods at 14 (hull, signal, gap), the counts from 50
-    expect([colOf(rows[1], 'CREW'), colOf(rows[1], '◈  ◉  ◉'), colOf(rows[1], '2 live')]).toEqual([2, 14, 50])
-    // row 3: TASKS, pips at 14, done/total at 38, next and the task from 50, /mc on the last cell
-    expect([colOf(rows[2], 'TASKS'), colOf(rows[2], '▪▪▸▫'), colOf(rows[2], '2/4')]).toEqual([2, 14, 38])
-    expect([colOf(rows[2], 'next'), colOf(rows[2], 'Humanise step labels'), colOf(rows[2], '/mc')]).toEqual([50, 62, 98])
-  }
-})
-
-test('the three rows begin at 86 columns and not before; below, the band is one row', async ($, on) => {
-  seed(on, BUSY)
-  expect((await bandRows($, 86)).length).toBe(3)
-  expect((await bandRows($, 85)).length).toBe(1)
-  expect((await bandRows($, 62)).length).toBe(1)
-})
-
-// LOOK TEST (edited for Rich): the text form's dials; the rich meters are tested below.
-test('text form: at 98 and 86 the dials drop from the right and nothing is wider than the band', async ($, on) => {
-  seed(on, { ...BUSY, budget: { contextPct: 9, windows: [{ name: 'five_hour', pct: 18 }, { name: 'seven_day', pct: 22 }], at: NOW } })
-  const at110 = (await bandRows($, 110, 'mobile'))[0]!
-  expect([colOf(at110, 'CTX'), colOf(at110, '5H'), colOf(at110, '7D')]).toEqual([74, 86, 98])
-  const at98 = (await bandRows($, 98, 'mobile'))[0]!
-  expect(at98.length).toBe(98)
-  expect(colOf(at98, 'CTX')).toBe(74)
-  expect(colOf(at98, '7D')).toBe(-1)
-  const at86 = (await bandRows($, 86, 'mobile'))[0]!
-  expect(at86.length).toBe(86)
-  expect(colOf(at86, '5H')).toBe(-1)
-  expect(colOf(at86, '7D')).toBe(-1)
-  for (const cols of [110, 100, 98, 92, 86]) {
-    for (const row of await bandRows($, cols, 'mobile')) expect([cols, row.length]).toEqual([cols, cols])
-  }
-})
-
-// LOOK TEST (edited for Rich): the bracket is the text form's.
-test('text form: the bracket takes the accent on its corners and subtle on the rail between', async ($, on) => {
-  seed(on, BUSY)
-  const found = await textsAt($, 110, 'mobile')
-  const colourOf = (glyph: string): (string | undefined)[] => found.filter(f => f.text?.startsWith(glyph)).map(f => f.props.color)
-  expect(colourOf('┏')).toEqual(['suggestion'])
-  expect(colourOf('┃')).toEqual(['subtle', 'subtle'])
-  expect(colourOf('┗')).toEqual(['suggestion'])
-  const pill = found.find(f => f.text === ' WORKING ')
-  expect(pill?.props).toMatchObject({ backgroundColor: 'suggestion', color: 'inverseText', bold: true })
-})
-
-// LOOK TEST (edited for Rich): hull glyphs are the text form's crew.
-test('text form: the crew follows the lead, then the subagents in the order they started, one hull per role', async ($, on) => {
-  seed(on, { ...BUSY, agents: { main: { ...empty.agents.main! }, a1: agent('a1', 'Plan'), a2: agent('a2', 'general-purpose'), a3: agent('a3', 'code-reviewer') } })
-  const rows = await bandRows($, 110, 'mobile')
-  // the lead ◈, Plan is a lead hull too, general-purpose builds ▣, the reviewer checks ◬
-  expect(rows[1]).toContain('◈  ◈  ▣  ◬')
-})
-
-// LOOK TEST (edited for Rich): hull glyphs are the text form's crew.
-test('text form: pods come from problems(): an ask is the waiting ? beside the lead, a stalled agent z, a failed one !', async ($, on) => {
-  seed(on, MIXED)
-  const rows = await bandRows($, 110, 'mobile')
-  // by start: the stalled builder, the failed reviewer, the finished scout, the live scout
-  expect(rows[2]).toContain('◈? ▣z △! ●  ◉')
-})
-
-// LOOK TEST (edited for Rich): the Neo waiting band; the terminal's is tested below.
-test('text form: waiting: the bracket and pill turn warning, ASKS shows the first ask with why, how long and + n more, the crew sits on row 3', async ($, on) => {
-  seed(on, WAITING)
-  for (const surface of TEXT) {
-    const rows = await bandRows($, 110, surface)
-    expect(rows.length).toBe(3)
-    expect(colOf(rows[0], ' WAITING ')).toBe(2)
-    expect(colOf(rows[1], 'ASKS')).toBe(2)
-    expect([colOf(rows[1], '? Bash  rm -rf build'), colOf(rows[1], 'permission'), colOf(rows[1], '30s'), colOf(rows[1], '+ 1 more')]).toEqual([14, 50, 62, 74])
-    expect(colOf(rows[2], 'CREW')).toBe(2)
-    expect(colOf(rows[2], '/mc')).toBe(98)
-  }
-  const found = await textsAt($, 110, 'mobile')
-  expect(found.find(f => f.text === ' WAITING ')?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText' })
-  const rails = found.filter(f => /^[┏┓┃┗┛]/.test(f.text ?? ''))
-  expect(rails.length).toBe(6)
-  expect(rails.map(f => f.props.color)).toEqual(Array(6).fill('warning'))
-})
-
-// LOOK TEST (edited for Rich): the tallies are the text form's.
-test('text form: waiting with a stalled and a failed agent: the crew row tallies live, stalled, failed and done', async ($, on) => {
-  seed(on, MIXED)
-  const row = (await bandRows($, 110, 'mobile'))[2]!
-  expect([colOf(row, '1 live'), colOf(row, '1 stalled'), colOf(row, '1 failed'), colOf(row, '1 done')]).toEqual([50, 62, 74, 86])
-})
-
-// ---- the compact row ----------------------------------------------------------------
-
-// LOOK TEST (edited for Rich): the terminal's compact row swaps the CTX dial for beads; the exact text form is the other surfaces'.
-test('pane open: one row at any width, the bracket folded to its two rails', async ($, on) => {
-  seed(on, BUSY, { paneOpen: true })
-  for (const surface of SURFACES) {
-    for (const cols of [140, 110, 86]) {
-      const rows = await bandRows($, cols, surface)
-      expect(rows.length).toBe(1)
-      expect([rows[0]!.length, rows[0]![0], rows[0]![cols - 1]]).toEqual([cols, '┃', '┃'])
-    }
-  }
-  const row = (await bandRows($, 110, 'mobile'))[0]!
-  expect(row).toContain(`WORKING   ${FOCUS}`)
-  expect(row).toContain('◈◉◉   2/4   CTX ◔ 9%   /mc ┃')
-  // the terminal: hulls, the count, CTX with eight cells of beads and 9%
-  const rich = (await bandRows($, 110))[0]!
-  expect(rich).toContain(`WORKING   ${FOCUS}`)
-  expect(rich).toMatch(/◈◉◉ {3}2\/4 {3}CTX {10}9% {3}\/mc ┃/)
-})
-
-test('a ui value stored before paneOpen existed reads as closed: three rows', async ($, on) => {
-  const old: Partial<UiState> = { ...initialUi }
-  delete old.paneOpen
-  seed(on, BUSY, old)
-  expect((await bandRows($, 110)).length).toBe(3)
-})
-
-test('compact waiting: the pill, "n need you" bold in warning, the ask, the tight crew with its ?', async ($, on) => {
-  seed(on, WAITING, { paneOpen: true })
-  const row = (await bandRows($, 84))[0]!
-  expect(row.startsWith('┃  WAITING   2 need you  Bash rm -rf build')).toBe(true)
-  expect(row).toContain('◈?◉◉')
-  const lead = (await textsAt($, 84)).find(f => f.text === '2 need you')
-  expect(lead?.props).toMatchObject({ bold: true, color: 'warning' })
-})
-
-// LOOK TEST (edited for Rich): the drop order is the text form's here, and the terminal's beads follow it in the next test.
-test('text form: compact drops the CTX dial, then /mc, then cuts the focus at a word', async ($, on) => {
-  seed(on, BUSY, { paneOpen: true })
-  const dialAt = (await bandRows($, 80, 'mobile'))[0]!
-  expect(dialAt).toContain('CTX ◔ 9%   /mc ┃')
-  const noDial = (await bandRows($, 66, 'mobile'))[0]!
-  expect(noDial).not.toContain('CTX')
-  expect(noDial.endsWith('2/4   /mc ┃')).toBe(true)
-  expect(noDial).toContain(FOCUS)
-  const noMc = (await bandRows($, 62, 'mobile'))[0]!
-  expect(noMc).not.toContain('/mc')
-  expect(noMc).toContain(FOCUS)
-  expect(noMc.endsWith('2/4 ┃')).toBe(true)
-  const cut = (await bandRows($, 40, 'mobile'))[0]!
-  // the crew and the count keep their place: the focus takes what is left
-  expect(cut).toContain('Grouping…')
-  expect(cut).not.toContain('Grouping timeline')
-  expect(cut).toContain('◈◉◉   2/4 ┃')
-  expect(cut.length).toBe(40)
-})
-
-test('at 24 the needs lead survives, cut at a word when the room is short', async ($, on) => {
-  seed(on, WAITING)
-  const row = (await bandRows($, 24))[0]!
-  expect(row.length).toBeLessThanOrEqual(24)
-  expect(row.startsWith('┃  WAITING')).toBe(true)
-  expect(row).toContain('2 need')
-})
-
-test('the compact row without tasks: the focus follows the pill, no count; IDLE with nothing live, WORKING while a turn runs', async ($, on) => {
-  seed(on, { ...empty, now: { focus: 'Wiring the limiter', at: NOW } })
-  const row = (await bandRows($, 62))[0]!
-  expect(row).toContain('IDLE   Wiring the limiter')
-  expect(row).not.toMatch(/\d+\/\d+/)
-  const ui = await $.ui.mount({ ...BAND({ bodyColumns: 62, isWorking: true }), surface: 'terminal' })
-  expect(screen(await ui.drawn())[0]).toContain('WORKING   Wiring the limiter')
-  await ui.unmount()
-})
-
-// ---- all done ---------------------------------------------------------------------------
-
-test('all done is one dim row at any width and either pane state: pill, totals, solid hulls, /mc', async ($, on) => {
-  seed(on, DONE)
-  for (const paneOpen of [false, true]) {
-    reseed(DONE, { paneOpen })
-    for (const surface of SURFACES) {
-      for (const cols of [110, 86, 62]) {
-        const rows = await bandRows($, cols, surface)
-        expect(rows.length).toBe(1)
-        expect(rows[0]!.length).toBe(cols)
-      }
-    }
-  }
-  reseed(DONE)
-  const row = (await bandRows($, 110))[0]!
-  expect(row.startsWith('┃  ALL DONE   3/3 tasks   1 step   3 artifacts')).toBe(true)
-  expect(row).toContain('◆●')
-  expect(row.endsWith('/mc ┃')).toBe(true)
-  const found = await textsAt($, 110)
-  expect(found.find(f => f.text === ' ALL DONE ')?.props).toMatchObject({ backgroundColor: 'subtle', color: 'inverseText' })
-  const facts = found.find(f => (f.text ?? '').startsWith('3/3 tasks'))
-  expect(facts?.props.dimColor).toBe(true)
-  expect(found.filter(f => f.text === '┃').map(f => f.props.color)).toEqual(['subtle', 'subtle'])
-})
-
-test('all done gives up its facts from the right, then /mc, as the band narrows', async ($, on) => {
-  seed(on, DONE)
-  expect((await bandRows($, 50))[0]).toContain('3/3 tasks   1 step')
-  const narrow = (await bandRows($, 36))[0]!
-  expect(narrow).toContain('3/3 tasks')
-  expect(narrow).not.toContain('artifacts')
-  expect(narrow.length).toBeLessThanOrEqual(36)
-})
-
-// ---- the whole -----------------------------------------------------------------------------
 
 test('the band holds no Button in any form', async ($, on) => {
   const cases: [Timeline, Partial<UiState> | undefined, number][] = [
@@ -419,56 +208,9 @@ async function rasterKeys($: Engine, cols: number, surface: (typeof SURFACES)[nu
   return Object.fromEntries(found.map(r => [String(r.key), r.props]))
 }
 
-test('rich: pane closed at 110: the pill and focus, the crew two rows tall beside next and TASKS, a bead meter a window', async ($, on) => {
-  seed(on, METERED)
-  const rows = await bandRows($, 110)
-  expect(rows.length).toBe(3)
-  expect(rows.every(r => r.length <= 110)).toBe(true)
-  // row 1: the pill at 3, the focus at 14, its age, CTX at 77 with its figure after ten cells of beads
-  expect([colOf(rows[0], ' WORKING '), colOf(rows[0], FOCUS), colOf(rows[0], '20s'), colOf(rows[0], 'CTX'), colOf(rows[0], '9%')]).toEqual([3, 14, 71, 77, 93])
-  // row 2: next beside the crew; 5H. Row 3: TASKS, the count after the plan strip, 7D and /mc
-  expect([colOf(rows[1], 'next'), colOf(rows[1], 'Humanise step labels'), colOf(rows[1], '5H'), colOf(rows[1], '37%')]).toEqual([43, 49, 77, 93])
-  expect([colOf(rows[2], 'TASKS'), colOf(rows[2], '2/4'), colOf(rows[2], '7D'), colOf(rows[2], '22%'), colOf(rows[2], '/mc')]).toEqual([43, 54, 77, 93, 104])
-  const r = await rasterKeys($, 110)
-  expect(r['band-crew']).toMatchObject({ columns: 35, rows: 2 })
-  expect(r['band-plan']).toMatchObject({ columns: 4, rows: 1 })
-  for (const k of ['band-ctx-beads', 'band-5h-beads', 'band-7d-beads']) expect(r[k]).toMatchObject({ columns: 10, rows: 1 })
-  expect(r['band-clamp']).toMatchObject({ columns: 2, rows: 1 })
-  expect(r['band-end']).toMatchObject({ columns: 2, rows: 1 })
-})
-
-test('rich: the crew has a slot for each of the first six, and fewer as the band narrows; the rest are a +n', async ($, on) => {
-  const many = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map(n => [`a${n}`, { ...agent(`a${n}`), startedAt: NOW + n }]))
-  seed(on, { ...METERED, agents: { main: { ...empty.agents.main! }, ...many } })
-  expect((await rasterKeys($, 110))['band-crew']).toMatchObject({ columns: 35, rows: 2 })
-  expect((await bandRows($, 110))[1]).toContain('+2')
-  expect((await rasterKeys($, 86))['band-crew']).toMatchObject({ columns: 17, rows: 2 })
-  for (const cols of [110, 100, 92, 86]) for (const row of await bandRows($, cols)) expect([cols, row.length <= cols]).toEqual([cols, true])
-})
-
 test('rich: no Raster draws where the surface has none: the same rows are the text form', async ($, on) => {
   seed(on, METERED)
   for (const surface of TEXT) expect(await rasterKeys($, 110, surface)).toEqual({})
-})
-
-test('rich: the beads and plan have text forms of their own width', async ($, on) => {
-  seed(on, METERED)
-  // the text form of the band is the Neo band; the rich form's fallbacks are exercised through `look: text`
-  const ui = await $.ui.mount({ ...BAND({ bodyColumns: 110 }), surface: 'terminal' })
-  const beadsBox = await ui.find({ type: 'Box', key: 'inst-band-ctx-beads' })
-  expect(beadsBox?.props).toMatchObject({ width: 10, height: 1 })
-  await ui.unmount()
-})
-
-test('rich: waiting: NEEDS YOU in an amber pill, the first ask and how long, the others by kind', async ($, on) => {
-  seed(on, WAITING)
-  const rows = await bandRows($, 110)
-  expect(rows.length).toBe(3)
-  expect(colOf(rows[0], ' NEEDS YOU 2 ')).toBe(3)
-  expect([colOf(rows[0], '? Bash  rm -rf build'), colOf(rows[0], '30s')]).toEqual([18, 40])
-  expect(rows[1]).toContain('+1 permission 30s')
-  const found = await textsAt($, 110)
-  expect(found.find(f => f.text === ' NEEDS YOU 2 ' && f.props.backgroundColor !== undefined)?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText', bold: true })
 })
 
 test('rich: the band holds no Button', async ($, on) => {
@@ -494,47 +236,7 @@ test('a long run never leads the band in any form: no long run, no looping, no W
   expect((await bandRows($, 100))[0]).not.toContain('long run')
 })
 
-test('a long run beside a need: the band counts the need alone', async ($, on) => {
-  seed(on, { ...LONG_AGENT, steps: [error, asked('w1', 3)] })
-  const rows = (await bandRows($, 110)).join('\n')
-  expect(rows).toContain('NEEDS YOU 1')
-  expect(rows).not.toContain('long run')
-  expect(rows).not.toContain('looping')
-})
-
-test('rich: 5H shows ▲ and when it will fill, when it fills before it resets', async ($, on) => {
-  const t: Timeline = {
-    ...METERED,
-    budget: { contextPct: 9, windows: [{ name: 'five_hour', pct: 70, resetsAt: NOW + 3_600_000 }, { name: 'seven_day', pct: 22 }], at: NOW },
-    samples: {
-      names: ['five_hour'],
-      list: [
-        { at: NOW - 1_200_000, w: [40] },
-        { at: NOW - 600_000, w: [55] },
-        { at: NOW, w: [70] },
-      ],
-    },
-  }
-  seed(on, t)
-  const rows = await bandRows($, 110)
-  expect(colOf(rows[1], '▲ 20m')).toBe(99)
-  reseed(METERED)
-  expect((await bandRows($, 110))[1]).not.toContain('▲')
-})
-
 // LOOK TEST (new for Rich): all done carries THIS TURN: how long the turn took, the agents it finished, its errors and its files.
-test('all done shows THIS TURN: done in, agents, errors and files', async ($, on) => {
-  const turn = { id: 't1', agent: 'main', prompt: 'p', startedAt: NOW - 372_000, endedAt: NOW }
-  const finished = { ...agent('a1', 'Explore', 'done'), startedAt: NOW - 200_000, endedAt: NOW - 1000 }
-  const wrote: Step = { id: 'w1', seq: 3, agent: 'main', tool: 'Edit', label: 'Edit src/a.ts', status: 'done', startedAt: NOW - 60_000 }
-  seed(on, { ...DONE, turns: [turn], agents: { main: { ...empty.agents.main! }, a1: finished }, steps: [{ ...error, status: 'done' }, wrote] })
-  for (const surface of SURFACES) {
-    const rows = await bandRows($, 110, surface)
-    expect(rows.length).toBe(1)
-    expect(rows[0]).toContain('ALL DONE   3/3 tasks   done in 6m   1 agent   0 errors   1 file')
-  }
-})
-
 test('the band fits 24 columns in every form and on every surface', async ($, on) => {
   const cases = [[METERED, undefined], [WAITING, undefined], [MIXED, undefined], [DONE, undefined], [LONG_AGENT, undefined], [BUSY, { paneOpen: true }], [WAITING, { paneOpen: true }]] as [Timeline, Partial<UiState> | undefined][]
   seed(on, empty)
@@ -546,15 +248,6 @@ test('the band fits 24 columns in every form and on every surface', async ($, on
     }
   }
 })
-
-test('the look option text draws the Neo band on the terminal: no Raster, the bracket rows', { options: { look: 'text' } }, async ($, on) => {
-  seed(on, METERED)
-  expect(await rasterKeys($, 110)).toEqual({})
-  const rows = await bandRows($, 110)
-  expect(rows.map(r => r[0])).toEqual(['┏', '┃', '┗'])
-})
-
-// ---------- the desktop: the Svg band keeps /mc pressable ----------
 
 test('desktop: the band is an Svg with /mc as a Button beside it; a press opens the pane', async ($, on) => {
   seed(on, BUSY)
@@ -570,5 +263,176 @@ test('desktop: the band is an Svg with /mc as a Button beside it; a press opens 
   expect(mc).toBeDefined()
   await ui.press({ key: 'band-mc' })
   expect(opened).toEqual([expect.objectContaining({ id: 'mission-control' })])
+  await ui.unmount()
+})
+
+// ---- C6: the cockpit band (CockpitBand; band.fidelity.test.tsx compares the rows with the mock) -------------------------
+// LOOK TEST (rewritten for the cockpit): the Neo three rows, the bracket, the pill, the crew row and the bead meters are gone; these tests hold the band's
+// behaviour (what it says when, how many rows, what colours, no Button) and the fidelity test holds its look.
+
+const CHILD_ASK: Timeline = {
+  ...BUSY,
+  steps: [{ id: 'x1', seq: 3, agent: 'a1', tool: 'Bash', label: 'Bash npm run deploy -- --env staging', status: 'running', startedAt: NOW - 60_000, asking: NOW - 30_000 }],
+}
+const LEAD_ASK: Timeline = { ...BUSY, steps: [asked('w1', 3)] }
+const GLYPHS = /[┃┏┛┓┗▮▯]/
+
+test('working: two rows at 80 columns and up, pane closed; the goal and the gauges on row 1, the bar and its words on row 2', async ($, on) => {
+  seed(on, { ...BUSY, budget: { contextPct: 62, windows: [{ name: 'seven_day', pct: 34 }], at: NOW } })
+  const rows = await bandRows($, 104, 'mobile')
+  expect(rows.length).toBe(2)
+  expect(rows[0]).toContain(`Working on   ${FOCUS}`)
+  expect(rows[0]!.endsWith('context 62%   week 34%')).toBe(true)
+  expect(rows[1]).toContain('━')
+  expect(rows[1]).toContain('2 of 4 done   ·   2 agents working   ·   nothing needs you')
+  expect(rows[1]!.endsWith('/mc')).toBe(true)
+  expect(rows.every(r => r.length <= 104)).toBe(true)
+})
+
+test('the two rows begin at 80 columns and not before; the pane open is one row at any width', async ($, on) => {
+  seed(on, BUSY)
+  expect((await bandRows($, 80, 'mobile')).length).toBe(2)
+  expect((await bandRows($, 79, 'mobile')).length).toBe(1)
+  expect((await bandRows($, 64, 'mobile')).length).toBe(1)
+  expect((await bandRows($, 40, 'mobile')).length).toBe(1)
+  reseed(BUSY, { paneOpen: true })
+  expect((await bandRows($, 140, 'mobile')).length).toBe(1)
+  reseed(BUSY, undefined)
+  const short = await $.ui.mount({ ...BAND({ bodyColumns: 120, maxRows: 1 }), surface: 'mobile' })
+  expect(screen(await short.drawn()).length).toBe(1)
+  await short.unmount()
+})
+
+test('one row at 64 and 40 columns: the count, the agents, the focus cut at a word, the context; /mc at the right', async ($, on) => {
+  seed(on, { ...BUSY, budget: { contextPct: 62, windows: [], at: NOW } })
+  const [r64] = await bandRows($, 64, 'mobile')
+  expect(r64).toBe('2 of 4  ·  2 agents  ·  Grouping timeline  ·  context 62%    /mc')
+  expect(r64!.length).toBe(64)
+  const [r40] = await bandRows($, 40, 'mobile')
+  expect(r40!.length).toBeLessThanOrEqual(40)
+  expect(r40).toContain('2 of 4  ·  2 agents')
+  expect(r40!.endsWith('/mc')).toBe(true)
+  expect(r40).not.toContain('Grouping')
+})
+
+test('asked: the amber row names who asks and what, "answer below", and the asker is the one critter', async ($, on) => {
+  seed(on, CHILD_ASK)
+  const rows = await bandRows($, 104, 'mobile')
+  expect(rows[0]).toContain('Needs you   ')
+  expect(rows[0]).toContain('asks to run a command  Bash  npm run deploy -- --env staging')
+  expect(rows[0]!.endsWith('answer below ↓')).toBe(true)
+  expect(rows[1]).toContain('1 agent working, 1 waiting')
+  // The critter is the asker's (an Explore agent is the scout), waiting: `?` in its badge column.
+  expect(rows[0]!.startsWith('●')).toBe(true)
+  expect(rows[0]!.slice(0, 6)).toContain('?')
+  expect(rows[1]!.startsWith('scout')).toBe(true)
+  const texts = await textsAt($, 104, 'mobile')
+  expect(texts.find(x => x.text === 'Needs you')?.props).toMatchObject({ color: 'warning', bold: true })
+  expect(texts.find(x => x.text === 'answer below ↓')?.props).toMatchObject({ color: 'warning' })
+  expect(texts.find(x => x.text === '1 waiting')?.props).toMatchObject({ color: 'warning' })
+  // The lead asking draws the lead.
+  reseed(LEAD_ASK)
+  const lead = await bandRows($, 104, 'mobile')
+  expect(lead[1]!.startsWith('lead')).toBe(true)
+})
+
+test('asked, narrow: one row that still names the tool, down to 24 columns; nothing wider than the band', async ($, on) => {
+  seed(on, CHILD_ASK)
+  const r40 = (await bandRows($, 40, 'mobile'))[0]!
+  expect(r40).toBe('▲ 1 needs you  ·  Bash  ·  2 of 4    /mc')
+  expect(r40.length).toBe(40)
+  const r30 = (await bandRows($, 30, 'mobile'))[0]!
+  expect(r30).toContain('Bash')
+  expect(r30.length).toBeLessThanOrEqual(30)
+  const r24 = (await bandRows($, 24, 'mobile'))[0]!
+  expect(r24).toContain('Bash')
+  expect(r24.length).toBeLessThanOrEqual(24)
+  expect(r24).toContain('▲')
+  // Two asks: the count says so.
+  reseed(WAITING)
+  expect((await bandRows($, 60, 'mobile'))[0]).toContain('▲ 2 need you')
+})
+
+test('Watch adds "n to watch", dim and uncoloured: the band is not amber and still reads Working on', async ($, on) => {
+  seed(on, { ...watching(), budget: busy().budget }, undefined, FX_NOW)
+  const rows = await bandRows($, 104, 'mobile')
+  expect(rows[0]).toContain('Working on')
+  expect(rows[1]).toContain('2 agents working   ·   2 to watch')
+  const texts = await textsAt($, 104, 'mobile')
+  expect(texts.find(x => x.text === '2 to watch')?.props).toMatchObject({ dimColor: true })
+  expect(texts.some(x => x.props.color === 'warning')).toBe(false)
+  // One row too: the count joins the row while there is room.
+  expect((await bandRows($, 70, 'mobile'))[0]).toContain('2 to watch')
+})
+
+test('idle is one dim line at every width and in either pane state: the tick, the totals, /mc; the facts give way from the right', async ($, on) => {
+  seed(on, idle(), undefined, FX_NOW)
+  for (const open of [false, true]) {
+    reseed(idle(), open ? { paneOpen: true } : undefined)
+    for (const cols of [140, 104, 64, 40]) {
+      const rows = await bandRows($, cols, 'mobile')
+      expect([cols, rows.length]).toEqual([cols, 1])
+      expect(rows[0]!.startsWith('✓ All 14 done')).toBe(true)
+      expect(rows[0]!.endsWith('/mc')).toBe(true)
+      expect(rows[0]!.length).toBeLessThanOrEqual(cols)
+    }
+  }
+  const at64 = (await bandRows($, 64, 'mobile'))[0]!
+  expect(at64).toContain('1 h 18 min')
+  expect(at64).not.toContain('cache stays warm')
+  const texts = await textsAt($, 104, 'mobile')
+  expect(texts.find(x => x.text === '✓ ')?.props).toMatchObject({ color: 'success' })
+  expect(texts.filter(x => x.props.color === 'warning' || x.props.color === 'error')).toEqual([])
+})
+
+test('a turn that ended with tasks open says so, dim, with no tick; a finished turn with no list says Finished', async ($, on) => {
+  seed(on, endedOpen(), undefined, FX_NOW)
+  const open = (await bandRows($, 104, 'mobile'))[0]!
+  expect(open).toContain('Stopped with 5 to do open')
+  expect(open.startsWith('✓')).toBe(false)
+  reseed({ ...idle(), tasks: [] })
+  expect((await bandRows($, 104, 'mobile'))[0]).toContain('Finished')
+})
+
+test('no clamp, no pill, no beads, no hotkey and no Button in any form', async ($, on) => {
+  const cases: [Timeline, Partial<UiState> | undefined, number][] = [
+    [busy(), undefined, 104], [askedFixture(), undefined, 104], [idle(), undefined, 104], [stopped(), undefined, 104],
+    [busy(), undefined, 64], [askedFixture(), undefined, 40], [busy(), { paneOpen: true }, 100],
+  ]
+  seed(on, empty, undefined, FX_NOW)
+  for (const [t, ui, cols] of cases) {
+    reseed(t, ui)
+    for (const surface of ['mobile', 'terminal'] as const) {
+      const mounted = await $.ui.mount({ ...BAND({ bodyColumns: cols }), surface })
+      expect(await mounted.findAll({ type: 'Button' })).toEqual([])
+      expect(await mounted.findAll({ type: 'Text', text: /^(WORKING|WAITING|IDLE|ALL DONE|STOPPED|NEEDS YOU)/ })).toEqual([])
+      const rows = screen(await mounted.drawn())
+      expect(rows.some(r => GLYPHS.test(r))).toBe(false)
+      await mounted.unmount()
+    }
+  }
+})
+
+test('rich: the band draws one micro critter as a still Raster of 5 by 2 cells, never blinking, even with motion on', async ($, on) => {
+  seed(on, BUSY)
+  const ui = await $.ui.mount({ ...BAND({ bodyColumns: 104 }), surface: 'terminal' })
+  const rasters = await ui.findAll({ type: 'Raster' })
+  expect(rasters.length).toBe(1)
+  const p = rasters[0]!.props as { columns: number; rows: number; cells: string }
+  expect([p.columns, p.rows]).toEqual([5, 2])
+  expect(p.cells).toBe(encode(critterBox('lead', 'working', 'micro')))
+  await ui.unmount()
+  // The idle line has no critter.
+  reseed(idle())
+  const quiet = await $.ui.mount({ ...BAND({ bodyColumns: 104 }), surface: 'terminal' })
+  expect(await quiet.findAll({ type: 'Raster' })).toEqual([])
+  await quiet.unmount()
+})
+
+test('rich: the asker is the critter, waiting, in amber', async ($, on) => {
+  seed(on, CHILD_ASK)
+  const ui = await $.ui.mount({ ...BAND({ bodyColumns: 104 }), surface: 'terminal' })
+  const p = (await ui.find({ type: 'Raster' }))?.props as { cells: string }
+  expect(p.cells).toBe(encode(critterBox('scout', 'waiting', 'micro')))
   await ui.unmount()
 })

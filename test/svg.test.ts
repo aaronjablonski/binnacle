@@ -70,20 +70,56 @@ test('the deck Svg shows the model\'s values as text and titles', () => {
   const s = nowDeckSvg(busy(), u, NOW, 62)
   expect(s.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true)
   expect(s.endsWith('</svg>')).toBe(true)
-  for (const want of ['WORKING', 'Wiring the limiter', 'Edit rateLimit.ts', 'NEXT', 'Run the upload tests on staging', '2/4', '>4<', '2 errors', '2 live', '1 failed', '78% read']) {
+  for (const want of ['WORKING', 'Wiring the limiter', 'Edit rateLimit.ts', '>Next<', 'Run the upload tests on staging', '2/4', '>4<', '2 errors', '2 live', '1 failed', '78% read']) {
     expect(s).toContain(want)
   }
   expect(s).toContain('<title>CTX: 9% used</title>')
   expect(s).toContain('<title>5H: 78% used</title>')
-  // A pulsing lamp: the lead is working.
-  expect(s).toContain('<animate attributeName="opacity"')
+  // No animation, no glow, no gradient (R32), and the cockpit palette: the ground, the accent, no ember in the plan strip.
+  expect(s).not.toContain('<animate')
+  expect(s).not.toContain('filter=')
+  expect(s).not.toContain('linearGradient')
+  expect(s).toContain('fill="#15171c"')
+  expect(s).toContain('#8f9eff')
   expect(s.length).toBeLessThan(SVG_MAX)
 })
 
-test('the band Svg carries the pill, focus, crew, tasks and rings', () => {
+// LOOK TEST (rewritten for the cockpit, C6): the band Svg is the band's two rows (goal and gauges, bar and words); the pill, the crew row, NEXT, the rings and `/mc` are gone (`/mc` is the Button beside the Svg).
+test('the band Svg carries the goal, the gauges, the bar and its words, and the one critter', () => {
   const s = bandSvg(busy(), u, NOW, 120)
-  for (const want of ['WORKING', 'Wiring the limiter', 'NEXT', '2/4', '/mc', '<title>7D: 22% used</title>']) expect(s).toContain(want)
+  for (const want of ['Working on', 'Wiring the limiter', 'context ', 'week ', '2</tspan>', ' of 4 done', '2 agents working', 'nothing needs you', '<title>2 of 4 done</title>', '<title>the lead</title>']) expect(s).toContain(want)
+  expect(s).not.toContain('/mc')
+  expect(s).not.toContain('<animate')
   expect(s.length).toBeLessThan(SVG_MAX)
+})
+
+test('the band Svg asks in amber with the asker as its critter, and an idle session is one line', () => {
+  const t = busy()
+  t.steps = [...t.steps, { ...step(5, 'running', NOW - 60_000, 'Bash npm run deploy'), tool: 'Bash', agent: 'a1', asking: NOW - 50_000 }]
+  const s = bandSvg(t, u, NOW, 120)
+  expect(s).toContain('Needs you')
+  expect(s).toContain('answer below ↓')
+  expect(s).toContain('1 waiting')
+  expect(s).toContain('fill="#e3b04b"')
+  expect(s).toContain('<title>Explorer is waiting for you</title>')
+  const idle = bandSvg(empty, u, NOW, 120)
+  expect(idle).toContain('height="34"')
+  expect(bandSvg({ ...busy(), turns: [{ id: 't1', agent: 'main', prompt: 'x', startedAt: NOW - 600_000, endedAt: NOW - 1000, failed: true }], agents: { ...empty.agents }, steps: [] }, u, NOW, 120)).toContain('Stopped')
+})
+
+test('R2 through deckModel: an ask in auto mode shows after its 20 s, a permission outside auto at once (the same default problems() has)', () => {
+  const ask = (at: number): Timeline => ({ ...busy(), autoAsk: true, steps: [{ ...step(5, 'running', at - 5000, 'Bash rm -rf build'), tool: 'Bash', asking: at }] })
+  expect(deckModel(ask(NOW - 5_000), u, NOW).pill.word).toBe('WORKING')
+  expect(deckModel(ask(NOW - 30_000), u, NOW).pill).toEqual({ word: 'WAITING', hue: 'amber' })
+  expect(deckModel({ ...ask(NOW - 5_000), autoAsk: false }, u, NOW).pill.word).toBe('WAITING')
+})
+
+test('Watch never turns the pill amber: a stalled agent is a z on its critter and the pill stays WORKING', () => {
+  const t = busy()
+  t.agents = { ...t.agents, a1: { ...agent('a1', 'running', 'Explore'), startedAt: NOW - 90 * 60_000, lastStepAt: NOW - 20 * 60_000 } }
+  const m = deckModel(t, u, NOW)
+  expect(m.pill.word).toBe('WORKING')
+  expect(m.crew.find(c => c.title.startsWith('agent a1'))?.state).toBe('stalled')
 })
 
 test('an idle session draws a quiet deck with no rings it has no figure for', () => {
@@ -133,6 +169,7 @@ test('the alts say the deck and the band in words', () => {
   expect(a).toContain('2 of 4 tasks done')
   expect(a).toContain('CTX 9%')
   expect(a).toContain('4 steps, 2 errors')
-  expect(bandAlt(busy(), u, NOW)).toContain('WORKING')
+  expect(bandAlt(busy(), u, NOW)).toContain('Working on Wiring the limiter into the middleware chain')
+  expect(bandAlt(busy(), u, NOW)).toContain('2 of 4 done')
   expect(nowDeckAlt(empty, u, NOW).length).toBeGreaterThan(0)
 })

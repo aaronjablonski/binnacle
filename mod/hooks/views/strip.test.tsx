@@ -122,6 +122,7 @@ const rowAt = (rows: string[], text: string): number => rows.findIndex(r => r.in
 // ---------- the toggle ----------
 
 // LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+// LOOK TEST (C6): the band's compact line under the strip is the cockpit's one row (`1 of 3  ·  2 agents  ·  …  /mc`); it was the Neo bracket row (`┃  WORKING …`). The strip's own rows are unchanged.
 test('text form: /mc strip closes the pane, writes ui.strip and the band draws the strip rows with the compact line under them', { options: { look: 'text' } }, async ($, on) => {
   const w = world(on, BUSY)
   await run($, '')
@@ -142,7 +143,7 @@ test('text form: /mc strip closes the pane, writes ui.strip and the band draws t
     expect(rows.some(r => colOf(r, FOCUS.split(' ')[0]!) === 9)).toBe(true)
     expect(colOf(rows[0], 'To do')).toBe(64)
     const line = rows[11]!
-    expect(line.startsWith('┃  WORKING ')).toBe(true)
+    expect(line.startsWith('1 of 3  ·  2 agents')).toBe(true)
     expect(line.length).toBe(110)
   }
 })
@@ -180,6 +181,7 @@ test('plain /mc and /mc 1-5 turn the strip off and open the pane', async ($, on)
 })
 
 // LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+// LOOK TEST (C6): the band's compact line under the strip is the cockpit's one row (`1 of 3  ·  2 agents  ·  …  /mc`); it was the Neo bracket row (`┃  WORKING …`). The strip's own rows are unchanged.
 test('text form: /mc slim and /mc strip do not fight: the last one wins', { options: { look: 'text' } }, async ($, on) => {
   const w = world(on, BUSY)
   await run($, 'slim')
@@ -244,7 +246,7 @@ for (const cols of [150, 110, 96, 80, 62, 40]) {
       expect(rowAt(rows, 'To do')).toBeGreaterThanOrEqual(0)
       for (const r of rows) expect([cols, r.length <= cols]).toEqual([cols, true])
       expect(rows.length <= 20).toBe(true)
-      expect(rows[rows.length - 1]!.startsWith('┃  WORKING ')).toBe(true)
+      expect(rows[rows.length - 1]!.startsWith('1 of 3  ·  2 agents')).toBe(true)
       expect(midWordCuts(rows)).toEqual([])
     }
   })
@@ -267,7 +269,7 @@ test('under 96 the strip stacks: the header, the needs slot, then To do, then th
   expect(rows[0]!.startsWith('┏━━')).toBe(true)
   expect(rows[10]).toContain('✓ Nothing needs you')
   expect(rows[12]!.startsWith('  To do')).toBe(true)
-  expect(rows[rows.length - 1]!.startsWith('┃  WORKING ')).toBe(true)
+  expect(rows[rows.length - 1]!.startsWith('1 of 3  ·  2 agents')).toBe(true)
 })
 
 test('a band shorter than the strip drops whole blocks from the bottom, never past maxRows; the compact line stays', { options: { look: 'text' } }, async ($, on) => {
@@ -276,7 +278,7 @@ test('a band shorter than the strip drops whole blocks from the bottom, never pa
     for (const cols of [80, 110]) {
       const rows = await bandRows($, cols, maxRows)
       expect([maxRows, cols, rows.length <= maxRows]).toEqual([maxRows, cols, true])
-      expect(rows[rows.length - 1]!.startsWith('┃  WORKING ')).toBe(true)
+      expect(rows[rows.length - 1]!.startsWith('1 of 3  ·  2 agents')).toBe(true)
     }
   }
   // Ten rows: the header whole, nothing cut inside it.
@@ -332,9 +334,9 @@ test('a ui-4 value without strip reads false: no shape bump, the band is the nor
   const old = { ...initialUi, tab: 'tasks' } as Partial<UiState>
   delete old.strip
   const w = world(on, BUSY, old)
-  // Pane closed, 110 columns: the normal three-row band.
+  // Pane closed, 110 columns: the normal band, which is two rows now (C6: it was three; the strip's rows would be 12).
   const rows = await bandRows($, 110)
-  expect(rows.length).toBe(3)
+  expect(rows.length).toBe(2)
   await run($, 'strip')
   expect(uiOf(w)).toMatchObject({ tab: 'tasks', strip: true })
 })
@@ -344,6 +346,7 @@ test('the initial ui has strip false', () => {
 })
 
 // LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
+// LOOK TEST (C6): the band's compact line under the strip is the cockpit's one row (`1 of 3  ·  2 agents  ·  …  /mc`); it was the Neo bracket row (`┃  WORKING …`). The strip's own rows are unchanged.
 test('text form: the strip draws even with nothing to say, where the normal band passes', { options: { look: 'text' } }, async ($, on) => {
   world(on, empty, { ...initialUi, strip: true })
   const rows = await bandRows($, 110)

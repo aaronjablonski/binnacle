@@ -79,3 +79,49 @@ test('the real band draws the Svg band on the desktop only, with an alt', async 
     await ui.unmount()
   }
 })
+
+// C6: every form of the band's Svg stays under the limit with an alt, and says what the terminal band says.
+test('the band Svg in every form (working, asked, stopped, idle, a huge session) is under the limit and has an alt', async ($, on) => {
+  const forms: [string, Timeline, RegExp][] = [
+    ['working', busy, /Working on Wiring the limiter/],
+    ['asked', { ...busy, steps: [...busy.steps, { id: 's2', seq: 2, agent: 'main', tool: 'Bash', label: 'Bash rm -rf build', status: 'running', startedAt: NOW - 9000, asking: NOW - 8000 }] }, /Needs you: .*Bash/],
+    ['stopped', { ...busy, steps: [], turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 300_000, endedAt: NOW - 1000, failed: true }] }, /^Stopped: /],
+    ['idle', { ...busy, steps: [], tasks: [{ id: '1', subject: 'one', status: 'completed', owner: 'main', updatedAt: NOW }], turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 300_000, endedAt: NOW - 1000 }] }, /^All 1 done/],
+    ['huge', { ...busy, now: { focus: 'y'.repeat(9000), at: NOW }, steps: [{ id: 's9', seq: 1, agent: 'main', tool: 'Bash', label: `Bash ${'z'.repeat(9000)}`, status: 'running', startedAt: NOW - 9000, asking: NOW - 8000 }] }, /Needs you/],
+  ]
+  let held: Timeline = busy
+  mock.clock(on, { now: NOW })
+  on('ui.log', () => ({ value: undefined }))
+  on('state.get', (_, e) => {
+    const key = (e as { key: string }).key
+    const v = key === 'timeline' ? held : key === 'ui' ? initialUi : undefined
+    return { value: { value: v === undefined ? undefined : { shape: SHAPES[key], value: v }, version: 0 } }
+  })
+  for (const [name, t, alt] of forms) {
+    held = t
+    for (const cols of [60, 120, 300]) {
+      const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: cols }, surface: 'desktop' })
+      const svgs = await ui.findAll({ type: 'Svg' })
+      expect([name, cols, svgs.length]).toEqual([name, cols, 1])
+      const p = svgs[0]!.props as { source: string; alt: string }
+      expect(p.source.length).toBeLessThan(SVG_MAX)
+      expect(p.alt).toMatch(alt)
+      expect(p.source).not.toContain('<animate')
+      expect(await ui.find({ type: 'Button', key: 'band-mc' })).toBeDefined()
+      await ui.unmount()
+    }
+  }
+})
+
+// R32: the desktop's widget placement is the slim view, whatever its width.
+test('the Pane in the desktop widget placement draws the slim view: no tab bar, at any width', async ($, on) => {
+  world(on)
+  const widget = { ...PANE, props: { ...PANE.props, placement: 'widget', bodyColumns: 80 } } as const
+  const ui = await $.ui.mount({ ...widget, surface: 'desktop' })
+  expect(await ui.find({ type: 'Button', key: 'tab-tasks' })).toBe(undefined)
+  expect(await ui.find({ type: 'Button', key: 'tab-options' })).toBe(undefined)
+  await ui.unmount()
+  const dock = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 }, surface: 'desktop' })
+  expect(await dock.find({ type: 'Button', key: 'tab-tasks' })).toBeDefined()
+  await dock.unmount()
+})

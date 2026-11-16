@@ -150,7 +150,7 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
     ...(w.pillColor !== undefined ? { pillColor: w.pillColor } : {}),
     meta: w.meta,
     // Motion sketch 10: on the finish sweep's frames the lead squashes, hops and greys (it rides the sweep's own redraws).
-    critter: critterArgs('lead', w.lead, { ground, motion: ctx.motion === true, ...(leadPose(ctx) !== undefined ? { pose: leadPose(ctx)! } : {}) }),
+    critter: critterArgs('lead', w.lead, { ground, motion: ctx.motion === true, noAsk: view.items.length > 0, ...(leadPose(ctx) !== undefined ? { pose: leadPose(ctx)! } : {}) }),
     kicker: w.kicker,
     title: headline(ctx.t).text,
     ...(headline(ctx.t).isPast === true ? { dimTitle: true } : {}),
@@ -517,7 +517,7 @@ export function agentsSection(
   const ground = ctx.ground ?? 'night'
   const hold = settlingIds(ctx)
   const all = cardAgents(t, hold)
-  const finished = subagents(t).filter(a => a.status === 'done' && !hold.has(a.id)).length
+  let finished = subagents(t).filter(a => a.status === 'done' && !hold.has(a.id)).length
   const openAgents = press(() => openTab($, 'agents'))
   if (o.rest || all.length === 0) {
     if (!o.rest && finished === 0) return []
@@ -591,6 +591,9 @@ export function agentsSection(
   const room = Math.max(1, cards)
   const kept = new Set([...all.filter(a => asking.has(a.id)), ...all.filter(a => !asking.has(a.id))].slice(0, room).map(a => a.id))
   const shown = all.length <= room ? all : all.filter(a => kept.has(a.id))
+  // B-M1: a held (settling) card that is not drawn has nothing to end its hold: it counts as finished, and "more working" counts running agents only.
+  finished += all.filter(a => hold.has(a.id) && !shown.includes(a)).length
+  const more = all.filter(a => a.status === 'running' && !shown.includes(a)).length
   for (const a of shown) {
     const need = asking.get(a.id)
     const state: PodState = a.status === 'error' ? 'failed' : need !== undefined ? 'waiting' : dozing.has(a.id) ? 'stalled' : a.status === 'done' ? 'done' : 'working'
@@ -612,7 +615,7 @@ export function agentsSection(
     out.push(
       agentCard(ctx, $, {
         key,
-        critter: critterOf(a, { state, ground, motion: ctx.motion === true }),
+        critter: critterOf(a, { state, ground, motion: ctx.motion === true, fold: true }),
         name: typeName(a.type),
         job: oneLine(a.description),
         time,
@@ -621,10 +624,10 @@ export function agentsSection(
       }),
     )
   }
-  if (all.length > shown.length) {
+  if (more > 0) {
     out.push(
       <Text key="agents-more" dimColor wrap="truncate-end">
-        {`${' '.repeat(COCKPIT.text)}+ ${all.length - shown.length} more working`}
+        {`${' '.repeat(COCKPIT.text)}+ ${more} more working`}
       </Text>,
     )
   }

@@ -789,18 +789,20 @@ test('B-I1: 50 finishes 1 s apart give one toast by about 30 s, and its count co
     agents: { main, x0: sub('x0', { status: 'done', endedAt: NOW, doing: 'w0' }) },
   }
   const { stored, clock, toasts } = await ticking($, on, t)
-  for (let k = 1; k <= 33; k++) {
+  // Finish k lands at NOW + k s, after the k-th advance. The toast that appears during advance k saw finishes x0..x(k-1): k of them.
+  let at = 0
+  for (let k = 1; k <= 50 && toasts.length === 0; k++) {
     await clock.advance(1000)
+    at = k
+    if (toasts.length > 0) break
     const cur = stored.get('timeline') as Timeline
     stored.set('timeline', { ...cur, agents: { ...cur.agents, ['x' + k]: sub('x' + k, { status: 'done', endedAt: NOW + k * 1000, doing: 'w' + k }) } })
   }
   expect(toasts).toHaveLength(1)
-  const n = Number(toasts[0]!.split(' ')[0])
-  expect(toasts[0]).toMatch(/^\d+ agents finished$/)
-  expect(n).toBeGreaterThanOrEqual(30)
-  // None dropped: every finish that had arrived by the toast is in the toasted set.
-  const toasted = ((stored.get('ui') as { toasted?: string[] } | undefined)?.toasted ?? []).length
-  expect(toasted).toBeGreaterThanOrEqual(n)
+  expect(at).toBeGreaterThanOrEqual(30)
+  expect(at).toBeLessThanOrEqual(36)
+  // None dropped: the count is exactly the finishes that had arrived, the oldest included.
+  expect(toasts[0]).toBe(`${at} agents finished`)
 })
 
 // Controller ruling on concern 4: a held agent-finished toast is never dropped; when the clock is about to stop it goes up at once.

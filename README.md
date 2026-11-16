@@ -8,7 +8,7 @@
 <p align="center">
   <img alt="Claude Code 2.1.325 or newer" src="https://img.shields.io/badge/Claude%20Code-%E2%89%A5%202.1.325-8f9eff">
   <img alt="Status: early, not yet in a marketplace" src="https://img.shields.io/badge/status-early-e3b04b">
-  <img alt="Licence: to be decided" src="https://img.shields.io/badge/licence-TBD-lightgrey">
+  <img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-blue">
 </p>
 
 <p align="center">
@@ -393,5 +393,4 @@ node docs/readme/tools/make.mjs      # redraw the pictures on this page from the
 
 ## Licence
 
-<!-- TODO: licence -->
-To be decided.
+MIT. See [LICENSE](LICENSE).

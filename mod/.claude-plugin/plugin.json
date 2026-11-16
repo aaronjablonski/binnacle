@@ -1,6 +1,7 @@
 {
   "name": "binnacle",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Keeps tasks, agents, a step timeline and artifacts in a pane and band beside the chat.",
   "types": "./types/index.d.ts",
   "userConfig": {

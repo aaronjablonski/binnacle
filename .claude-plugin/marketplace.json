@@ -1,0 +1,11 @@
+{
+  "name": "binnacle-local",
+  "owner": { "name": "local" },
+  "plugins": [
+    {
+      "name": "binnacle",
+      "source": "./mod",
+      "description": "Tasks, agents, every step and what the session produced, in a pane and band beside the chat."
+    }
+  ]
+}

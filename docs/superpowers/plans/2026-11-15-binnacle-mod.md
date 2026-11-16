@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript hooks module loaded directly by Claude Code ≥ 2.1.325 (no build); `claude plugin validate|test`; vitest for the pure model.
 
-**Spec:** `docs/superpowers/specs/2026-11-15-mission-control-mod-design.md` · **Mocks:** https://claude.ai/artifact/L51pHiKbjfBac7eQEVUUnF (sources in `docs/mocks/`)
+**Spec:** `docs/superpowers/specs/2026-11-15-binnacle-mod-design.md` · **Mocks:** https://claude.ai/artifact/L51pHiKbjfBac7eQEVUUnF (sources in `docs/mocks/`)
 
 ## Global Constraints
 
@@ -438,4 +438,240 @@ Behaviour (see `docs/mocks/Artifacts.dc.html`): rows newest first, each a `Butto
 
 ## Findings (filled in by Task 1, added to by Task 4)
 
-_(a)–(k) answers and any "Plan change:" lines go here._
+Probed on Claude Code 2.1.325, Windows 11, main model `--model haiku` (the
+model gave Explore, general-purpose and workflow agents `sonnet`). Evidence is
+in `test/fixtures/probe-*.jsonl` (one line per event, `at` monotonic). Exact
+command lines (Git Bash, from the repo root; `MSYS_NO_PATHCONV=1` stops Git
+Bash rewriting `/mc` into a Windows path):
+
+```sh
+P='{"pluginConfigs":{"mission-control":{"options":{"probe":true}}}}'
+claude -p "Use the Explore agent to count the .json files in this folder, then tell me the number." --plugin-dir ./mod --model haiku --settings "$P"   # probe-subagent (a file with the same JSON was passed)
+claude -p "Create a task list with three tasks named A, B, C, mark A in progress then completed, then stop." --plugin-dir ./mod --model haiku --settings "$P" --tools "Read,Bash,TaskCreate,TaskUpdate,TaskList,TaskGet,TodoWrite"   # probe-tasks
+claude -p "Run a workflow with two agents that each read package.json and report its name field." --plugin-dir ./mod --model haiku --settings "$P"   # probe-workflow (real run, not synthetic)
+claude -p "Use the Explore agent to read README.md and summarise it in one line." --plugin-dir ./mod --model haiku --settings "$P"   # probe-guide
+```
+
+No `--permission-mode` was needed (the user's settings already run `auto`).
+
+**Fixture lines beyond the event input.** `tool.call` and `agent.spawn` lines
+are written before `next(e)` and carry `e` only. Their results are separate
+lines: `tool.result` with `e = { tool, tool_use_id, agentId }` and
+`r` = what `next(e)` resolved to; `agent.spawned` with
+`e = { tool_use_id, parentAgentId }` and `r = { model, agentId }`.
+`turn.start`, `turn.complete` and `session.receive` lines are written after
+`next(e)` and carry `e` and `r`. There is no `tool.result` or `agent.spawned`
+event in the engine: those two names are the probe's own.
+`session.receive` never fired in any run (it is for deliveries such as Remote
+Control and peer messages); a subagent's hand-back reaches the main loop as a
+new main `turn.start` whose `text` begins `<agent-message from="<agentId>">`,
+and a finished workflow as one whose text begins `<task-notification>`.
+
+**(a) Subagent tool calls reach `tool.call` with `agentId`: yes.** In
+probe-subagent the Explore agent's `PowerShell` and `SubagentHandback` calls
+carry `agentId: "a41a5036f06e55d2f"`, the same id `agent.spawned` resolved
+(`r.agentId`). Main-loop calls carry no `agentId` key at all. The subagent's
+own `turn.start`/`turn.complete` carry the same `agentId`. The Agent call can
+run in the foreground (`background: false`; its `tool.result` arrives after
+the subagent's run, `result.status: "completed"`, with
+`result.handbackReport.text`) or in the background (`background: true`;
+`tool.result` comes back at once with `result.status: "async_launched"`, the
+main turn ends, and the subagent's calls arrive afterwards). Both happened
+with the same prompt (probe-subagent is foreground, probe-guide background).
+
+**(b) Workflow agents' tool calls: yes.** In probe-workflow both agents'
+`Read` and `StructuredOutput` calls carry `agentId`
+(`aceff99dd3da32c85`, `a7eba813391b91f8e`). Their `agent.spawn` has
+`subagentType: "workflow-subagent"`, `description: "read:agent-1"`,
+`workflow: { runId: "wf_18950403-0bb", agentIndex: 1 }` (then 2), and
+`tool_use_id` = the `Workflow` call's id, shared by both agents. The
+`Workflow` tool's `tool.result` arrives *before* the agents spawn, with
+`result: { status: "async_launched", taskId, taskType: "local_workflow",
+workflowName, runId, summary, transcriptDir, scriptPath }`.
+
+**(c) Task tools.** A `claude -p` session offers no task tools by default
+(the first tasks run had none and the model answered in text); with
+`--tools` naming them it used `TaskCreate` ×3 then `TaskUpdate` ×2.
+`TodoWrite` was offered and not chosen. `TaskCreate`'s result does carry the
+id: `r.result.task = { id: "1", subject: "Task A", description: "Task A" }`
+(id a string; `r.text` is `"Task #1 created successfully: Task A"`).
+`TaskUpdate`'s result: `{ success: true, taskId: "1", updatedFields:
+["status"], statusChange: { from: "pending", to: "in_progress" } }`.
+
+**(d) `turn.complete` carries the subagent's answer: yes, with one gap.** For
+Explore and general-purpose agents, `e.answer` on the `turn.complete` with
+their `agentId` is the hand-back report (probe-subagent, probe-guide). For
+workflow agents that answer through `StructuredOutput`, `e.answer` is `""`
+(probe-workflow); their result is the input of their `StructuredOutput`
+tool call.
+
+**(e) `e.tool_use_id`** looks like `toolu_01UYdhYZeh3yVfzeBAqZcPDt`:
+`toolu_` plus 24 letters and digits, 30 characters. It was unique per call
+across all 21 `tool.call` lines of the four fixtures, main and agents alike.
+It is not unique per `agent.spawn`: workflow agents share their `Workflow`
+call's id.
+
+**(f) `userConfig` options for a `--plugin-dir` mod** are read from settings
+under `pluginConfigs["mission-control"].options` (the plain plugin name
+worked; the debug log names the plugin `mission-control@inline`). For a
+one-off run, `--settings '<json>'` (inline JSON or a file path) set
+`probe: true` without touching `~/.claude/settings.json`.
+
+**(g) `$.state` size:** 64 KB, 512 KB and 2 MB strings each round-tripped
+(`isSet: true`, read back equal), in a real session and in
+`claude plugin test`. 8 MB was refused: `$.state.set: the value is 8388610
+characters, over the 4194304 limit`. The limit is 4,194,304 characters of
+the value as JSON (4 MiB). The `Timeline` must stay well under this; the
+step bounds alone do not guarantee it if inputs are large, so keep stored
+inputs and labels short.
+
+**(h) `$.fs.write('~/.claude/mission-control/x.json')` succeeds but `~` is
+not expanded**: it created a literal folder named `~` inside the working
+directory (`<cwd>/~/.claude/mission-control/probe-x.json`;
+`$.fs.exists` of the home path said `false`). An absolute path built from
+`await $.env.get('USERPROFILE') ?? await $.env.get('HOME')`
+(`C:\Users\<name>` here; `$.env.get` names must be string literals) wrote
+`<home>/.claude/mission-control/…` fine, creating the folders. Journal paths
+must be built from that, never with `~`.
+
+**(i) The model called the probe tool because the section told it to: yes,**
+in every run (8 of 8 sessions with the section: the four fixtures, a first
+subagent run, a tasks run without task tools, a guide run before README.md
+existed and a general-purpose run), as its first call, with a
+five-word-ish focus (`{"focus": "Counting JSON files in folder"}`), and only
+once per session. Exact shapes that worked:
+`await $.tool.register({ name: 'probe_update', description, inputSchema:
+{ type: 'object', properties: { focus: { type: 'string' } }, required:
+['focus'] }, isDeferred: false })` resolved `{ tool:
+'mcp__mission-control__probe_update' }` (the engine serves it over a local
+MCP HTTP server; registering it from `session.start`, before `next(e)`,
+worked). `on('tool.call', { tool: 'mcp__mission-control__probe_update' },
+() => ({ result: 'ok' }))` answered it; the outer hook saw `{ result: 'ok' }`.
+`prompt.compose`: `(await next(e)).sections` is a list of
+`{ id, text, scope }`; under `-p` the input's `traits` were
+`['lean', 'print', 'skills']` and the ids `lean_body` (shared), then
+`pronouns`, `action_caution`, `user_privacy`, `session_guidance`, `memory`,
+`env_info_simple`, `context_management`, `act_dont_rederive`,
+`heron_brook`, `total_tokens` (session). Returning
+`{ sections: [...sections, { id: 'mission-control:probe', text, scope:
+'session' }] }` was accepted. The hook ran once per main-loop prompt render
+(again when the tool list changed, 237 → 416 tools once MCP servers
+connected).
+
+**(j) Subagents did not see the section and did not call the tool.** No
+`probe_update` call has an `agentId` in any fixture. `prompt.compose` ran
+only for the main loop (every recorded compose has `model:
+claude-haiku-5-5`; none for the Sonnet subagents), confirmed in the debug
+log of the first subagent run (two `prompt.compose settled` lines, both
+main turns) and in an extra foreground general-purpose run (one compose, no
+agent call to the tool). This holds for Explore, general-purpose and
+workflow agents.
+
+**(k) One `tool.call` hook with a `{ tool }` matcher and one without: both
+run, nested in registration order, the first registered outermost.** A
+matcher gives no priority. Pinned by `mod/hooks/hook-order.test.ts`
+(`claude plugin test ./mod`), and seen in the real runs: the probe's plain
+hook (registered first) recorded the `probe_update` call, then the matched
+hook (registered second) answered it beneath, and the plain hook recorded
+its `{ result: 'ok' }`. A hook that answers without `next` hides the call
+from every hook registered after it.
+
+**Other things the engine settled**
+
+- **A module may hook an event only once without a matcher.** `claude plugin
+  validate` refuses `on("session.start") is registered twice without a
+  matcher` (checked for `session.start` and `tool.call`, across files of one
+  module). Hooks with matchers may repeat.
+- **A state contract exports types only.** `export {}` in
+  `mod/types/index.d.ts` fails validate: "a contract exports types and
+  nothing else". The probe's temporary contract was removed again.
+- **Types for `tsc -p mod`.** A plain `claude -p "/mc" --plugin-dir ./mod`
+  printed `mission-control: Mission Control: not built yet.` and laid no
+  types. With `CLAUDE_CODE_PLUGIN_DIR_WATCH=1` set the same run laid
+  `mod/.claude-plugin/types/` *and wrote `mod/tsconfig.json` itself*
+  (`{ "extends": "./.claude-plugin/types/tsconfig.json" }`); that file is
+  committed as written. `tsc -p mod` then passes.
+- **Inline plugins in `claude plugin test`** run as modules of their own:
+  each hook must be a function literal using no outside names.
+- **Tooling.** TypeScript is pinned to `~5.9.3` (npm's `latest` is 7.0.2, a
+  different compiler; the type file asks for 5.4+). vitest is `^5.1.0`
+  because vitest 3 has open critical advisories and `npm install` of vitest
+  4.1.12 crashes npm 10.9.9 (`Cannot read properties of null (reading
+  'edgesOut')`); vitest 5 needs Node ≥ 22.12, so **CI runs Node 22, not 20**.
+  `vitest.config.ts` sets `passWithNoTests` until Task 2 adds tests.
+
+**Plan change: one hook per event per module.** Task 3's capture hooks
+(`tool.call`, `agent.spawn`, `turn.start`, `turn.complete`, all without a
+matcher) clash with the probe's identical hooks in `probe.ts`, and every
+`session.start` the plan adds (Task 3 Step 4, Task 4's tool registration,
+Task 5's auto-open and clock) must live in the one `session.start` hook in
+`register.tsx`, which calls helpers. Suggested: Task 3 folds the probe into
+capture (capture's hooks call a probe recorder when `options.probe`), or
+deletes `probe.ts` once its fixtures exist; `registerGuide` and
+`registerShell` export session-start helpers instead of registering their
+own `session.start`. `prompt.compose` is hooked only by the guide, so it is
+unaffected. Task 3's `tool.call` rule for `UPDATE_TOOL` works as written in
+either order (per (k)); registering the guide's matched hook first would
+make the capture check unnecessary.
+
+**Plan change: subagents never get the guide.** The spec's "Subagents get
+the same section and tool, so their notes land too" does not hold on this
+build: `prompt.compose` is not raised for subagent or workflow-agent system
+prompts (j). Task 4's `a subagent's focus sets its doing` still passes in
+the test kit but will not happen in real use. A subagent's `doing` will come
+only from its step labels and its `turn.complete` answer (empty for
+workflow agents). The way to reach subagents would be rewriting the Agent
+prompt in `agent.spawn` (`next({ ...e, prompt })`), which changes the
+conversation and needs Aaron's decision.
+
+**Plan change (minor): headless runs have no task tools.** Task 4 Step 3's
+three runs count focus updates only, so they are unaffected, but any
+headless check of the task list needs `--tools` naming `TaskCreate`,
+`TaskUpdate` (and the rest it uses).
+
+**Task 4: does the guide get Claude to set a focus?** Three runs of
+`claude -p "Use the Explore agent to read README.md, then tell me in one
+line what this repo is." --model haiku --plugin-dir ./mod` (guide on by
+default), counted in `<home>/.claude/mission-control/<session-id>/timeline.json`:
+
+- With the brief's text, **0 of 3** set `now.focus`. A `--debug-file` run
+  showed the wiring is sound: `$.tool.register` served
+  `mcp__mission-control__update` before the first prompt ("visible after
+  43ms"), and the model, asked, named the tool and the "Mission Control"
+  section. Haiku simply read "whenever what you are working on changes" as
+  optional on a one-shot request.
+- One change to the second bullet, which now reads: "Call
+  mcp__mission-control__update with `focus` (and `next` when you know it)
+  as your first tool call on a new request, and again whenever what you are
+  working on changes. One short line each." With it, **3 of 3** set
+  `now.focus` and `now.next` (e.g. focus "Reading README.md via Explore
+  agent to summarise the repo in one line", next "Report the one-line
+  summary"). One run also added a note ("Explore agent is reading
+  README.md; result pending."), which is status rather than something to
+  find again later. No reply mentioned the panel or the updates.
+- Fix round 1 (review I4): "as your first tool call on a new request" would
+  add an update call, and a second model request, to replies that need no
+  tools. The bullet now reads: "When a request needs tools, include a
+  mcp__mission-control__update call with `focus` (and `next` when you know
+  it) alongside your first tool call(s), and again whenever what you are
+  working on changes; skip it for replies that need no tools. One short
+  line each." The rest of the text is unchanged. First attempt, no further
+  iteration needed, on `--model haiku`, one session at a time:
+  - The same README prompt, three runs: **3 of 3** set `now.focus` and
+    `now.next` (e.g. "Reading README.md via Explore agent to summarise the
+    repo" / "Report one-line description of the repo"). Haiku still sends
+    the update in its own message before the `Agent` call rather than
+    alongside it: one extra round trip on tool-using requests remains.
+  - `claude -p "In one sentence, what does the word idempotent mean?"
+    --model haiku --plugin-dir ./mod`: **no update call** (stream-json shows
+    no tool use at all); `now` is unset.
+  - Each run's `timeline.json` carried `journal` equal to its session id
+    (review I3's stamp, seen live).
+
+**Task 4: `ToolUse` has no `bodyColumns`.** The type file gives
+`bodyColumns` to `Pane`, `AbovePrompt` and `AbovePromptList` only. The
+update tool's row is cut to `e.viewport.columns` (80 when no surface has
+measured). The row and `ToolResult` hooks pass to `next(e)` when
+`isExpanded` is true, as the type file asks of a compact row, so ctrl+o
+still shows the full call. The empty `ToolResult` answer is an empty `Box`
+(the kit accepts it and finds no `Text` in it).

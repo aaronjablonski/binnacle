@@ -1,0 +1,11 @@
+{
+  "//": "Vitest transforms the model code with this file, so CI does not need the engine-generated mod/.claude-plugin/types/ (gitignored).",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true
+  }
+}

@@ -359,8 +359,9 @@ test('sections run Doing now, Up next, Done; each holds its cap at any height: 5
       expect(rows[a]!.trimEnd().endsWith(' 1')).toBe(true)
       expect(rows[q]!.trimEnd().endsWith(' 12')).toBe(true)
       expect(rows[d]!.includes('9  ·  tokens')).toBe(true)
-      // never three blank rows together (a tethered agent's third row and the gap make two, as in the mock)
-      if (surface !== 'terminal') for (let i = 2; i < rows.length; i++) expect(rows[i] === '' && rows[i - 1] === '' && rows[i - 2] === '').toBe(false)
+      // never three blank rows together in the content (a tethered agent's third row and the gap make two, as in the mock); the blank rows that pad down to the kept footer row are not content (M12)
+      const content = rows.slice(0, rows.reduce((last, r, i) => (r.trim() !== '' ? i : last), 0) + 1)
+      if (surface !== 'terminal') for (let i = 2; i < content.length; i++) expect(content[i] === '' && content[i - 1] === '' && content[i - 2] === '').toBe(false)
     }
   }
 })

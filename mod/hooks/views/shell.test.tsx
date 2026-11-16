@@ -258,32 +258,41 @@ const PANE = (columns: number) =>
     },
   }) as const
 
-const TAB_TIERS: [number, number, string[]][] = [
-  [62, 12, ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']],
-  [80, 12, ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']],
-  [55, 7, ['Now', 'Tsk', 'Agt', 'Stp', 'Art']],
-  [40, 7, ['Now', 'Tsk', 'Agt', 'Stp', 'Art']],
-  [38, 7, ['Now', 'Tsk', 'Agt', 'Stp', 'Art']],
-  [34, 5, ['◆', '▣', '◎', '≡', '↗']],
-  [32, 5, ['◆', '▣', '◎', '≡', '↗']],
+// R42 (Fable I11): the mocks' 12-wide cells from 62 columns; from 54 the full names, two spaces between; from 47 the whole short words
+// (Now Tasks Crew Steps Files), two spaces between, from 43 one; icons only below that. The cell widths are each tab's `n: label` plus the gap.
+const FULL = ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']
+const SHORT = ['Now', 'Tasks', 'Crew', 'Steps', 'Files']
+const ICONS = ['◆', '▣', '◎', '≡', '↗']
+const TAB_TIERS: [number, number[], string[]][] = [
+  [62, [12, 12, 12, 12, 12], FULL],
+  [80, [12, 12, 12, 12, 12], FULL],
+  [61, [8, 10, 11, 10, 12], FULL],
+  [54, [8, 10, 11, 10, 12], FULL],
+  [53, [8, 10, 9, 10, 8], SHORT],
+  [47, [8, 10, 9, 10, 8], SHORT],
+  [46, [7, 9, 8, 9, 8], SHORT],
+  [43, [7, 9, 8, 9, 8], SHORT],
+  [42, [5, 5, 5, 5, 5], ICONS],
+  [34, [5, 5, 5, 5, 5], ICONS],
+  [32, [5, 5, 5, 5, 5], ICONS],
 ]
 
-for (const [cols, cell, labels] of TAB_TIERS) {
+for (const [cols, cells, labels] of TAB_TIERS) {
   // BEHAVIOUR CHANGE (task C3b): the track runs under each tab only, as the mocks draw it (it ran on under the closed tabs), and
   // `0: options` is armed but never drawn: it sat on the blank row under the tabs.
-  test(`at ${cols} columns the tabs are one line of ${cell}-column cells from column 2, a track under each tab only, and a blank row; 0 is armed, not drawn`, async ($, on) => {
+  test(`at ${cols} columns the tabs are one line of ${cells[0]}-column cells (${labels.join(' ')}) from column 2, a track under each tab only, and a blank row; 0 is armed, not drawn`, async ($, on) => {
     world(on, empty, { ...initialUi, tab: 'agents' })
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...PANE(cols), surface })
       const rows = screen(await ui.drawn())
       const [tabs, track, gap] = rows
       labels.forEach((label, i) => {
-        expect(colOf(tabs, `${i + 1}: ${label}`)).toBe(2 + i * cell)
+        expect(colOf(tabs, `${i + 1}: ${label}`)).toBe(2 + cells.slice(0, i).reduce((n, w) => n + w, 0))
       })
       expect((tabs ?? '').length <= cols).toBe(true)
       // The track: each tab's own underline as long as its `n: Label`, `━` under the open tab (3: Agents), `─` under the others, spaces between.
       const want = labels.map((label, i) => (i === 2 ? '━' : '─').repeat(`${i + 1}: ${label}`.length))
-      const expected = '  ' + want.map((w, i) => (i === want.length - 1 ? w : w.padEnd(cell))).join('')
+      const expected = '  ' + want.map((w, i) => (i === want.length - 1 ? w : w.padEnd(cells[i]!))).join('')
       expect(track).toBe(expected)
       expect(track).toContain(' ')
       // Nothing is drawn for 0: it is neither on the tab row nor on the row under the track.

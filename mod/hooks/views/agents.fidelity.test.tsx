@@ -139,7 +139,6 @@ test('fidelity: CockpitAgents (list) at 62 columns matches the mock but for the 
     rows[26] = retime(rows[26]!, '7m 44s', '7 min')
     rows[27] = retime(rows[27]!, '1m 52s', '1 min')
   })
-  b.patch('C6 (brief): the footer carries the Options key', rows => void (rows[45] = put(rows[45]!, 51, '0 options')))
   compare('CockpitAgents', b, got, 62)
 })
 
@@ -246,8 +245,8 @@ function relaid(rows: string[], L: Layout): Board {
     const at = r.findIndex(x => x.includes('TOTAL'))
     r[at] = r[at]!.replace('TOTAL', 'Total').replace('812k', '832k')
   })
-  b.patch('R26/R28: the footer keys; r reads "working only", not "running only"; the engine draws the colon of d', r => {
-    r[r.length - 1] = '  ↵ open   d: unfold done   r working only   esc prompt'
+  b.patch('R26/R28 amended: the crew mock draws engine colons (`d: unfold done`, `r: running only`); the footer is plain hints in one notation, and r reads "working only"', r => {
+    r[r.length - 1] = '  ↵ open   d unfold done   r working only   esc prompt'
   })
   return b
 }
@@ -264,6 +263,6 @@ test('fidelity: CrewMapClear (one done task unfolded) at 62 columns matches but 
   world(on, mapSession(), { ...initialUi, tab: 'agents', agentsMode: 'tree', folded: ['open:task:11'] })
   const got = await drawn($, 62, 39)
   const b = relaid(MOCK.CrewMapClearOpen!.rows, { doneFirst: 18, doneLast: 30, children: [19, 20, 21, 22, 23, 24], next: 32 })
-  b.patch('R26: the footer hint of d reads "fold done" while any group is unfolded', r => void (r[r.length - 1] = '  ↵ open   d: fold done   r working only   esc prompt'))
+  b.patch('R26: the footer hint of d reads "fold done" while any group is unfolded', r => void (r[r.length - 1] = '  ↵ open   d fold done   r working only   esc prompt'))
   compare('CrewMapClear (open)', b, got, 62)
 })

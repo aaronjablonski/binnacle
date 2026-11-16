@@ -127,7 +127,7 @@ const focused = (columns: number, placement: 'dock' | 'inline' = 'dock', bodyRow
 async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns: number, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) {
   const m = await $.ui.mount({ ...focused(columns, placement, bodyRows), surface })
   const line = await m.find({ type: 'Button', key: 'now-budget' })
-  await m.press({ key: line !== undefined ? 'now-budget' : 'hint-budget' })
+  await m.press({ key: line !== undefined ? 'now-budget' : 'arm-hint-budget' })
   return m
 }
 
@@ -266,7 +266,7 @@ test('the budget view Agents share grows with the height: 4 and a more line on a
       const n = new Set((await m.findAll({})).flatMap(f => /^budget-agent-(main|a\d+)/.exec(f.key ?? '')?.[1] ?? [])).size
       const more = screen(await m.drawn()).some(r => r.includes('more agents'))
       // The budget view stays open across mounts until b closes it.
-      await m.press({ key: 'hint-back' })
+      await m.press({ key: 'arm-hint-back' })
       await m.unmount()
       return { n, more }
     }

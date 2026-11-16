@@ -563,39 +563,10 @@ export function notesSection(ctx: ViewCtx, $: EngineInterface, n: number, o: { p
 
 // ---------- the footer ----------
 
-/** One footer hint: an engine key or one a row arms, drawn as text (R28: the key in the accent, no colon), or a hotkeyed Button this footer arms. */
-export type FootHint = { key: string; label: string } | { hotkey: string; label: string; id: string; onPress: () => void | Promise<void> }
-
-/** The footer: hints from column 2, three apart, as many as fit. Only while the pane holds the keys. */
-export function footerRow(ctx: ViewCtx, $: EngineInterface, hints: FootHint[]): RenderElement | null {
-  if (ctx.isFocused !== true) return null
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
-  const { left, right } = edges(ctx.cols)
-  const kept: FootHint[] = []
-  let used = left
-  for (const x of hints) {
-    const w = (kept.length > 0 ? 3 : 0) + ('hotkey' in x ? x.hotkey.length + 2 : x.key.length + 1) + x.label.length
-    if (used + w > right + 1) continue
-    kept.push(x)
-    used += w
-  }
-  return (
-    <Box key="footer" flexDirection="row" paddingLeft={left} columnGap={3}>
-      {kept.map(x =>
-        'hotkey' in x ? (
-          <Button key={x.id} hotkey={x.hotkey} plain dimColor onPress={x.onPress}>
-            {x.label}
-          </Button>
-        ) : (
-          <Text key={`hint-${x.key}-${x.label}`}>
-            <Text color={CK.accent}>{x.key}</Text>
-            <Text dimColor>{` ${x.label}`}</Text>
-          </Text>
-        ),
-      )}
-    </Box>
-  )
-}
+// The footer's hint type and row live in tabkit.tsx (R28 amended); re-exported for the views that import them from here.
+import { footerRow, footerSlot } from './tabkit'
+import type { FootHint } from './tabkit'
+export type { FootHint }
 
 /** Now's footer for its state: a need, a Watch row, rest, or busy (the mocks' footers). */
 function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: HeaderState, cols: number): FootHint[] {
@@ -655,7 +626,7 @@ export const WATCH_CAP = 3
 export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   if (isBudgetOpen()) {
-    const bar = footerRow(ctx, $, [
+    const bar = footerSlot(ctx, $, [
       { hotkey: 'b', label: 'back', id: 'hint-back', onPress: () => setBudgetOpen($, false) },
       { hotkey: 'e', label: 'csv', id: 'hint-csv', onPress: () => exportLedger($, ctx.showCost === true) },
       { key: 'esc', label: 'prompt' },
@@ -673,7 +644,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { view, watch, hs, todo } = st
   const rest = isRest(hs)
   const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
-  const bar = footerRow(ctx, $, nowHints($, view, watch, hs, ctx.cols))
+  const bar = footerSlot(ctx, $, nowHints($, view, watch, hs, ctx.cols))
   const footRows = bar !== null ? 2 : 0
 
   const headEl = nowHeader(ctx, $, view, hs, todo)

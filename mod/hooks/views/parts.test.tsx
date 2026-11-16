@@ -6,7 +6,7 @@ import type { UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { meter, pillRun, pips, spark } from './fit'
-import { barCell, blank, deck, fitHints, footer, heightOf, more, opened, pill, readout, row, tableHead, sparkCell, stackCell } from './parts'
+import { barCell, blank, deck, fitHints, footer, heightOf, more, opened, pill, readout, row, section, sparkCell, stackCell } from './parts'
 import type { DeckRow } from './parts'
 import type { ReadoutCell } from './parts'
 import { colOf, screen } from './screen.testkit'
@@ -132,38 +132,6 @@ test('row: one Button keyed by the row, the gutter a sibling Text of width 2; no
     expect((await ui.findAll({ type: 'Button' })).length).toBe(1)
     await ui.unmount()
   }
-})
-
-test('section: accent corner at 0, bold label at 2, dim heads at 38 and 50; NEEDS YOU in warning', async ($, on) => {
-  draws(on, (ctx, $) => (
-    <>
-      {tableHead(ctx, $, 'AGENTS', 'tokens', 'time')}
-      {tableHead(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })}
-    </>
-  ))
-  for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ ...PANE(62), surface })
-    const [a, b] = screen(await ui.drawn())
-    expect(colOf(a, '┌')).toBe(0)
-    expect(colOf(a, 'AGENTS')).toBe(2)
-    expect(colOf(a, 'tokens')).toBe(38)
-    expect(colOf(a, 'time')).toBe(50)
-    expect(colOf(b, 'waiting')).toBe(50)
-    const corners = (await ui.findAll({ type: 'Text', text: /^┌$/ })).map(f => f.props.color)
-    expect(corners).toEqual(['suggestion', 'warning'])
-    expect((await ui.find({ type: 'Text', text: /^AGENTS$/ }))?.props).toMatchObject({ bold: true })
-    expect((await ui.find({ type: 'Text', text: /^NEEDS YOU$/ }))?.props).toMatchObject({ bold: true, color: 'warning' })
-    await ui.unmount()
-  }
-})
-
-test('section: the time head moves to the last cell at 40 and the heads go at 34', async ($, on) => {
-  draws(on, (ctx, $) => tableHead(ctx, $, 'AGENTS', 'tokens', 'time'))
-  const [at40] = await rows($, 'terminal', 40)
-  expect(at40).not.toContain('tokens')
-  expect(colOf(at40, 'time')).toBe(26)
-  const [at34] = await rows($, 'terminal', 34)
-  expect(at34).toBe('┌ AGENTS')
 })
 
 test('opened: dim keys at 6, values at 14, at most 3 lines, then plain hotkeyed actions from 6, 3 apart', async ($, on) => {
@@ -579,7 +547,7 @@ test('heightOf: the rows a built deck, a section and a blank take, as the screen
         { key: 'r1', label: 'ONE', cells: [{ col: DECK.gauge, runs: [{ text: 'a' }] }] },
         { key: 'r2', label: 'TWO', cells: [{ col: DECK.gauge, runs: [{ text: 'b' }] }] },
       ]),
-      tableHead(ctx, $, 'LIST', 'tokens', 'time'),
+      section(ctx, $, 'List', 'tokens   time'),
       blank(ctx, $, 'gap'),
       row(ctx, $, { key: 'x', glyph: '▸', name: 'a row' }),
     ]

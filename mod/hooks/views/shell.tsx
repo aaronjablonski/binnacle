@@ -1,10 +1,10 @@
-import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, RenderInput, RenderNode } from 'claude-code'
+import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, RenderInput } from 'claude-code'
 
 import type { PageKind, Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
 import { agentPage, agentsView } from './agents'
 import { artifactPage, artifactsView } from './artifacts'
-import { detailView, stepPage } from './detail'
+import { stepPage } from './detail'
 import { configureEditor, rememberRoot } from './editor'
 import { exportDigest } from './handoff'
 import { overviewView } from './overview'
@@ -15,8 +15,8 @@ import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, CK, edges, GRID, groundOf, lookAsked, motionOn, TAB_CELL, themeOf, tier } from './style'
-import type { Ground, Look, Tier } from './style'
+import { C, GRID, groundOf, lookAsked, motionOn, themeOf, tier } from './style'
+import type { Ground, Look } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
@@ -26,16 +26,35 @@ import type { Stops } from './ring'
 export const PANE = 'mission-control'
 
 /**
- * The five tabs and their label per tier: `label` from 62 columns, `short`
- * from 38, `icon` from 32. Under 32 (slim) no tab is drawn.
+ * The five tabs and their label per width (R42): `label` (the full names) from
+ * 54 columns, `short` (whole short words) from 43, `icon` from 32. Under 32
+ * (slim) no tab is drawn. A tab is drawn `n: label`, so five full names take 53
+ * columns with two spaces between, and five short words take 42 with one.
  */
 export const TABS: { tab: Tab; label: string; short: string; icon: string; hotkey: string }[] = [
   { tab: 'overview', label: 'Now', short: 'Now', icon: '◆', hotkey: '1' },
-  { tab: 'tasks', label: 'Tasks', short: 'Tsk', icon: '▣', hotkey: '2' },
-  { tab: 'agents', label: 'Agents', short: 'Agt', icon: '◎', hotkey: '3' },
-  { tab: 'timeline', label: 'Steps', short: 'Stp', icon: '≡', hotkey: '4' },
-  { tab: 'artifacts', label: 'Artifacts', short: 'Art', icon: '↗', hotkey: '5' },
+  { tab: 'tasks', label: 'Tasks', short: 'Tasks', icon: '▣', hotkey: '2' },
+  { tab: 'agents', label: 'Agents', short: 'Crew', icon: '◎', hotkey: '3' },
+  { tab: 'timeline', label: 'Steps', short: 'Steps', icon: '≡', hotkey: '4' },
+  { tab: 'artifacts', label: 'Artifacts', short: 'Files', icon: '↗', hotkey: '5' },
 ]
+
+/** How the tab bar is laid out at `cols`: which label each tab shows and the width of one tab's cell (the gap included). */
+export type TabPlan = { form: 'label' | 'short' | 'icon'; cell: (i: number) => number }
+
+/** The mocks' 12-wide cells from 62 columns; from 54 the full names with two spaces between; from 47 the short words with two, from 43 with one; icons below. */
+export function tabPlan(cols: number): TabPlan {
+  const form = cols >= 54 ? 'label' : cols >= 43 ? 'short' : 'icon'
+  if (cols >= 62) return { form, cell: () => 12 }
+  if (form === 'icon') return { form, cell: () => 5 }
+  const gap = cols >= 47 || form === 'label' ? 2 : 1
+  return { form, cell: i => TABS[i]!.hotkey.length + 2 + labelOf(TABS[i]!, form).length + gap }
+}
+
+/** A tab's label in a form. */
+function labelOf(x: (typeof TABS)[number], form: TabPlan['form']): string {
+  return form === 'label' ? x.label : form === 'short' ? x.short : x.icon
+}
 
 /**
  * What a tab draws: the state is read before, so a view is a plain function of
@@ -70,9 +89,12 @@ export type View = (ctx: ViewCtx, $: EngineInterface) => RenderElement
 /** The key of the tab bar's Options Button (`0`): reached, like a tab, by its hotkey and a click. */
 export const OPTIONS_KEY = 'tab-options'
 
-/** Whether `key` is one of the tab bar's Buttons. */
+/** The key prefix of a hidden armed Button (`armKeys`): never a stop the ring lands on. */
+export const ARM_PREFIX = 'arm-'
+
+/** Whether `key` is one of the tab bar's Buttons, or a hidden armed key (the ring treats both as not content). */
 export function isTabKey(key: string): boolean {
-  return key === OPTIONS_KEY || TABS.some(x => key === `tab-${x.tab}`)
+  return key === OPTIONS_KEY || key.startsWith(ARM_PREFIX) || TABS.some(x => key === `tab-${x.tab}`)
 }
 
 /**
@@ -96,11 +118,6 @@ function paneArgs(isFocused: boolean, slim: boolean): PaneOpenArgs {
   const args: PaneOpenArgs = { id: PANE, title: 'Mission Control', columns: slim ? COLUMNS_SLIM : COLUMNS_DOCK, rows: ROWS_INLINE }
   if (isFocused) args.focus = true
   return args
-}
-
-/** The tab's label at a tier. */
-function tabLabel(x: (typeof TABS)[number], t: Exclude<Tier, 'slim'>): string {
-  return t === 'wide' ? x.label : t === 'mid' ? x.short : x.icon
 }
 
 /**
@@ -178,9 +195,9 @@ export function registerShell(on: On, options: PluginOptions): void {
           <Box flexDirection="column">{slim($, e, rest)}</Box>
         ) : (
           <Box flexDirection="column">
-            {tabBar($, e, rest, width)}
+            {tabBar($, e, rest)}
             {tabsGap($, e)}
-            {withFooterOptions($, e, rest, body($, e, rest))}
+            {body($, e, rest)}
           </Box>
         )
       // The ring starts on the first content row: the tab bar is never its start.
@@ -204,21 +221,21 @@ export function registerShell(on: On, options: PluginOptions): void {
  * others dim. Under each tab its own underline, as long as its `n: Label`:
  * `━` in the accent under the open one, `─` in `subtle` under the others,
  * and nothing between them, so the track never runs on under the closed tabs.
- * `0: options` is armed, never drawn (see `optionsArm`).
+ * `0 options` is armed here, never drawn (see `optionsArm`).
  */
-function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<Tier, 'slim'>): RenderElement {
+function tabBar($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
   const { u, cols, showCost } = rest
   const { Box, Text, Button } = $.ui.resolve(e)
-  const cell = TAB_CELL[width]
+  const plan = tabPlan(cols)
   return (
     <Box key="tab-bar" flexDirection="column">
       <Box key="tabs" flexDirection="row">
         <Text>{' '.repeat(GRID.margin)}</Text>
-        {TABS.map(x => {
-          const label = tabLabel(x, width)
+        {TABS.map((x, i) => {
+          const label = labelOf(x, plan.form)
           const isOpen = x.tab === u.tab
           return (
-            <Box key={`tabcell-${x.tab}`} width={cell}>
+            <Box key={`tabcell-${x.tab}`} width={plan.cell(i)}>
               <Button
                 key={`tab-${x.tab}`}
                 hotkey={x.hotkey}
@@ -242,13 +259,13 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<
       <Text key="track" wrap="truncate-end">
         {' '.repeat(GRID.margin)}
         {TABS.map((x, i) => {
-          const span = x.hotkey.length + 2 + tabLabel(x, width).length
+          const span = x.hotkey.length + 2 + labelOf(x, plan.form).length
           const isOpen = x.tab === u.tab
           const last = i === TABS.length - 1
           return (
             <Text key={`track-${x.tab}`} color={isOpen ? C.accent : C.subtle}>
               {(isOpen ? '━' : '─').repeat(span)}
-              {last ? '' : ' '.repeat(Math.max(0, cell - span))}
+              {last ? '' : ' '.repeat(Math.max(0, plan.cell(i) - span))}
             </Text>
           )
         })}
@@ -287,84 +304,25 @@ function tabsGap($: EngineInterface, e: RenderInput): RenderElement {
   return <Text key="tabs-gap">{' '}</Text>
 }
 
-/** The key of the footer's visible Options Button (no hotkey: the hidden `tab-options` arms `0`). */
-export const FOOTER_OPTIONS_KEY = 'footer-options'
-/** The footer's Options hint: `0 options`, nine cells. */
-const FOOTER_OPTIONS_WIDTH = 9
-
-type Node = RenderNode | undefined | null | false
-
-const isEl = (n: Node): n is RenderElement => typeof n === 'object' && n !== null
-const propsOf = (el: RenderElement): Record<string, unknown> => ('props' in el && el.props !== undefined ? (el.props as Record<string, unknown>) : {})
-const kidsOf = (el: RenderElement): Node[] => {
-  const c = (el as { children?: Node[] }).children
-  return Array.isArray(c) ? c : []
-}
-/** A node's text, its children's strings joined. */
-function textOfNode(n: Node): string {
-  if (typeof n === 'string') return n
-  if (typeof n === 'number') return String(n)
-  return isEl(n) ? kidsOf(n).map(textOfNode).join('') : ''
-}
-
-/** The columns a node's text takes on one row (a Button's label when it has no children; a plain hotkeyed Button is drawn `k: label`). */
-function widthOfNode(n: Node): number {
-  if (typeof n === 'string') return n.length
-  if (typeof n === 'number') return String(n).length
-  if (!isEl(n)) return 0
-  const kids = kidsOf(n)
-  const own = kids.length === 0 ? (typeof propsOf(n).label === 'string' ? (propsOf(n).label as string).length : 0) : kids.reduce<number>((w, k) => w + widthOfNode(k), 0)
-  const hotkey = n.type === 'Button' ? propsOf(n).hotkey : undefined
-  return typeof hotkey === 'string' ? own + hotkey.length + 2 : own
-}
-
 /**
- * The Options key drawn where the mocks keep their hints (task C6): the
- * footer's `0 options`, the key in the accent and the word dim (R28), as a
- * plain Button with no hotkey (the engine would draw `0:` on a hotkeyed one)
- * that presses the same toggle as the hidden `tab-options`, which keeps
- * arming `0`. A footer that already says `0 options` as text (Now) has it
- * turned into the Button in place; any other footer takes it at its right
- * end when its hints leave the room (no hint is ever given up for it). Nothing
- * where there is no footer (the pane has not the keys, a page of its own) or
- * on the Options page itself.
+ * The footer's hidden armed keys (R28 amended): `n`, `p` and other keys that
+ * have no visible Button in the body, each a plain Button in a Box of no size
+ * that clips it, so the footer text is the only thing drawn. The one place
+ * these are made (with `optionsArm` for `0`); `footerRow` calls it. Keyed
+ * `arm-<id>`, which the ring treats as not content (`isTabKey`).
  */
-function withFooterOptions($: EngineInterface, e: RenderInput, rest: Drawn, tree: RenderElement): RenderElement {
-  if (pageOf(rest.u)?.kind === 'options') return tree
+export function armKeys($: EngineInterface, e: RenderInput, arms: { id: string; hotkey: string; onPress: () => void | Promise<void> }[]): RenderElement | null {
+  if (arms.length === 0) return null
   const { Box, Text, Button } = $.ui.resolve(e)
-  const isOpen = false
-  const button = (): RenderElement => (
-    <Button key={FOOTER_OPTIONS_KEY} plain onPress={() => toggleOptions($, isOpen)}>
-      <Text color={CK.accent}>{OPTIONS_HOTKEY}</Text>
-      <Text dimColor>{` ${OPTIONS_LABEL}`}</Text>
-    </Button>
+  return (
+    <Box key="footer-arms" width={0} height={0} overflow="hidden">
+      {arms.map(x => (
+        <Button key={`${ARM_PREFIX}${x.id}`} hotkey={x.hotkey} plain onPress={x.onPress}>
+          <Text>{x.hotkey}</Text>
+        </Button>
+      ))}
+    </Box>
   )
-  const { left, right } = edges(rest.cols)
-  let done = false
-  const walk = (n: Node): Node => {
-    if (done || !isEl(n)) return n
-    if (propsOf(n).key === 'footer' && n.type === 'Box') {
-      done = true
-      const kids = kidsOf(n).filter((k): k is RenderNode => k !== null && k !== undefined && k !== false)
-      const at = kids.findIndex(k => isEl(k) && k.type === 'Text' && textOfNode(k) === `${OPTIONS_HOTKEY} ${OPTIONS_LABEL}`)
-      if (at >= 0) return { ...n, children: kids.map((k, i) => (i === at ? button() : k)) } as RenderElement
-      const gap = typeof propsOf(n).columnGap === 'number' ? (propsOf(n).columnGap as number) : 3
-      const used = (list: RenderNode[]): number => left + list.reduce((w, k) => w + widthOfNode(k), 0) + gap * Math.max(0, list.length - 1)
-      const start = right - FOOTER_OPTIONS_WIDTH + 1
-      // A footer already full to the right edge keeps its hints and draws no Options key (the hidden `0` still arms): a hint is never given up for it.
-      if (used(kids) + gap > start) return n
-      const room = start - used(kids) - 2 * gap
-      const out: RenderNode[] = [...kids]
-      if (room > 0) out.push(<Box key="footer-options-gap" width={room} flexShrink={0} />)
-      out.push(button())
-      return { ...n, children: out } as RenderElement
-    }
-    const kids = kidsOf(n)
-    if (kids.length === 0) return n
-    const next = kids.map(walk)
-    return next.some((c, i) => c !== kids[i]) ? ({ ...n, children: next } as RenderElement) : n
-  }
-  return walk(tree) as RenderElement
 }
 
 type Drawn = {
@@ -444,8 +402,6 @@ function body($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement {
     // A detail page replaces the open tab's list until `b` (or a tab) clears it.
     const open = pageOf(rest.u)
     if (open !== undefined) return pageBody($, e, rest, open.kind, open.id)
-    // A step open on the Timeline tab replaces the tab's list.
-    if (rest.u.tab === 'timeline' && rest.u.detail !== undefined) return detailView({ e, ...rest }, $)
     switch (rest.u.tab) {
       case 'overview':
         return overviewView({ e, ...rest }, $)

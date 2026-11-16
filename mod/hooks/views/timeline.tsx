@@ -566,7 +566,8 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     // ---- the footer: only while the pane has the focus
     const openStepRow = u.stepOpen !== undefined ? t.steps.find(s => s.id === u.stepOpen) : undefined
     const nextHint = (label: string): FootHint => ({ hotkey: 'n', label, id: 'hint-n', onPress: walk(1) })
-    const prevHint: FootHint = { hotkey: 'p', label: 'prev', id: 'hint-p', onPress: walk(-1) }
+    // `p` is armed without a hint: the mock's footer has `n next error` and `f find` only.
+    const prevHint: FootHint = { hotkey: 'p', label: 'prev', id: 'hint-p', onPress: walk(-1), hidden: true }
     let hints: FootHint[]
     if (openStepRow !== undefined && targetIds.length === 0) {
       const body = bodyOfOpen(u, openStepRow.id)?.body

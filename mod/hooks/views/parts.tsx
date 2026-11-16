@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { debug, errText } from '../state'
-import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapFull, wrapWords } from './fit'
+import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
 import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, lintel, lintelRoom, PALETTE, sill } from './raster'
@@ -53,56 +53,6 @@ export function glyphLine(
       {indent !== '' ? indent : null}
       {color !== undefined ? <Text color={color}>{glyph}</Text> : <Text dimColor>{glyph}</Text>}
       {bold ? <Text bold>{` ${body}`}</Text> : ` ${body}`}
-    </Text>
-  )
-}
-
-/**
- * Left text and a dim right text on one row, or two rows when they do not fit.
- * @deprecated HUD v1. Use `row`, whose metric and time sit on grid columns.
- */
-export function splitLine(
-  ctx: ViewCtx,
-  $: EngineInterface,
-  glyph: string,
-  color: string | undefined,
-  left: string,
-  right: string,
-  bold = false,
-  indent = '',
-): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const room = ctx.cols - right.length - 1
-  if (right === '') return glyphLine(ctx, $, glyph, color, left, bold, indent)
-  if (room < MIN_SPLIT) {
-    return (
-      <Box flexDirection="column">
-        {glyphLine(ctx, $, glyph, color, left, bold, indent)}
-        <Text dimColor>{wordFit(right, ctx.cols)}</Text>
-      </Box>
-    )
-  }
-  return (
-    <Box flexDirection="row" justifyContent="space-between">
-      {glyphLine({ ...ctx, cols: room }, $, glyph, color, left, bold, indent)}
-      <Text dimColor>{right}</Text>
-    </Box>
-  )
-}
-
-/**
- * A status glyph as a Text: in its colour, or dim when it has none.
- * @deprecated HUD v1. `row` draws the glyph; `runText` draws any styled run.
- */
-export function glyphText(glyph: string, color: string | undefined, e: RenderInput, $: EngineInterface, key?: string): RenderElement {
-  const { Text } = $.ui.resolve(e)
-  return color !== undefined ? (
-    <Text key={key} color={color}>
-      {glyph}
-    </Text>
-  ) : (
-    <Text key={key} dimColor>
-      {glyph}
     </Text>
   )
 }
@@ -280,69 +230,6 @@ export function row(ctx: ViewCtx, $: EngineInterface, r: RowSpec): RenderElement
         </Text>
       )}
     </Box>
-  )
-}
-
-/** Options of `tableHead`. */
-export type SectionOpts = {
-  /** `wait`: the corner and the label in `warning` (NEEDS YOU). Default: the accent corner, a plain bold label. */
-  tone?: 'wait'
-  /** With `onPress`: the whole label row is one plain Button keyed `key`. */
-  key?: string
-  onPress?: () => void | Promise<void>
-}
-
-/**
- * @deprecated Neo section head (`┌` and caps). The cockpit's section is
- * `section(ctx, $, title, sum)`: title, hairline, sum. Kept for the Neo views
- * until wave 2 replaces them.
- *
- * A section label: `┌` at 0 in the accent (or warning), the label bold caps
- * at 2, dim lower-case heads at the metric (38) and time (50) columns of
- * `tableCols`; a head whose column the tier drops is left out. The label is
- * cut by word to end 2 before the first head.
- *
- * @example tableHead(ctx, $, 'AGENTS', 'tokens', 'time')
- * @example tableHead(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })
- */
-export function tableHead(
-  ctx: ViewCtx,
-  $: EngineInterface,
-  label: string,
-  metricHead?: string,
-  timeHead?: string,
-  opts: SectionOpts = {},
-): RenderElement {
-  const { Text, Button } = $.ui.resolve(ctx.e)
-  const cols = ctx.cols
-  const tc = tableCols(cols)
-  const tone = opts.tone === 'wait' ? C.wait : C.accent
-  const heads: (Run & { col: number })[] = []
-  if (metricHead !== undefined && tc.metric !== undefined) {
-    heads.push({ col: tc.metric, text: wordFit(metricHead, cellRoom(cols, tc.metric)), dim: true })
-  }
-  if (timeHead !== undefined && tc.time !== undefined) {
-    heads.push({ col: tc.time, text: wordFit(timeHead, cellRoom(cols, tc.time)), dim: true })
-  }
-  const labelEnd = heads.length > 0 ? (heads[0]?.col ?? cols) - 2 : cols
-  const segs: (Run & { col: number })[] = [
-    { col: COL.gutter, text: '┌', color: tone },
-    { col: COL.glyph, text: wordFit(label, labelEnd - COL.glyph), bold: true, ...(opts.tone === 'wait' ? { color: C.wait } : {}) },
-    ...heads,
-  ]
-  const key = opts.key ?? `sec-${label}`
-  const body = laidOut(segs.filter(s => s.text !== ''), 0, ctx.e, $, `${key}-`)
-  if (opts.onPress !== undefined) {
-    return (
-      <Button key={key} plain onPress={opts.onPress}>
-        {body}
-      </Button>
-    )
-  }
-  return (
-    <Text key={key} wrap="truncate-end">
-      {body}
-    </Text>
   )
 }
 
@@ -857,155 +744,6 @@ export function frameFit(width: number, f: FrameSpec): { pill?: string; right?: 
   return { ...(room.pill && f.pill !== undefined ? { pill: f.pill } : {}), ...(right !== '' ? { right } : {}) }
 }
 
-/**
- * @deprecated Neo Rich. The cockpit's lintel is `frameTopInst` (no pill, no readout).
- *
- * The lintel as an instrument: the Raster `lintel`, and as text `┏` with the
- * pill and the readout, both through `frameFit` so they draw the same pieces.
- */
-export function lintelInst(key: string, width: number, tone: DeckOpts['tone'], f: FrameSpec): InstSpec {
-  const hue = frameHue(tone)
-  const corner = tone === 'warning' ? C.wait : C.live
-  const pillCol = f.pillCol ?? DECK.gauge - 1
-  const clamp = f.clamp ?? 3
-  const got = frameFit(width, { ...f, pillCol, clamp })
-  const text: Run[] = [{ text: '┏', color: corner }]
-  let used = 1
-  if (got.pill !== undefined) {
-    const gap = Math.max(1, pillCol - used)
-    text.push({ text: ' '.repeat(gap) })
-    const pr = pillRun(got.pill, f.pillColor ?? corner)
-    text.push(pr)
-    used += gap + pr.text.length
-  }
-  if (got.right !== undefined) {
-    const r = got.right
-    text.push({ text: ' '.repeat(Math.max(1, width - 1 - used - r.length)) }, { text: r, dim: true })
-  }
-  const pillHue = f.pillHue ?? hue
-  return {
-    key,
-    columns: width,
-    rows: 1,
-    sig: `lintel:${width}:${hue}:${got.pill ?? ''}:${pillHue}:${pillCol}:${clamp}:${got.right ?? ''}:${f.rightAmber === true}`,
-    frames: () => [
-      lintel(width, {
-        hue,
-        pillHue,
-        pillCol,
-        clamp,
-        ...(got.pill !== undefined ? { pill: got.pill } : {}),
-        ...(got.right !== undefined ? { right: got.right, rightHue: f.rightAmber === true ? 'amber' : 'mute' } : {}),
-      }),
-    ],
-    fallback: [text],
-  }
-}
-
-/** @deprecated Neo Rich. The cockpit's sill is `frameFootInst`. The sill as an instrument: the Raster `sill`, and as text a `┗` corner. */
-export function sillInst(key: string, width: number, tone: DeckOpts['tone'], clamp?: number): InstSpec {
-  const hue = frameHue(tone)
-  return {
-    key,
-    columns: width,
-    rows: 1,
-    sig: `sill:${width}:${hue}:${clamp ?? 3}`,
-    frames: () => [sill(width, { hue, ...(clamp !== undefined ? { clamp } : {}) })],
-    fallback: [[{ text: '┗', color: tone === 'warning' ? C.wait : C.live }]],
-  }
-}
-
-/**
- * One rich deck row (spec "Identity: one rule"): a `DeckRow` (label, its text
- * cells, `onPress`) and, in the rich look, `inst` at the gauge column (14) in
- * place of the gauge cell, with `sub` (a second dim line, e.g. `4 live`)
- * under the label when the instrument is two rows tall. The row's own
- * `cells` stay its text form: the text look draws the row exactly as `deck`
- * does. A row with `inst` and no cell at the gauge takes the instrument's
- * first fallback row there in the text look.
- */
-export type RichRow = DeckRow & { inst?: InstSpec; sub?: string | Run[] }
-
-/** Options of `richDeck`: `deck`'s, and what the lintel carries. */
-export type RichDeckOpts = DeckOpts & { frame?: FrameSpec }
-
-/**
- * The rich deck (spec "Frame: the lintel and the sill"). In the rich look:
- * the lintel (one Raster row: clamp, hairline, the pill at the gauge, the
- * readout at the right), then each row as a row Box of
- * `[label: a plain dim Button (with onPress) or Text, at 2][inst at 14][Text cells after]`,
- * then the sill. No sides. The label is the row's only Button, so no Button
- * shares a cell with a Raster. `tone: 'warning'` turns clamps and pill amber.
- *
- * In any other look it is `deck(ctx, $, rows, opts)`, the Neo text form as
- * built (instruments with no gauge cell lend it their first fallback row).
- *
- * @example
- * richDeck(ctx, $, [
- *   { key: 'deck-crew', label: 'CREW', onPress: openAgents, sub: [{ text: '4 live', dim: true }],
- *     inst: { key: 'crew', columns: 30, rows: 2, sig, frames, fallback },
- *     cells: [{ col: DECK.gauge, runs: crewRow(pods), whole: true }] },
- * ], { key: 'now', frame: { pill: 'WORKING', right: 'turn 6 41m' } })
- */
-export function richDeck(ctx: ViewCtx, $: EngineInterface, rows: RichRow[], opts: RichDeckOpts = {}): RenderElement | null {
-  if (rows.length === 0) return null
-  const key = opts.key ?? 'deck'
-  if (ctx.look !== 'rich') {
-    const textRows: DeckRow[] = rows.map(r => {
-      const { inst: spec, sub: _sub, ...row } = r
-      if (spec === undefined || (row.cells ?? []).some(c => c.col === DECK.gauge)) return row
-      return { ...row, cells: [{ col: DECK.gauge, runs: fallbackRows(spec)[0] ?? [], whole: true }, ...(row.cells ?? [])] }
-    })
-    return deck(ctx, $, textRows, opts)
-  }
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
-  const cols = Math.max(DECK.gauge + 2, opts.cols ?? ctx.cols)
-  const labelRoom = DECK.gauge - 2 - DECK.label
-  const drawn = rows.map((r, i) => {
-    const rowKey = r.key ?? `${key}-row-${i}`
-    const spec = r.inst !== undefined && DECK.gauge + r.inst.columns <= cols ? r.inst : undefined
-    const after = spec !== undefined ? DECK.gauge + spec.columns + 1 : DECK.label
-    const cells = deckCells(
-      (r.cells ?? []).filter(c => (spec !== undefined ? c.col >= after : true)),
-      cols,
-      cols,
-    )
-    const segs: (Run & { col: number })[] = []
-    for (const c of cells) segs.push(...c)
-    const label = r.label !== undefined ? (fitRuns(asRuns(r.label, { dim: true }), labelRoom) as Run[]) : []
-    const labelEl =
-      r.onPress !== undefined ? (
-        <Button key={rowKey} plain dimColor onPress={r.onPress} autoFocus={r.autoFocus === true ? true : undefined}>
-          {label.map((l, j) => runText(l, ctx.e, $, `${rowKey}-l${j}`))}
-        </Button>
-      ) : (
-        <Text key={rowKey}>{label.map((l, j) => runText(l, ctx.e, $, `${rowKey}-l${j}`))}</Text>
-      )
-    const sub = r.sub !== undefined && spec !== undefined && spec.rows > 1 ? (fitRuns(asRuns(r.sub, { dim: true }), labelRoom) as Run[]) : []
-    return (
-      <Box key={`${key}-${r.key ?? i}`} flexDirection="row">
-        <Box key={`${rowKey}-label`} flexDirection="column" width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
-          {labelEl}
-          {sub.length > 0 ? <Text key={`${rowKey}-sub`}>{sub.map((l, j) => runText(l, ctx.e, $, `${rowKey}-s${j}`))}</Text> : null}
-        </Box>
-        {spec !== undefined ? inst(ctx, $, spec) : null}
-        {segs.length > 0 ? (
-          <Text key={`${rowKey}-cells`} wrap="truncate-end">
-            {laidOut(segs, spec !== undefined ? DECK.gauge + spec.columns : DECK.gauge, ctx.e, $, `${rowKey}-c`)}
-          </Text>
-        ) : null}
-      </Box>
-    )
-  })
-  return (
-    <Box key={key} flexDirection="column">
-      {inst(ctx, $, lintelInst(`${key}-lintel`, cols, opts.tone, opts.frame ?? {}))}
-      {drawn}
-      {inst(ctx, $, sillInst(`${key}-sill`, cols, opts.tone))}
-    </Box>
-  )
-}
-
 /** One line of the hero: a Text, or a plain Button (the running step, the BUDGET line). `lines: 2` wraps it by word onto two rows (the focus). */
 export type HeroLine = { key?: string; runs: string | Run[]; onPress?: () => void | Promise<void>; lines?: 1 | 2 }
 
@@ -1111,13 +849,65 @@ export type PageSpec = {
   actions?: Action[]
 }
 
+/**
+ * `text` wrapped in full into lines of at most `room` for a page: by word, each
+ * newline kept. A word wider than a line breaks at a `/` (the slash ends the
+ * piece) before it breaks anywhere else, so a path never splits mid-name; only
+ * a piece with no `/` that is longer than `room` is cut at the room. Never `…`.
+ *
+ * @example wrapPage('Edit middleware/rateLimit.ts now', 14) // ['Edit', 'middleware/', 'rateLimit.ts', 'now']
+ */
+export function wrapPage(text: string, room: number): string[] {
+  if (room <= 0 || text.trim() === '') return []
+  const out: string[] = []
+  for (const para of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const words = para.replace(/[\t ]+/g, ' ').trim().split(' ').filter(w => w !== '')
+    if (words.length === 0) {
+      out.push('')
+      continue
+    }
+    let cur = ''
+    for (const word of words) {
+      if (cur !== '' && cur.length + 1 + word.length <= room) {
+        cur = `${cur} ${word}`
+        continue
+      }
+      if (cur !== '') {
+        out.push(cur)
+        cur = ''
+      }
+      if (word.length <= room) {
+        cur = word
+        continue
+      }
+      let acc = ''
+      for (let piece of word.match(/[^/]*\/|[^/]+/g) ?? []) {
+        while (piece.length > room) {
+          if (acc !== '') out.push(acc)
+          acc = ''
+          out.push(piece.slice(0, room))
+          piece = piece.slice(room)
+        }
+        if (acc.length + piece.length <= room) acc += piece
+        else {
+          out.push(acc)
+          acc = piece
+        }
+      }
+      cur = acc
+    }
+    if (cur !== '') out.push(cur)
+  }
+  return out
+}
+
 /** A string, or runs, as whole lines of at most `room`: runs that fit stay one line; longer ones wrap as plain text. Never `…`. */
 function fullLines(v: string | Run[], room: number, style: Omit<Run, 'text'> = {}): Run[][] {
   const runs = asRuns(v, style)
   const joined = runs.map(r => r.text).join('')
   if (joined.length <= room && !joined.includes('\n')) return [runs]
   const { text: _text, ...first } = runs[0] ?? { text: '' }
-  return wrapFull(joined, room).map(t => [{ ...first, text: t }])
+  return wrapPage(joined, room).map(t => [{ ...first, text: t }])
 }
 
 /** The actions as rows of hotkeyed Buttons from column 2, three columns apart, wrapping to more rows rather than dropping any. */
@@ -1144,7 +934,7 @@ const sentenceCase = (s: string): string => (s === '' ? '' : s[0]!.toUpperCase()
 /**
  * A detail page (spec "Detail pages"; binding rule 4; cockpit palette, section
  * heads and plain words): replaces the tab's list while `ui.page` is set.
- * Nothing on it is cut: every value and block wraps in full (`wrapFull`, so no
+ * Nothing on it is cut: every value and block wraps in full (`wrapPage`, so no
  * line ends in `…`), a list draws every row and the pane scrolls. A page holds
  * no Raster of its own for a critter: its text form (a state glyph, the type)
  * is what a block draws. Top to bottom:
@@ -1237,7 +1027,7 @@ export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderEleme
     const sum = [b.heads?.metric, b.heads?.time].filter((x): x is string => x !== undefined && x !== '').join('   ')
     out.push(section(ctx, $, b.label, sum === '' ? undefined : sum, { key: `${p.key}-${b.key}-sec` }))
     if (b.text !== undefined) {
-      wrapFull(b.text, cols - COL.name - left).forEach((t, i) => out.push(lineText(`${p.key}-${b.key}-t${i}`, COL.name, [{ text: t }])))
+      wrapPage(b.text, cols - COL.name - left).forEach((t, i) => out.push(lineText(`${p.key}-${b.key}-t${i}`, COL.name, [{ text: t }])))
     }
     for (const r of b.rows ?? []) out.push(row(ctx, $, r))
     ;(b.lines ?? []).forEach((l, i) => {

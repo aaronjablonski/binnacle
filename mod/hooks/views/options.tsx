@@ -15,12 +15,9 @@ import type { ConfigValue, EngineInterface, PluginOptions, RenderElement } from 
 import { debug, errText } from '../state'
 import { nameFit, wordFit } from './fit'
 import { closePage, openPage } from './pagenav'
-import { richDeck, runText, tableHead } from './parts'
-import type { InstSpec } from './parts'
-import { drawBars, drawBeads, drawSprite, drawStack, Grid } from './raster'
-import type { Hue } from './raster'
+import { frameFootInst, frameTopInst, inst, runText, section } from './parts'
 import type { ViewCtx } from './shell'
-import { C, spriteOf } from './style'
+import { C, critterArgs, edges, GRID } from './style'
 import type { Run } from './style'
 
 /** The hotkey that opens and closes Options (the tab bar's Button). */
@@ -28,7 +25,7 @@ export const OPTIONS_HOTKEY = '0'
 
 const PLUGIN = 'mission-control'
 
-type Section = 'LOOK' | 'SIGNALS' | 'BUDGET' | 'START' | 'MORE'
+type Section = 'Look' | 'Signals' | 'Budget' | 'Start' | 'More'
 type Kind = 'boolean' | 'choice' | 'number' | 'text'
 
 /** What the card knows of a field: its words, its section, when a change applies, and how it changes. */
@@ -45,40 +42,32 @@ type Field = {
   offAtZero?: boolean
 }
 
-/** The accent's choices (R7, plan D5): the Raster hue, and its theme key for Text. */
-const ACCENTS: Record<string, { hue: Hue; key: string }> = {
-  iris: { hue: 'iris', key: 'suggestion' },
-  ember: { hue: 'ember', key: 'claude' },
-  mint: { hue: 'mint', key: 'success' },
-  orchid: { hue: 'orchid', key: 'merged' },
-}
-
 /**
  * The fields the card knows, in its order. A field the manifest declares
- * and this list lacks is still drawn, under MORE, its kind from its value.
+ * and this list lacks is still drawn, under More, its kind from its value.
  * `accent` is drawn as coming until the manifest declares it.
  */
 const FIELDS: readonly Field[] = [
-  { field: 'look', label: 'Look', section: 'LOOK', applies: 'now', kind: 'choice', choices: ['auto', 'rich', 'text'] },
+  { field: 'look', label: 'Look', section: 'Look', applies: 'now', kind: 'choice', choices: ['auto', 'rich', 'text'] },
   // Declared in the manifest (C2) with R35's choices; it takes effect with C7, so the card says coming.
-  { field: 'accent', label: 'Accent', section: 'LOOK', applies: 'coming', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
-  { field: 'notify', label: 'Notify', section: 'SIGNALS', applies: 'now', kind: 'choice', choices: ['off', 'waits', 'done', 'all'] },
-  { field: 'doneSound', label: 'Done sound', section: 'SIGNALS', applies: 'now', kind: 'boolean' },
+  { field: 'accent', label: 'Accent', section: 'Look', applies: 'coming', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
+  { field: 'notify', label: 'Notify', section: 'Signals', applies: 'now', kind: 'choice', choices: ['off', 'waits', 'done', 'all'] },
+  { field: 'doneSound', label: 'Done sound', section: 'Signals', applies: 'now', kind: 'boolean' },
   {
-    field: 'agentLimitMin', label: 'Agent time limit', section: 'SIGNALS', applies: 'now',
+    field: 'agentLimitMin', label: 'Agent time limit', section: 'Signals', applies: 'now',
     kind: 'number', step: 5, max: 600, unit: 'm', offAtZero: true,
   },
   {
-    field: 'turnLimitMin', label: 'Turn time limit', section: 'SIGNALS', applies: 'now',
+    field: 'turnLimitMin', label: 'Turn time limit', section: 'Signals', applies: 'now',
     kind: 'number', step: 5, max: 600, unit: 'm', offAtZero: true,
   },
-  { field: 'showCost', label: 'Show cost', section: 'BUDGET', applies: 'now', kind: 'boolean' },
-  { field: 'autoOpen', label: 'Open at start', section: 'START', applies: 'next start', kind: 'boolean' },
-  { field: 'guide', label: 'Guide Claude', section: 'START', applies: 'new thread', kind: 'boolean' },
-  { field: 'editor', label: 'Editor', section: 'START', applies: 'now', kind: 'text' },
+  { field: 'showCost', label: 'Show cost', section: 'Budget', applies: 'now', kind: 'boolean' },
+  { field: 'autoOpen', label: 'Open at start', section: 'Start', applies: 'next start', kind: 'boolean' },
+  { field: 'guide', label: 'Guide Claude', section: 'Start', applies: 'new thread', kind: 'boolean' },
+  { field: 'editor', label: 'Editor', section: 'Start', applies: 'now', kind: 'text' },
 ]
 
-const SECTIONS: readonly Section[] = ['LOOK', 'SIGNALS', 'BUDGET', 'START', 'MORE']
+const SECTIONS: readonly Section[] = ['Look', 'Signals', 'Budget', 'Start', 'More']
 
 /** What the mod will not offer, whatever is asked (the distillation's anti-goals). */
 export const NEVER: readonly string[] = [
@@ -122,7 +111,7 @@ export function fieldsShown(): Field[] {
   for (const [field, v] of Object.entries(given)) {
     if (FIELDS.some(f => f.field === field)) continue
     const kind: Kind = typeof v === 'boolean' ? 'boolean' : typeof v === 'number' ? 'number' : 'text'
-    out.push({ field, label: field, section: 'MORE', applies: 'now', kind, step: 1 })
+    out.push({ field, label: field, section: 'More', applies: 'now', kind, step: 1 })
   }
   return out
 }
@@ -216,64 +205,39 @@ export async function toggleOptions($: EngineInterface, isOpen: boolean): Promis
 
 // ---------- drawing ----------
 
-/** The accent the preview draws in: the option when declared and known, else iris. */
-function accentOf(): { name: string; hue: Hue; key: string } {
+/** The accent the page names: the option when declared, else iris. */
+function accentName(): string {
   const v = valueOf('accent')
-  const name = typeof v === 'string' && v in ACCENTS ? v : 'iris'
-  const a = ACCENTS[name]!
-  return { name, ...a }
+  return typeof v === 'string' && v !== '' ? v : 'iris'
 }
 
-const PREVIEW_TRACE = [2, 3, 5, 3, 6, 7, 5, 3, 2, 4, 6, 5, 3, 2]
-const SPARK = '▁▂▃▄▅▆▇█'
-
 /**
- * The PREVIEW instrument (mock `RichOptions`): three small characters, a
- * bead meter, a trace, a stack and the accent's name, 44 x 3; it redraws in
- * the chosen accent at once. Its text form: hulls, `▮▯` beads, a sparkline.
+ * The preview: the three critters the cockpit draws (the lead, a scout that
+ * works and a builder that waits), each five cells wide with its role word,
+ * and the accent's name in the accent. Text form on a surface with no Raster.
  */
-function previewInst(now: number): InstSpec {
-  const a = accentOf()
-  const crew = [
-    spriteOf({ id: 'main', type: 'main', status: 'running' }, now, 'working', 'S'),
-    spriteOf({ id: 'p1', type: 'Explore', status: 'running' }, now, 'working', 'S'),
-    spriteOf({ id: 'p2', type: 'general-purpose', status: 'running' }, now, 'waiting', 'S'),
-  ]
-  const hulls: Run[] = []
-  for (const s of crew) hulls.push(...s.fallback[0]!.filter(r => r.text.trim() !== ''), { text: ' ' })
-  const used = hulls.reduce((n, r) => n + r.text.length, 0)
-  const max = Math.max(...PREVIEW_TRACE)
-  const spark = PREVIEW_TRACE.map(v => SPARK[Math.min(7, Math.round((v / max) * 7))]).join('')
-  return {
-    key: 'opt-preview',
-    columns: 44,
-    rows: 3,
-    sig: `preview:${a.name}`,
-    frames: () => {
-      const g = new Grid(44, 3)
-      drawSprite(g, 0, 0, 'lead', 'working', 'S')
-      drawSprite(g, 6, 0, 'scout', 'working', 'S')
-      drawSprite(g, 12, 0, 'build', 'waiting', 'S')
-      drawBeads(g, 19, 0, 14, 37, a.hue)
-      drawBars(g, 19, 1, 2, PREVIEW_TRACE, () => a.hue)
-      drawStack(g, 34, 0, 10, [[71, 'orchid'], [29, 'rest']])
-      g.word(34, 2, a.name, a.hue)
-      return [g]
-    },
-    fallback: [
-      [
-        ...hulls,
-        { text: ' '.repeat(Math.max(1, 19 - used)) },
-        { text: '▮▮▮', color: a.key },
-        { text: '▯▯▯▯', color: C.subtle },
-        { text: '   ' },
-        { text: '■■■■■■■', color: C.model },
-        { text: '■■■', color: C.subtle },
-      ],
-      [{ text: ' '.repeat(19) }, { text: spark, color: a.key }],
-      [{ text: ' '.repeat(34) }, { text: a.name, color: a.key }],
-    ],
-  }
+function previewRow(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const { left } = edges(ctx.cols)
+  const ground = ctx.ground ?? 'night'
+  const crew = [critterArgs('lead', 'working', { ground }), critterArgs('scout', 'working', { ground }), critterArgs('build', 'waiting', { ground })]
+  return (
+    <Box key="opt-preview" flexDirection="row" paddingLeft={left}>
+      {crew.map((c, i) => (
+        <Box key={`opt-critter-${i}`} width={9} flexShrink={0}>
+          {inst(ctx, $, { key: `opt-critter-${i}-inst`, ...c })}
+        </Box>
+      ))}
+      <Box key="opt-accent" flexDirection="column" flexShrink={0}>
+        <Text key="opt-accent-name" color={C.accent} bold>
+          {accentName()}
+        </Text>
+        <Text key="opt-accent-note" dimColor>
+          the accent
+        </Text>
+      </Box>
+    </Box>
+  )
 }
 
 /** Where a row's parts start at `cols`: the name at 4, the value at 38, when it applies at 50 (from 62 columns). */
@@ -396,24 +360,36 @@ function numberPicks(ctx: ViewCtx, $: EngineInterface, f: Field): RenderElement 
 }
 
 /**
- * The Options page: the PREVIEW deck, then LOOK, SIGNALS, BUDGET, START
- * (and MORE for a field it does not know), each option one row Button;
- * `NEVER`; the keys. `open` is the field whose choices are opened under its
- * row ('' for none). Nothing here writes: only a press does.
+ * The Options page (R38, the cockpit look of the other pages): the frame's
+ * top, a bold title with its readout, the preview, the frame's foot; then a
+ * sentence-case section head for Look, Signals, Budget, Start (and More for a
+ * field it does not know), each option one row Button; Never; the keys.
+ * `open` is the field whose choices are opened under its row ('' for none).
+ * Nothing here writes: only a press does.
  */
 export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cols = Math.max(24, ctx.cols)
+  const { left, right } = edges(cols)
+  const ground = ctx.ground ?? 'night'
   const out: RenderElement[] = []
-  const deck = richDeck(ctx, $, [{ key: 'opt-preview-row', label: 'PREVIEW', inst: previewInst(ctx.now) }], {
-    key: 'opt-deck',
-    frame: { pill: 'OPTIONS', right: `${OPTIONS_HOTKEY} close` },
-  })
-  if (deck !== null) out.push(deck)
+  out.push(inst(ctx, $, frameTopInst('opt-lintel', cols, 'iris', ground)))
+  const readout = 'changes apply as noted'
+  const room = right - left + 1
+  out.push(
+    <Text key="opt-title">
+      {' '.repeat(left)}
+      <Text bold>Options</Text>
+      {room >= 'Options'.length + readout.length + 3 ? <Text dimColor>{`${' '.repeat(room - 'Options'.length - readout.length)}${readout}`}</Text> : null}
+    </Text>,
+  )
+  out.push(previewRow(ctx, $))
+  out.push(inst(ctx, $, frameFootInst('opt-sill', cols, 'iris', ground)))
   const shown = fieldsShown()
   for (const name of SECTIONS) {
     const fields = shown.filter(f => f.section === name)
     const rows: RenderElement[] = []
-    if (name === 'LOOK') {
+    if (name === 'Look') {
       // Without the option declared, the row only says what this surface draws.
       if (!('look' in given)) rows.push(infoRow(ctx, $, 'opt-look', 'Look', ctx.look ?? 'text', 'this surface'))
       if (!('accent' in given)) rows.push(infoRow(ctx, $, 'opt-accent', 'Accent', 'iris', 'coming'))
@@ -426,23 +402,23 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
     }
     if (rows.length === 0) continue
     out.push(<Text key={`opt-gap-${name}`}>{' '}</Text>)
-    out.push(<Box key={`opt-sec-${name}`}>{tableHead(ctx, $, name, 'value', 'applies')}</Box>)
+    out.push(section(ctx, $, name, undefined, { key: `opt-sec-${name}` }))
     out.push(...rows)
   }
   out.push(<Text key="opt-gap-never">{' '}</Text>)
-  out.push(<Box key="opt-sec-never">{tableHead(ctx, $, 'NEVER')}</Box>)
+  out.push(section(ctx, $, 'Never', undefined, { key: 'opt-sec-never' }))
   NEVER.forEach((line, i) => {
     out.push(
       <Text key={`opt-never-${i}`} dimColor>
-        {`    ${line}`}
+        {`    ${wordFit(line, Math.max(1, cols - 4 - GRID.margin))}`}
       </Text>,
     )
   })
   out.push(<Text key="opt-gap-keys">{' '}</Text>)
   out.push(
     <Box key="opt-keys" flexDirection="row">
-      <Text dimColor>{'  ↵ change   '}</Text>
-      <Button key="opt-back" hotkey="b" plain onPress={() => closePage($)}>
+      <Text dimColor>{`${' '.repeat(left)}↵ change   `}</Text>
+      <Button key="opt-back" hotkey="b" plain dimColor onPress={() => closePage($)}>
         back
       </Button>
     </Box>,

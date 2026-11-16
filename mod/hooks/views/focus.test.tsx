@@ -119,7 +119,9 @@ function move($: Engine, element: string | undefined, by: 'person' | 'plugin' = 
   return ($.ui.focus as unknown as (e: UiFocusInput) => Promise<UiFocusResult>)(e)
 }
 
-const contentOf = (order: string[]): string[] => order.filter(k => !TAB_KEYS.includes(k))
+// The footer's hidden armed keys (`arm-…`, shell.tsx `armKeys`) are not content: the ring skips them like the tabs.
+const isArm = (k: string): boolean => k.startsWith('arm-')
+const contentOf = (order: string[]): string[] => order.filter(k => !TAB_KEYS.includes(k) && !isArm(k))
 
 // ---------- the ring starts in the content ----------
 
@@ -153,7 +155,7 @@ test('an empty session still starts the ring in the content, on every tab', asyn
     const ui = await mount($)
     const r = await ring(ui)
     expect(r.start).toBe(contentOf(r.buttons)[0])
-    expect(r.start === undefined || !TAB_KEYS.includes(r.start)).toBe(true)
+    expect(r.start === undefined || (!TAB_KEYS.includes(r.start) && !isArm(r.start))).toBe(true)
     await ui.unmount()
   }
 })
@@ -335,11 +337,11 @@ for (const cols of [62, 50, 40, 32, 28]) {
     u: initialUi,
     cols,
     before: async ui => {
-      if (await ui.find({ key: 'hint-budget' })) await ui.press({ key: 'hint-budget' })
+      if (await ui.find({ key: 'arm-hint-budget' })) await ui.press({ key: 'arm-hint-budget' })
     },
     // The budget view is the module's own flag: close it so the next case draws Now.
     after: async ui => {
-      if (await ui.find({ key: 'hint-back' })) await ui.press({ key: 'hint-back' })
+      if (await ui.find({ key: 'arm-hint-back' })) await ui.press({ key: 'arm-hint-back' })
     },
   })
 }

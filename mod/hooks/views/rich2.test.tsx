@@ -342,7 +342,7 @@ test('the lintel readout is left out where it would touch the pill: the budget v
   world(on, waitingT({ cache: { at: NOW - 60_000 } }))
   for (const cols of [32, 38, 44]) {
     const ui = await mount($, cols, 40)
-    await ui.press({ key: cols < 40 ? 'hint-budget' : 'now-budget' }).catch(() => undefined)
+    await ui.press({ key: cols < 40 ? 'arm-hint-budget' : 'now-budget' }).catch(() => undefined)
     const rows = screen(await ui.drawn())
     expect(rows.join('\n')).not.toMatch(/This tab failed|Failed:|mixes/)
     await ui.unmount()

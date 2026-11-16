@@ -362,41 +362,6 @@ function plan(x: number, base: number, width: number, hmax: number, cols: PlanFi
     .join('')
 }
 
-/** The step trace: a filled line over the buckets, errors as red dots. */
-function trace(x: number, base: number, w: number, h: number, vals: number[], errorAt: number[]): string {
-  if (vals.length < 2) return ''
-  const max = Math.max(1, ...vals)
-  const pts = vals.map((v, i) => [x + (i * w) / (vals.length - 1), base - (v / max) * h] as const)
-  const line = pts.map((p, i) => `${i > 0 ? 'L' : 'M'}${num(p[0])} ${num(p[1])}`).join(' ')
-  let o = `<path d="${line} L ${num(x + w)} ${num(base)} L ${num(x)} ${num(base)} Z" fill="${ink('iris')}" opacity="0.16"></path>`
-  o += `<path d="${line}" fill="none" stroke="${ink('iris')}" stroke-width="1.6"></path>`
-  for (const i of errorAt) {
-    const p = pts[i]
-    if (p === undefined) continue
-    o += `<circle cx="${num(p[0])}" cy="${num(p[1])}" r="3" fill="${ink('red')}"><title>an error</title></circle>`
-  }
-  return o
-}
-
-/** The cache stack: read, written and fresh input as three rounded runs. */
-function cacheStack(x: number, y: number, w: number, c: NonNullable<DeckModel['cache']>): string {
-  const total = Math.max(1, c.read + c.write + c.fresh)
-  let o = ''
-  let at = x
-  const parts: [number, keyof Palette, string][] = [
-    [c.read, 'iris', 'read from the cache'],
-    [c.write, 'irisSoft', 'written to the cache'],
-    [c.fresh, 'mute', 'sent fresh'],
-  ]
-  for (const [n, hue, what] of parts) {
-    if (n <= 0) continue
-    const pw = Math.max(4, (n / total) * w - 2)
-    o += `<rect class="h" x="${num(at)}" y="${num(y)}" width="${num(pw)}" height="8" rx="4" fill="${ink(hue)}"><title>${tokens(n)} tokens ${what}</title></rect>`
-    at += pw + 2
-  }
-  return o
-}
-
 function badgePill(x: number, y: number, word: string, hue: keyof Palette): string {
   return (
     `<rect x="${num(x)}" y="${num(y)}" width="58" height="18" rx="9" fill="none" stroke="${ink(hue)}"></rect>` +
@@ -421,9 +386,10 @@ const deckWidth = (cols: number): number => Math.max(340, Math.min(640, Math.rou
 
 /**
  * Now's deck as one Svg (R32): the frame and pill, the lead's critter, the
- * focus over two lines, the running step, up to three gauge rings; then Next,
- * Agents (critters, working and failed), To do (the plan strip), Steps (the
- * trace, errors) and Cache, each only when it has something to show.
+ * focus over two lines, the running step, up to three gauge rings; then
+ * Agents (critters, and a count of the failed) and To do (the plan strip),
+ * each only when it has something to show. No Next, no "n live", no Steps
+ * trace with its error count and no Cache row (the cockpit removed them, R26).
  */
 export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): string {
   const m = deckModel(t, u, now)
@@ -431,16 +397,11 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): 
   const L = 22
   const C = 84
   const V = W - 106
-  const A = W - 60
   const hasRings = m.rings.length > 0
   // The hero's text ends 10 px before the leftmost ring (radius 19, 52 apart, the last at W - 36).
   const heroRight = hasRings ? W - 36 - 52 * (m.rings.length - 1) - 19 - 10 : W - 20
   const rows: string[] = []
   let y = 162
-  if (m.next !== undefined) {
-    rows.push(label(L, y, 'Next') + text(C, y, cutTo(m.next, W - C - 20, 12.5)))
-    y += 42
-  }
   if (m.crew.length > 0) {
     let o = label(L, y, 'Agents')
     const room = Math.max(1, Math.floor((V - 12 - C) / 42))
@@ -450,8 +411,7 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): 
     })
     const more = m.more + m.crew.length - shown.length
     if (more > 0) o += text(C + shown.length * 42, y, `+${more}`, { fill: DIM })
-    o += badgePill(V, y - 16, `${m.live} live`, 'iris')
-    if (m.failed > 0) o += badgePill(V, y + 6, `${m.failed} failed`, 'red')
+    if (m.failed > 0) o += badgePill(V, y - 8, `${m.failed} failed`, 'red')
     rows.push(o)
     y += 48
   }
@@ -462,22 +422,6 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): 
         text(V, y, `${m.tasks.done}/${m.tasks.total}`, { bold: true }),
     )
     y += 44
-  }
-  if (m.steps.count > 0) {
-    let o = label(L, y, 'Steps') + trace(C, y + 6, V - 20 - C, 24, m.steps.trace, m.steps.errorAt)
-    o += text(V, y, String(m.steps.count), { bold: true })
-    if (m.steps.errors > 0) o += text(A, y, `${m.steps.errors} error${m.steps.errors === 1 ? '' : 's'}`, { fill: ink('red') })
-    rows.push(o)
-    y += 42
-  }
-  if (m.cache !== undefined) {
-    let o = label(L, y, 'Cache') + cacheStack(C, y - 9, V - 20 - C, m.cache) + text(V, y, `${m.cache.readPct}% read`, { bold: true })
-    if (m.cache.warm !== undefined) {
-      o += text(C, y + 20, m.cache.warm, { size: 11, fill: DIM })
-      y += 20
-    }
-    rows.push(o)
-    y += 42
   }
   const H = rows.length > 0 ? y - 14 : 150
   let s = open(W, H) + accents(W, H, m.pill.hue)
@@ -621,11 +565,8 @@ export function nowDeckAlt(t: Timeline, u: UiState, now: number): string {
   const parts = [`Now: ${m.pill.word}. ${m.focus}.`]
   if (m.step !== undefined) parts.push(`Running: ${m.step.label}, ${m.step.age}.`)
   if (m.rings.length > 0) parts.push(`${ringsSaid(m)}.`)
-  if (m.next !== undefined) parts.push(`Next: ${m.next}.`)
-  if (m.crew.length > 0) parts.push(`${m.live} agents live, ${m.failed} failed.`)
+  if (m.crew.length > 0) parts.push(`${m.live} agents working, ${m.failed} failed.`)
   if (m.tasks.total > 0) parts.push(`${m.tasks.done} of ${m.tasks.total} tasks done.`)
-  if (m.steps.count > 0) parts.push(`${m.steps.count} steps, ${m.steps.errors} errors.`)
-  if (m.cache !== undefined) parts.push(`Cache ${m.cache.readPct}% read.`)
   return parts.join(' ').slice(0, MAX_ALT)
 }
 

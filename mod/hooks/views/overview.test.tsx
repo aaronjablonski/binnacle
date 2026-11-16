@@ -129,14 +129,20 @@ test('the Artifacts tab keeps the tab row', async ($, on) => {
   }
 })
 
-test('the tab labels shorten below 62 columns and turn to icons below 38', async ($, on) => {
+test('the tab names are whole from 54 columns, whole short words from 43 and icons below that (R42)', async ($, on) => {
   seed(on, empty)
   for (const surface of SURFACES) {
     const wide = await mount($, surface, 62)
     expect((await wide.find({ key: 'tab-tasks' }))?.text).toBe('Tasks')
     await wide.unmount()
-    const mid = await mount($, surface, 40)
-    expect((await mid.find({ key: 'tab-tasks' }))?.text).toBe('Tsk')
+    const full = await mount($, surface, 54)
+    expect((await full.find({ key: 'tab-agents' }))?.text).toBe('Agents')
+    expect((await full.find({ key: 'tab-artifacts' }))?.text).toBe('Artifacts')
+    await full.unmount()
+    const mid = await mount($, surface, 46)
+    expect((await mid.find({ key: 'tab-tasks' }))?.text).toBe('Tasks')
+    expect((await mid.find({ key: 'tab-agents' }))?.text).toBe('Crew')
+    expect((await mid.find({ key: 'tab-artifacts' }))?.text).toBe('Files')
     await mid.unmount()
     const icon = await mount($, surface, 34)
     expect((await icon.find({ key: 'tab-tasks' }))?.text).toBe('▣')

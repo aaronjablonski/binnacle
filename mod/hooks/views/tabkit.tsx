@@ -2,15 +2,13 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import { lineOf } from './crewnode'
 import type { Seg } from './crewnode'
-import { footerRow } from './overview'
-import type { FootHint } from './overview'
 import { blank, heightOf, runText } from './parts'
 import type { Action, Detail, Run } from './parts'
-import { TAB_ROWS } from './shell'
+import { armKeys, TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
 import { STEP_GLYPH } from './agentmeta'
 import { shortPaths, wordFit } from './fit'
-import { edges } from './style'
+import { CK, edges } from './style'
 
 // The parts the Tasks, Steps and Artifacts tabs share (cockpit spec
 // "CockpitTasks", "CockpitSteps", "CockpitArtifacts"): figures flush right at
@@ -133,13 +131,70 @@ export function openedBlock(ctx: ViewCtx, $: EngineInterface, o: OpenedSpec): Re
 }
 
 /**
+ * One footer hint, drawn as text (R28 amended: the key in the accent, the word
+ * dim, no colon, as the mocks draw them). A hint with an `id` and `onPress`
+ * also arms its key: a hidden Button in the footer (shell.tsx `armKeys`), for
+ * the keys with no visible Button in the body. `hidden` arms without drawing.
+ */
+export type FootHint = { key: string; label: string } | { hotkey: string; label: string; id: string; onPress: () => void | Promise<void>; hidden?: boolean }
+
+/**
+ * The footer: hints from column 2, three apart, as many as fit. Null unless the
+ * pane holds the keys (slim and the strip have no row to keep; the tabs use
+ * `footerSlot`).
+ */
+export function footerRow(ctx: ViewCtx, $: EngineInterface, hints: FootHint[]): RenderElement | null {
+  if (ctx.isFocused !== true) return null
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const kept: FootHint[] = []
+  let used = left
+  for (const x of hints) {
+    if ('hidden' in x && x.hidden === true) continue
+    const w = (kept.length > 0 ? 3 : 0) + ('hotkey' in x ? x.hotkey.length : x.key.length) + 1 + x.label.length
+    if (used + w > right + 1) continue
+    kept.push(x)
+    used += w
+  }
+  const arms = hints.flatMap(x => ('hotkey' in x ? [{ id: x.id, hotkey: x.hotkey, onPress: x.onPress }] : []))
+  return (
+    <Box key="footer" flexDirection="row" paddingLeft={left} columnGap={3}>
+      {kept.map(x => {
+        const k = 'hotkey' in x ? x.hotkey : x.key
+        return (
+          <Text key={`hint-${k}-${x.label}`}>
+            <Text color={CK.accent}>{k}</Text>
+            <Text dimColor>{` ${x.label}`}</Text>
+          </Text>
+        )
+      })}
+      {armKeys($, ctx.e, arms)}
+    </Box>
+  )
+}
+
+/**
+ * The footer row of a tab: the hints while the pane holds the keys, else a
+ * blank row, so the height does not change with focus (Fable round 2 M12).
+ */
+export function footerSlot(ctx: ViewCtx, $: EngineInterface, hints: FootHint[]): RenderElement {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  return (
+    footerRow(ctx, $, hints) ?? (
+      <Box key="footer" flexDirection="row">
+        <Text>{' '}</Text>
+      </Box>
+    )
+  )
+}
+
+/**
  * The tab's rows, then blanks down to the last row, then the footer: as the
  * mocks put it. With no footer (the pane does not hold the keys) the rows
  * stand alone.
  */
 export function withFooter(ctx: ViewCtx, $: EngineInterface, out: RenderElement[], hints: FootHint[]): RenderElement[] {
-  const foot = footerRow(ctx, $, hints)
-  if (foot === null) return out
+  const foot = footerSlot(ctx, $, hints)
   const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
   const used = out.reduce((n, el) => n + heightOf(el), 0)
   const pad = Math.max(1, rows - 1 - used)
@@ -148,12 +203,6 @@ export function withFooter(ctx: ViewCtx, $: EngineInterface, out: RenderElement[
   filled.push(foot)
   return filled
 }
-
-/** A Text row from segments, not pressable. */
-export function plainRow(ctx: ViewCtx, $: EngineInterface, key: string, body: Seg[]): RenderElement {
-  return lineOf(ctx, $, { key, body })
-}
-
 
 /** A name that may hold paths: whole while it fits `room`, else its paths shortened (`…/file.ts`), then cut at a word. */
 export function pathFit(text: string, room: number): string {

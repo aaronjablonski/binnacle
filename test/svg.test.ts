@@ -70,8 +70,12 @@ test('the deck Svg shows the model\'s values as text and titles', () => {
   const s = nowDeckSvg(busy(), u, NOW, 62)
   expect(s.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true)
   expect(s.endsWith('</svg>')).toBe(true)
-  for (const want of ['WORKING', 'Wiring the limiter', 'Edit rateLimit.ts', '>Next<', 'Run the upload tests on staging', '2/4', '>4<', '2 errors', '2 live', '1 failed', '78% read']) {
+  for (const want of ['WORKING', 'Wiring the limiter', 'Edit rateLimit.ts', '2/4', '1 failed']) {
     expect(s).toContain(want)
+  }
+  // R26 / review I-4: the cockpit removed Next, "n live", the Steps trace with its error count and the Cache row.
+  for (const gone of ['>Next<', 'Run the upload tests on staging', ' live', ' errors', '% read', '>Steps<', '>Cache<']) {
+    expect(s).not.toContain(gone)
   }
   expect(s).toContain('<title>CTX: 9% used</title>')
   expect(s).toContain('<title>5H: 78% used</title>')
@@ -168,7 +172,8 @@ test('the alts say the deck and the band in words', () => {
   expect(a).toContain('Wiring the limiter into the middleware chain')
   expect(a).toContain('2 of 4 tasks done')
   expect(a).toContain('CTX 9%')
-  expect(a).toContain('4 steps, 2 errors')
+  expect(a).toContain('2 agents working, 1 failed')
+  expect(a).not.toMatch(/live|Next:|steps, d+ errors|Cache/)
   expect(bandAlt(busy(), u, NOW)).toContain('Working on Wiring the limiter into the middleware chain')
   expect(bandAlt(busy(), u, NOW)).toContain('2 of 4 done')
   expect(nowDeckAlt(empty, u, NOW).length).toBeGreaterThan(0)

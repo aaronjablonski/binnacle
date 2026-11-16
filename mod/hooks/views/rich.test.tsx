@@ -216,7 +216,6 @@ test('page never ends a line in … and wraps long text in full, at 62 and 40 co
     page(ctx, $, {
       key: 'p',
       frame: { pill: 'WORKING', right: 'agent 3 of 6' },
-      who: { key: 'p-who', ...spriteOf(lead, NOW) },
       title: 'write rate limit tests for the upload handler and every one of its callers',
       body: LONG,
       fields: [

@@ -96,8 +96,8 @@ const VIEWS: { name: string; tab: UiState['tab']; rows: ($: Engine) => Promise<s
   { name: 'band (one row)', tab: 'overview', rows: $ => bandRows($, 62), shows: rows => rows.some(r => r.includes('▲')) },
 ]
 
-// LOOK TEST (edited for Rich): the ? is a glyph of the text form (a hull's suffix or a gutter flag); on Now, Agents and the three-row band the rich form draws it in a character, so those are read in the text form here (the rich band is tested in band.test.tsx, the rich Now in rich2.test.tsx).
-const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (two rows)' || view.name === 'Agents' ? { options: { look: 'text' } } : {})
+// LOOK TEST (edited for Rich, and for the cockpit Tasks: its tethered micro critters are Rasters on the terminal, so Tasks is read in the text form too): the ? is a glyph of the text form (a hull's suffix or a gutter flag); on Now, Agents and the three-row band the rich form draws it in a character, so those are read in the text form here (the rich band is tested in band.test.tsx, the rich Now in rich2.test.tsx).
+const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (two rows)' || view.name === 'Agents' || view.name === 'Tasks' ? { options: { look: 'text' } } : {})
 
 for (const view of VIEWS) {
   test(`a waiting agent shows ? on ${view.name}`, LOOK(view), async ($, on) => {

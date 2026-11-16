@@ -261,7 +261,7 @@ function changeOf(input: Record<string, unknown>): string {
   return ''
 }
 
-const PILL: Record<Step['status'], string> = { error: 'FAILED', running: 'RUNNING', done: 'OK', denied: 'DENIED', interrupted: 'STOPPED' }
+const PILL: Record<Step['status'], string> = { error: 'FAILED', running: 'RUNNING', done: 'DONE', denied: 'DENIED', interrupted: 'STOPPED' }
 
 type PageLines = { text: string; color?: string; dim?: boolean }[][]
 
@@ -295,13 +295,13 @@ export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
   const blocks: PageBlock[] = []
   if (input !== undefined) {
     const text = clean(JSON.stringify(input, null, 2) ?? '')
-    blocks.push({ key: 'input', label: 'INPUT', lines: chunked(text, room).map(l => [{ text: l }]) })
+    blocks.push({ key: 'input', label: 'Input', lines: chunked(text, room).map(l => [{ text: l }]) })
   }
   const change = input !== undefined ? changeOf(input) : ''
   if (change !== '') {
     blocks.push({
       key: 'change',
-      label: 'CHANGE',
+      label: 'Change',
       lines: chunked(change, room).map(l => [l.startsWith('+') ? { text: l, color: C.result } : l.startsWith('-') ? { text: l, color: C.fail } : { text: l, dim: true }]),
     })
   }
@@ -310,7 +310,7 @@ export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
     const lines: PageLines = chunked(text, room).map(l => [{ text: l }])
     if (text === '') lines.push([{ text: '(empty)', dim: true }])
     if (body.cut > 0) lines.push([{ text: `${body.cut} more characters were not kept.`, dim: true }])
-    blocks.push({ key: 'result', label: 'RESULT', ...(body.isError ? { heads: { metric: 'error' } } : {}), lines })
+    blocks.push({ key: 'result', label: 'Result', ...(body.isError ? { heads: { metric: 'error' } } : {}), lines })
   } else {
     const note =
       s.status === 'running' ? 'No result yet: the step is still running.' : got?.missing === true ? 'Result not kept on disk.' : 'Reading the result.'
@@ -336,7 +336,7 @@ export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
       if (nameOf(f) !== f.path) for (const l of chunked(f.path, room)) lines.push([{ text: l, dim: true }])
     }
     if (files.some(f => f.image)) lines.push([{ text: "An image opens in your editor's image preview.", dim: true }])
-    blocks.push({ key: 'files', label: 'FILES', heads: { metric: 'open', time: 'line' }, rows, ...(lines.length > 0 ? { lines } : {}) })
+    blocks.push({ key: 'files', label: 'Files', heads: { metric: 'open', time: 'line' }, rows, ...(lines.length > 0 ? { lines } : {}) })
   }
 
   const actions: Action[] = []
@@ -363,11 +363,11 @@ export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
     frame: { pill: PILL[s.status], ...(s.status === 'error' ? { pillColor: C.fail } : {}), right: `step ${at + 1} of ${order.length}` },
     title: s.label,
     fields: [
-      { label: 'TOOL', value: [{ text: s.tool, bold: true }] },
-      { label: 'AGENT', value: who },
-      { label: 'STATUS', value: [{ text: word, ...(status !== undefined ? { color: status } : {}) }] },
-      { label: 'TIME', value: `${clock(s.startedAt, true)} · ${elapsed(s.startedAt, end)}` },
-      ...(s.pin !== undefined ? [{ label: 'KEPT', value: s.pin === '' ? '★' : `★ ${s.pin}` }] : []),
+      { label: 'Tool', value: [{ text: s.tool, bold: true }] },
+      { label: 'Agent', value: who },
+      { label: 'Status', value: [{ text: word, ...(status !== undefined ? { color: status } : {}) }] },
+      { label: 'Time', value: `${clock(s.startedAt, true)} · ${elapsed(s.startedAt, end)}` },
+      ...(s.pin !== undefined ? [{ label: 'Kept', value: s.pin === '' ? '★' : `★ ${s.pin}` }] : []),
     ],
     blocks,
     actions,

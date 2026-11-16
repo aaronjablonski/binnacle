@@ -230,26 +230,6 @@ const bodyFile = (id: string, text: string): [string, string] => [
   JSON.stringify({ input: { file_path: 'a.ts' }, text, cut: 0, isError: false }),
 ]
 
-test('the Timeline has a find Input bound to ui.query; typing filters live', async ($, on) => {
-  const stored = world(on, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
-  for (const surface of SURFACES) {
-    put(stored, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
-    const ui = await mount($, surface)
-    expect(await ui.find({ key: FIND_KEY })).toBeDefined()
-    await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'rateLimit', kind: 'change', surface })
-    expect((stored.get('ui') as UiState).query).toBe('rateLimit')
-    await ui.unmount()
-    const filtered = await mount($, surface)
-    expect(await filtered.find({ key: 'step-s3' })).toBeDefined()
-    expect(await filtered.find({ key: 'step-s4' })).toBeUndefined()
-    expect(await filtered.find({ key: 'step-s1' })).toBeUndefined()
-    const found = (await drawnRows(filtered))
-    expect(colOf(found[0], '1 hit')).toBe(38)
-    expect(colOf(found[0], 'of 4')).toBe(50)
-    await filtered.unmount()
-  }
-})
-
 test('the query narrows by agent type and pin note too, and combines with a chip', async ($, on) => {
   const t = pinned()
   const stored = world(on, t, { ...TL_UI, openTurns: ['t1'], query: 'explore' })
@@ -366,163 +346,10 @@ const fileFor = (id: string, text: string, extra: Record<string, unknown> = {}):
 const TAB_ROWS = 3
 const drawnRows = async (ui: { drawn: () => Promise<unknown> }): Promise<string[]> => screen(await ui.drawn()).slice(TAB_ROWS)
 
-// LOOK TEST (rewritten for Neo Rich): replaces "at 62: the FIND and SHOW deck, then the turn section and its rows sit on the grid"
-// (the bracket now holds FIND, SHOW and the two-row MAP, so the turn section starts two rows lower).
-test('at 62: the FIND, SHOW and MAP deck, then the turn section and its rows sit on the grid', async ($, on) => {
-  world(on, twoTurns(), TL_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const rows = await drawnRows(ui)
-    // FIND (top bracket): label 2, f: type to search at 14, the step count at 38, the errors at 50, the rail on 61.
-    expect(rows[0]?.startsWith('┏ FIND')).toBe(true)
-    expect(colOf(rows[0], 'f: type to search')).toBe(14)
-    expect(colOf(rows[0], '4 steps')).toBe(38)
-    expect(colOf(rows[0], '✖ 1 error')).toBe(50)
-    expect(rows[0]?.length).toBe(62)
-    expect(rows[0]?.endsWith('┓')).toBe(true)
-    // SHOW (middle of the bracket): the chips on cells 14, 26 and 38; the chosen one, All, is a pill (one space each side).
-    expect(rows[1]?.startsWith('┃ SHOW')).toBe(true)
-    expect(colOf(rows[1], ' All 4 ')).toBe(14)
-    expect(colOf(rows[1], 'Errors 1')).toBe(26)
-    expect(rows[1]).not.toContain('Kept')
-    expect(rows[1]).not.toContain('In view')
-    expect(rows[1]?.length).toBe(62)
-    expect(rows[1]?.endsWith('┃')).toBe(true)
-    // MAP: the label on the first of its two rows, the bracket closing under it and at the right edge.
-    expect(rows[2]?.startsWith('┃ MAP')).toBe(true)
-    expect(rows[2]?.endsWith('┃')).toBe(true)
-    expect(rows[3]?.startsWith('┗')).toBe(true)
-    expect(rows[3]?.endsWith('┛')).toBe(true)
-    expect(rows[2]?.length).toBe(62)
-    expect(rows[3]?.length).toBe(62)
-    // In the text form the MAP is 44 cells of eighth blocks at 14.
-    if (surface !== 'terminal') expect(rows[3]?.slice(14, 58)).toMatch(/^[▁▂▃▄▅▆▇█]{44}$/)
-    expect(rows[4]).toBe('')
-    expect(rows[5]?.startsWith('┌ ')).toBe(true)
-    expect(colOf(rows[5], '“add rate limiting”')).toBe(2)
-    expect(colOf(rows[5], 'agent')).toBe(38)
-    expect(colOf(rows[5], 'time')).toBe(50)
-    // s4 (newest): glyph 2, tool 4, name 10, metric 38, time 50.
-    expect(colOf(rows[6], '✖')).toBe(2)
-    expect(colOf(rows[6], 'Bash')).toBe(4)
-    expect(colOf(rows[6], 'npm test')).toBe(10)
-    expect(colOf(rows[6], 'main')).toBe(38)
-    expect(colOf(rows[6], '1s')).toBe(50)
-    expect(colOf(rows[7], 'rateLimit.ts')).toBe(10)
-    for (const r of rows) expect(r.length <= 62).toBe(true)
-    await ui.unmount()
-  }
-})
-
-test('the chosen chip is a pill: backgroundColor in the accent, inverseText, bold; the others are plain dim text', async ($, on) => {
-  world(on, twoTurns(), { ...TL_UI, filter: { kind: 'errors' } })
-  const ui = await mount($, 'terminal')
-  const found = await ui.findAll({ type: 'Text' })
-  const pillProps = propsOf(found.find(x => x.text === ' Errors 1 '))
-  expect(pillProps.backgroundColor).toBe('suggestion')
-  expect(pillProps.color).toBe('inverseText')
-  expect(pillProps.bold).toBe(true)
-  expect(propsOf(found.find(x => x.text === 'All')).dimColor).toBe(true)
-  expect(propsOf(found.find(x => x.text === 'All')).backgroundColor).toBeUndefined()
-  await ui.unmount()
-})
-
-test('EARLIER TURNS lists each older turn on one row: steps at 38, start time at 50', async ($, on) => {
-  world(on, twoTurns(), TL_UI)
-  const ui = await mount($, 'terminal', 62)
-  const rows = await drawnRows(ui)
-  const at = rows.findIndex(r => r.includes('EARLIER TURNS'))
-  expect(at > 0).toBe(true)
-  expect(rows[at - 1]).toBe('')
-  expect(colOf(rows[at], 'EARLIER TURNS')).toBe(2)
-  expect(colOf(rows[at], 'steps')).toBe(38)
-  expect(colOf(rows[at], 'at')).toBe(50)
-  const r = rows[at + 1]
-  expect(colOf(r, '›')).toBe(2)
-  expect(colOf(r, '“what does the upload')).toBe(4)
-  expect(colOf(r, '2')).toBe(38)
-  expect(/\d\d:\d\d/.test(r?.slice(50) ?? '')).toBe(true)
-  expect(await ui.find({ key: 'step-s1' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('pressing an EARLIER TURNS row opens that turn as a section; pressing its label closes it', async ($, on) => {
-  const stored = world(on, twoTurns(), TL_UI)
-  for (const surface of SURFACES) {
-    put(stored, twoTurns(), TL_UI)
-    const ui = await mount($, surface)
-    await ui.press({ key: 'turn-t1' })
-    expect((stored.get('ui') as UiState).openTurns).toEqual(['t1'])
-    await ui.unmount()
-    const opened = await mount($, surface)
-    const rows = await drawnRows(opened)
-    expect(rows.some(r => r.includes('EARLIER TURNS'))).toBe(false)
-    expect(rows.some(r => r.startsWith('┌ “what does the upload'))).toBe(true)
-    expect(await opened.find({ key: 'step-s1' })).toBeDefined()
-    await opened.press({ key: 'turn-t1' })
-    expect((stored.get('ui') as UiState).openTurns).toEqual([])
-    await opened.unmount()
-    const closed = await mount($, surface)
-    expect(await closed.find({ key: 'step-s1' })).toBeUndefined()
-    await closed.unmount()
-  }
-})
-
 function manySteps(n: number): Timeline {
   const steps = Array.from({ length: n }, (_, i) => step(`m${i}`, i + 1, `Edit file${i}.ts`, 'done', { turnId: 't1' }))
   return { ...empty, turns: [turn('t1', 'big job', NOW - 60_000)], steps }
 }
-
-// BEHAVIOUR CHANGE (binding rule 2): a turn was capped at 5 rows; it now grows with the pane's height, never below 5.
-test('a turn grows with the height: 5 rows and "+ n more in this turn" on a short pane, more at 24 and 36, every step at 50; pressing it shows them all', async ($, on) => {
-  const stored = world(on, manySteps(30), TL_UI)
-  for (const surface of SURFACES) {
-    const at = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
-      put(stored, manySteps(30), TL_UI)
-      const ui = await mount($, surface, 62, bodyRows)
-      const rows = await drawnRows(ui)
-      await ui.unmount()
-      return { n: rows.filter(r => r.includes('Edit')).length, more: rows.find(r => r.includes('more in this turn')) }
-    }
-    const tiny = await at(10)
-    expect(tiny).toEqual({ n: 5, more: '  + 25 more in this turn' })
-    const short = await at(24)
-    const mid = await at(36)
-    expect(short.n).toBeGreaterThan(5)
-    expect(mid.n).toBeGreaterThan(short.n)
-    expect(await at(50)).toEqual({ n: 30, more: undefined })
-    put(stored, manySteps(30), TL_UI)
-    const ui = await mount($, surface, 62, 10)
-    expect(await ui.find({ key: 'step-m29' })).toBeDefined()
-    expect(await ui.find({ key: 'step-m2' })).toBeUndefined()
-    await ui.press({ key: 'more-t1' })
-    expect((stored.get('ui') as UiState).openTurns).toEqual(['all:t1'])
-    await ui.unmount()
-    const all = await mount($, surface, 62, 10)
-    // Unfolded: the next step after the five shows (the 10-row window draws only the rows near it).
-    expect(await all.find({ key: 'step-m24' })).toBeDefined()
-    expect((await drawnRows(all)).some(r => r.includes('more in this turn'))).toBe(false)
-    await all.unmount()
-  }
-})
-
-// BEHAVIOUR CHANGE (binding rule 2): EARLIER TURNS was capped at 6; it now grows with the pane's height, never below 6.
-test('EARLIER TURNS grows with the height: 6 and "+ n more turns" on a short pane, every turn at 50', async ($, on) => {
-  const turns = Array.from({ length: 15 }, (_, i) => turn(`t${i}`, `job ${i}`, NOW - (20 - i) * 60_000))
-  const steps = turns.map((x, i) => step(`s${i}`, i + 1, `Read f${i}.ts`, 'done', { turnId: x.id, tool: 'Read' }))
-  const stored = world(on, { ...empty, turns, steps }, TL_UI)
-  const at = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
-    put(stored, { ...empty, turns, steps }, TL_UI)
-    const ui = await mount($, 'vscode', 62, bodyRows)
-    const n = (await ui.findAll({ type: 'Button' })).filter(b => /^turn-/.test(b.key ?? '')).length
-    const rows = await drawnRows(ui)
-    await ui.unmount()
-    return { n, more: rows.find(r => r.includes('more turns')) }
-  }
-  expect(await at(12)).toEqual({ n: 6, more: '  + 8 more turns' })
-  expect((await at(30)).n).toBeGreaterThan(6)
-  expect(await at(50)).toEqual({ n: 14, more: undefined })
-})
 
 test('2,000 steps in an expanded turn draw fewer than 200 Buttons', async ($, on) => {
   world(on, manySteps(2000), { ...TL_UI, openTurns: ['all:t1'] })
@@ -534,26 +361,6 @@ test('2,000 steps in an expanded turn draw fewer than 200 Buttons', async ($, on
     expect(await ui.find({ key: 'step-m0' })).toBeUndefined()
     await ui.unmount()
   }
-})
-
-// LOOK TEST (edited for Neo): the chips are now on cells 14, 26, 38 of the SHOW row.
-test('the Kept chip counts kept steps (was Pinned) on the second cell; Errors moves to the third', async ($, on) => {
-  const kept: Timeline = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's3' ? { ...s, pin: 'the limiter' } : s)) }
-  const stored = world(on, kept, TL_UI)
-  const ui = await mount($, 'terminal')
-  const rows = await drawnRows(ui)
-  expect(colOf(rows[1], 'Kept 1')).toBe(26)
-  expect(colOf(rows[1], 'Errors 1')).toBe(38)
-  expect(rows.join('\n')).not.toContain('Pinned')
-  await ui.press({ key: 'filter-pinned' })
-  expect((stored.get('ui') as UiState).filter).toEqual({ kind: 'pinned' })
-  await ui.unmount()
-  const filtered = await mount($, 'terminal')
-  expect(await filtered.find({ key: 'step-s3' })).toBeDefined()
-  expect(await filtered.find({ key: 'step-s4' })).toBeUndefined()
-  // A kept step draws ★ where its glyph goes.
-  expect(colOf((await drawnRows(filtered)).find(r => r.includes('rateLimit.ts')), '★')).toBe(2)
-  await filtered.unmount()
 })
 
 test('the Errors filter shows only error steps; a chip at zero is hidden unless it is the open filter', async ($, on) => {
@@ -578,43 +385,6 @@ test('the Errors filter shows only error steps; a chip at zero is hidden unless 
   await open.unmount()
 })
 
-// LOOK TEST (rewritten for Neo): replaces "the active chip is accent and bold; the others are dim" (the chosen chip is now a pill).
-test('an idle chip is dim with its error count in error; the chosen All is the pill', async ($, on) => {
-  world(on, twoTurns(), TL_UI)
-  const idle = await mount($, 'terminal')
-  const texts_ = await idle.findAll({ type: 'Text' })
-  expect(propsOf(texts_.find(x => x.text === ' All 4 ')).backgroundColor).toBe('suggestion')
-  expect(propsOf(texts_.find(x => x.text === 'Errors')).dimColor).toBe(true)
-  expect(propsOf(texts_.find(x => x.text === '1' && propsOf(x).color === 'error')).color).toBe('error')
-  await idle.unmount()
-})
-
-test('step glyphs: error in the error colour, running in the accent, done calm (dim)', async ($, on) => {
-  const t = twoTurns()
-  t.steps.push(step('s5', 5, 'Edit live.ts', 'running', { turnId: 't2' }))
-  world(on, t, TL_UI)
-  const ui = await mount($, 'terminal')
-  const found = await ui.findAll({ type: 'Text' })
-  expect(propsOf(found.find(f => f.text === '✖')).color).toBe('error')
-  expect(propsOf(found.find(f => f.text === '·')).color).toBe('suggestion')
-  const done = propsOf(found.find(f => f.text === '✔'))
-  expect(done.color).toBeUndefined()
-  expect(done.dimColor).toBe(true)
-  await ui.unmount()
-})
-
-test('a query underlines its hits in the step names', async ($, on) => {
-  world(on, twoTurns(), { ...TL_UI, query: 'rateLimit' })
-  const ui = await mount($, 'terminal')
-  const hit = (await ui.findAll({ type: 'Text' })).find(f => f.text === 'rateLimit')
-  expect((hit?.props as { underline?: boolean } | undefined)?.underline).toBe(true)
-  const rows = await drawnRows(ui)
-  expect(colOf(rows[0], '/')).toBe(14)
-  expect(colOf(rows[0], '1 hit')).toBe(38)
-  expect(colOf(rows[0], 'of 4')).toBe(50)
-  await ui.unmount()
-})
-
 test('f: Find is on the find row as an armed hotkey; pressing it asks for the find field and nothing is asked on mount', async ($, on) => {
   world(on, twoTurns(), TL_UI)
   const ui = await mount($, 'terminal')
@@ -628,45 +398,6 @@ test('f: Find is on the find row as an armed hotkey; pressing it asks for the fi
 // ---- inline open and the full step -------------------------------------------
 
 const BODY_S4 = fileFor('s4', 'FAIL mod/hooks/views/timeline.test.tsx\n  x groups steps\nthird line\nfourth', { isError: true })
-
-// BEHAVIOUR CHANGE (rich rule 4): was "a press opens the step in place; a second press opens its page".
-test('Enter on a step row opens its page; b returns to the list with the step focused, still marked in place: 3 detail lines, then g: chat  k: keep  c: copy', async ($, on) => {
-  const stored = world(on, twoTurns(), TL_UI, new Map([BODY_S4]))
-  for (const surface of SURFACES) {
-    put(stored, twoTurns(), TL_UI)
-    LOGS.length = 0
-    const ui = await mount($, surface, 62)
-    await ui.press({ key: 'step-s4' })
-    const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; body?: { isError: boolean } } }
-    expect(u.page).toEqual({ kind: 'step', id: 's4', from: 'step-s4' })
-    expect(u.stepOpen).toBe('s4')
-    expect(u.detail).toBeUndefined()
-    expect(u.stepBody?.body?.isError).toBe(true)
-    await ui.redraw()
-    expect(await ui.find({ key: 'step-page-keep' })).toBeDefined()
-    await ui.press({ key: 'page-back' })
-    expect((stored.get('ui') as UiState).page).toBeUndefined()
-    expect(backTo()).toEqual(['step-s4'])
-    await ui.unmount()
-    const open = await mount($, surface, 62)
-    const rows = await drawnRows(open)
-    const at = rows.findIndex(r => r.includes('npm test'))
-    // s4 is first in its section: no blank above it.
-    expect(rows[at - 1]?.startsWith('┌')).toBe(true)
-    expect(colOf(rows[at + 1], 'status')).toBe(6)
-    expect(colOf(rows[at + 1], 'failed after 1s')).toBe(14)
-    expect(colOf(rows[at + 2], 'result')).toBe(6)
-    expect(colOf(rows[at + 2], 'FAIL mod/hooks')).toBe(14)
-    expect(colOf(rows[at + 3], 'x groups steps')).toBe(14)
-    expect(colOf(rows[at + 4], 'g: chat   k: keep   c: copy')).toBe(6)
-    expect(rows[at + 5]).toBe('')
-    expect(rows.filter(r => r.includes('third line')).length).toBe(0)
-    for (const r of rows) expect(r.length <= 62).toBe(true)
-    // The opened row's name is bold.
-    expect(propsOf((await open.findAll({ type: 'Text' })).find(f => f.text === 'npm test')).bold).toBe(true)
-    await open.unmount()
-  }
-})
 
 test('on a step page n and p step to the next and previous step, the body loading each time, and b still returns to the row it came from', async ($, on) => {
   const stored = world(on, twoTurns(), { ...TL_UI, page: { kind: 'step', id: 's3', from: 'step-s3' } } as UiState, new Map([BODY_S4]))
@@ -689,19 +420,6 @@ test('on a step page n and p step to the next and previous step, the body loadin
   expect(await first.find({ key: 'step-page-prev' })).toBeUndefined()
   expect(await first.find({ key: 'step-page-next' })).toBeDefined()
   await first.unmount()
-})
-
-test('an opened row that is not first in its section has a blank row above and below', async ($, on) => {
-  world(on, twoTurns(), { ...TL_UI, stepOpen: 's3' })
-  const ui = await mount($, 'terminal')
-  const rows = await drawnRows(ui)
-  const at = rows.findIndex(r => r.includes('rateLimit.ts'))
-  expect(rows[at - 1]).toBe('')
-  expect(rows[at - 2]).toContain('npm test')
-  const action = rows.findIndex(r => r.includes('g: chat'))
-  expect(rows[action + 1]).toBe('')
-  expect(rows[action + 2]).toContain('EARLIER TURNS')
-  await ui.unmount()
 })
 
 test('pressing a step whose body is not on disk opens it with a missing result', async ($, on) => {
@@ -739,17 +457,6 @@ test('k keeps the step with a toast; on a kept step the action reads k: unkeep a
     expect(toasts.length).toBe(2)
     await again.unmount()
   }
-})
-
-test('the opened row shows a kept note instead of a second result line', async ($, on) => {
-  const kept = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's4' ? { ...s, pin: 'the limiter itself' } : s)) }
-  world(on, kept, { ...TL_UI, stepOpen: 's4' })
-  const ui = await mount($, 'terminal')
-  const rows = await drawnRows(ui)
-  const note = rows.find(r => r.includes('the limiter itself'))
-  expect(colOf(note, 'kept')).toBe(6)
-  expect(colOf(note, 'the limiter itself')).toBe(14)
-  await ui.unmount()
 })
 
 test('c copies the step as Markdown and g reaches ui.scroll, on a press only', async ($, on) => {
@@ -802,21 +509,6 @@ function twoErrors(): Timeline {
   return { ...t, steps: t.steps.map(s => (s.id === 's2' ? { ...s, status: 'error' as const } : s)) }
 }
 
-test('the footer shows only while the pane is focused, at most 3 entries', async ($, on) => {
-  world(on, twoTurns(), TL_UI)
-  const idle = await mount($, 'terminal')
-  expect(await idle.find({ key: 'hint-n' })).toBeUndefined()
-  await idle.unmount()
-  const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
-  const rows = await drawnRows(ui)
-  const foot = rows[rows.length - 1] ?? ''
-  expect(foot).toContain('n: next error')
-  expect(foot).toContain('p: prev')
-  expect(colOf(foot, 'n: next error')).toBe(2)
-  expect((foot.match(/ {3}/g) ?? []).length <= 2).toBe(true)
-  await ui.unmount()
-})
-
 test('n and p step through the errors when there is no query, opening each in place', async ($, on) => {
   const stored = world(on, twoErrors(), TL_UI)
   on('ui.focus', () => ({}))
@@ -859,16 +551,6 @@ test('with a step open and no errors or query the footer reads ↵ full step, q 
   await ui.unmount()
 })
 
-test('with a step open and errors to visit the footer keeps n and p beside ↵ full step', async ($, on) => {
-  world(on, twoTurns(), { ...TL_UI, stepOpen: 's3' })
-  const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
-  const foot = (await drawnRows(ui)).at(-1) ?? ''
-  expect(foot).toContain('n: next error')
-  expect(foot).toContain('p: prev')
-  expect(foot).toContain('↵ full step')
-  await ui.unmount()
-})
-
 // ---- the gutter and the tiers --------------------------------------------------
 
 const SEEN = { first: 0, last: 2, of: 3 }
@@ -883,35 +565,6 @@ async function mountRow($: Engine, surface: (typeof SURFACES)[number], id: strin
     props: toolRow(id, 'Edit', onScreen),
   } as never)
 }
-
-test('a step whose row is in view has ◂ in the gutter and counts in the In view chip, and loses both when it leaves', async ($, on) => {
-  world(on, twoTurns(), TL_UI)
-  for (const surface of SURFACES) {
-    const row = await mountRow($, surface, 's3', SEEN)
-    const ui = await mount($, surface)
-    let rows = await drawnRows(ui)
-    expect(colOf(rows.find(r => r.includes('rateLimit.ts')), '◂')).toBe(0)
-    expect(rows.find(r => r.includes('npm test'))?.startsWith('◂')).toBe(false)
-    expect(colOf(rows[1], 'In view 1')).toBe(38)
-    expect(rows.join('\n')).not.toContain('on screen')
-
-    await row.redraw(toolRow('s3', 'Edit', null))
-    await clock?.advance(1000)
-    rows = await drawnRows(ui)
-    expect(rows.find(r => r.includes('rateLimit.ts'))?.startsWith('◂')).toBe(false)
-    expect(rows[1]).not.toContain('In view')
-    await ui.unmount()
-
-    // The mark is per surface: what one surface shows says nothing of another's.
-    await row.redraw(toolRow('s3', 'Edit', SEEN))
-    const other = SURFACES.find(s => s !== surface)!
-    const elsewhere = await mount($, other)
-    expect((await drawnRows(elsewhere)).find(r => r.includes('rateLimit.ts'))?.startsWith('◂')).toBe(false)
-    await elsewhere.unmount()
-    await row.redraw(toolRow('s3', 'Edit', null))
-    await row.unmount()
-  }
-})
 
 test('with guide: false nothing is added to the conversation and the gutter mark still shows', { options: { guide: false } }, async ($, on) => {
   world(on, twoTurns(), TL_UI)
@@ -964,31 +617,6 @@ for (const cols of [62, 50, 40, 32]) {
   })
 }
 
-// LOOK TEST (edited for Neo): at 40 the SHOW row keeps two cells (14 and 26).
-test('at 40 columns the time sits at the last cell and the chips stay on cells', async ($, on) => {
-  world(on, twoTurns(), TL_UI)
-  const ui = await mount($, 'terminal', 40)
-  const rows = await drawnRows(ui)
-  expect(colOf(rows[1], ' All 4 ')).toBe(14)
-  expect(colOf(rows[1], 'Errors 1')).toBe(26)
-  expect(rows[1]?.length).toBe(40)
-  const row = rows.find(r => r.includes('npm test'))
-  expect(colOf(row, '1s')).toBe(26)
-  expect(row).not.toContain('main')
-  await ui.unmount()
-})
-
-test('at 32 columns only the cells that fit are drawn, and the open filter is kept', async ($, on) => {
-  const kept = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's3' ? { ...s, pin: '' } : s)) }
-  world(on, kept, { ...TL_UI, filter: { kind: 'errors' } })
-  const ui = await mount($, 'terminal', 32)
-  const chips = (await drawnRows(ui))[1] ?? ''
-  expect(chips).toContain('Errors 1')
-  expect(chips).not.toContain('In view')
-  expect(chips.length <= 32).toBe(true)
-  await ui.unmount()
-})
-
 test('focused, every row of Steps, footer included, fits 32 and 40 columns', async ($, on) => {
   world(on, twoErrors(), TL_UI)
   for (const columns of [32, 40]) {
@@ -1002,20 +630,6 @@ test('focused, every row of Steps, footer included, fits 32 and 40 columns', asy
   }
 })
 
-test('a general-purpose agent shows general in the metric cell at 62, never general-p…', async ($, on) => {
-  const t = twoTurns()
-  world(
-    on,
-    { ...t, agents: { ...t.agents, a1: agent('a1', 'general-purpose') }, steps: t.steps.map(x => (x.id === 's4' ? { ...x, agent: 'a1' } : x)) },
-    TL_UI,
-  )
-  const ui = await mount($, 'terminal', 62)
-  const row = (await drawnRows(ui)).find(r => r.includes('npm test')) ?? ''
-  expect(colOf(row, 'general')).toBe(38)
-  expect(row).not.toContain('general-')
-  await ui.unmount()
-})
-
 // ---- Neo Rich: the step MAP and the step page ------------------------------------
 
 test('mapBuckets counts steps into slices of the session, marks an error and the run in view', () => {
@@ -1026,22 +640,6 @@ test('mapBuckets counts steps into slices of the session, marks an error and the
   expect(got.map(b => b.error)).toEqual([true, false, false, false])
   expect(got.map(b => b.view)).toEqual([false, false, false, true])
   expect(mapBuckets([], 100, 4, () => false).map(b => b.count)).toEqual([0, 0, 0, 0])
-})
-
-test('MAP on the terminal: a 44 x 2 Raster, an error bucket red and the rest iris; the text form is the same box', async ($, on) => {
-  const spread: Timeline = { ...twoTurns(), steps: twoTurns().steps.map((x, i) => ({ ...x, startedAt: NOW - 400_000 + i * 100_000 })) }
-  world(on, spread, TL_UI)
-  const ui = await mount($, 'terminal', 62)
-  const r = await ui.find({ type: 'Raster', key: 'map' })
-  expect([r?.props.columns, r?.props.rows]).toEqual([44, 2])
-  const cells = decode(String(r?.props.cells))
-  const lit = cells.filter(c => c[0] !== 0x20 && c[0] !== 0x2581)
-  expect(lit.some(c => c[1] === PALETTE.night.red)).toBe(true)
-  expect(lit.some(c => c[1] === PALETTE.night.iris)).toBe(true)
-  await ui.unmount()
-  const narrow = await mount($, 'terminal', 32)
-  expect(Number((await narrow.find({ type: 'Raster', key: 'map' }))?.props.columns)).toBe(16)
-  await narrow.unmount()
 })
 
 // ---- the step page -------------------------------------------------------------------
@@ -1087,33 +685,6 @@ test('filesOf names file_path, notebook_path, a path with an extension, and the 
   expect(filesOf('Bash', {})).toEqual([])
 })
 
-test('the step page lists FILES with o: open; openInEditor runs on a press only, at the line', async ($, on) => {
-  const w = editorWorld(on)
-  world(on, oneStep('s1', 'Read', 'Read src/a.ts'), withBody('s1', { file_path: 'src/a.ts', offset: 42 }))
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 62)
-    const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.startsWith('┌ FILES'))
-    expect(at).toBeGreaterThan(-1)
-    expect(rows[at + 1]).toContain('a.ts')
-    // The row is the short form; the whole path is on the page under it.
-    expect(rows.slice(at + 2).some(r => r.trim() === 'src/a.ts')).toBe(true)
-    expect(colOf(rows[at + 1], 'o: open')).toBe(38)
-    expect(colOf(rows[at + 1], 'line 42')).toBe(50)
-    expect(rows.some(r => r.includes('o: open') && r.trimStart().startsWith('o: open'))).toBe(true)
-    // Drawing opens nothing.
-    expect(w.runs).toEqual([])
-    await ui.unmount()
-  }
-  const ui = await mount($, 'terminal', 62)
-  await ui.press({ key: 'step-page-open' })
-  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/src/a.ts:42']])
-  await ui.press({ key: 'step-page-file-0' })
-  expect(w.runs).toHaveLength(2)
-  expect(w.runs[1]).toEqual(['code', '-r', '-g', 'C:/repo/src/a.ts:42'])
-  await ui.unmount()
-})
-
 test('the step page has a row and an o: open for every path the step names; the o key opens the first', async ($, on) => {
   const w = editorWorld(on)
   world(on, oneStep('s1', 'Bash', 'Bash cp a b'), withBody('s1', { command: 'cp src/a.ts ./b/c.md' }))
@@ -1151,35 +722,6 @@ test('a step with no file has no FILES and no o: open', async ($, on) => {
   expect(flat).not.toContain('o: open')
   expect(await ui.find({ key: 'step-page-open' })).toBeUndefined()
   await ui.unmount()
-})
-
-test('the step page: TOOL, AGENT, STATUS, TIME, INPUT, CHANGE as a diff for Edit, RESULT in full, the actions, nothing cut', async ($, on) => {
-  const longPath = 'src/some/very/deep/folder/structure/that/goes/on/and/on/forever/rateLimit.ts'
-  const result = Array.from({ length: 30 }, (_, i) => `result line ${i}`).join('\n')
-  world(
-    on,
-    oneStep('s1', 'Edit', `Edit ${longPath}`),
-    withBody('s1', { file_path: longPath, old_string: 'const a = 1', new_string: 'const a = 2\nconst b = 3' }, result),
-  )
-  for (const surface of SURFACES) {
-    for (const columns of [62, 32]) {
-      const ui = await mount($, surface, columns)
-      const rows = await drawnRows(ui)
-      const flat = rows.join('\n')
-      for (const label of ['TOOL', 'AGENT', 'STATUS', 'TIME', 'INPUT', 'CHANGE', 'RESULT', 'FILES']) expect(flat).toContain(label)
-      expect(rows.some(r => r.includes('-const a = 1'))).toBe(true)
-      expect(rows.some(r => r.includes('+const b = 3'))).toBe(true)
-      expect(flat).toContain('result line 29')
-      for (const r of rows) {
-        expect(r.length <= columns).toBe(true)
-        expect(r.trimEnd().endsWith('…')).toBe(false)
-      }
-      // The long path is on the page whole (the row cuts it, the lines under FILES give it in full).
-      expect(flat.replace(/\s+/g, '')).toContain(longPath)
-      for (const k of ['o: open', 'g: chat', 'k: keep', 'c: copy as Markdown', 'q: quote', 'b: back']) expect(flat).toContain(k)
-      await ui.unmount()
-    }
-  }
 })
 
 test('the step page: g, k, c and q act on a press; c copies the step as Markdown', async ($, on) => {
@@ -1227,4 +769,464 @@ test('the step page for a running step says it has no result yet', async ($, on)
   const b = await mount($, 'desktop', 62)
   expect((await drawnRows(b)).join('\n')).toContain('No result yet')
   await b.unmount()
+})
+
+// ---------- the cockpit Steps tab (task C5) ----------
+// Each test below replaces a Neo or Rich look test of the same subject; the old one is gone, its behaviour kept.
+// The tab's rows come after the three the shell's tab bar takes (drawnRows slices them off): row 0 is the find row.
+
+// LOOK TEST (rewritten for the cockpit): replaces "at 62: the FIND, SHOW and MAP deck, then the turn section and its rows sit on the grid".
+test('at 62: the find row, the chips and the map, then This turn and its rows sit on the grid', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const rows = await drawnRows(ui)
+    // `f: Find a step` at 2 and the total flush right at 59.
+    expect(colOf(rows[0], 'f: Find a step')).toBe(2)
+    expect([rows[0]?.trimEnd().endsWith('4 steps · 1 min'), rows[0]?.trimEnd().length]).toEqual([true, 60])
+    expect(rows[1]).toBe('')
+    // The chips on cells 2, 14, 26: the open one bold between spaces, the Errors chip whole in red, no Kept or In view while they are zero.
+    expect(colOf(rows[2], ' All 4 ')).toBe(2)
+    expect(colOf(rows[2], 'Errors 1')).toBe(14)
+    expect(rows[2]).not.toContain('Kept')
+    expect(rows[2]).not.toContain('In view')
+    expect(rows[3]).toBe('')
+    // The map: two rows over the whole content width, then where it starts and ends.
+    // (the testkit draws a Raster box as one row, so the terminal's map is one row where the text form's is two)
+    const m = surface === 'terminal' ? -1 : 0
+    if (surface !== 'terminal') expect(rows[5]?.slice(2, 60)).toMatch(/^[▁▂▃▄▅▆▇█]{58}$/)
+    expect(colOf(rows[6 + m], 'start')).toBe(2)
+    expect([rows[6 + m]?.trimEnd().endsWith('now'), rows[6 + m]?.trimEnd().length]).toEqual([true, 60])
+    expect(rows[6 + m]).not.toContain('bright')
+    expect(rows[7 + m]).toBe('')
+    // This turn, with the prompt flush right.
+    expect(rows[8 + m]?.startsWith('  This turn ─')).toBe(true)
+    expect(rows[8 + m]?.trimEnd().endsWith('“add rate limiting”')).toBe(true)
+    expect(rows[8 + m]?.trimEnd().length).toBe(60)
+    // s4 (newest): glyph 2, tool 4, name 10, the agent ending at 49, the time ending at 59.
+    expect([colOf(rows[9 + m], '×'), colOf(rows[9 + m], 'Bash'), colOf(rows[9 + m], 'npm test')]).toEqual([2, 4, 10])
+    expect([rows[9 + m]?.slice(0, 50).trimEnd().endsWith('main'), rows[9 + m]?.trimEnd().endsWith('1s'), rows[9 + m]?.trimEnd().length]).toEqual([true, true, 60])
+    expect(colOf(rows[10 + m], 'rateLimit.ts')).toBe(10)
+    expect(rows.join('\n')).not.toMatch(/FIND|SHOW|MAP|EARLIER|┌|┃/)
+    for (const r of rows) expect(r.length <= 62).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the Timeline has a find Input bound to ui.query; typing filters live; the count reads "1 hit of 4"', async ($, on) => {
+  const stored = world(on, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
+  for (const surface of SURFACES) {
+    put(stored, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
+    const ui = await mount($, surface)
+    expect(await ui.find({ key: FIND_KEY })).toBeDefined()
+    await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'rateLimit', kind: 'change', surface })
+    expect((stored.get('ui') as UiState).query).toBe('rateLimit')
+    await ui.unmount()
+    const filtered = await mount($, surface)
+    expect(await filtered.find({ key: 'step-s3' })).toBeDefined()
+    expect(await filtered.find({ key: 'step-s4' })).toBeUndefined()
+    expect(await filtered.find({ key: 'step-s1' })).toBeUndefined()
+    const found = await drawnRows(filtered)
+    expect([found[0]?.trimEnd().endsWith('1 hit of 4'), found[0]?.trimEnd().length]).toEqual([true, 60])
+    await filtered.unmount()
+  }
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "the chosen chip is a pill: backgroundColor in the accent": a quiet tint is not a theme key, so the open chip is bold between spaces (as on the Agents toggles).
+test('the open chip is bold between spaces, with no tint; the others are dim and the Errors chip red', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, filter: { kind: 'errors' } })
+  const ui = await mount($, 'terminal')
+  const found = await ui.findAll({ type: 'Text' })
+  const open = propsOf(found.find(x => x.text === ' Errors 1 '))
+  expect([open.bold, open.backgroundColor]).toEqual([true, undefined])
+  expect(propsOf(found.find(x => x.text === 'All 4')).dimColor).toBe(true)
+  expect(propsOf(found.find(x => x.text === 'All 4')).backgroundColor).toBeUndefined()
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "EARLIER TURNS lists each older turn on one row: steps at 38, start time at 50".
+test('Earlier turns lists each older turn on one row: ○ at 2, the prompt at 4, the steps ending at 49, the start time at 59', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  const ui = await mount($, 'terminal', 62)
+  const rows = await drawnRows(ui)
+  const at = rows.findIndex(r => r.includes('Earlier turns'))
+  expect(at > 0).toBe(true)
+  expect(rows[at - 1]).toBe('')
+  expect(colOf(rows[at], 'Earlier turns')).toBe(2)
+  expect(rows[at]?.trimEnd().endsWith(' 1')).toBe(true)
+  const r = rows[at + 1] ?? ''
+  expect([colOf(r, '○'), colOf(r, '“what does the upload')]).toEqual([2, 4])
+  expect(r.slice(0, 50).trimEnd().endsWith('2 steps')).toBe(true)
+  expect(/\d\d:\d\d$/.test(r.trimEnd())).toBe(true)
+  expect(r.trimEnd().length).toBe(60)
+  expect(await ui.find({ key: 'step-s1' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('pressing an Earlier turns row opens that turn as a section; pressing its head closes it', async ($, on) => {
+  const stored = world(on, twoTurns(), TL_UI)
+  for (const surface of SURFACES) {
+    put(stored, twoTurns(), TL_UI)
+    const ui = await mount($, surface)
+    await ui.press({ key: 'turn-t1' })
+    expect((stored.get('ui') as UiState).openTurns).toEqual(['t1'])
+    await ui.unmount()
+    const opened = await mount($, surface)
+    const rows = await drawnRows(opened)
+    expect(rows.some(r => r.includes('Earlier turns'))).toBe(false)
+    const head = rows.find(r => r.startsWith('  “what does the upload')) ?? ''
+    expect(head.trimEnd().endsWith('2 steps')).toBe(true)
+    expect(await opened.find({ key: 'step-s1' })).toBeDefined()
+    await opened.press({ key: 'turn-t1' })
+    expect((stored.get('ui') as UiState).openTurns).toEqual([])
+    await opened.unmount()
+    const closed = await mount($, surface)
+    expect(await closed.find({ key: 'step-s1' })).toBeUndefined()
+    await closed.unmount()
+  }
+})
+
+// BEHAVIOUR CHANGE (cockpit, principle 5: spare rows stay empty): a turn was grown by the pane's height (binding rule 2, up from 5); it shows 6 rows and `+ n more in this turn` at any height, as the mock does.
+test('a turn shows 6 rows and "+ n more in this turn" at any height; pressing it shows them all', async ($, on) => {
+  const stored = world(on, manySteps(30), TL_UI)
+  for (const surface of SURFACES) {
+    for (const bodyRows of [10, 24, 50]) {
+      put(stored, manySteps(30), TL_UI)
+      const ui = await mount($, surface, 62, bodyRows)
+      const rows = await drawnRows(ui)
+      await ui.unmount()
+      expect({ n: rows.filter(r => r.includes('Edit')).length, more: rows.find(r => r.includes('more in this turn')) }).toEqual({ n: 6, more: '    + 24 more in this turn' })
+    }
+    put(stored, manySteps(30), TL_UI)
+    const ui = await mount($, surface, 62, 10)
+    expect(await ui.find({ key: 'step-m29' })).toBeDefined()
+    expect(await ui.find({ key: 'step-m24' })).toBeDefined()
+    expect(await ui.find({ key: 'step-m23' })).toBeUndefined()
+    await ui.press({ key: 'more-t1' })
+    expect((stored.get('ui') as UiState).openTurns).toEqual(['all:t1'])
+    await ui.unmount()
+    const all = await mount($, surface, 62, 10)
+    // Unfolded: the next step after the six shows (the 10-row window draws only the rows near it).
+    expect(await all.find({ key: 'step-m23' })).toBeDefined()
+    expect((await drawnRows(all)).some(r => r.includes('more in this turn'))).toBe(false)
+    await all.unmount()
+  }
+})
+
+// BEHAVIOUR CHANGE (cockpit, principle 5): Earlier turns was grown by the pane's height (binding rule 2, up from 6); it shows 3 and `+ n more` at any height, as the mock does.
+test('Earlier turns shows 3 rows and "+ n more" at any height; pressing it lists every turn', async ($, on) => {
+  const turns = Array.from({ length: 15 }, (_, i) => turn(`t${i}`, `job ${i}`, NOW - (20 - i) * 60_000))
+  const steps = turns.map((x, i) => step(`s${i}`, i + 1, `Read f${i}.ts`, 'done', { turnId: x.id, tool: 'Read' }))
+  const stored = world(on, { ...empty, turns, steps }, TL_UI)
+  const at = async (bodyRows: number, ui_: UiState = TL_UI): Promise<{ n: number; more: string | undefined }> => {
+    put(stored, { ...empty, turns, steps }, ui_)
+    const ui = await mount($, 'vscode', 62, bodyRows)
+    const n = (await ui.findAll({ type: 'Button' })).filter(b => /^turn-/.test(b.key ?? '')).length
+    const rows = await drawnRows(ui)
+    await ui.unmount()
+    return { n, more: rows.find(r => r.includes('more') && r.includes('+')) }
+  }
+  for (const bodyRows of [12, 30, 50]) expect(await at(bodyRows)).toEqual({ n: 3, more: '    + 11 more' })
+  expect(await at(50, { ...TL_UI, openTurns: ['all:earlier'] })).toEqual({ n: 14, more: undefined })
+})
+
+// LOOK TEST (edited for the cockpit): the chips are on cells 2, 14, 26 of the chips row.
+test('the Kept chip counts kept steps on the second cell; Errors moves to the third', async ($, on) => {
+  const kept: Timeline = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's3' ? { ...s, pin: 'the limiter' } : s)) }
+  const stored = world(on, kept, TL_UI)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  expect(colOf(rows[2], 'Kept 1')).toBe(14)
+  expect(colOf(rows[2], 'Errors 1')).toBe(26)
+  expect(rows.join('\n')).not.toContain('Pinned')
+  await ui.press({ key: 'filter-pinned' })
+  expect((stored.get('ui') as UiState).filter).toEqual({ kind: 'pinned' })
+  await ui.unmount()
+  const filtered = await mount($, 'terminal')
+  expect(await filtered.find({ key: 'step-s3' })).toBeDefined()
+  expect(await filtered.find({ key: 'step-s4' })).toBeUndefined()
+  // A kept step draws ★ where its glyph goes, and its note under the row.
+  const keptRows = await drawnRows(filtered)
+  expect(colOf(keptRows.find(r => r.includes('rateLimit.ts')), '★')).toBe(2)
+  expect(keptRows.find(r => r.includes('kept: “the limiter”'))?.startsWith('    kept: “the limiter”')).toBe(true)
+  await filtered.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "an idle chip is dim with its error count in error; the chosen All is the pill".
+test('an idle chip is dim; the Errors chip is red whole; the chosen All is bold between spaces', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  const idle = await mount($, 'terminal')
+  const found = await idle.findAll({ type: 'Text' })
+  expect(propsOf(found.find(x => x.text === ' All 4 ')).bold).toBe(true)
+  expect(propsOf(found.find(x => x.text === 'Errors 1')).color).toBe('error')
+  expect(propsOf(found.find(x => x.text === 'Errors 1')).dimColor).toBeUndefined()
+  await idle.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): the glyphs are the mock's: × failed, ▸ running, ✓ done.
+test('step glyphs: failed × in the error colour, running ▸ in the accent, done ✓ calm (dim)', async ($, on) => {
+  const t = twoTurns()
+  t.steps.push(step('s5', 5, 'Edit live.ts', 'running', { turnId: 't2' }))
+  world(on, t, TL_UI)
+  const ui = await mount($, 'terminal')
+  const found = await ui.findAll({ type: 'Text' })
+  expect(propsOf(found.find(f => f.text === '×')).color).toBe('error')
+  expect(propsOf(found.find(f => f.text === '▸')).color).toBe('suggestion')
+  const done = propsOf(found.find(f => f.text === '✓'))
+  expect(done.color).toBeUndefined()
+  expect(done.dimColor).toBe(true)
+  await ui.unmount()
+})
+
+test('a query underlines its hits in the step names', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, query: 'rateLimit' })
+  const ui = await mount($, 'terminal')
+  const hit = (await ui.findAll({ type: 'Text' })).find(f => f.text === 'rateLimit')
+  expect((hit?.props as { underline?: boolean } | undefined)?.underline).toBe(true)
+  const rows = await drawnRows(ui)
+  expect(colOf(rows[0], '/')).toBe(2)
+  expect(rows[0]?.trimEnd().endsWith('1 hit of 4')).toBe(true)
+  await ui.unmount()
+})
+
+// BEHAVIOUR CHANGE (rich rule 4): was "a press opens the step in place; a second press opens its page".
+// LOOK TEST (rewritten for the cockpit): the opened step is the mock's: the result lines under a dim `Result` key at 4 with their text at 14 (no status line: the row says it failed), then `g: chat  k: keep  c: copy` at 4 with `↵ full page` at the right edge.
+test('Enter on a step row opens its page; b returns to the list with the step focused, still opened in place: 3 result lines, then g: chat  k: keep  c: copy', async ($, on) => {
+  const stored = world(on, twoTurns(), TL_UI, new Map([BODY_S4]))
+  for (const surface of SURFACES) {
+    put(stored, twoTurns(), TL_UI)
+    LOGS.length = 0
+    const ui = await mount($, surface, 62)
+    await ui.press({ key: 'step-s4' })
+    const u = stored.get('ui') as UiState & { stepBody?: { stepId: string; body?: { isError: boolean } } }
+    expect(u.page).toEqual({ kind: 'step', id: 's4', from: 'step-s4' })
+    expect(u.stepOpen).toBe('s4')
+    expect(u.detail).toBeUndefined()
+    expect(u.stepBody?.body?.isError).toBe(true)
+    await ui.redraw()
+    expect(await ui.find({ key: 'step-page-keep' })).toBeDefined()
+    await ui.press({ key: 'page-back' })
+    expect((stored.get('ui') as UiState).page).toBeUndefined()
+    expect(backTo()).toEqual(['step-s4'])
+    await ui.unmount()
+    const open = await mount($, surface, 62)
+    const rows = await drawnRows(open)
+    const at = rows.findIndex(r => r.includes('npm test'))
+    // s4 is first in its section: the head is directly above.
+    expect(rows[at - 1]?.startsWith('  This turn ─')).toBe(true)
+    expect([colOf(rows[at + 1], 'Result'), colOf(rows[at + 1], 'FAIL mod/hooks')]).toEqual([4, 14])
+    expect(colOf(rows[at + 2], 'x groups steps')).toBe(14)
+    expect(colOf(rows[at + 3], 'third line')).toBe(14)
+    expect(colOf(rows[at + 4], 'g: chat   k: keep   c: copy')).toBe(4)
+    expect([rows[at + 4]?.trimEnd().endsWith('↵ full page'), rows[at + 4]?.trimEnd().length]).toEqual([true, 60])
+    expect(rows[at + 5]).toBe('')
+    expect(rows.filter(r => r.includes('fourth')).length).toBe(0)
+    expect(rows.join('\n')).not.toContain('failed after')
+    for (const r of rows) expect(r.length <= 62).toBe(true)
+    // The opened row's name is bold.
+    expect(propsOf((await open.findAll({ type: 'Text' })).find(f => f.text === 'npm test')).bold).toBe(true)
+    await open.unmount()
+  }
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "an opened row that is not first in its section has a blank row above and below": the mock opens a step with no blank above it, and one blank after its actions.
+test('an opened row has no blank row above and one blank row after its actions; with no result yet it says its status', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, stepOpen: 's3' })
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  const at = rows.findIndex(r => r.includes('rateLimit.ts'))
+  expect(rows[at - 1]).toContain('npm test')
+  expect([colOf(rows[at + 1], 'Status'), colOf(rows[at + 1], 'done after 1s')]).toEqual([4, 14])
+  const action = rows.findIndex(r => r.includes('g: chat'))
+  expect(rows[action + 1]).toBe('')
+  expect(rows[action + 2]).toContain('Earlier turns')
+  await ui.unmount()
+})
+
+test('the opened row shows a kept note instead of a second result line', async ($, on) => {
+  const kept = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's4' ? { ...s, pin: 'the limiter itself' } : s)) }
+  world(on, kept, { ...TL_UI, stepOpen: 's4' })
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  const note = rows.find(r => r.includes('the limiter itself') && r.includes('Kept'))
+  expect([colOf(note, 'Kept'), colOf(note, 'the limiter itself')]).toEqual([4, 14])
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "the footer shows only while the pane is focused, at most 3 entries": the mock's footer is ↵ open step, n next error, f find; `p prev` stays beside n so the walk goes both ways (a fourth hint, named in the report).
+test('the footer reads ↵ open step, n next error, p prev, f find, on the last row, only while focused', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  const idle = await mount($, 'terminal')
+  expect(await idle.find({ key: 'hint-n' })).toBeUndefined()
+  await idle.unmount()
+  const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
+  const rows = await drawnRows(ui)
+  const foot = rows[rows.length - 1] ?? ''
+  expect(foot).toContain('↵ open step   n: next error   p: prev   f find')
+  expect(colOf(foot, '↵ open step')).toBe(2)
+  // `n` and `p` are Buttons the footer arms (the engine draws the colon); `f` is armed by the find row, so it is text.
+  expect(await ui.find({ key: 'hint-n' })).toBeDefined()
+  expect(await ui.find({ key: 'hint-p' })).toBeDefined()
+  const found = await ui.findAll({ type: 'Text' })
+  expect((found.find(f => f.text === '↵')?.props as { color?: string }).color).toBe('suggestion')
+  expect((found.find(f => f.text === 'f')?.props as { color?: string }).color).toBe('suggestion')
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): the mock's footer for an opened step with errors to visit is the same four hints, `↵ open step` (Enter on the opened row opens its page).
+test('with a step open and errors to visit the footer keeps n and p beside ↵ open step', async ($, on) => {
+  world(on, twoTurns(), { ...TL_UI, stepOpen: 's3' })
+  const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
+  const foot = (await drawnRows(ui)).at(-1) ?? ''
+  expect(foot).toContain('n: next error')
+  expect(foot).toContain('p: prev')
+  expect(foot).toContain('↵ open step')
+  await ui.unmount()
+})
+
+test('a step whose row is in view has ◂ in the gutter and counts in the In view chip, and loses both when it leaves', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  for (const surface of SURFACES) {
+    const row = await mountRow($, surface, 's3', SEEN)
+    const ui = await mount($, surface)
+    let rows = await drawnRows(ui)
+    expect(colOf(rows.find(r => r.includes('rateLimit.ts')), '◂')).toBe(0)
+    expect(rows.find(r => r.includes('npm test'))?.startsWith('◂')).toBe(false)
+    // the chips: All 2, Errors 14, In view 26 (dim); and under the map "bright: the rows below" at 22
+    expect(colOf(rows[2], 'In view 1')).toBe(26)
+    expect(colOf(rows.find(r => r.includes('bright: the rows below')), 'bright: the rows below')).toBe(22)
+    expect(rows.join('\n')).not.toContain('on screen')
+
+    await row.redraw(toolRow('s3', 'Edit', null))
+    await clock?.advance(1000)
+    rows = await drawnRows(ui)
+    expect(rows.find(r => r.includes('rateLimit.ts'))?.startsWith('◂')).toBe(false)
+    expect(rows[2]).not.toContain('In view')
+    expect(rows.join('\n')).not.toContain('bright')
+    await ui.unmount()
+
+    // The mark is per surface: what one surface shows says nothing of another's.
+    await row.redraw(toolRow('s3', 'Edit', SEEN))
+    const other = SURFACES.find(s => s !== surface)!
+    const elsewhere = await mount($, other)
+    expect((await drawnRows(elsewhere)).find(r => r.includes('rateLimit.ts'))?.startsWith('◂')).toBe(false)
+    await elsewhere.unmount()
+    await row.redraw(toolRow('s3', 'Edit', null))
+    await row.unmount()
+  }
+})
+
+// LOOK TEST (edited for the cockpit): at 40 the chips keep three cells (2, 14, 26) and the agent column goes; the time stays at the right edge.
+test('at 40 columns the time sits at the right edge and the chips stay on cells', async ($, on) => {
+  world(on, twoTurns(), TL_UI)
+  const ui = await mount($, 'terminal', 40)
+  const rows = await drawnRows(ui)
+  expect(colOf(rows[2], ' All 4 ')).toBe(2)
+  expect(colOf(rows[2], 'Errors 1')).toBe(14)
+  expect((rows[2] ?? '').length <= 40).toBe(true)
+  const row = rows.find(r => r.includes('npm test')) ?? ''
+  expect([row.trimEnd().endsWith('1s'), row.trimEnd().length]).toEqual([true, 38])
+  expect(row).not.toContain('main')
+  await ui.unmount()
+})
+
+test('at 32 columns only the cells that fit are drawn, and the open filter is kept', async ($, on) => {
+  const kept = { ...twoTurns(), steps: twoTurns().steps.map(s => (s.id === 's3' ? { ...s, pin: '' } : s)) }
+  world(on, kept, { ...TL_UI, filter: { kind: 'errors' } })
+  const ui = await mount($, 'terminal', 32)
+  const chips = (await drawnRows(ui))[2] ?? ''
+  expect(chips).toContain('Errors 1')
+  expect(chips).not.toContain('In view')
+  expect(chips.length <= 32).toBe(true)
+  await ui.unmount()
+})
+
+test('the agent column names the type in friendly case: General, ending at 49, never general-p…', async ($, on) => {
+  const t = twoTurns()
+  world(
+    on,
+    { ...t, agents: { ...t.agents, a1: agent('a1', 'general-purpose') }, steps: t.steps.map(x => (x.id === 's4' ? { ...x, agent: 'a1' } : x)) },
+    TL_UI,
+  )
+  const ui = await mount($, 'terminal', 62)
+  const row = (await drawnRows(ui)).find(r => r.includes('npm test')) ?? ''
+  expect(row.slice(0, 50).trimEnd().endsWith('General')).toBe(true)
+  expect(row).not.toContain('general-')
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): the map is the whole content width (58 at 62), its errors red, the run in view bright iris and the rest soft.
+test('the map on the terminal: a 58 x 2 Raster, an error bucket red and the rest soft iris; the text form is the same box', async ($, on) => {
+  const spread: Timeline = { ...twoTurns(), steps: twoTurns().steps.map((x, i) => ({ ...x, startedAt: NOW - 400_000 + i * 100_000 })) }
+  world(on, spread, TL_UI)
+  const ui = await mount($, 'terminal', 62)
+  const r = await ui.find({ type: 'Raster', key: 'map' })
+  expect([r?.props.columns, r?.props.rows]).toEqual([58, 2])
+  const cells = decode(String(r?.props.cells))
+  const lit = cells.filter(c => c[0] !== 0x20 && c[0] !== 0x2581)
+  expect(lit.some(c => c[1] === PALETTE.night.red)).toBe(true)
+  expect(lit.some(c => c[1] === PALETTE.night.irisSoft)).toBe(true)
+  await ui.unmount()
+  const narrow = await mount($, 'terminal', 32)
+  expect(Number((await narrow.find({ type: 'Raster', key: 'map' }))?.props.columns)).toBe(28)
+  await narrow.unmount()
+})
+
+test('the step page lists Files with o: open; openInEditor runs on a press only, at the line', async ($, on) => {
+  const w = editorWorld(on)
+  world(on, oneStep('s1', 'Read', 'Read src/a.ts'), withBody('s1', { file_path: 'src/a.ts', offset: 42 }))
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 62)
+    const rows = await drawnRows(ui)
+    const at = rows.findIndex(r => r.startsWith('  Files'))
+    expect(at).toBeGreaterThan(-1)
+    expect(rows[at + 1]).toContain('a.ts')
+    // The row is the short form; the whole path is on the page under it.
+    expect(rows.slice(at + 2).some(r => r.trim() === 'src/a.ts')).toBe(true)
+    expect(colOf(rows[at + 1], 'o: open')).toBe(38)
+    expect(colOf(rows[at + 1], 'line 42')).toBe(50)
+    expect(rows.some(r => r.includes('o: open') && r.trimStart().startsWith('o: open'))).toBe(true)
+    // Drawing opens nothing.
+    expect(w.runs).toEqual([])
+    await ui.unmount()
+  }
+  const ui = await mount($, 'terminal', 62)
+  await ui.press({ key: 'step-page-open' })
+  expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/src/a.ts:42']])
+  await ui.press({ key: 'step-page-file-0' })
+  expect(w.runs).toHaveLength(2)
+  expect(w.runs[1]).toEqual(['code', '-r', '-g', 'C:/repo/src/a.ts:42'])
+  await ui.unmount()
+})
+
+test('the step page: Tool, Agent, Status, Time, Input, Change as a diff for Edit, Result in full, the actions, nothing cut', async ($, on) => {
+  const longPath = 'src/some/very/deep/folder/structure/that/goes/on/and/on/forever/rateLimit.ts'
+  const result = Array.from({ length: 30 }, (_, i) => `result line ${i}`).join('\n')
+  world(
+    on,
+    oneStep('s1', 'Edit', `Edit ${longPath}`),
+    withBody('s1', { file_path: longPath, old_string: 'const a = 1', new_string: 'const a = 2\nconst b = 3' }, result),
+  )
+  for (const surface of SURFACES) {
+    for (const columns of [62, 32]) {
+      const ui = await mount($, surface, columns)
+      const rows = await drawnRows(ui)
+      const flat = rows.join('\n')
+      for (const label of ['Tool', 'Agent', 'Status', 'Time', 'Input', 'Change', 'Result', 'Files']) expect(flat).toContain(label)
+      expect(flat).not.toMatch(/TOOL|AGENT|STATUS|INPUT|CHANGE|RESULT|FILES/)
+      expect(rows.some(r => r.includes('-const a = 1'))).toBe(true)
+      expect(rows.some(r => r.includes('+const b = 3'))).toBe(true)
+      expect(flat).toContain('result line 29')
+      for (const r of rows) {
+        expect(r.length <= columns).toBe(true)
+        expect(r.trimEnd().endsWith('…')).toBe(false)
+      }
+      // The long path is on the page whole (the row cuts it, the lines under Files give it in full).
+      expect(flat.replace(/\s+/g, '')).toContain(longPath)
+      for (const k of ['o: open', 'g: chat', 'k: keep', 'c: copy as Markdown', 'q: quote', 'b: back']) expect(flat).toContain(k)
+      // the state in plain words with its readout, no pill
+      expect(flat).toMatch(/^ {2}Done {2,}step 1 of 1$/m)
+      await ui.unmount()
+    }
+  }
 })

@@ -1116,6 +1116,11 @@ export type SectionTone = 'ask' | 'dim' | 'fail'
 /** Options of `section`. */
 export type CockpitSectionOpts = {
   tone?: SectionTone
+  /**
+   * Shorter forms of the sum, the fullest first, for when the sum and the whole title do not fit together
+   * ("1 + 1 waiting" for "1 working · 1 waiting"). The leading count alone is always the last resort.
+   */
+  short?: (string | Run[])[]
   /** The row's key (and with `onPress` the Button's): `sec-<title>` when absent. */
   key?: string
   /** The whole head is one plain Button (the title opens its tab). */
@@ -1139,12 +1144,17 @@ export function section(ctx: ViewCtx, $: EngineInterface, title: string, sum?: s
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { left, right } = edges(ctx.cols)
   const w = Math.max(1, right - left + 1)
-  let sumRuns = runsOf(sum, { dim: true })
-  if (width(sumRuns) > w - 4) sumRuns = (fitRuns(sumRuns, Math.max(0, w - 4)) as Run[]).filter(r => r.text !== '')
+  // F I5: the title is never the thing cut. The sum shortens first (its short forms, then its leading count),
+  // then the hairline goes, then the sum, and only a title wider than the row is cut.
+  const titleFit = nameFit(title, w)
+  const forms: Run[][] = [runsOf(sum, { dim: true }), ...(opts.short ?? []).map(s => runsOf(s, { dim: true }))].filter(f => f.length > 0)
+  const lead = forms[0]?.[0]
+  if (lead !== undefined && /^d+$/.test(lead.text.trim())) forms.push([lead])
+  const sumRuns = forms.find(f => titleFit.length + 3 + width(f) <= w) ?? forms.find(f => titleFit.length + 1 + width(f) <= w) ?? []
   const sw = width(sumRuns)
   const titleStyle: Omit<Run, 'text'> =
     opts.tone === 'ask' ? { bold: true, color: CK.ask } : opts.tone === 'fail' ? { bold: true, color: CK.fail } : opts.tone === 'dim' ? { bold: true, dim: true } : { bold: true }
-  const t = nameFit(title, Math.max(1, sw > 0 ? w - sw - 3 : w))
+  const t = titleFit
   const hair = w - t.length - (sw > 0 ? sw + 2 : 1)
   const runs: Run[] = [{ text: t, ...titleStyle }]
   if (hair >= 1) runs.push({ text: ' ' }, { text: '─'.repeat(hair), color: C.subtle })

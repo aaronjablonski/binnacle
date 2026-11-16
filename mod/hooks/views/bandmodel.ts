@@ -152,7 +152,7 @@ export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: numbe
     if (turn?.ms !== undefined && turn.ms >= 1000) facts.push(span(turn.ms))
     if (turn !== undefined && turn.files > 0) facts.push(files(turn.files))
     const warm = cacheLine(t).warmUntil
-    if (warm !== undefined && warm > now) facts.push(`cache stays warm ${warmWords(warm - now)}`)
+    if (warm !== undefined && warm > now) facts.push(`cache warm ${warmWords(warm - now)}`)
     const allDone = hs.state === 'all-done'
     model.rest = {
       head: allDone ? `All ${todo.total} done` : hs.state === 'idle-open' ? `Stopped with ${hs.open} to do open` : turn?.turn.endedAt !== undefined ? 'Finished' : 'Ready',

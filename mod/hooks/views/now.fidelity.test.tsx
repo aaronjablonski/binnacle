@@ -156,7 +156,7 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
   b.patch('R5: the asker is a subagent and Explorer still runs, so the task is not paused: "Working on"', b.sub(6, 'Paused on', 'Working on'))
   b.patch('R23 and real data: the asker is general-purpose: General', b.sub(14, 'Builder asks to run a command', 'General asks to run a command'))
-  b.patch('R3: no call hands the keys to the prompt, so the words "esc back to the prompt" take the filled button\'s place', rows => void (rows[16] = '▍ ¤¤¤¤¤  esc back to the prompt  then allow or deny'))
+  b.patch('R3 and R39: no call hands the keys to the prompt, so the amber chip reads " esc  back to the prompt " (plain Text; Enter opens the step) where the mock draws the button " ↵ go to prompt "; its dim words are "then allow or deny"', rows => void (rows[16] = '▍ ¤¤¤¤¤   esc  back to the prompt   then allow or deny'))
   b.patch(R25, badgeCol(14, 16, 7))
   b.patch('R14: one done row above the current task', dropRow(21))
   b.patch('R5: the current task keeps now · 12 min', rows => void (rows[22] = '▍ ▸ Wire the limiter into the chain             now · 12 min'))
@@ -200,7 +200,7 @@ test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitNowIdle')
     .patch(R25, badgeCol(6, 8, 7))
-  b.patch('R29 and the whole-minute words: "cache stays warm about 2 min"; "used" and " of 1M" go to fit the line beside the gauges', b.sub(10, '644k of 1M used · cache warm 2:51  ', '644k · cache stays warm about 2 min'))
+  b.patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', b.sub(10, 'cache warm 2:51  ', 'cache warm 2 min '))
   b.patch('real data: no retry is recorded, so the agents fact has no detail', b.sub(23, '     1 was retried after a failure', ''))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowIdle', b.rows, got, b.names, 62)).toBe('matches')
@@ -234,7 +234,7 @@ test('fidelity: CockpitSlim asked at 26 columns matches the mock but for the lis
     rows[10] = '▍ npm run deploy -- --env'
     rows[11] = '▍ staging'
   })
-  b.patch('R3: the words "esc back to the prompt" in place of the filled button', b.sub(12, ' ↵ go to prompt', 'esc back to the prompt'))
+  b.patch('R3 and R39: the amber chip is plain Text, " esc  to the prompt " (the short form for the 22 columns), where the mock draws the button " ↵ go to prompt "', b.sub(12, ' ↵ go to prompt', ' esc  to the prompt'))
   b.patch('R30: "1 working · 1 waiting" does not fit beside the title at 26, so it takes its own row', rows => {
     rows[23] = ' Agents                 ›'
     return addRow(24, ' 1 working · 1 waiting')(rows)

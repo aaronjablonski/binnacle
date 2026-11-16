@@ -799,6 +799,28 @@ export function growLists(spare: number, lists: GrowList[]): Map<string, number>
   return out
 }
 
+/**
+ * R37: the items each list of a tab shows once the pane is taller than the mocks' 46 rows. Each list keeps its
+ * `cap` (the mock's, the floor); `spare` rows are dealt to the lists in order, one item a row, and a list that
+ * ends up showing everything frees its "+ n more" row. Lists with no more items than their cap keep it.
+ *
+ * @example growCaps(10, [{ count: 12, cap: 5 }, { count: 9, cap: 3 }]) // [12, 3 + 4]: the first takes 6 (one row freed), the second the rest
+ */
+export function growCaps(spare: number, lists: readonly { count: number; cap: number }[]): number[] {
+  let left = Math.max(0, Math.floor(spare))
+  return lists.map(({ count, cap }) => {
+    if (count <= cap) return cap
+    const rest = count - cap
+    if (left >= rest - 1) {
+      left = Math.max(0, left - Math.max(0, rest - 1))
+      return count
+    }
+    const extra = left
+    left = 0
+    return cap + extra
+  })
+}
+
 /** What a list of `count` draws in `rows` rows: every item when they fit, else `rows - 1` and a more line for the rest. */
 export function listSplit(count: number, rows: number): { shown: number; more: number } {
   if (count <= rows) return { shown: count, more: 0 }
@@ -1171,16 +1193,16 @@ export function countdown(ms: number): string {
 
 /**
  * How long the prompt cache stays warm, in whole minutes and no seconds (the
- * estimate is not that exact): "about 4 min", and "under 1 min" in the last
- * minute. The one word helper for the header's budget line and the budget
+ * estimate is not that exact): "4 min", and "under 1 min" in the last
+ * minute (R40). The one word helper for the header's budget line and the budget
  * view's CACHE row. Minutes round down, so it never promises more than is left.
  *
- * @example `cache stays warm ${warmWords(warm - now)}`
+ * @example `cache warm ${warmWords(warm - now)}`
  */
 export function warmWords(ms: number): string {
   const s = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000))
   const m = Math.floor(s / 60)
-  return m < 1 ? 'under 1 min' : `about ${m} min`
+  return m < 1 ? 'under 1 min' : `${m} min`
 }
 
 // ---------- the cockpit: bars in `━` (R22: Text, so no Raster on any surface) ----------

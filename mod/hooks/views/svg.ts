@@ -196,7 +196,7 @@ export function deckModel(t: Timeline, u: UiState, now: number): DeckModel {
     model.cache = { readPct: Math.round(c.readShare * 100), read: c.read, write: c.write, fresh: c.fresh }
     if (c.warmUntil !== undefined && c.warmUntil > now) {
       const left = Math.floor((c.warmUntil - now) / 1000)
-      model.cache.warm = `stays warm about ${Math.max(1, Math.floor(left / 60))} min`
+      model.cache.warm = `stays warm ${Math.max(1, Math.floor(left / 60))} min`
     }
   }
   return model

@@ -178,7 +178,7 @@ test('slim: a need takes the slot under the header: amber head and count, who as
     const marked = rows.slice(head + 1).filter(r => r.startsWith('▍ '))
     expect(marked[0]).toContain('asks to run')
     expect(marked.some(r => r.includes('rm -rf build'))).toBe(true)
-    expect(marked[marked.length - 1]).toContain('esc back to the prompt')
+    expect(marked[marked.length - 1]).toContain('esc  to the prompt')
     const found = await ui.findAll({ type: 'Text' })
     expect(found.filter(f => f.text === 'Needs you').every(f => (f.props as { color?: string }).color === 'warning')).toBe(true)
     expect((await ui.find({ key: 'open-asking:s3' }))?.props).toMatchObject({ autoFocus: true })

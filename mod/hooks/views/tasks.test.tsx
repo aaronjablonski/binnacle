@@ -339,7 +339,8 @@ test('over 14 tasks the effort bars shrink to two cells then one, and past the w
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "sections run ACTIVE, QUEUED, DONE" and its binding-rule-2 growth: the sections are Doing now, Up next and Done in plain words, and each holds its cap at any height (Up next 5, Done 3), the rest behind `+ n more` (the cockpit keeps spare rows empty).
-test('sections run Doing now, Up next, Done; each holds its cap at any height: 5 up next and 3 done, the rest behind a more line', async ($, on) => {
+// BEHAVIOUR CHANGE back (R37, O I-6): the caps (5 up next, 3 done) are the floor at 46 rows and under; beyond 46 the lists grow with the pane (the test after this one).
+test('sections run Doing now, Up next, Done; each holds its cap up to 46 rows: 5 up next and 3 done, the rest behind a more line', async ($, on) => {
   const LONG: Timeline = {
     ...BUSY,
     tasks: [
@@ -350,7 +351,7 @@ test('sections run Doing now, Up next, Done; each holds its cap at any height: 5
   }
   seed(on, LONG, TASKS_UI)
   for (const surface of SURFACES) {
-    for (const bodyRows of [16, 24, 50]) {
+    for (const bodyRows of [16, 24, 46]) {
       const ui = await mount($, surface, 62, false, bodyRows)
       const rows = await drawnRows(ui)
       await ui.unmount()
@@ -373,6 +374,36 @@ test('sections run Doing now, Up next, Done; each holds its cap at any height: 5
       if (surface !== 'terminal') for (let i = 2; i < content.length; i++) expect(content[i] === '' && content[i - 1] === '' && content[i - 2] === '').toBe(false)
     }
   }
+})
+
+// R37 (new): the lists grow with the pane's height. Up next first (12 tasks), then Done (13), as the rows beyond the mocks' 46 allow.
+test('Up next and Done grow with the pane beyond 46 rows: Up next first, every row at 80 (R37)', async ($, on) => {
+  const LONG: Timeline = {
+    ...BUSY,
+    tasks: [
+      ...BUSY.tasks,
+      ...[8, 9, 10, 11, 12].map(n => task(`q${n}`, `Queued ${n}`, 'pending')),
+      ...[6, 7, 8, 9].map(n => task(`d${n}`, `Old ${n}`, 'completed', { updatedAt: NOW - 2_000_000 - n })),
+    ],
+  }
+  seed(on, LONG, TASKS_UI)
+  const count = async (bodyRows: number): Promise<{ queued: number; done: number; more: string[] }> => {
+    const ui = await mount($, 'desktop', 62, false, bodyRows)
+    const rows = await drawnRows(ui)
+    await ui.unmount()
+    return { queued: rows.filter(r => r.startsWith('  ○')).length, done: rows.filter(r => r.startsWith('  ✓')).length, more: rows.filter(r => r.startsWith('    + ')) }
+  }
+  const at46 = await count(46)
+  const at56 = await count(56)
+  const at90 = await count(90)
+  expect(at46.queued).toBe(5)
+  expect(at56.queued).toBeGreaterThan(5)
+  expect(at56.done).toBeGreaterThanOrEqual(at46.done)
+  expect(at90.queued).toBe(12)
+  expect(at90.done).toBeGreaterThan(at46.done)
+  // Up next is dealt first: at 56 rows it is whole before Done grows past its 3.
+  if (at56.queued < 12) expect(at56.done).toBe(at46.done)
+  expect(at90.more.some(r => r.includes('to do'))).toBe(false)
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "rows put glyph at 2, name at 4, the metric at 38 and the time at 50": figures are flush right, the tokens ending at 49 and the time at 59.

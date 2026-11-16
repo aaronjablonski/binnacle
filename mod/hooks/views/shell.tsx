@@ -381,7 +381,8 @@ async function switchTab($: EngineInterface, tab: Tab, showCost: boolean): Promi
   if (e === undefined) return
   let key: string | undefined
   try {
-    const rest = { ...(await drawnOf($, e, { ...(ring.options ?? {}), showCost })), look: ring.look ?? 'text' }
+    // Drawn only to find the first row, never shown: no one-shot move starts here (motion sketches).
+    const rest = { ...(await drawnOf($, e, { ...(ring.options ?? {}), showCost })), look: ring.look ?? 'text', motion: false }
     if (tier(rest.cols) === 'slim') return
     key = stopsOf(withStart(body($, e, rest), isTabKey), isTabKey).start
     if (key === undefined) return

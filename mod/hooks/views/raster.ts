@@ -900,14 +900,187 @@ function overlay(rows: string[], over: Overlay | undefined): void {
 
 /** A role's mark grid in a state at a size: the base, the state's face, the role's own face and its accessory laid over it. */
 export function critterShape(role: CritterRole, size: CritterSize, state: State = 'working', frame: 1 | 2 = 1): string[] {
+  return faceShape(role, size, state === 'working' && frame === 2 ? 'blink' : FACE_OF[state])
+}
+
+/** A role's mark grid wearing `face`, at a size. */
+function faceShape(role: CritterRole, size: CritterSize, face: FaceName): string[] {
   const m = MASCOT[size]
   const r = m.roles[role]
   const rows = m.base.slice()
-  const face: FaceName = state === 'working' && frame === 2 ? 'blink' : FACE_OF[state]
   overlay(rows, m.faces[face])
   if (r.faces !== undefined) overlay(rows, r.faces[face])
   overlay(rows, r.rows)
   return rows
+}
+
+// ---------- the one-shot moves (motion sketches 2, 3, 4, 8, 9, 10) ----------
+//
+// A move is body and eyes only: a squash, a hop, a face, and the tones fading
+// from one state to the next. Each pose is the mascot's own rows moved within
+// its box, so the box never changes and every frame is a blit. A cell holds
+// two quadrant rows, so a pose that moves rows by one sub-pixel pairs rows that
+// never met; each pose takes the first of its candidates that keeps two
+// colours to a cell (`pairsOk`), and the tests check every role, size, face
+// and ground.
+
+/** A one-shot pose: still (the state's own rows), squash (the head pushed down), hop (up off the ground). */
+export type Pose = 'still' | 'squash' | 'hop'
+
+/** Marks that are one colour in every tone (`critterTone`): the dark eye, the glasses' bridge. */
+const SAME_TONE: Record<string, string> = { f: 'e', v: 'e' }
+
+/** Whether every cell of a mark grid holds at most two colours (the ground counting as one). */
+export function pairsOk(rows: readonly string[]): boolean {
+  for (let y = 0; y < rows.length; y += 2) {
+    const a = rows[y]!
+    const b = rows[y + 1] ?? '.'.repeat(a.length)
+    for (let x = 0; x < a.length; x += 2) {
+      const marks = new Set([a[x], a[x + 1], b[x], b[x + 1]].map(m => SAME_TONE[m ?? '.'] ?? m ?? '.'))
+      if (marks.size > 2) return false
+    }
+  }
+  return true
+}
+
+const blankRow = (w: number): string => '.'.repeat(w)
+
+/**
+ * The squash's candidates, best first. Small: the top body row goes and the
+ * accessory sits one sub-pixel lower on the face (legs kept); else the whole
+ * shape one cell lower, the belly and legs folded away. Micro: the top body
+ * row goes and the accessory sits on the eyes; else the accessory's top goes
+ * and its brim sits on the eyes (the hard hat).
+ */
+function squashes(rows: readonly string[], size: CritterSize): string[][] {
+  const w = rows[0]!.length
+  if (size === 'micro') return [[blankRow(w), rows[0]!, rows[2]!, rows[3]!], [blankRow(w), rows[1]!, rows[2]!, rows[3]!]]
+  return [
+    [blankRow(w), rows[0]!, rows[2]!, rows[3]!, rows[4]!, rows[5]!],
+    [blankRow(w), blankRow(w), rows[0]!, rows[1]!, rows[2]!, rows[3]!],
+  ]
+}
+
+/**
+ * The hop's candidates, best first: one sub-pixel up off the ground (only
+ * where the top row is empty, so no accessory is cut); else the legs (micro:
+ * the bottom row) tucked up off the ground, the head where it was.
+ */
+function hops(rows: readonly string[]): string[][] {
+  const w = rows[0]!.length
+  const n = rows.length
+  const out: string[][] = []
+  if (rows[0] === blankRow(w)) out.push([...rows.slice(1), blankRow(w)])
+  out.push([...rows.slice(0, n - 1), blankRow(w)])
+  // Micro, where the eyes share a cell with the bottom row: the bottom drawn in from both ends (lifted off the ground).
+  const last = rows[n - 1]!
+  out.push([...rows.slice(0, n - 1), `.${last.slice(1, w - 1)}.`])
+  return out
+}
+
+/** A role's mark grid in a pose and a face at a size: the first candidate that keeps two colours to a cell, else the still rows. */
+export function poseShape(role: CritterRole, size: CritterSize, face: FaceName, pose: Pose): string[] {
+  const rows = faceShape(role, size, face)
+  if (pose === 'still') return rows
+  const pick = (pose === 'squash' ? squashes(rows, size) : hops(rows)).find(pairsOk)
+  return pick ?? rows
+}
+
+/** One frame of a move: the pose and face, the tones of `state` (moved `t` of the way toward `toward`), and the badge to show, if any. */
+export type PoseFrame = {
+  pose: Pose
+  face: FaceName
+  state: State
+  toward?: State
+  t?: number
+  /** The badge of this state in the badge column; none when absent. */
+  badge?: State
+}
+
+/** A critter in its box (the body and the badge column, as `critterBox`) in one frame of a move. */
+export function critterPoseBox(role: CritterRole, size: CritterSize, f: PoseFrame, ground: Ground = 'night'): Grid {
+  const box = CRITTER[size]
+  const g = new Grid(box.columns + 1, box.rows, PALETTE[ground])
+  const pal = CREW_PALETTE[ground]
+  const rows = poseShape(role, size, f.face, f.pose)
+  const t = Math.max(0, Math.min(1, f.t ?? 0))
+  rows.forEach((line, py) => {
+    ;[...line].forEach((mark, px) => {
+      const a = critterTone(mark, role, f.state, pal)
+      if (a === undefined) return
+      const b = f.toward !== undefined && t > 0 ? critterTone(mark, role, f.toward, pal) : undefined
+      g.sp(px, py, b === undefined ? a : mix(a, b, t))
+    })
+  })
+  if (f.badge !== undefined) drawCritterBadge(g, box.columns, 0, f.badge, ground)
+  return g
+}
+
+/** The steps of each move (motion sketches): how long each in-between frame shows, in ms. */
+export const MOVE_MS = {
+  /** 2: an agent starts, the lead wakes: squash, hop. */
+  wake: [120, 120],
+  /** 3: an agent finishes: the nod, the half fade, then the rest in grey before the fold. */
+  settle: [150, 150, 700],
+  /** 4: Needs you arrives: the glance toward the badge, the hop with it. */
+  ask: [140, 140],
+  /** 8: stalled: eyes shut, then sunk and dimming. */
+  stall: [300, 300],
+  /** 9: failed: the flinch, then dim without the badge. */
+  fail: [130, 130],
+} as const
+
+export type Move = keyof typeof MOVE_MS
+
+/** The in-between frames of a move (the end state is the critter's own frame, drawn after them). */
+export function moveFrames(move: Move): PoseFrame[] {
+  switch (move) {
+    case 'wake':
+      return [
+        { pose: 'squash', face: 'open', state: 'queued' },
+        { pose: 'hop', face: 'open', state: 'working' },
+      ]
+    case 'settle':
+      return [
+        { pose: 'squash', face: 'shut', state: 'working' },
+        { pose: 'still', face: 'shut', state: 'working', toward: 'done', t: 0.5 },
+        { pose: 'still', face: 'shut', state: 'done' },
+      ]
+    case 'ask':
+      return [
+        { pose: 'still', face: 'look', state: 'working' },
+        { pose: 'hop', face: 'look', state: 'waiting', badge: 'waiting' },
+      ]
+    case 'stall':
+      return [
+        { pose: 'still', face: 'shut', state: 'working' },
+        { pose: 'squash', face: 'shut', state: 'working', toward: 'stalled', t: 0.6 },
+      ]
+    case 'fail':
+      return [
+        { pose: 'squash', face: 'shut', state: 'working' },
+        { pose: 'still', face: 'sad', state: 'failed' },
+      ]
+  }
+}
+
+/**
+ * 10: the lead on the finish sweep's frames (0 to 4): squash, hop, still,
+ * eyes shut half grey, grey. It rides the sweep's own redraws: no timer.
+ */
+export function sweepPose(frame: number): PoseFrame {
+  switch (frame) {
+    case 0:
+      return { pose: 'squash', face: 'open', state: 'working' }
+    case 1:
+      return { pose: 'hop', face: 'open', state: 'working' }
+    case 2:
+      return { pose: 'still', face: 'open', state: 'working' }
+    case 3:
+      return { pose: 'still', face: 'shut', state: 'working', toward: 'done', t: 0.5 }
+    default:
+      return { pose: 'still', face: 'shut', state: 'done' }
+  }
 }
 
 const WHITE = 0xffffff
@@ -1135,11 +1308,13 @@ export function gaugeFigure(pct: number): string {
  * meets unlit takes the colour of most of its dots; any non-zero value
  * lights at least one cell. The figure is ink, or the gauge's hue from 70 %.
  */
-export function drawGaugeRing(g: Grid, x: number, row: number, pct: number, o: { hue?: Ink } = {}): void {
+export function drawGaugeRing(g: Grid, x: number, row: number, pct: number, o: { hue?: Ink; arc?: number } = {}): void {
   const p = Number.isFinite(pct) ? Math.max(0, pct) : 0
   const k = o.hue ?? gaugeHue(p)
-  const paint = gaugeCells(cellAspect).map(dots => ({ dots, lit: p >= 100 || dots.filter(d => d[2] < p / 100).length * 2 > dots.length }))
-  if (p > 0 && !paint.some(c => c.lit)) {
+  // `arc`: the arc lit to another value than the figure says (motion sketch 6: the arc travels, the figure is true from the first frame).
+  const a = o.arc !== undefined && Number.isFinite(o.arc) ? Math.max(0, o.arc) : p
+  const paint = gaugeCells(cellAspect).map(dots => ({ dots, lit: a >= 100 || dots.filter(d => d[2] < a / 100).length * 2 > dots.length }))
+  if (a > 0 && !paint.some(c => c.lit)) {
     const first = Math.min(...paint.map(c => Math.min(...c.dots.map(d => d[2]))))
     const cell = paint.find(c => Math.min(...c.dots.map(d => d[2])) === first)
     if (cell !== undefined) cell.lit = true
@@ -1159,11 +1334,22 @@ export function gaugeRing(pct: number, o: { hue?: Ink; pal?: Palette } = {}): Gr
 /** The header's two gauges: 9 x 5 each, 2 columns apart (columns 40 and 51 at 62), 20 x 5 in all. */
 export const GAUGE_PAIR = { columns: 2 * GAUGE_RING.columns + 2, rows: GAUGE_RING.rows, pitch: GAUGE_RING.columns + 2 } as const
 
-/** Up to two gauges side by side in a `GAUGE_PAIR` box. */
-export function gaugePair(pcts: readonly number[], pal?: Palette): Grid {
+/** Up to two gauges side by side in a `GAUGE_PAIR` box; `arcs` lights each arc to another value than its figure (the fill). */
+export function gaugePair(pcts: readonly number[], pal?: Palette, arcs?: readonly number[]): Grid {
   const g = new Grid(GAUGE_PAIR.columns, GAUGE_PAIR.rows, pal)
-  pcts.slice(0, 2).forEach((p, i) => drawGaugeRing(g, i * GAUGE_PAIR.pitch, 0, p))
+  pcts.slice(0, 2).forEach((p, i) => drawGaugeRing(g, i * GAUGE_PAIR.pitch, 0, p, arcs?.[i] !== undefined ? { arc: arcs[i]! } : {}))
   return g
+}
+
+/** Motion sketch 6: how far along its travel each fill frame lights the arc (5 x 80 ms, easing in). */
+export const GAUGE_FILL = [0.3, 0.55, 0.75, 0.88, 0.96] as const
+export const GAUGE_FILL_MS = 80
+/** A gauge that moves this many points at once travels (a compaction, a new week). */
+export const GAUGE_JUMP = 10
+
+/** The fill's frames: each arc from `from[i]` toward `pcts[i]` by `GAUGE_FILL`, every figure true. */
+export function gaugeFill(pcts: readonly number[], from: readonly number[], pal?: Palette): Grid[] {
+  return GAUGE_FILL.map(t => gaugePair(pcts, pal, pcts.map((p, i) => (from[i] ?? p) + (p - (from[i] ?? p)) * t)))
 }
 
 // ---------- the cockpit: lintel and sill ----------

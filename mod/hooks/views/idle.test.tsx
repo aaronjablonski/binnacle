@@ -5,7 +5,6 @@ import type { On } from 'claude-code'
 import type { Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { resetCountdown } from './countdown'
 import { resetPaint } from './paint'
 
 // Idle is still (plan constraint 5): while the session waits and the prompt
@@ -27,7 +26,6 @@ type World = { clock: MockClock; invalidated: () => number; blits: string[] }
 
 function world(on: On, u: UiState): World {
   resetPaint()
-  resetCountdown()
   const stored = new Map<string, unknown>([['timeline', WARM], ['ui', u]])
   const clock = mock.clock(on, { now: NOW })
   let invalidated = 0

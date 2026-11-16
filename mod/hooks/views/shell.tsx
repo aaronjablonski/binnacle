@@ -11,7 +11,7 @@ import { overviewView } from './overview'
 import { leavePage, pageOf } from './pagenav'
 import { begin, forget, startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
-import { needsTick } from './needs'
+import { needsTick, observeCover } from './needs'
 import type { NotifyMode } from './needs'
 import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
@@ -188,6 +188,8 @@ export function registerShell(on: On, options: PluginOptions): void {
       begin(PANE)
       // The look option is read on every draw (a press on the Options card's Look row applies at once).
       const rest = await drawnOf($, e, options, lookOption())
+      // Every tab notes what the pane saw, so an answered ask clears whichever tab is open (FX1 concern 2).
+      observeCover({ t: rest.t, now: rest.now, isPromptCovered: rest.isPromptCovered, e })
       const width = tier(cols)
       // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary. So is the desktop's `widget` placement (R32): a glance, not the tabs.
       const tree =

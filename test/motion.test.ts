@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  CREW_PALETTE,
   CRITTER,
   CRITTER_ROLES,
   critterBox,
@@ -56,6 +57,22 @@ describe('the poses of the moves', () => {
     for (const role of CRITTER_ROLES) for (const size of SIZES) for (const ground of GROUNDS) for (const f of frames) {
       const g = critterPoseBox(role, size, f, ground)
       for (let row = 0; row < g.rows; row++) for (let x = 0; x < g.columns; x++) expect(coloursIn(g, x, row)).toBeLessThanOrEqual(2)
+    }
+  })
+
+  // B-M5, R19: a pose frame's body has no amber, red or mint (those are the dialog, the failed badge and the old lamp); only its badge column may.
+  test('R19: no amber, red or mint in the body of any move or sweep frame, at every role, size and ground', () => {
+    const frames = [...(Object.keys(MOVE_MS) as (keyof typeof MOVE_MS)[]).flatMap(m => moveFrames(m)), ...[0, 1, 2, 3, 4].map(sweepPose)]
+    for (const role of CRITTER_ROLES) for (const size of SIZES) for (const ground of GROUNDS) {
+      const pal = CREW_PALETTE[ground]
+      for (const f of frames) {
+        const g = critterPoseBox(role, size, f, ground)
+        for (let row = 0; row < g.rows; row++) for (let x = 0; x < CRITTER[size].columns; x++) {
+          for (const v of g.cell(x, row).q) {
+            expect(v === pal.mint || v === pal.amber || v === pal.red).toBe(false)
+          }
+        }
+      }
     }
   })
 

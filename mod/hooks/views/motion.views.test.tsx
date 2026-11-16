@@ -81,6 +81,7 @@ type Mounted = {
   findAll: (q: ElementQuery) => Promise<FoundElement[]>
   drawn: () => Promise<unknown>
   redraw: () => Promise<void>
+  press: (t: { key: string }) => Promise<unknown>
 }
 const cellsOf = async (ui: Mounted, key: string): Promise<string | undefined> => {
   const r = await ui.find({ type: 'Raster', key })
@@ -540,5 +541,241 @@ test('motion 10: the lead squashes, hops and greys on the finish sweep\'s frames
   // Consecutive equal frames collapse (frame 4 is the grey end state).
   expect(seen).toEqual(want.filter((c, i) => i === 0 || want[i - 1] !== c))
   expect(blitsOf(w, 'now-who')).toHaveLength(0)
+  await ui.unmount()
+})
+
+// ---------- fix round 1: B-M1, B-M2, B-M5 ----------
+
+/** The pane at a given body height (the cards that fit shrink with it). */
+const PANE_AT = (rows: number, surface: 'terminal' | 'desktop' = 'terminal') =>
+  ({
+    plugin: 'binnacle', component: 'Pane', requestId: 'binnacle', surface,
+    props: { title: 'Binnacle', isFocused: true, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {} },
+  }) as const
+
+const AGENTS_UI: UiState = { ...initialUi, tab: 'agents' }
+
+test('B-M1: the Agents tab counts Working over the running agents only, while a finished card is held for its nod', async ($, on) => {
+  const w = world(on, busy(), AGENTS_UI)
+  const ui = await $.ui.mount(PANE())
+  const head = async (): Promise<string> => screen(await ui.drawn()).find(r => /^\s*Working\b/.test(r)) ?? ''
+  expect(await head()).toMatch(/\s2\s*$/)
+  finishB1(w)
+  await ui.redraw()
+  // The finished card is still drawn (its nod), but it is not working.
+  expect(await cellsOf(ui, 'agent-b1-who')).toBeDefined()
+  expect(await head()).toMatch(/\s1\s*$/)
+  await ui.unmount()
+})
+
+test('B-M1: on Now "+ k more working" counts running agents only, and a held card that is not drawn counts as finished', async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE_AT(30))
+  const t = timeline(w)
+  const extra: Record<string, ReturnType<typeof agent>> = {}
+  for (const id of ['r1', 'r2', 'r3', 'r4']) extra[id] = agent(id, 'Explore', `look at ${id}`, NOW - 400_000)
+  w.stored.set('timeline', { ...t, agents: { ...t.agents, ...extra, b1: { ...t.agents.b1!, status: 'done', endedAt: w.clock.now() } } })
+  await ui.redraw()
+  const rows = screen(await ui.drawn())
+  const drawn = (await ui.findAll({ type: 'Raster' })).map(r => r.key ?? '').filter(k => /^agent-.*-who$/.test(k))
+  expect(drawn.length).toBeGreaterThan(0)
+  expect(drawn.length).toBeLessThan(5)
+  // Running agents: e1, r1..r4 (b1 has finished). Those not drawn are the "more".
+  const runningDrawn = drawn.filter(k => k !== 'agent-b1-who').length
+  const more = rows.map(r => /\+ (\d+) more working/.exec(r)).find(m => m !== null)
+  expect(Number(more?.[1])).toBe(5 - runningDrawn)
+  // b1 either is drawn (held, so not counted finished) or is not drawn and counts as finished at once.
+  const b1Drawn = drawn.includes('agent-b1-who')
+  expect(rows.some(r => r.includes(`${b1Drawn ? 31 : 32} finished earlier`))).toBe(true)
+  await ui.unmount()
+})
+
+// B-M2: the hidden draw behind a tab switch is dry.
+test('B-M2: a tab press mid-burst leaves the running burst alone', async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  finishB1(w)
+  await ui.redraw()
+  await w.clock.advance(100)
+  await ui.press({ key: 'tab-overview' })
+  // The nod still plays on its own times, and the fold still comes.
+  await w.clock.advance(60)
+  expect(blitsOf(w, 'agent-b1-who').map(b => b.at)).toEqual([150])
+  await w.clock.advance(5000)
+  expect(blitsOf(w, 'agent-b1-who').map(b => b.at)).toEqual([150, 300])
+  expect(w.redraws).toEqual([1000])
+  await ui.unmount()
+})
+
+test('B-M2: a change that landed before a tab press still plays when the pane is drawn again', async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  finishB1(w)
+  await ui.press({ key: 'tab-overview' })
+  await ui.redraw()
+  await playsMove(w, ui, 'agent-b1-who', 'general', 'settle', 'done', 0)
+  await ui.unmount()
+})
+
+// ---------- 8: stalled, through a real view ----------
+
+/** b1 has no step running and has been quiet longer than the limit: the Now card dozes. */
+function quietB1(w: World): void {
+  const t = timeline(w)
+  w.stored.set('timeline', {
+    ...t,
+    agents: { ...t.agents, b1: { ...t.agents.b1!, startedAt: NOW - 700_000 } },
+    steps: t.steps.filter(s => s.agent !== 'b1'),
+  })
+}
+
+test('motion 8: a card whose agent goes quiet shuts its eyes, sinks and dims (2 x 300 ms), then sits dim with its z; once', async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  quietB1(w)
+  await ui.redraw()
+  await playsMove(w, ui, 'agent-b1-who', 'general', 'stall', 'stalled', 0)
+  await w.clock.advance(5000)
+  expect(blitsOf(w, 'agent-b1-who')).toHaveLength(2)
+  expect(w.redraws).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('motion 8, motion off: the stalled card is drawn dim with its z at once, nothing blitted', { options: { motion: 'off' } }, async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  quietB1(w)
+  await ui.redraw()
+  const cells = await cellsOf(ui, 'agent-b1-who')
+  expect(GROUNDS.some(g => encode(critterBox('general', 'stalled', 'small', { ground: g })) === cells)).toBe(true)
+  await w.clock.advance(2000)
+  expect(w.blits).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('motion 8, text look: no Raster, no blit', { options: { look: 'text' } }, async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  quietB1(w)
+  await ui.redraw()
+  expect(await cellsOf(ui, 'agent-b1-who')).toBeUndefined()
+  await w.clock.advance(2000)
+  expect(w.blits).toHaveLength(0)
+  await ui.unmount()
+})
+
+// ---------- 9, 6, 10: motion off and the text look show the end state ----------
+
+function failE1(w: World): void {
+  const t = timeline(w)
+  w.stored.set('timeline', { ...t, agents: { ...t.agents, e1: { ...t.agents.e1!, status: 'error', endedAt: w.clock.now(), result: 'not found' } } })
+}
+
+test('motion 9, motion off: the failed card is drawn failed at once, nothing blitted', { options: { motion: 'off' } }, async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  failE1(w)
+  await ui.redraw()
+  const cells = await cellsOf(ui, 'agent-e1-who')
+  expect(GROUNDS.some(g => encode(critterBox('scout', 'failed', 'small', { ground: g })) === cells)).toBe(true)
+  await w.clock.advance(2000)
+  expect(w.blits).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('motion 9, text look: no Raster, no blit', { options: { look: 'text' } }, async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  failE1(w)
+  await ui.redraw()
+  expect(await cellsOf(ui, 'agent-e1-who')).toBeUndefined()
+  await w.clock.advance(2000)
+  expect(w.blits).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('motion 6, text look: no gauge Raster, nothing blitted', { options: { look: 'text' } }, async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  expect(await cellsOf(ui, 'now-gauges')).toBeUndefined()
+  await w.clock.advance(2000)
+  expect(w.blits).toHaveLength(0)
+  await ui.unmount()
+})
+
+/** A finished turn that ended 2 s ago, the pane open (the finish sweep starts on the next tick). */
+function sweepWorld(on: On, t: Timeline): World {
+  return world(on, { ...t, turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 80 * 60_000, endedAt: NOW - 2000 }] }, { ...initialUi, paneOpen: true })
+}
+
+/** The cells of the lead over the sweep window: each distinct one, in order. */
+async function leadOverSweep(w: World, ui: Mounted): Promise<string[]> {
+  const seen: string[] = []
+  const draw = async (): Promise<void> => {
+    await ui.redraw()
+    const c = await cellsOf(ui, 'now-who')
+    if (c !== undefined && seen.at(-1) !== c) seen.push(c)
+  }
+  await draw()
+  await w.clock.advance(1000 + SWEEP_STEP_MS / 2)
+  await draw()
+  for (let i = 1; i < SWEEP_FRAMES; i++) {
+    await w.clock.advance(SWEEP_STEP_MS)
+    await draw()
+  }
+  await w.clock.advance(SWEEP_STEP_MS)
+  await draw()
+  return seen
+}
+
+test('motion 10, motion off: the lead is at rest, grey, at once and never moves', { options: { motion: 'off' }, timeoutMs: 30_000 }, async ($, on) => {
+  const w = sweepWorld(on, idle())
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE())
+  const seen = await leadOverSweep(w, ui)
+  expect(seen).toHaveLength(1)
+  expect(GROUNDS.some(g => encode(critterBox('lead', 'done', 'small', { ground: g })) === seen[0])).toBe(true)
+  await ui.unmount()
+})
+
+test('motion 10, text look: no Raster for the lead, nothing blitted', { options: { look: 'text' }, timeoutMs: 30_000 }, async ($, on) => {
+  const w = sweepWorld(on, idle())
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE())
+  const seen = await leadOverSweep(w, ui)
+  expect(seen).toHaveLength(0)
+  expect(w.blits).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('motion 10: while Needs you has rows the lead stays still: the sweep does not play', { timeoutMs: 30_000 }, async ($, on) => {
+  const w = sweepWorld(on, asked())
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE({ covered: true }))
+  expect(screen(await ui.drawn()).some(r => r.includes('Needs you'))).toBe(true)
+  const seen = await leadOverSweep(w, ui)
+  // The lead may blink (it is working), but it never takes a sweep pose: no squash, hop or half-grey frame.
+  const sweep = GROUNDS.flatMap(g => [0, 1, 3].map(i => encode(critterPoseBox('lead', 'small', sweepPose(i), g))))
+  expect(seen.length).toBeGreaterThan(0)
+  for (const c of seen) expect(sweep).not.toContain(c)
+  await ui.unmount()
+})
+
+// ---------- the desktop app: still, end states only ----------
+
+test('the desktop Svg plays no move: a finish folds at once, a stall and a failure blit nothing', { timeoutMs: 30_000 }, async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE_AT(46, 'desktop'))
+  expect(screen(await ui.drawn()).some(r => r.includes('31 finished earlier'))).toBe(true)
+  finishB1(w)
+  await ui.redraw()
+  expect(screen(await ui.drawn()).some(r => r.includes('32 finished earlier'))).toBe(true)
+  quietB1(w)
+  await ui.redraw()
+  failE1(w)
+  await ui.redraw()
+  await w.clock.advance(3000)
+  expect(w.blits).toHaveLength(0)
+  expect(w.redraws).toHaveLength(0)
   await ui.unmount()
 })

@@ -1135,6 +1135,20 @@ export function countdown(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/**
+ * How long the prompt cache stays warm, in whole minutes and no seconds (the
+ * estimate is not that exact): "about 4 min", and "under 1 min" in the last
+ * minute. The one word helper for the header's budget line and the budget
+ * view's CACHE row. Minutes round down, so it never promises more than is left.
+ *
+ * @example `cache stays warm ${warmWords(warm - now)}`
+ */
+export function warmWords(ms: number): string {
+  const s = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000))
+  const m = Math.floor(s / 60)
+  return m < 1 ? 'under 1 min' : `about ${m} min`
+}
+
 // ---------- the cockpit: bars in `━` (R22: Text, so no Raster on any surface) ----------
 
 /** One part of a `ruleBar`: a count and its style (a theme key, or dim). */

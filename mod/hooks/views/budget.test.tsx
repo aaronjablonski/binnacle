@@ -131,36 +131,64 @@ async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns
   return m
 }
 
-// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
-test('text form: the budget view is a deck: used and resets heads, then CTX and each window with a 22-cell bar, the percentage at 38 and the reset at 50', { options: { look: 'text' } }, async ($, on) => {
-  world(on, withBudget(budget({ windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 32 }] })))
+// LOOK TEST (rewritten for the cockpit, task C3b): the budget view is the cockpit's: lintel, a BUDGET pill that goes back, the three rings with
+// their words under them at 29, 40 and 51 (62 columns), the sill; no Neo deck, no beads, no bracket.
+test('the budget view: lintel, the BUDGET pill, three rings of context, 5 hours and this week with words under them, sill', { options: { look: 'text' } }, async ($, on) => {
+  world(on, withBudget(budget({ contextTokens: 620_000, windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 32 }] })))
   for (const surface of SURFACES) {
     const m = await openBudget($, surface, 62)
     const rows = screen(await m.drawn())
-    const head = rows.findIndex(r => r.startsWith('┏ BUDGET'))
-    expect(head).toBeGreaterThanOrEqual(0)
-    expect(colOf(rows[head], 'used')).toBe(38)
-    expect(colOf(rows[head], 'resets')).toBe(50)
-    expect(rows[head]![61]).toBe('┓')
-    const ctx = rows[head + 1]!
-    expect(ctx.startsWith('┃ CTX')).toBe(true)
-    expect(ctx.slice(14, 36)).toMatch(/^[▮▯]{22}$/)
-    expect(colOf(ctx, '62%')).toBe(38)
-    const five = rows[head + 2]!
-    expect(five.startsWith('┃ 5H')).toBe(true)
-    expect(colOf(five, '71%')).toBe(38)
-    expect(colOf(five, resetClock(NOW + 2 * HOUR, NOW))).toBe(50)
-    const seven = rows[head + 3]!
-    expect(seven.startsWith('┗ 7D')).toBe(true)
-    expect(colOf(seven, '32%')).toBe(38)
-    expect(seven.slice(50, 61).trim()).toBe('')
-    expect(seven[61]).toBe('┛')
-    // 62 % is in the accent and 71 % is lit in warning.
-    const found = await m.findAll({ type: 'Text' })
-    expect(found.some(f => /^▮+$/.test(f.text ?? '') && (f.props as { color?: string }).color === 'warning')).toBe(true)
+    const top = rows.findIndex(r => r.startsWith('┏━━'))
+    expect(top).toBe(3)
+    expect(rows[top + 1]).toMatch(/^ {3}BUDGET {3}\S/)
+    // The figure beside the rings (620k of 1M), then 62%, 71% and 32% centred in their 9 cells at 29, 40 and 51.
+    const mid = rows[top + 4]!
+    expect(colOf(mid, '620k of 1M')).toBe(2)
+    expect(colOf(mid, '62%')).toBe(32)
+    expect(colOf(mid, '71%')).toBe(43)
+    expect(colOf(mid, '32%')).toBe(54)
+    const words = rows[top + 7]!
+    expect(colOf(words, 'context')).toBe(30)
+    expect(colOf(words, '5 hours')).toBe(41)
+    expect(colOf(words, 'this week')).toBe(51)
+    expect(rows[top + 8]!.endsWith('━━┛')).toBe(true)
+    expect(rows[top + 8]!.length).toBe(62)
+    // Nothing of the Neo deck is left.
+    const all = rows.join('\n')
+    for (const gone of ['┃', '▮', '▯', '┌ ', 'BUDGET ─', 'WINDOW', 'CTX', ' 5H ', ' 7D ']) expect(all).not.toContain(gone)
     await m.press({ key: 'budget-back' })
     await m.unmount()
   }
+})
+
+test('gauge figures follow R9: ink under 70 %, bold from 70, red from 90, and never amber anywhere in the view', { options: { look: 'text' } }, async ($, on) => {
+  world(on, withBudget(budget({ contextPct: 62, windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 94 }] })))
+  const m = await openBudget($, 'terminal', 62)
+  const texts = await m.findAll({ type: 'Text' })
+  const figure = (v: string) => texts.find(f => f.text === v)?.props as { color?: string; bold?: boolean } | undefined
+  expect(figure('62%')?.bold).toBeUndefined()
+  expect(figure('62%')?.color).toBeUndefined()
+  expect(figure('71%')?.bold).toBe(true)
+  expect(figure('71%')?.color).toBeUndefined()
+  expect(figure('94%')?.color).toBe('error')
+  expect(texts.some(f => (f.props as { color?: string }).color === 'warning')).toBe(false)
+  // The word under a hot ring takes the same style (bold, red), a cool one is dim.
+  const word = (v: string) => texts.find(f => f.text === v)?.props as { color?: string; bold?: boolean; dimColor?: boolean } | undefined
+  expect(word('context')?.dimColor).toBe(true)
+  expect(word('5 hours')?.bold).toBe(true)
+  expect(word('this week')?.color).toBe('error')
+  await m.press({ key: 'budget-back' })
+  await m.unmount()
+})
+
+test('the rings are one 31 x 5 Raster on the terminal (three 9 x 5 rings, 2 apart)', async ($, on) => {
+  world(on, withBudget(budget({ windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + 2 * HOUR }, { name: 'seven_day', pct: 32 }] })))
+  const m = await openBudget($, 'terminal', 62)
+  const rasters = await m.findAll({ type: 'Raster' })
+  const rings = rasters.find(r => (r.key ?? r.props?.key) === 'budget-rings')
+  expect(rings?.props).toMatchObject({ columns: 31, rows: 5 })
+  await m.press({ key: 'budget-back' })
+  await m.unmount()
 })
 
 test('the reset is a clock time inside a day and a weekday with the time beyond it', () => {
@@ -169,8 +197,9 @@ test('the reset is a clock time inside a day and a weekday with the time beyond 
   expect(resetClock(NOW - 5, NOW)).toBe('now')
 })
 
-// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
-test('text form: MODELS and AGENTS are tables with tokens at 38 and a 10-cell share bar at 50, and no dollar figure anywhere', { options: { look: 'text' } }, async ($, on) => {
+// LOOK TEST (rewritten for the cockpit, task C3b): Models and Agents are cockpit sections: the name from 2, the tokens ending at 47, a 10-cell `━`
+// share bar at 50 to 59; an agent row leads with its state glyph.
+test('text form: Models and Agents are sections with tokens and a 10-cell share bar, and no dollar figure anywhere', { options: { look: 'text' } }, async ($, on) => {
   world(
     on,
     withBudget(budget({ costUsd: 3.21 }), {
@@ -184,29 +213,30 @@ test('text form: MODELS and AGENTS are tables with tokens at 38 and a 10-cell sh
   for (const surface of SURFACES) {
     const m = await openBudget($, surface, 62)
     const rows = screen(await m.drawn())
-    const models = rows.findIndex(r => r.startsWith('┌ MODELS'))
-    expect(colOf(rows[models], 'tokens')).toBe(38)
-    expect(colOf(rows[models], 'share')).toBe(50)
+    const models = rows.findIndex(r => r.startsWith('  Models'))
+    expect(models).toBeGreaterThan(0)
+    expect(rows[models]!.endsWith('51k tokens')).toBe(true)
+    expect(rows[models]!.length).toBe(60)
     const sonnet = rows[models + 1]!
-    expect(colOf(sonnet, '▪')).toBe(2)
-    expect(colOf(sonnet, 'sonnet')).toBe(4)
-    expect(colOf(sonnet, '41k')).toBe(38)
-    expect(sonnet.slice(50, 60)).toMatch(/^[▮▯]{10}$/)
-    expect(sonnet.slice(50, 60).startsWith('▮▮▮▮')).toBe(true)
+    expect(colOf(sonnet, 'sonnet')).toBe(2)
+    expect(colOf(sonnet, '41k') + '41k'.length).toBe(48)
+    expect(sonnet.slice(50, 60)).toMatch(/^━{10}$/)
     const opus = rows[models + 2]!
-    expect(colOf(opus, 'opus')).toBe(4)
-    expect(opus.slice(50, 60)).toMatch(/^[▮▯]{10}$/)
-    const agents = rows.findIndex(r => r.startsWith('┌ AGENTS'))
-    expect(colOf(rows[agents], 'tokens')).toBe(38)
-    expect(colOf(rows[agents], 'share')).toBe(50)
+    expect(colOf(opus, 'opus')).toBe(2)
+    expect(opus.slice(50, 60)).toMatch(/^━{10}$/)
+    const agents = rows.findIndex(r => r.startsWith('  Agents'))
+    expect(rows[agents]!.endsWith('2 agents')).toBe(true)
     const a1 = rows[agents + 1]!
-    expect(colOf(a1, '●')).toBe(2)
+    expect(colOf(a1, '✓')).toBe(2)
     expect(colOf(a1, 'find callers')).toBe(4)
-    expect(a1.slice(50, 60)).toMatch(/^[▮▯]{10}$/)
+    expect(a1.slice(50, 60)).toMatch(/^━{10}$/)
     const a2 = rows[agents + 2]!
-    expect(colOf(a2, '◉')).toBe(2)
+    expect(colOf(a2, '●')).toBe(2)
     expect(rows.join('\n')).not.toContain('$')
-    expect(rows.join('\n')).not.toContain('COST')
+    expect(rows.join('\n')).not.toContain('Cost')
+    // Sonnet holds 80 % of the tokens: 8 lit cells in the model colour, 2 in the rest.
+    const lit = (await m.findAll({ type: 'Text' })).filter(f => f.text === '━━━━━━━━' && (f.props as { color?: string }).color === 'merged')
+    expect(lit.length).toBeGreaterThan(0)
     await m.press({ key: 'budget-back' })
     await m.unmount()
   }
@@ -225,8 +255,9 @@ test('Enter on an agent row of the budget view opens its page; b returns to the 
   await m.unmount()
 })
 
-// BEHAVIOUR CHANGE (binding rule 2): the AGENTS share was capped at 6; it now grows with the pane's height, never below 6.
-test('the budget view AGENTS share grows with the height: 6 and a more line on a short pane, every agent at 80', async ($, on) => {
+// BEHAVIOUR CHANGE (binding rule 2, task C3b): the Agents share grows with the height as it did, but its floor is 4 rows and a more line (was 6): the cockpit's
+// sections each take a head and a gap.
+test('the budget view Agents share grows with the height: 4 and a more line on a short pane, every agent at 80', async ($, on) => {
   const ids = Array.from({ length: 12 }, (_, i) => `a${i + 1}`)
   world(on, withBudget(budget(), { agents: { main, ...Object.fromEntries(ids.map((id, i) => [id, agent(id, { tokensIn: 1000 * (i + 1), tokensOut: 0 })])) } }))
   for (const surface of ['terminal', 'vscode'] as const) {
@@ -239,13 +270,14 @@ test('the budget view AGENTS share grows with the height: 6 and a more line on a
       await m.unmount()
       return { n, more }
     }
-    expect(await at(16)).toEqual({ n: 6, more: true })
+    expect(await at(16)).toEqual({ n: 4, more: true })
     expect(await at(80)).toEqual({ n: 12, more: false })
   }
 })
 
-// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
-test('text form: every budget row fits the width, down to 32, and below 42 the reset drops under the bar', { options: { look: 'text' } }, async ($, on) => {
+// LOOK TEST (rewritten for the cockpit, task C3b): every row fits, with the frame's lintel and sill, down to 32; under 35 columns the rings give way to a
+// word, a figure and a bar per window.
+test('text form: every budget row fits the width, down to 32, and under 35 columns there are bars in place of rings', { options: { look: 'text' } }, async ($, on) => {
   world(
     on,
     withBudget(
@@ -262,11 +294,17 @@ test('text form: every budget row fits the width, down to 32, and below 42 the r
     for (const cols of [32, 34, 40, 50, 62, 110]) {
       const m = await openBudget($, surface, cols)
       const rows = screen(await m.drawn())
-      expect(rows.some(r => r.startsWith('┏ BUDGET'))).toBe(true)
       for (const l of rows) expect(l.length).toBeLessThanOrEqual(cols)
-      const head = rows.findIndex(r => r.startsWith('┏ BUDGET'))
-      for (const r of rows.slice(head, head + 3)) expect('┓┃┛'.includes(r[cols - 1] ?? '')).toBe(true)
-      if (cols < 42) expect(rows.some(r => colOf(r, 'resets in') === 8)).toBe(true)
+      const top = rows.findIndex(r => r.startsWith('┏━━'))
+      expect(top).toBeGreaterThanOrEqual(0)
+      const sill = rows.findIndex((r, i) => i > top && r.endsWith('━━┛'))
+      expect(sill).toBeGreaterThan(top)
+      expect(rows[sill]!.length).toBe(cols)
+      expect(rows.slice(top, sill).some(r => r.includes('100%'))).toBe(true)
+      // Under 35 columns each window is a word and its figure over a full-width bar of `━`.
+      const bars = rows.slice(top, sill).filter(r => /^ *━+$/.test(r))
+      if (cols < 35) expect(bars.length).toBe(3)
+      else expect(bars.length).toBe(0)
       expect(rows.join('\n')).not.toContain('$')
       await m.press({ key: 'budget-back' })
       await m.unmount()
@@ -275,37 +313,35 @@ test('text form: every budget row fits the width, down to 32, and below 42 the r
 })
 
 // showCost is the person's explicit opt-in: a documented exception to Neo's "no dollar figure" default.
-// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
-test('text form: showCost on: the budget view has a COST row with the session cost, under the windows', { options: { look: 'text', showCost: true } }, async ($, on) => {
+// LOOK TEST (rewritten for the cockpit, task C3b): the Cost row is a section, "Cost", with the session figure under it (was a COST row at 38).
+test('text form: showCost on: the budget view has a Cost section with the session cost', { options: { look: 'text', showCost: true } }, async ($, on) => {
   world(on, withBudget(budget({ costUsd: 0.5 })))
   for (const cols of [62, 40, 32]) {
     const a = await openBudget($, 'terminal', cols)
     const rows = screen(await a.drawn())
-    const cost = rows.find(r => r.includes('COST'))
-    expect(cost).toBeDefined()
-    expect(cost).toContain('$0.50')
-    expect(colOf(cost ?? '', 'COST')).toBe(2)
+    const head = rows.findIndex(r => r.startsWith('  Cost'))
+    expect(head).toBeGreaterThan(0)
+    expect(rows[head + 1]).toBe('  $0.50 session')
     for (const l of rows) expect(l.length).toBeLessThanOrEqual(cols)
-    if (cols >= 62) expect(colOf(cost ?? '', '$0.50')).toBe(38)
     await a.press({ key: 'budget-back' })
     await a.unmount()
   }
 })
 
-test('showCost on with no cost reading draws no COST row', { options: { showCost: true } }, async ($, on) => {
+test('showCost on with no cost reading draws no Cost section', { options: { showCost: true } }, async ($, on) => {
   world(on, withBudget(budget({})))
   const a = await openBudget($, 'terminal', 62)
-  expect(screen(await a.drawn()).join('\n')).not.toContain('COST')
+  expect(screen(await a.drawn()).join('\n')).not.toMatch(/Cost|COST/)
   await a.press({ key: 'budget-back' })
   await a.unmount()
 })
 
-test('showCost off (the default): no COST row and no dollar figure, though a cost was read', async ($, on) => {
+test('showCost off (the default): no Cost section and no dollar figure, though a cost was read', async ($, on) => {
   world(on, withBudget(budget({ costUsd: 0.5 })))
   const a = await openBudget($, 'terminal', 62)
   const all = screen(await a.drawn()).join('\n')
   expect(all).not.toContain('$')
-  expect(all).not.toContain('COST')
+  expect(all).not.toMatch(/Cost|COST/)
   await a.press({ key: 'budget-back' })
   await a.unmount()
 })
@@ -314,7 +350,7 @@ test('showCost off (the default): no COST row and no dollar figure, though a cos
 test('text form: with no budget the budget view says so', { options: { look: 'text' } }, async ($, on) => {
   world(on, withBudget(undefined))
   const m = await openBudget($, 'terminal', 62)
-  expect(screen(await m.drawn()).some(r => r.includes('No reading yet.'))).toBe(true)
+  expect(screen(await m.drawn()).some(r => r.includes('No reading yet'))).toBe(true)
   await m.press({ key: 'budget-back' })
   await m.unmount()
 })

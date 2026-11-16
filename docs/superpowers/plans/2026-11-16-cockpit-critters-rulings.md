@@ -32,6 +32,7 @@ R14. **The headline is the request's goal, set once a request.** The current ste
 ## Guide and the `tasks` field (C2)
 
 R15. **Wording:** adopt variants A (TaskCreate/TaskUpdate), B (TodoWrite) and C (neither, `tasks` field) and the new tool description, verbatim from round 1 §4 "Exact wording". Each variant is a fixed string, picked from `e.tools`. A deferred task tool counts as not offered.
+    Amended 2026-11-16: one fixed text, see review-C1C2 I-1.
 R16. **`tasks` shape:** the whole list each time, `[{ title ≤ 60, state: todo|doing|done }]`, ≤ 12 items. It replaces only the caller's own list (`ev.agent`). If that owner uses the task tools, they win and `tasks` is ignored. Never merge.
 R17. **Subagents:** if `prompt.compose` can tell a subagent's request from the lead's, subagents get no section. Their cards come from `doing(step)`. If it can't, keep one section for all and report it.
 R18. **Check it:** one real haiku headless run with a 4-step prompt and a 1-step prompt. Report whether a list appeared before the second tool call, and whether any appeared on the 1-step prompt.

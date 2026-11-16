@@ -84,7 +84,8 @@ export function digest(t: Timeline, bodies: Record<string, StepBody | undefined>
   out.push('## Changed files')
   out.push(t.changed.length === 0 ? '_None._' : t.changed.map(f => `- ${f}`).join('\n'))
 
-  const open = problems(t, now, [])
+  // A handoff lists every open ask, including one still being checked.
+  const open = problems(t, now, [], undefined, { covered: true })
   out.push('## Open problems')
   out.push(open.length === 0 ? '_None._' : open.map(p => `- ${p.kind}: ${oneLine(p.label)}`).join('\n'))
 

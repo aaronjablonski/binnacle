@@ -258,8 +258,8 @@ const byKey = (a: { key: string }, b: { key: string }) => (a.key < b.key ? -1 : 
  * The alert model's needs, watch rows and recent failed turns as one list of
  * problems, newest first, for the views that still read one list (wave 2
  * splits them: `needs`, `watch` and `headerState` in alerts.ts).
- * - `asking`: a need (permission, question, plan, MCP input). With `covered`
- *   left out every ask is listed at once; pass the pane's state to apply R2;
+ * - `asking`: a need (permission, question, plan, MCP input), by R2 as
+ *   `needs` applies it: pass `{ covered: true }` to list every ask at once;
  * - `stalled`: a stalled step or a quiet loop (R6);
  * - `long-run`, `repeat`, `loop`: as `watch`;
  * - `failed-turn`: a turn that ended failed within FAILED_TURN_MS of `now`.
@@ -267,7 +267,7 @@ const byKey = (a: { key: string }, b: { key: string }) => (a.key < b.key ? -1 : 
  * offer `x` on an ask until wave 2 removes it; the model's `needs` takes no
  * dismissals (owner ruling 4: no `x` on a permission).
  */
-export function problems(t: Timeline, now: number, dismissed: string[], limits?: RunLimits, o: NeedsOptions = { covered: true }): Problem[] {
+export function problems(t: Timeline, now: number, dismissed: string[], limits?: RunLimits, o: NeedsOptions = {}): Problem[] {
   const out: Problem[] = []
   const labelOfStep = (id: string | undefined) => (id !== undefined ? t.steps.find((s) => s.id === id)?.label : undefined)
   for (const n of needs(t, now, o).items) {

@@ -101,7 +101,7 @@ describe('watch', () => {
     expect(watch(fold([start('s', 'Bash', { command: 'sleep' }, 'main', 1)], lead), QUIET_MS + 2).some((w) => w.kind === 'quiet')).toBe(false)
   })
 
-  it('stalled: one step past 5 min and past 3x its tool median; 15 min with no median', () => {
+  it('stalled: one step past 5 min and past 3x its tool median; 5 min with no median', () => {
     const base = fold([
       start('b1', 'Bash', { command: 'npm test' }, 'main', 0), end('b1', 'done', 2 * MIN),
       start('b2', 'Bash', { command: 'npm test' }, 'main', 2 * MIN), end('b2', 'done', 4 * MIN),
@@ -111,9 +111,10 @@ describe('watch', () => {
     expect(watch(base, 4 * MIN + 6 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
     const got = watch(base, 4 * MIN + 14 * MIN).filter((w) => w.kind === 'stalled')
     expect(got.map((w) => w.sentence)).toEqual(['Claude: npm test has run 14 min'])
+    // No median yet: past 5 min alone (R6 as written; fix round 1).
     const first = fold([start('g', 'Grep', { pattern: 'x' }, 'main', 0)])
-    expect(watch(first, 14 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
-    expect(watch(first, 16 * MIN).some((w) => w.kind === 'stalled')).toBe(true)
+    expect(watch(first, 5 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
+    expect(watch(first, 5 * MIN + 1).some((w) => w.kind === 'stalled')).toBe(true)
     // An Agent call runs as long as its agent: never stalled.
     expect(watch(fold([start('ag', 'Agent', {}, 'main', 0)]), 60 * MIN).some((w) => w.kind === 'stalled')).toBe(false)
   })
@@ -245,6 +246,38 @@ describe('to-do block', () => {
     const t = fold([start('tw', 'TodoWrite', { todos: [{ content: 'From TodoWrite', status: 'in_progress' }] }), list('main', [['From the field', 'todo']])])
     expect(todoBlock(t).items.map((x) => x.subject)).toEqual(['From TodoWrite'])
     expect(todoBlock(t).source).toBe('tools')
+  })
+
+  // Review C1C2 C-1: the order the guide's haiku run took (field first, then the task tools) never merges either.
+  it('R16: a list sent in the tasks field, then rebuilt with TaskCreate, is replaced whole; later tasks updates are ignored', () => {
+    const created = (id: string, subject: string): Ev[] => [
+      start(`c${id}`, 'TaskCreate', { subject }), { kind: 'step.end', at: at(), id: `c${id}`, status: 'done', result: { task: { id } } },
+    ]
+    const t = fold([turnStart('t1'), list('main', [['A', 'doing'], ['B', 'todo'], ['C', 'todo']]), ...created('1', 'A'), ...created('2', 'B')])
+    const b = todoBlock(t)
+    expect(b.items.map((x) => [x.id, x.subject])).toEqual([['1', 'A'], ['2', 'B']])
+    expect([b.total, b.source]).toEqual([2, 'tools'])
+    expect(t.tasks.some((x) => x.id.startsWith('list:'))).toBe(false)
+    const later = fold([list('main', [['Z', 'doing']])], t)
+    expect(todoBlock(later).items.map((x) => x.subject)).toEqual(['A', 'B'])
+    // A subagent's field list goes the same way, and the lead's list is untouched.
+    const sub = fold([spawn('a1'), list('a1', [['Scan', 'doing']]),
+      start('ca', 'TaskCreate', { subject: 'Scan' }, 'a1'), { kind: 'step.end', at: at(), id: 'ca', status: 'done', result: { task: { id: '9' } } }], t)
+    expect(listCounts(sub, 'a1')).toEqual({ done: 0, total: 1 })
+    expect(sub.tasks.filter((x) => x.owner === 'a1').map((x) => x.id)).toEqual(['9'])
+    expect(todoBlock(sub).total).toBe(2)
+  })
+
+  it('R16: a timeline an earlier build stored with both kinds reads as the task-tool list alone', () => {
+    const t: Timeline = {
+      ...empty,
+      tasks: [
+        { id: 'list:main:0:0', subject: 'A', status: 'in_progress', owner: 'main', updatedAt: 1 },
+        { id: '1', subject: 'A', status: 'completed', owner: 'main', updatedAt: 2 },
+      ],
+    }
+    expect(todoBlock(t).items.map((x) => x.id)).toEqual(['1'])
+    expect(listCounts(t, 'main')).toEqual({ done: 1, total: 1 })
   })
 
   it('R5: paused only when the asker is the lead or nothing else is running', () => {

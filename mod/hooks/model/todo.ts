@@ -51,9 +51,19 @@ export const NO_LIST_TEXT = 'No to-do list for this request'
  * The lead's to-do block. `askers` are the agents with an open need
  * (`needs(...).items.map(n => n.agent)`); paused follows R5.
  */
+/**
+ * An owner's tasks in their current list. Where the task tools wrote any, the
+ * field's `list:` items are left out (R16: never merged; heals a timeline an
+ * earlier build stored with both).
+ */
+function ownList(t: Timeline, owner: AgentKey): TaskItem[] {
+  const all = t.tasks.filter((x) => x.owner === owner && (owner !== 'main' || inLeadList(x, t.listFrom)))
+  return all.some((x) => !x.id.startsWith('list:')) ? all.filter((x) => !x.id.startsWith('list:')) : all
+}
+
 export function todoBlock(t: Timeline, askers: readonly AgentKey[] = []): TodoBlock {
   const lead = t.tasks.filter((x) => x.owner === 'main')
-  const items = lead.filter((x) => inLeadList(x, t.listFrom))
+  const items = ownList(t, 'main')
   const earlier = lead.filter((x) => !inLeadList(x, t.listFrom))
   let current: TaskItem | undefined
   let lastDone: TaskItem | undefined
@@ -81,13 +91,6 @@ export function todoBlock(t: Timeline, askers: readonly AgentKey[] = []): TodoBl
 
 /** A subagent's own list as its card counts it ("3 of 5", R11); total 0 when it keeps none. */
 export function listCounts(t: Timeline, agent: AgentKey): { done: number; total: number } {
-  let done = 0
-  let total = 0
-  for (const x of t.tasks) {
-    if (x.owner !== agent) continue
-    if (agent === 'main' && !inLeadList(x, t.listFrom)) continue
-    total++
-    if (x.status === 'completed') done++
-  }
-  return { done, total }
+  const items = ownList(t, agent)
+  return { done: items.filter((x) => x.status === 'completed').length, total: items.length }
 }

@@ -114,26 +114,28 @@ test('the Agents list run header opens the board', async ($, on) => {
 const rows = async (ui: Mounted): Promise<string[]> => screen(await ui.drawn())
 const rowWith = (all: string[], text: string): string => all.find(r => r.includes(text)) ?? ''
 
-test('LOOK: the board: hulls at 2, head on the grid, rows in spawn order on the table columns, no main', async ($, on) => {
+test('LOOK: the board: a section head and the counts, a row a workflow agent in spawn order on the table columns, no main', async ($, on) => {
   seed(on, board(), UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const all = await rows(ui)
     const back = rowWith(all, 'b: Back')
     expect(colOf(back, 'b: Back')).toBe(2)
-    const head = rowWith(all, '┌ review-changes')
-    expect([colOf(head, '┌'), colOf(head, 'review-changes'), colOf(head, 'tokens'), colOf(head, 'time')]).toEqual([0, 2, 38, 50])
-    expect(colOf(rowWith(all, 'done ·'), '1/3 done · 1 failed · 1m')).toBe(2)
+    const head = rowWith(all, 'review-changes')
+    expect([colOf(head, 'review-changes'), head.length]).toEqual([2, 60])
+    expect(head.endsWith('3 agents')).toBe(true)
+    expect(colOf(rowWith(all, 'done ·'), '1 of 3 agents done · 1 failed · 1 min')).toBe(2)
     const text = all.join('\n')
     expect(text.indexOf('read agent one') < text.indexOf('read agent two')).toBe(true)
     expect(text.indexOf('read agent two') < text.indexOf('read agent three')).toBe(true)
+    // R23: the type reads in friendly case; a glyph by state at 2 (R22), the name at 4
     const one = rowWith(all, 'read agent one')
-    expect([colOf(one, '■'), colOf(one, 'read agent one'), colOf(one, '–'), colOf(one, '40s')]).toEqual([2, 4, 38, 50])
-    expect(colOf(rowWith(all, 'read agent three'), '▣')).toBe(2)
-    expect(colOf(rowWith(all, 'read agent two'), '□')).toBe(2)
-    expect(colOf(rowWith(all, 'read agent two'), '!')).toBe(0)
+    expect([colOf(one, '✓'), colOf(one, 'Workflow subagent'), colOf(one, 'read agent one'), colOf(one, '–'), one.length]).toEqual([2, 4, 23, 49, 60])
+    expect(one.endsWith('40s')).toBe(true)
+    expect(colOf(rowWith(all, 'read agent three'), '●')).toBe(2)
+    expect(colOf(rowWith(all, 'read agent two'), '×')).toBe(2)
     expect(text).not.toContain('main')
-    expect(text).not.toContain('└')
+    expect(text).not.toMatch(/[┌└◈◉]/)
     expect(await ui.find({ key: 'agent-main' })).toBeUndefined()
     await ui.unmount()
   }
@@ -152,28 +154,6 @@ test('Enter on a run agent row opens its page; b returns to the list with the ro
     await ui.press({ key: 'page-back' })
     expect((stored.get('ui') as UiState).page).toBeUndefined()
     expect(backTo()).toEqual(['run-agent-w0'])
-    await ui.unmount()
-  }
-})
-
-test('an agent opened in place (agentOpen) shows result and agent lines, then s: steps  v: transcript  g: chat', async ($, on) => {
-  const stored = seed(on, board(), UI)
-  for (const surface of SURFACES) {
-    stored.set('ui', UI)
-    let ui = await mount($, surface)
-    expect((await rows(ui)).join('\n')).not.toContain('found 3 bugs')
-    await ui.unmount()
-    stored.set('ui', { ...UI, agentOpen: 'w0' })
-    ui = await mount($, surface)
-    const all = await rows(ui)
-    const at = all.findIndex(r => r.includes('read agent one'))
-    // the strip of blocks sits under the row, then the detail
-    const detail = all.slice(at + 1)
-    const result = detail.find(r => r.includes('result')) ?? ''
-    expect([colOf(result, 'result'), colOf(result, 'found 3 bugs')]).toEqual([6, 14])
-    const agent = detail.find(r => r.includes('workflow-subagent')) ?? ''
-    expect(colOf(agent, 'agent')).toBe(6)
-    expect(detail).toContain('      s: steps   v: transcript   g: chat')
     await ui.unmount()
   }
 })
@@ -283,11 +263,11 @@ test('narrow: every row fits 32, and the strip keeps its blocks and its marker',
 
 test('at 40 and 50 columns the time follows the table columns', async ($, on) => {
   seed(on, board(), UI)
-  for (const [columns, time] of [[50, 38], [40, 26]] as const) {
+  for (const [columns, time] of [[50, 45], [40, 35]] as const) {
     const ui = await mount($, 'terminal', columns)
     const all = await rows(ui)
     for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
-    expect(colOf(rowWith(all, 'read agent one'), '40s')).toBe(time)
+    expect(colOf(all.find(r => r.startsWith('  ✓ ')) ?? '', '40s')).toBe(time)
     await ui.unmount()
   }
 })

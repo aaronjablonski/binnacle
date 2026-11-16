@@ -1,207 +1,182 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow } from '../../types'
-import { roles, usualMs } from '../model/meter'
+import { usualMs } from '../model/meter'
 import { agentGroups, runBoard } from '../model/select'
 import { debug, errText, updateUi } from '../state'
 import {
   EMPTY,
-  RUN_GLYPH,
   STATE_WORD,
   STEP_GLYPH,
   agentFiles,
-  agentRow,
   agentActions,
   answerOf,
+  cellTime,
   jumpToProblem,
+  openAgentPage,
   timeCell,
-  tokensOf,
+  toggleAllOpen,
+  toggleOpen,
+  isOpen,
+  hasOpen,
 } from './agentmeta'
 import type { AgentFile, Jump } from './agentmeta'
-import { modelName, modelTotals, tokenText } from './budget'
-import { crewNode, openedAgent } from './crewnode'
-import { bar, clock, crewRow, elapsed, growLists, listSplit, wordFit, wrapWords } from './fit'
+import { modelName, tokenText } from './budget'
+import { agentLine, failedBlock, lineOf, liveCard, stateOf } from './crewnode'
+import type { Seg } from './crewnode'
+import { clock, ruleBar, span, wordFit, wrapWords } from './fit'
 import { openInEditor } from './editor'
-import { blank, footer, heightOf, more, page, richDeck, row, tableHead } from './parts'
-import type { Action, DeckCell, FrameSpec, InstSpec, PageField, Run } from './parts'
+import { footerRow } from './overview'
+import type { FootHint } from './overview'
+import { blank, frameFootInst, frameTopInst, heightOf, inst, page, section } from './parts'
+import type { Action, DeckCell, FrameSpec, PageField, Run } from './parts'
 import { openPage } from './pagenav'
-import { Grid, SPRITE, drawSprite, stack } from './raster'
-import type { Ink, State } from './raster'
 import { runBoardView } from './runboard'
+import { TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
 import { needsYou, waitStates } from './needs'
-import { C, DECK, GRID, HULL, cellCol, podOf, roleOf, spriteOf, statusColor } from './style'
-import type { Pod, PodState, Role } from './style'
+import { C, CK, DECK, edges, podOf, roleOf, statusColor } from './style'
+import type { PodState } from './style'
 import { treeView } from './tree'
 
-// Under this many columns the toggle row would run past the pane (`r: Running` ends at 36).
+// The Agents tab (cockpit spec "CockpitAgents", crew spec "Crew map rules",
+// rulings R23 to R28 and R31): a header (counts, the model share, tokens),
+// `l: List  t: Map  r: Working only`, then the list, as cards for who is
+// working, the failures with their reasons, the finished folded to three
+// rows, and the runs; or the map. Enter opens the agent's page.
+
+/** Under this many columns the toggle row would run past the pane. */
 const NARROW = 38
-const TIGHT_CELL = 9
+/** The finished rows listed before `+ n more`. */
+export const FINISHED_ROWS = 3
+const FINISHED_KEY = 'finished'
 
-/** A list shows at most this many rows, then `+ n more`. */
-const LIST_MAX = 6
-
-const ROLES: Role[] = ['lead', 'scout', 'build', 'check']
-
-const rank: Record<AgentRow['status'], number> = { running: 0, error: 1, done: 2 }
-const byRank = (a: AgentRow, b: AgentRow): number => rank[a.status] - rank[b.status] || a.startedAt - b.startedAt
-
-/**
- * A model's cell text, `opus 993k`, in `room` columns. The name is whole or
- * absent: when the name and the tokens do not both fit, the tokens stand
- * alone (the MODELS table names the model).
- */
-function modelRuns(model: string, tokens: string, room = 10): Run[] {
-  const named = model !== '' && model.length + 1 + tokens.length <= room
-  return [...(named ? [{ text: `${model} `, dim: true }] : []), { text: tokens, bold: true }]
-}
-
-/** The deck's frame: the pill and the readout, which `frameFit` (parts.tsx) guards. */
+/** The deck's frame readout, which `page` (parts.tsx) draws in the pill and at the right. */
 const frameFor = (pill: string | undefined, right: string): FrameSpec => ({ ...(pill !== undefined ? { pill } : {}), ...(right !== '' ? { right } : {}) })
 
-/** One character's slot in the line-up: its large sprite (9 wide), tokens in words under it. */
-const SLOT = SPRITE.L.columns
-const LINEUP_MAX = 5
+/** The right-hand runs flush at `right`, as segments of a row. */
+function flushRight(runs: Run[], right: number): Seg[] {
+  let col = right + 1 - runs.reduce((n, r) => n + r.text.length, 0)
+  return runs.map(r => {
+    const seg = { ...r, col }
+    col += r.text.length
+    return seg
+  })
+}
+
+/** A run of `━` cells as segments from `col`. */
+function barSegs(runs: Run[], col: number): Seg[] {
+  const out: Seg[] = []
+  let at = col
+  for (const r of runs) {
+    out.push({ ...r, col: at })
+    at += r.text.length
+  }
+  return out
+}
+
+const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+
+/** One legend row of the share bar: a `■` in the bar's colour, the model's name and its percent, from column 43. */
+function legend(models: { model: string; pct: number }[], i: number): Seg[] {
+  const m = models[i]
+  return m === undefined ? [] : [{ col: 43, text: '■', color: CK.accent, ...(i === 0 ? {} : { dim: true }) }, { col: 45, text: `${cap(m.model)} ${m.pct}%` }]
+}
+
+/** The model shares, whole percents that sum to 100 (heaviest first). */
+function shares(totals: { model: string; tokens: number }[]): { model: string; pct: number; tokens: number }[] {
+  const sum = totals.reduce((n, m) => n + m.tokens, 0)
+  if (sum <= 0) return []
+  const out = totals.map(m => ({ model: m.model, tokens: m.tokens, pct: Math.round((m.tokens * 100) / sum) }))
+  const off = 100 - out.reduce((n, m) => n + m.pct, 0)
+  if (out.length > 0) out[0]!.pct += off
+  return out
+}
+
+/** The tokens each model carried, over the agents of the list (the lead is not one): heaviest first. */
+function modelsOf(subs: AgentRow[]): { model: string; tokens: number }[] {
+  const by = new Map<string, number>()
+  for (const a of subs) {
+    if (a.model === undefined || (a.tokensIn === undefined && a.tokensOut === undefined)) continue
+    by.set(modelName(a.model), (by.get(modelName(a.model)) ?? 0) + (a.tokensIn ?? 0) + (a.tokensOut ?? 0))
+  }
+  return [...by].map(([model, tokens]) => ({ model, tokens })).sort((x, y) => y.tokens - x.tokens || x.model.localeCompare(y.model))
+}
+
+const tokensIn = (a: AgentRow): number => (a.tokensIn ?? 0) + (a.tokensOut ?? 0)
 
 /**
- * The CREW line-up as one instrument: up to five large characters (the lead,
- * then live, failed, done), each with its tokens on the row under it. The
- * slots stay fixed so a change in the crew redraws and never resizes.
+ * The header: the lintel, "2 agents working" with the finished and failed
+ * counts flush right, a blank, the Models share (a `━` bar and its legend),
+ * the Tokens line, the sill. Models and Tokens leave when nothing reported.
  */
-function lineupInst(order: AgentRow[], pods: Pod[], slots: number): InstSpec {
-  const shown = order.slice(0, slots).map((a, i) => {
-    const pod = pods[i]!
-    const n = tokensOf(a)
-    return { role: pod.role, state: pod.state as State, word: n !== undefined ? tokenText(n) : '' }
-  })
-  const columns = slots * SLOT
-  const draw = (lamp: 'on' | 'dim'): Grid => {
-    const g = new Grid(columns, SPRITE.L.rows + 1)
-    shown.forEach((s, i) => {
-      drawSprite(g, i * SLOT, 0, s.role, s.state, 'L', lamp)
-      const ink: Ink = s.state === 'failed' ? 'red' : s.state === 'waiting' || s.state === 'stalled' ? 'amber' : 'mute'
-      if (s.word !== '') g.word(i * SLOT, SPRITE.L.rows, s.word.slice(0, SLOT - 1), ink)
-    })
-    return g
+function listHeader(ctx: ViewCtx, $: EngineInterface, subs: AgentRow[]): RenderElement[] {
+  const { Text } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const ground = ctx.ground ?? 'night'
+  const live = subs.filter(a => a.status === 'running').length
+  const finished = subs.filter(a => a.status === 'done').length
+  const failed = subs.filter(a => a.status === 'error').length
+  const count: Run = { text: live === 0 ? 'No agents working' : `${live} ${live === 1 ? 'agent' : 'agents'} working`, bold: true }
+  const tail: Run[] = []
+  if (finished > 0) tail.push({ text: `${finished} finished`, dim: true })
+  if (failed > 0) tail.push(...(tail.length > 0 ? [{ text: ' · ', dim: true }] : []), { text: `${failed} failed`, color: CK.fail })
+  const out: RenderElement[] = [inst(ctx, $, frameTopInst('agents-lintel', ctx.cols, 'iris', ground))]
+  const first: Seg[] = [{ col: left, ...count }]
+  const room = right - left + 1 - count.text.length - 2
+  if (tail.length > 0 && tail.reduce((n, r) => n + r.text.length, 0) <= room) first.push(...flushRight(tail, right))
+  out.push(lineOf(ctx, $, { key: 'agents-count', body: first }))
+  const models = shares(modelsOf(subs))
+  const total = subs.reduce((n, a) => n + tokensIn(a), 0)
+  const reported = subs.some(a => a.tokensIn !== undefined || a.tokensOut !== undefined)
+  let second: Seg[] = []
+  if (models.length > 0 || reported) out.push(<Text key="agents-gap1"> </Text>)
+  if (models.length > 0) {
+    const label: Seg = { col: left, text: 'Models', dim: true }
+    second = []
+    if (ctx.cols >= 62) {
+      const cells = 28
+      const parts: { count: number; color: string; dim?: boolean }[] = models.slice(0, 2).map((m, i) => ({ count: m.tokens, color: CK.accent, ...(i === 0 ? {} : { dim: true }) }))
+      const rest = models.slice(2).reduce((n, m) => n + m.tokens, 0)
+      if (rest > 0) parts.push({ count: rest, color: C.subtle })
+      const bar = barSegs(ruleBar(cells, parts), 12)
+      out.push(lineOf(ctx, $, { key: 'agents-models', body: [label, ...bar, ...legend(models, 0)] }))
+      second = legend(models, 1)
+    } else {
+      const words = models.slice(0, 3).map(m => `${cap(m.model)} ${m.pct}%`).join(' · ')
+      out.push(lineOf(ctx, $, { key: 'agents-models', body: [label, { col: 12, text: wordFit(words, Math.max(1, right - 11)) }] }))
+    }
   }
-  return {
-    key: 'crew-lineup',
-    columns,
-    rows: SPRITE.L.rows + 1,
-    sig: `lineup:${slots}:${shown.map(s => `${s.role}.${s.state}.${s.word}`).join(',')}`,
-    frames: () => (shown.some(s => s.state === 'working') ? [draw('on'), draw('dim')] : [draw('on')]),
-    fallback: [crewRow(pods.slice(0, slots)), [], [], [], []],
+  if (reported) {
+    const noun = `across ${subs.length} ${subs.length === 1 ? 'agent' : 'agents'}`
+    out.push(lineOf(ctx, $, { key: 'agents-tokens', body: [{ col: left, text: 'Tokens', dim: true }, { col: 12, text: tokenText(total) }, { col: 12 + tokenText(total).length + 1, text: noun, dim: true }, ...second] }))
   }
-}
-
-/** The MODELS share as one 22-cell stack: the heaviest three models in the iris, orchid and ember hues. */
-function modelsInst(models: { model: string; tokens: number }[]): InstSpec {
-  const hues: Ink[] = ['orchid', 'iris', 'ember']
-  const parts = models.slice(0, 3).map((m, i) => [m.tokens, hues[i]!] as const)
-  return {
-    key: 'models-share',
-    columns: 22,
-    rows: 1,
-    sig: `models:${models.slice(0, 3).map(m => m.tokens).join(',')}`,
-    frames: () => [stack(22, parts)],
-    fallback: [bar(models[0]?.tokens ?? 0, models.reduce((n, m) => n + m.tokens, 0), 10, C.model)],
-  }
-}
-
-/** Agents by role: the lead, then each type's count (roles(t)) added to the role its type plays. */
-function roleCounts(ctx: ViewCtx): Record<Role, number> {
-  const out: Record<Role, number> = { lead: ctx.t.agents.main !== undefined ? 1 : 0, scout: 0, build: 0, check: 0 }
-  for (const r of roles(ctx.t)) out[roleOf(r.type)] += r.count
+  out.push(inst(ctx, $, frameFootInst('agents-sill', ctx.cols, 'iris', ground)))
   return out
 }
 
 /**
- * The Agents deck (spec "Agents, list"): CREW (in the rich look a line-up of
- * large characters and `+n`, with `n live` under the label; in the text look
- * every agent as a hull: the lead, then live, failed, done), ROLES (hull, role
- * and count for the four roles, counted from `roles(t)`) and MODELS (the two
- * heaviest, each a value; a share bar or stack beside them).
- */
-function agentsDeck(ctx: ViewCtx, $: EngineInterface, states: Map<string, PodState>): RenderElement | null {
-  const all = Object.values(ctx.t.agents)
-  const subs = all.filter(a => a.id !== 'main').sort(byRank)
-  const main = ctx.t.agents.main
-  const order = [...(main ? [main] : []), ...subs]
-  const pods = order.map(a => {
-    const state = states.get(a.id)
-    return podOf(state !== undefined ? { ...a, state } : a, ctx.now)
-  })
-  const live = subs.filter(a => a.status === 'running').length
-  const failed = subs.filter(a => a.status === 'error').length
-  const rich = ctx.look === 'rich'
-  const slots = Math.min(LINEUP_MAX, Math.floor((ctx.cols - DECK.gauge) / SLOT))
-  const lineup = rich && slots >= 1 && order.length > 0 ? lineupInst(order, pods, slots) : undefined
-  const crew: DeckCell[] = [{ col: DECK.gauge, runs: crewRow(pods), narrow: crewRow(pods, 5), whole: true }]
-  // The line-up carries the live and failed counts in the label and the lintel; the hull row has them beside it.
-  if (lineup === undefined) crew.push({ col: DECK.value, runs: [{ text: String(live), bold: live > 0, dim: live === 0 }, { text: ' live', dim: true }] })
-  if (lineup === undefined && failed > 0) crew.push({ col: DECK.aside, runs: [{ text: String(failed), bold: true, color: C.fail }, { text: ' failed', dim: true }] })
-  if (lineup !== undefined && order.length > slots) {
-    crew.push({ col: DECK.gauge + lineup.columns + 1, runs: [{ text: `+${order.length - slots}`, dim: true }], whole: true })
-  }
-  const counts = roleCounts(ctx)
-  const rolesCells: DeckCell[] = ROLES.map((role, i) => {
-    const n = counts[role]
-    return {
-      col: cellCol(1 + i),
-      runs: [{ text: `${HULL[role][0]} `, dim: true }, { text: `${role} `, dim: true }, { text: String(n), bold: n > 0, dim: n === 0 }],
-      whole: true,
-    }
-  })
-  const total = all.reduce((n, a) => n + (tokensOf(a) ?? 0), 0)
-  const totals = modelTotals(ctx.t)
-  const models: DeckCell[] = rich
-    ? totals.slice(0, 2).map((m, i) => ({ col: cellCol(3 + i), runs: modelRuns(m.model, tokenText(m.tokens), 11), whole: true }))
-    : totals.slice(0, 2).flatMap((m, i) => [
-        { col: cellCol(1 + 2 * i), runs: modelRuns(m.model, tokenText(m.tokens)), whole: true },
-        { col: cellCol(2 + 2 * i), runs: bar(m.tokens, total, 10, C.model), whole: true },
-      ])
-  const right = `${subs.length + (main ? 1 : 0)} agents${failed > 0 ? ` · ${failed} failed` : ''}`
-  return richDeck(
-    ctx,
-    $,
-    [
-      {
-        label: 'CREW',
-        cells: crew,
-        ...(lineup !== undefined ? { inst: lineup, sub: [{ text: `${live} live`, dim: true }] } : {}),
-      },
-      { label: 'ROLES', cells: rolesCells },
-      ...(models.length > 0
-        ? [{ label: 'MODELS', cells: models, ...(rich ? { inst: modelsInst(totals) } : {}) }]
-        : []),
-    ],
-    { key: 'agents-deck', frame: frameFor(live > 0 ? 'WORKING' : undefined, right) },
-  )
-}
-
-/**
- * `l: List  t: Map  r: Running` on the first three cells; the open ones bold,
- * the rest dim. Under 38 columns three cells do not fit, so it is `l: List  t: Map  r: Run`
- * in cells of 9.
+ * `l: List  t: Map  r: Working only` from column 2: the open one bold with a
+ * space either side, the rest dim, three columns apart. Under 38 columns the
+ * last is `r: Run`.
  */
 function toggles(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { u } = ctx
   const tight = ctx.cols < NARROW
-  const cell = tight ? TIGHT_CELL : GRID.cell
   const item = (key: string, hotkey: string, label: string, on: boolean, press: () => void): RenderElement => (
-    <Box key={`cell-${key}`} width={cell}>
+    <Box key={`cell-${key}`} flexDirection="row" width={hotkey.length + 2 + label.length + (on ? 2 : 0)}>
+      <Text key={`${key}-pad`}>{on ? ' ' : ''}</Text>
       <Button key={key} hotkey={hotkey} plain dimColor={!on} onPress={press}>
         {on ? <Text bold>{label}</Text> : label}
       </Button>
     </Box>
   )
   return (
-    <Box key="toggles" flexDirection="row">
-      <Text>{' '.repeat(GRID.margin)}</Text>
+    <Box key="toggles" flexDirection="row" paddingLeft={edges(ctx.cols).left} columnGap={3}>
       {item('mode-list', 'l', 'List', u.agentsMode === 'list', () => void updateUi($, cur => ({ ...cur, agentsMode: 'list' })))}
       {item('mode-tree', 't', 'Map', u.agentsMode === 'tree', () => void updateUi($, cur => ({ ...cur, agentsMode: 'tree' })))}
-      {item('mode-running', 'r', tight ? 'Run' : 'Running', u.runningOnly, () => void updateUi($, cur => ({ ...cur, runningOnly: !cur.runningOnly })))}
+      {item('mode-running', 'r', tight ? 'Run' : 'Working only', u.runningOnly, () => void updateUi($, cur => ({ ...cur, runningOnly: !cur.runningOnly })))}
     </Box>
   )
 }
@@ -209,165 +184,172 @@ function toggles(ctx: ViewCtx, $: EngineInterface): RenderElement {
 /** The empty state, wrapped by word at the content margin. */
 function emptyNote(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
+  const { left } = edges(ctx.cols)
   return (
     <Box key="empty" flexDirection="column">
-      {wrapWords(EMPTY, Math.max(1, ctx.cols - GRID.margin), 4).map((l, i) => (
-        <Text key={`empty-${i}`} dimColor wrap="truncate-end">{`${' '.repeat(GRID.margin)}${l}`}</Text>
+      {wrapWords(EMPTY, Math.max(1, ctx.cols - left), 4).map((l, i) => (
+        <Text key={`empty-${i}`} dimColor wrap="truncate-end">{`${' '.repeat(left)}${l}`}</Text>
       ))}
     </Box>
   )
 }
 
-/** The `┌ AGENTS` section: main, then live, failed and done; the opened row always shows. */
-function agentsSection(ctx: ViewCtx, $: EngineInterface, ordered: AgentRow[], room: number, ids: Set<string>, states: Map<string, PodState>, targets: Jump[]): RenderElement {
-  const { Box } = $.ui.resolve(ctx.e)
-  const fits = listSplit(ordered.length, room).shown
-  let shown = ordered.slice(0, fits)
-  const open = ctx.u.agentOpen
-  const pinned = open !== undefined ? ordered.find(a => a.id === open) : undefined
-  if (pinned !== undefined && !shown.includes(pinned)) shown = [...shown.slice(0, fits - 1), pinned]
-  const hidden = ordered.filter(a => !shown.includes(a))
-  const what = hidden.every(a => a.status === 'done') ? 'more done' : 'more'
-  const rows = shown.map((a, i) => {
-    const key = `agent-${a.id}`
-    const problem = ids.has(a.id)
-    if (problem) targets.push({ key, open: a.id })
-    const opts = {
-      key,
-      ...(states.has(a.id) ? { state: states.get(a.id)! } : {}),
-      ...(problem ? { flag: 'problem' as const } : {}),
-    }
-    // The rich look gives every row its small character (two lines); the text look keeps the hull glyph.
-    const line = ctx.look === 'rich' ? crewNode(ctx, $, a, { ...opts, columns: true }) : agentRow(ctx, $, a, opts)
-    const detail = openedAgent(ctx, $, a)
-    if (detail === null) return line
-    const last = i === shown.length - 1 && hidden.length === 0
-    return (
-      <Box key={`blk-${a.id}`} flexDirection="column">
-        {i === 0 ? null : blank(ctx, $, `pre-${a.id}`)}
-        {line}
-        {detail}
-        {last ? null : blank(ctx, $, `post-${a.id}`)}
-      </Box>
-    )
-  })
-  return (
-    <Box key="agents" flexDirection="column">
-      {tableHead(ctx, $, 'AGENTS', 'tokens', 'time')}
-      {rows}
-      {hidden.length > 0 ? more(ctx, $, hidden.length, what) : null}
-    </Box>
-  )
-}
+/** A block of the list and whether it ends on an empty row of its own (a card's third row), so no blank follows it. */
+type Block = { els: RenderElement[]; gap: boolean }
 
-/** The `┌ RUNS` section: one row per workflow run; a press opens its board. */
-function runsSection(
-  ctx: ViewCtx,
-  $: EngineInterface,
-  runs: { run: { runId: string; name: string }; agents: AgentRow[] }[],
-  room: number,
-  ids: Set<string>,
-  targets: Jump[],
-): RenderElement {
-  const { Box } = $.ui.resolve(ctx.e)
-  const shown = runs.slice(0, listSplit(runs.length, room).shown)
-  const rows = shown.map(g => {
+/** The runs section: one row a workflow run, `▸ review workflow  3 of 5 agents done` and its time; a press opens its board. */
+function runsBlock(ctx: ViewCtx, $: EngineInterface, runs: { run: { runId: string; name: string }; agents: AgentRow[] }[], ids: Set<string>, targets: Jump[]): Block {
+  const { left, right } = edges(ctx.cols)
+  const els: RenderElement[] = [section(ctx, $, 'Runs', String(runs.length), { key: 'sec-runs' })]
+  for (const g of runs) {
     const id = g.run.runId
-    const failed = g.agents.filter(a => a.status === 'error').length
-    const problem = g.agents.some(a => ids.has(a.id))
     const key = `run-open-${id}`
-    if (problem) targets.push({ key, open: `run:${id}` })
+    if (g.agents.some(a => ids.has(a.id))) targets.push({ key, open: `run:${id}` })
     const board = runBoard(ctx.t, id, ctx.now)
-    return row(ctx, $, {
-      key,
-      glyph: RUN_GLYPH,
-      name: g.run.name,
-      metric: failed > 0 ? `${g.agents.length} · ✖ ${failed}` : String(g.agents.length),
-      time: board !== undefined ? elapsed(0, board.elapsed) : '',
-      ...(problem ? { flag: 'problem' as const } : {}),
-      onPress: () => updateUi($, cur => ({ ...cur, run: id })),
-    })
-  })
-  return (
-    <Box key="runs" flexDirection="column">
-      {tableHead(ctx, $, 'RUNS', 'agents', 'time')}
-      {rows}
-      {runs.length > shown.length ? more(ctx, $, runs.length - shown.length) : null}
-    </Box>
-  )
+    const failed = g.agents.filter(a => a.status === 'error').length
+    const done = g.agents.filter(a => a.status === 'done').length
+    const time = board !== undefined ? cellTime(board.elapsed) : ''
+    const detail = `${done} of ${g.agents.length} agents done${failed > 0 ? ` · ${failed} failed` : ''}`
+    const timeCol = right - time.length + 1
+    const room = Math.max(1, timeCol - 2 - (left + 2))
+    const nameText = wordFit(g.run.name, room)
+    const detailRoom = room - nameText.length - 2
+    const body: Seg[] = [
+      { col: left, text: '▸', color: CK.accent },
+      { col: left + 2, text: nameText },
+      ...(detailRoom >= 6 ? [{ col: left + 2 + nameText.length + 2, text: wordFit(detail, detailRoom), dim: true }] : []),
+      ...(time !== '' ? [{ col: timeCol, text: time, dim: true }] : []),
+    ]
+    els.push(lineOf(ctx, $, { key, body, onPress: () => updateUi($, cur => ({ ...cur, run: id })) }))
+  }
+  return { els, gap: false }
 }
 
 /**
- * The list: AGENTS, then RUNS. Binding rule 2: they share the `spare` rows
- * the deck, the toggles and the footer leave, each at least LIST_MAX long
- * as before (a rich agent row is two rows tall).
+ * The list body: Working (a card each), Failed (a micro critter, the reason,
+ * `v g s` on the first), Finished (three rows and `+ n more`), Runs.
+ * `targets` are the rows `n`/`p` visit.
  */
-function listView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Map<string, PodState>, spare: number): { el: RenderElement; targets: Jump[] } {
+function listBody(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Map<string, PodState>, since: Map<string, number>): { el: RenderElement; targets: Jump[]; failed: number } {
   const { Box } = $.ui.resolve(ctx.e)
   const { t, u } = ctx
+  const { left } = edges(ctx.cols)
   const groups = agentGroups(t)
-  const runless = (groups.find(g => g.run === undefined)?.agents ?? []).filter(a => !u.runningOnly || a.status === 'running')
+  const subs = (groups.find(g => g.run === undefined)?.agents ?? []).slice()
   const runs = groups
     .flatMap(g => (g.run !== undefined ? [{ run: g.run, agents: g.agents }] : []))
     .filter(g => !u.runningOnly || g.agents.some(a => a.status === 'running'))
   const targets: Jump[] = []
-  const main = t.agents.main
-  const ordered = [...(main ? [main] : []), ...[...runless].sort(byRank)]
-  const grown = growLists(spare, [
-    { key: 'agents', count: ordered.length, least: LIST_MAX, per: ctx.look === 'rich' ? 2 : 1 },
-    { key: 'runs', count: runs.length, least: LIST_MAX },
-  ])
-  const sections: RenderElement[] = [agentsSection(ctx, $, ordered, grown.get('agents') ?? 0, ids, states, targets)]
-  const nothing = groups.length === 0 && t.steps.length === 0
-  if (nothing) sections.push(blank(ctx, $, 'gap-empty'), emptyNote(ctx, $))
-  if (runs.length > 0) sections.push(blank(ctx, $, 'gap-runs'), runsSection(ctx, $, runs, grown.get('runs') ?? 0, ids, targets))
-  return { el: <Box key="list" flexDirection="column">{sections}</Box>, targets }
+  const blocks: Block[] = []
+  const working = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
+  const failed = u.runningOnly ? [] : subs.filter(a => a.status === 'error').sort((a, b) => b.startedAt - a.startedAt)
+  const done = u.runningOnly ? [] : subs.filter(a => a.status === 'done').sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+  if (working.length > 0) {
+    const els: RenderElement[] = [section(ctx, $, 'Working', String(working.length), { key: 'sec-working' })]
+    for (const a of working) {
+      const key = `agent-${a.id}`
+      if (ids.has(a.id)) targets.push({ key, open: a.id })
+      els.push(liveCard(ctx, $, a, { key, state: stateOf(a, states), ...(since.has(a.id) ? { since: since.get(a.id)! } : {}), onPress: () => openAgentPage($, a.id, key) }))
+    }
+    blocks.push({ els, gap: true })
+  }
+  if (failed.length > 0) {
+    const els: RenderElement[] = [section(ctx, $, 'Failed', [{ text: String(failed.length), color: CK.fail }], { tone: 'fail', key: 'sec-failed' })]
+    failed.forEach((a, i) => {
+      const key = `agent-${a.id}`
+      if (ids.has(a.id)) targets.push({ key, open: a.id })
+      els.push(failedBlock(ctx, $, a, { key, keys: i === 0 }))
+    })
+    blocks.push({ els, gap: false })
+  }
+  if (done.length > 0) {
+    const els: RenderElement[] = [section(ctx, $, 'Finished', String(done.length), { key: 'sec-finished' })]
+    const all = isOpen(u.folded, FINISHED_KEY)
+    const shown = all ? done : done.slice(0, FINISHED_ROWS)
+    for (const a of shown) {
+      const key = `agent-${a.id}`
+      els.push(agentLine(ctx, $, a, { key, state: 'done', onPress: () => openAgentPage($, a.id, key) }))
+    }
+    if (done.length > FINISHED_ROWS) {
+      els.push(
+        lineOf(ctx, $, {
+          key: 'finished-more',
+          body: [{ col: left + 2, text: all ? 'fewer' : `+ ${done.length - FINISHED_ROWS} more`, dim: true }],
+          onPress: () => updateUi($, cur => toggleOpen(cur, FINISHED_KEY)),
+        }),
+      )
+    }
+    blocks.push({ els, gap: false })
+  }
+  if (runs.length > 0) blocks.push(runsBlock(ctx, $, runs, ids, targets))
+  const out: RenderElement[] = []
+  blocks.forEach((b, i) => {
+    if (i > 0 && !blocks[i - 1]!.gap) out.push(blank(ctx, $, `gap-block-${i}`))
+    out.push(...b.els)
+  })
+  return { el: <Box key="list" flexDirection="column">{out}</Box>, targets, failed: failed.length }
 }
 
 /**
- * The Agents tab: the deck (CREW, ROLES, MODELS), the toggle row,
- * then the list or the tree, or a run's board. `n`/`p` visit the rows marked `!`.
+ * The Agents tab: the header and toggle row, then the list or the map, or a
+ * run's board; the footer on the last row while the pane holds the keys.
+ * `n`/`p` visit the rows with a problem.
  */
 export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, u, cols, now } = ctx
   try {
     if (u.run !== undefined) return runBoardView(ctx, u.run, $)
-    // The `!` marks and the n/p targets follow the rule `waitStates` does: an
-    // ask counts from ASK_MS, and a dismissed problem marks nothing.
-    const ids = new Set(needsYou(t, u, now).map(p => p.agent))
+    const problems = needsYou(t, u, now)
+    const ids = new Set(problems.map(p => p.agent))
+    const since = new Map(problems.filter(p => p.kind === 'asking').map(p => [p.agent, p.since] as const))
     const states = waitStates(ctx.t, ctx.u, ctx.now)
-    const head = agentsDeck(ctx, $, states)
+    const subs = Object.values(t.agents).filter(a => a.id !== 'main' && (a.runId === undefined || t.runs[a.runId] === undefined))
+    const hasRuns = Object.keys(t.runs).length > 0
     const modes = toggles(ctx, $)
-    const spare = (ctx.bodyRows ?? 40) - (head !== null ? heightOf(head) + 1 : 0) - heightOf(modes) - 1 - heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2
-    const body = u.agentsMode === 'tree' ? treeView(ctx, $, ids, states) : listView(ctx, $, ids, states, spare)
-    const jump = (dir: 1 | -1) => () => void jumpToProblem($, body.targets, dir)
-    const foot = footer(ctx, $, [
-      { text: '↵ open' },
-      ...(body.targets.length > 0
+    const out: RenderElement[] = []
+    let targets: Jump[] = []
+    let hints: FootHint[] = [{ key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
+    const jump = (dir: 1 | -1) => () => void jumpToProblem($, targets, dir)
+    const nextPrev = (): FootHint[] =>
+      targets.length > 0
         ? [
-            { hotkey: 'n', label: 'next !', key: 'hint-next', onPress: jump(1) },
-            { hotkey: 'p', label: 'prev', key: 'hint-prev', onPress: jump(-1) },
+            { hotkey: 'n', label: 'next !', id: 'hint-next', onPress: jump(1) },
+            { hotkey: 'p', label: 'prev', id: 'hint-prev', onPress: jump(-1) },
           ]
-        : []),
-    ])
-    return (
-      <Box flexDirection="column">
-        {head}
-        {head !== null ? blank(ctx, $, 'gap-readout') : null}
-        {modes}
-        {blank(ctx, $, 'gap-toggles')}
-        {body.el}
-        {foot !== null ? blank(ctx, $, 'gap-footer') : null}
-        {foot}
-      </Box>
-    )
+        : []
+    if (u.agentsMode === 'tree') {
+      const map = treeView(ctx, $, ids, states)
+      targets = map.targets
+      out.push(modes, blank(ctx, $, 'gap-toggles'), map.el)
+      hints = [
+        { key: '↵', label: 'open' },
+        ...(map.unfoldable || hasOpen(u.folded) ? [{ hotkey: 'd', label: hasOpen(u.folded) ? 'fold done' : 'unfold done', id: 'hint-unfold', onPress: () => void updateUi($, cur => toggleAllOpen(cur)) }] : []),
+        ...(targets.length > 0 ? [...nextPrev(), { key: 'esc', label: 'prompt' }, { key: 'r', label: 'working only' }] : [{ key: 'r', label: 'working only' }, { key: 'esc', label: 'prompt' }]),
+      ]
+    } else if (subs.length === 0 && !hasRuns) {
+      out.push(modes, blank(ctx, $, 'gap-toggles'), emptyNote(ctx, $))
+    } else {
+      const list = listBody(ctx, $, ids, states, since)
+      targets = list.targets
+      if (subs.length > 0) out.push(...listHeader(ctx, $, subs), blank(ctx, $, 'gap-readout'))
+      out.push(modes, blank(ctx, $, 'gap-toggles'), list.el)
+      hints = [{ key: '↵', label: 'open agent' }, ...(list.failed > 0 ? [{ key: 'v', label: 'transcript' }] : []), ...nextPrev(), { key: 'esc', label: 'prompt' }]
+    }
+    const foot = footerRow(ctx, $, hints)
+    if (foot !== null) {
+      const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
+      const used = out.reduce((n, el) => n + heightOf(el), 0)
+      const pad = Math.max(1, rows - 1 - used)
+      for (let i = 0; i < pad; i++) out.push(blank(ctx, $, `pad-${i}`))
+      out.push(foot)
+    }
+    return <Box flexDirection="column">{out}</Box>
   } catch (err) {
     debug($, `agents view failed: ${errText(err)}`)
     return <Text dimColor>{wordFit(`Agents: ${errText(err)}`, cols)}</Text>
   }
 }
-
 
 /** The state pill's word, its text-look colour and its Raster hue; waiting and stalled turn the frame amber. */
 const PILL: Record<PodState, { color: string; hue: 'iris' | 'amber' | 'red' | 'mint' | 'orchid' }> = {
@@ -378,6 +360,9 @@ const PILL: Record<PodState, { color: string; hue: 'iris' | 'amber' | 'red' | 'm
   failed: { color: C.fail, hue: 'red' },
   done: { color: C.result, hue: 'mint' },
 }
+
+/** The page frame's pill word per state (R30: waiting is WAITING, not the permission sentence). */
+const PILL_WORD: Record<PodState, string> = { queued: 'QUEUED', working: 'WORKING', waiting: 'WAITING', stalled: 'STALLED', failed: 'FAILED', done: 'DONE' }
 
 const STEP_STATUS: Record<string, string> = { running: 'running', done: 'ok', error: 'failed', denied: 'denied', interrupted: 'stopped' }
 
@@ -410,7 +395,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
 
   const kind = isMain ? 'main' : a.type
   const kindLine = [kind, ...(role !== kind ? [role] : []), ...(model !== undefined ? [model] : [])].join(' · ')
-  const fields: PageField[] = [{ key: 'agent-page-type', label: 'AGENT', value: kindLine }]
+  const fields: PageField[] = [{ key: 'agent-page-type', label: 'Agent', value: kindLine }]
 
   const tokensIn = a.tokensIn
   const tokensOut = a.tokensOut
@@ -423,13 +408,13 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
           { text: tokenText(tokensOut ?? 0), bold: true },
           { text: ' out', dim: true },
         ]
-  fields.push({ key: 'agent-page-tokens', label: 'TOKENS', value: tokens })
+  fields.push({ key: 'agent-page-tokens', label: 'Tokens', value: tokens })
 
   const took = timeCell(ctx, a)
   const usual = isMain ? undefined : usualMs(t, a.type)
   const timeValue: Run[] = [
     { text: took === '' ? '–' : took, bold: took !== '' },
-    ...(usual !== undefined ? [{ text: ` · usual ${elapsed(0, usual)}`, dim: true }] : []),
+    ...(usual !== undefined ? [{ text: ` · usual ${cellTime(usual)}`, dim: true }] : []),
   ]
   const timeCells: DeckCell[] = isMain
     ? []
@@ -437,17 +422,17 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
         { col: DECK.value, runs: [{ text: 'started', dim: true }] },
         { col: DECK.aside, runs: clock(a.startedAt, true) },
       ]
-  fields.push({ key: 'agent-page-time', label: 'TIME', value: timeValue, cells: timeCells })
+  fields.push({ key: 'agent-page-time', label: 'Time', value: timeValue, cells: timeCells })
 
   fields.push({
     key: 'agent-page-state',
-    label: 'STATE',
+    label: 'State',
     value: [{ text: STATE_WORD[pod.state], bold: true, color: pill.color }],
     cells:
       a.lastStepAt !== undefined
         ? [
             { col: DECK.value, runs: [{ text: 'last step', dim: true }] },
-            { col: DECK.aside, runs: `${elapsed(a.lastStepAt, now)} ago` },
+            { col: DECK.aside, runs: `${span(now - a.lastStepAt)} ago` },
           ]
         : [],
   })
@@ -458,7 +443,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
     const glyph = task.status === 'completed' ? '▪' : task.status === 'in_progress' ? '▸' : '▫'
     fields.push({
       key: 'agent-page-task',
-      label: 'TASK',
+      label: 'Task',
       value: `${glyph} ${task.id} ${task.subject}`,
       onPress: () => openPage($, 'task', `${task.owner}:${task.id}`),
     })
@@ -468,7 +453,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   const steps = t.steps.filter(s => s.agent === id).sort((x, y) => y.seq - x.seq)
   fields.push({
     key: 'agent-steps-head',
-    label: 'STEPS',
+    label: 'Steps',
     value: [{ text: steps.length === 0 ? 'none yet' : `${steps.length} · newest first`, dim: true }],
   })
   steps.slice(0, STEPS_MAX).forEach(s => {
@@ -487,7 +472,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   // The files: each a line that opens it (the path in full, wrapped), its kind on the first line.
   const files = agentFiles(t, id)
   const shownFiles: AgentFile[] = files.slice(0, FILES_MAX)
-  if (files.length > 0) fields.push({ key: 'agent-files-head', label: 'FILES', value: [{ text: `${files.length}`, dim: true }] })
+  if (files.length > 0) fields.push({ key: 'agent-files-head', label: 'Files', value: [{ text: `${files.length}`, dim: true }] })
   shownFiles.forEach((f, i) => {
     const what = f.image ? 'image' : f.read ? 'read' : f.times > 1 ? `edited ${f.times}` : 'edited'
     fields.push({
@@ -506,9 +491,9 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   const doing = result === undefined && a.status !== 'running' && a.doing !== '' ? a.doing : undefined
   const blocks = [
     ...(result !== undefined
-      ? [{ key: 'result', label: a.status === 'running' ? 'RESULT SO FAR' : 'RESULT', text: result }]
+      ? [{ key: 'result', label: a.status === 'running' ? 'Result so far' : 'Result', text: result }]
       : doing !== undefined
-        ? [{ key: 'result', label: 'LAST STEP', text: doing }]
+        ? [{ key: 'result', label: 'Last step', text: doing }]
         : []),
   ]
 
@@ -528,12 +513,11 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   return page(ctx, $, {
     key: 'agent-page',
     frame: {
-      ...frameFor(STATE_WORD[pod.state].toUpperCase().replace('ASKS PERMISSION', 'WAITING'), `agent ${index} of ${order.length}`),
+      ...frameFor(PILL_WORD[pod.state], `agent ${index} of ${order.length}`),
       pillColor: pill.color,
       pillHue: pill.hue,
       ...(pod.state === 'waiting' || pod.state === 'stalled' ? { tone: 'warning' as const } : {}),
     },
-    who: { key: 'agent-page-who', ...spriteOf(a, now, state) },
     title: isMain ? 'main' : a.description !== '' ? a.description : a.type,
     ...(a.status === 'running' && a.doing !== '' ? { body: a.doing } : {}),
     fields,

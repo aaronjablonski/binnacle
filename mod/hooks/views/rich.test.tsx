@@ -360,8 +360,9 @@ test('the pane on the terminal draws the page with Rasters; on desktop, VS Code 
   }
 })
 
+// MEANING CHANGED (cockpit): pages hold no Raster (R22), so the pulsing critter this test watched is the working agent's card on Agents.
 test('forget runs on the pane closing: its pulsing Rasters stop painting', async ($, on) => {
-  const { clock } = world(on, T, { ...initialUi, page: { kind: 'agent', id: 'a1' } })
+  const { clock } = world(on, T, { ...initialUi, tab: 'agents' })
   const blits: string[] = []
   on('ui.blit', (_, e) => {
     blits.push(e.key)
@@ -380,7 +381,7 @@ test('forget runs on the pane closing: its pulsing Rasters stop painting', async
   // The working agent's character pulses: the clock blits it each beat.
   await clock.advance(1000)
   await clock.advance(1000)
-  expect(blits).toContain('agent-page-who')
+  expect(blits).toContain('agent-a1-who')
   await $.command.run({ command: 'mc', args: 'close' } as never)
   const before = blits.length
   await clock.advance(1000)

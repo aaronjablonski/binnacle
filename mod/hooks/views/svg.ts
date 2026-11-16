@@ -13,7 +13,7 @@ import type { AgentRow, Timeline, UiState } from '../../types'
 import { cacheLine, pace, taskMeter, turnClock } from '../model/meter'
 import { headerState, needs, watch } from '../model/alerts'
 import { summary } from '../model/select'
-import { agentsWords, bandModel, bandWords } from './bandmodel'
+import { agentsWords, bandModel, bandWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
 import { buckets, elapsed, shortPaths, wordFit } from './fit'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
@@ -545,7 +545,7 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
     words.push({ t: `${m.waiting} waiting`, fill: ink('amber') })
   } else if (m.form === 'working') {
     if (m.working > 0) words.push(...(words.length > 0 ? [sep] : []), { t: agentsWords(m), fill: DIM })
-    words.push(...(words.length > 0 ? [sep] : []), { t: m.watch > 0 ? `${m.watch} to watch` : 'nothing needs you', fill: DIM })
+    words.push(...(words.length > 0 ? [sep] : []), { t: needsPiece(m), fill: DIM })
   }
   s += tspans(wx, 43, words, { size: 12.5 })
   return bounded(`${s}</svg>`, W, dm)

@@ -12,7 +12,6 @@ import type { Problem } from '../model/select'
 import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
 import { elapsed, fitRuns, shortPaths, span, toolName, wordFit } from './fit'
 import { openStepInline } from './openstep'
-import { tickCountdown } from './countdown'
 import { allClear, inst, runText, section } from './parts'
 import type { Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -454,8 +453,7 @@ const countdown: { bucket?: number; cold: boolean } = { cold: true }
 /**
  * While the session is idle and the cache is warm, Now's budget line counts
  * it down in whole minutes (R40; plan constraint 5: idle is still).
- * An instrument registered with countdown.ts is blitted alone (the cockpit
- * registers none); otherwise the pane and the band are redrawn when the
+ * The pane and the band are redrawn when the
  * whole minute the words name changes, whether or not the pane is open: with
  * the pane closed the band is the only surface, and its words must stay true
  * (O I-3). Once the cache is cold one redraw clears the words and the
@@ -479,7 +477,6 @@ async function countdownTick($: EngineInterface, t: Timeline, now: number): Prom
     return
   }
   countdown.cold = false
-  if (await tickCountdown($, now)) return
   const bucket = Math.floor((warm - now) / COUNTDOWN_REDRAW_MS)
   if (bucket === countdown.bucket) return
   countdown.bucket = bucket

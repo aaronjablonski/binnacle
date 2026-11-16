@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 
 import type { AgentRow, Step, TaskItem, Timeline, UiState } from '../mod/types'
+import { CHECKING_TEXT } from '../mod/hooks/model/alerts'
 import { empty } from '../mod/hooks/model/reduce'
 import { bandAlt, bandSvg, deckModel, nowDeckAlt, nowDeckSvg, SVG_MAX } from '../mod/hooks/views/svg'
 
@@ -177,4 +178,11 @@ test('the alts say the deck and the band in words', () => {
   expect(bandAlt(busy(), u, NOW)).toContain('Working on Wiring the limiter into the middleware chain')
   expect(bandAlt(busy(), u, NOW)).toContain('2 of 4 done')
   expect(nowDeckAlt(empty, u, NOW).length).toBeGreaterThan(0)
+})
+
+test('the desktop band says "Checking a permission" in the checking gap, never "nothing needs you"', () => {
+  const ask: Timeline = { ...busy(), autoAsk: true, steps: [{ ...step(5, 'running', NOW - 5000, 'Bash rm -rf build'), tool: 'Bash', asking: NOW - 2000 }] }
+  const s = bandSvg(ask, u, NOW, 100)
+  expect(s).toContain(CHECKING_TEXT)
+  expect(s).not.toContain('nothing needs you')
 })

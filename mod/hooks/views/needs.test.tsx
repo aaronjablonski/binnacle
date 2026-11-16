@@ -228,6 +228,27 @@ test('F C1: an ask the pane saw covered and then uncovered is answered: the step
   await ui.unmount()
 })
 
+test('F C1: an ask answered while the Tasks tab is open clears too: every tab notes what the pane saw', async ($, on) => {
+  const deploy: Timeline = {
+    ...empty,
+    seq: 1,
+    turns: [{ id: 't1', agent: 'main', prompt: 'deploy', startedAt: NOW - 10_000 } as TurnRow],
+    steps: [step('s1', 'Bash npm run deploy -- --env staging', { startedAt: NOW - 3000, asking: NOW - 2000 })],
+    agents: { main },
+  }
+  const { stored, clock, notes } = await ticking($, on, deploy, { ...initialUi, tab: 'tasks' })
+  const ui = await $.ui.mount(TERMINAL_PANE(true))
+  await follow(ui, clock, 2000)
+  expect((stored.get('timeline') as Timeline).steps[0]!.asking).toBe(NOW - 2000)
+  await ui.redraw(TERMINAL_PANE(false).props)
+  await follow(ui, clock, 2000)
+  const s1 = (stored.get('timeline') as Timeline).steps[0]!
+  expect([s1.status, s1.asking]).toEqual(['running', undefined])
+  await follow(ui, clock, 180_000)
+  expect(notes).toEqual([])
+  await ui.unmount()
+})
+
 test('F C1: a pane that never saw the dialog clears nothing', async ($, on) => {
   const { stored, clock } = await ticking($, on, asked(30))
   const ui = await $.ui.mount(TERMINAL_PANE(false))

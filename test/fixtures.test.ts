@@ -129,7 +129,7 @@ describe('fixtures fold through reduce', () => {
     expect(run.map((a) => a.agentIndex).sort()).toEqual([1, 2])
     for (const a of run) {
       expect(a).toMatchObject({ model: 'claude-sonnet-5-5', status: 'done' })
-      expect(a.result).toMatch(/^name: mission-control-claude-mod · path: .*package\.json$/)
+      expect(a.result).toMatch(/^name: binnacle-claude-mod · path: .*package\.json$/)
     }
     expect(t.agents.ad5bac7d22f131785).toMatchObject({ type: 'Explore', model: 'claude-sonnet-5-5', tokensIn: 71886, tokensOut: 1746 })
     expect(t.budget).toEqual({

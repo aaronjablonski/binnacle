@@ -19,7 +19,7 @@ next developer.
 ## The cockpit and the Critters
 
 The current design is the cockpit (spec
-`docs/superpowers/specs/2026-11-15-mission-control-cockpit-design.md`), with
+`docs/superpowers/specs/2026-11-15-binnacle-cockpit-design.md`), with
 the crew drawn as small pictures called Critters. The rulings that override
 the specs where they differ are in
 `docs/superpowers/plans/2026-11-16-cockpit-critters-rulings.md` (R1 to R43);

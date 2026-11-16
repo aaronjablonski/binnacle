@@ -4,7 +4,7 @@
 
 **Goal:** Build Neo Rich as mocked (Aaron: "yes build neo rich like this", 2026-11-15): Raster crew characters, Braille rings, bead meters and framed decks in the terminal; one Svg deck and band on the desktop app; the built Neo text form as the fallback everywhere else. Fold in: detail pages for every primitive, open in editor, filling the height, stale focus, the crew map, the wide strip, and all eight distilled features.
 
-**Spec:** `docs/superpowers/specs/2026-11-15-mission-control-rich-design.md` (binding; its "Changes against the Neo views" is the file list) over the Neo and HUD v2 specs. Distilled features: `docs/superpowers/notes/2026-11-15-feature-distillation.md` and `plans/2026-11-15-mission-control-distilled.md` (D1–D5). **Mocks:** canvas rows "Neo Rich" and "Neo Rich, round 2"; generator `scratchpad/gen-rich.js` (the shapes, Braille dots, palette and cell rules are the reference).
+**Spec:** `docs/superpowers/specs/2026-11-15-binnacle-rich-design.md` (binding; its "Changes against the Neo views" is the file list) over the Neo and HUD v2 specs. Distilled features: `docs/superpowers/notes/2026-11-15-feature-distillation.md` and `plans/2026-11-15-binnacle-distilled.md` (D1–D5). **Mocks:** canvas rows "Neo Rich" and "Neo Rich, round 2"; generator `scratchpad/gen-rich.js` (the shapes, Braille dots, palette and cell rules are the reference).
 
 ## Binding rules added by Aaron's feedback
 

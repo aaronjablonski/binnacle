@@ -4,7 +4,7 @@
 
 **Goal (owner, 2026-11-16):** "go forward with the calm cockpit polish together with the critters." Restyle every screen to the cockpit, draw the crew as family A Critters, split NEEDS YOU from Watch, push the task list through the guide, then quiet delights and Accent (R7).
 
-**Specs (binding):** `docs/superpowers/specs/2026-11-15-mission-control-cockpit-design.md` (look, words, screens, its "Changes against `mod/hooks/views/`" is the file list) and `docs/superpowers/specs/2026-11-15-mission-control-crew-design.md` (family A only; sizes, states, deck and map rules). Features from `rich-design.md` and HUD v2 stay. **Mocks and generators (reference for shapes, cells, colours, pixel grids):** `.superpowers/sdd/2026-11-16-cockpit-critters/ref/` (`gen-cockpit.js`, `gen-crew.js` with `FAM.A`, `cockpit-preview/*.png`, `crew-preview/*.png`). Independent DX reviews: `.superpowers/sdd/2026-11-16-cockpit-critters/fable-round{1,2,3}.md`.
+**Specs (binding):** `docs/superpowers/specs/2026-11-15-binnacle-cockpit-design.md` (look, words, screens, its "Changes against `mod/hooks/views/`" is the file list) and `docs/superpowers/specs/2026-11-15-binnacle-crew-design.md` (family A only; sizes, states, deck and map rules). Features from `rich-design.md` and HUD v2 stay. **Mocks and generators (reference for shapes, cells, colours, pixel grids):** `.superpowers/sdd/2026-11-16-cockpit-critters/ref/` (`gen-cockpit.js`, `gen-crew.js` with `FAM.A`, `cockpit-preview/*.png`, `crew-preview/*.png`). Independent DX reviews: `.superpowers/sdd/2026-11-16-cockpit-critters/fable-round{1,2,3}.md`.
 
 ## Owner rulings
 

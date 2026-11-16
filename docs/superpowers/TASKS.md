@@ -1,6 +1,6 @@
 # Task list
 
-Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger is `.superpowers/sdd/2026-11-15-mission-control-mod/progress.md`.
+Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger is `.superpowers/sdd/2026-11-15-binnacle-mod/progress.md`.
 
 ## Done
 
@@ -19,7 +19,7 @@ Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [x] HUD v2 fix round and re-check (footer fitting, open in place, Keep export, word-safe types)
 - [x] Neo N1: foundation (pods, dials, `▮▯` bars, pips, deck frame, pills)
 
-## Next: Neo restyle (`plans/2026-11-15-mission-control-neo.md`)
+## Next: Neo restyle (`plans/2026-11-15-binnacle-neo.md`)
 
 - [x] N2: Now deck, NEEDS YOU bracket, budget view, slim head, strip
 - [x] N3: Agents CREW/ROLES/MODELS deck, hulls, tethered tree
@@ -27,11 +27,11 @@ Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [x] N5: three-row / compact / all-done band
 - [ ] Opus review of N1–N5
 
-## Then: navigation pass (`plans/2026-11-15-mission-control-navigation.md`)
+## Then: navigation pass (`plans/2026-11-15-binnacle-navigation.md`)
 
 - [x] V1: focus starts in the content, keyboard skips the tab bar (tabs by 1–5 / click), Down walks the active tab top to bottom
 
-## Now: Neo Rich build (`plans/2026-11-15-mission-control-neo-rich.md`), includes the distilled features
+## Now: Neo Rich build (`plans/2026-11-15-binnacle-neo-rich.md`), includes the distilled features
 
 - [x] R1a raster engine + paint clock · D1 distilled data
 - [x] R1b style/fit/parts/editor/shell routing
@@ -41,7 +41,7 @@ Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [ ] Aaron's live check
 - [x] Superseded by the cockpit + Critters build below
 
-## (superseded by Neo Rich) distilled features (`plans/2026-11-15-mission-control-distilled.md`)
+## (superseded by Neo Rich) distilled features (`plans/2026-11-15-binnacle-distilled.md`)
 
 - [ ] D1: data (pace samples, cache usage, per-task tokens, long run, done turns, ledger)
 - [ ] D2: budget view and Now (Pace, Cache, warm countdown, This week ledger + CSV, session cost, This turn)
@@ -50,7 +50,7 @@ Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [ ] D5: quiet delights (clean-run sweep, round-number toasts) and Accent option
 - [ ] Opus review of D1–D5
 
-## Done: cockpit + Critters build (`plans/2026-11-16-mission-control-cockpit-critters.md`, rulings sheet beside it)
+## Done: cockpit + Critters build (`plans/2026-11-16-binnacle-cockpit-critters.md`, rulings sheet beside it)
 
 - [x] C1–C7: foundation, alert model + guide, Now, Agents + crew map, Tasks/Steps/Artifacts, band + desktop Svg, delights + Accent
 - [x] Reviews: Opus C1–C2, Opus C3–C6, Fable rounds 1–3, Opus whole branch; fix rounds FX1–FX4, FW-A/B, R3-A/B, re-checks

@@ -78,7 +78,7 @@ export const BUSY: Timeline = {
   artifacts: [
     artifact('r1', 'result', 'Lintel sweep across every width', { summary: 'No refusal between twenty-two and sixty-two columns', stepId: 's5' }),
     artifact('p1', 'page', 'Binnacle review findings', { ref: 'https://claude.ai/artifact/abc', count: 3 }),
-    artifact('d1', 'document', 'docs/superpowers/specs/2026-11-15-mission-control-rich-design.md', { ref: 'docs/superpowers/specs/2026-11-15-mission-control-rich-design.md' }),
+    artifact('d1', 'document', 'docs/superpowers/specs/2026-11-15-binnacle-rich-design.md', { ref: 'docs/superpowers/specs/2026-11-15-binnacle-rich-design.md' }),
   ],
   changed: ['mod/hooks/views/parts.tsx', 'mod/hooks/views/raster.ts', 'test/raster.test.ts'],
   budget: { contextPct: 41, contextTokens: 82_000, windows: [{ name: 'five_hour', pct: 64, resetsAt: NOW + 3_600_000 }, { name: 'seven_day', pct: 22, resetsAt: NOW + 86_400_000 }], at: NOW },

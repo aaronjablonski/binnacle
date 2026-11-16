@@ -376,7 +376,7 @@ node docs/readme/tools/make.mjs      # redraw the pictures on this page from the
 | `mod/hooks/` | The hooks module: capture, journal, guide. |
 | `mod/hooks/model/` | The pure session model (reducer, alerts, meter, to-do, ledger, digest), tested with vitest from `test/`. |
 | `mod/hooks/views/` | The pane, the band, the Critters and their drawing tests. |
-| `docs/superpowers/specs/` | Design notes. The current ones are the [cockpit](docs/superpowers/specs/2026-11-15-mission-control-cockpit-design.md) and the [crew](docs/superpowers/specs/2026-11-15-mission-control-crew-design.md); the [rulings](docs/superpowers/plans/2026-11-16-cockpit-critters-rulings.md) override them where they differ. |
+| `docs/superpowers/specs/` | Design notes. The current ones are the [cockpit](docs/superpowers/specs/2026-11-15-binnacle-cockpit-design.md) and the [crew](docs/superpowers/specs/2026-11-15-binnacle-crew-design.md); the [rulings](docs/superpowers/plans/2026-11-16-cockpit-critters-rulings.md) override them where they differ. |
 | `docs/readme/` | The pictures on this page. `tools/make.mjs` copies `mod/` to a scratch folder, draws the real views there with the tests' fixtures (`tools/shots.test.tsx`), and paints the cells as PNG with headless Chrome or Edge. |
 
 </details>

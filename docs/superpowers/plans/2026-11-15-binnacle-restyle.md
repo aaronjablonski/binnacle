@@ -4,11 +4,11 @@
 
 **Goal:** Restyle every view to the approved "calm accent" look and add `/mc <tab>`.
 
-**Spec:** `docs/superpowers/specs/2026-11-15-mission-control-restyle-design.md` · **Mocks:** https://claude.ai/artifact/R4JHk79nyTdVVFszFwfKsb (column A: `Main` wide, `CalmInline` narrow)
+**Spec:** `docs/superpowers/specs/2026-11-15-binnacle-restyle-design.md` · **Mocks:** https://claude.ai/artifact/R4JHk79nyTdVVFszFwfKsb (column A: `Main` wide, `CalmInline` narrow)
 
 ## Global Constraints
 
-- Same as the main plan's Global Constraints (`docs/superpowers/plans/2026-11-15-mission-control-mod.md` lines 13–24), plus `docs/superpowers/notes/2026-11-15-docs-pass.md`.
+- Same as the main plan's Global Constraints (`docs/superpowers/plans/2026-11-15-binnacle-mod.md` lines 13–24), plus `docs/superpowers/notes/2026-11-15-docs-pass.md`.
 - Colours only through `mod/hooks/views/style.ts` theme keys; no colour literals in views.
 - Every line of every Text fits `bodyColumns` (measure per line); 24-column tests stay.
 - Button children: strings and `Text` only. Keys are identity. Render writes no state.

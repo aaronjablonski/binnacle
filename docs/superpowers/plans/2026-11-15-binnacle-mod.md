@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript hooks module loaded directly by Claude Code ≥ 2.1.325 (no build); `claude plugin validate|test`; vitest for the pure model.
 
-**Spec:** `docs/superpowers/specs/2026-11-15-mission-control-mod-design.md` · **Mocks:** https://claude.ai/artifact/L51pHiKbjfBac7eQEVUUnF (sources in `docs/mocks/`)
+**Spec:** `docs/superpowers/specs/2026-11-15-binnacle-mod-design.md` · **Mocks:** https://claude.ai/artifact/L51pHiKbjfBac7eQEVUUnF (sources in `docs/mocks/`)
 
 ## Global Constraints
 

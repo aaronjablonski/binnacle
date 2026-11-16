@@ -106,13 +106,13 @@ A subagent's own list stays on its card ("3 of 5"); the header's count is the le
 </tr>
 </table>
 
-The name beside a Critter is the agent's real type in friendly case ("General", "Explorer", "Code reviewer"). The hat is only a hint.
+The name beside a Critter is the agent's real type in friendly case ("General", "Explorer", "Code reviewer"). The accessory and the colour are only a hint.
 
 <p align="center">
-  <img src="docs/readme/critters.png" width="820" alt="The crew sheet: four Critters, each in six states. Lead (the main conversation) wears a crown and is orange. Scout (explore and search agents) has a dish and goggles and is teal. Builder (every other agent) wears a hard hat and is blue. Checker (review, test and verify agents) holds a magnifier and is violet. Queued is dimmed with eyes shut; working is full colour with a white lamp on the belly; waiting on you has an amber lamp and a question-mark badge; stalled is dimmed with a z badge; failed has a red lamp and an exclamation badge; done is grey. Smaller sheets show the same crew on the day ground and in the micro size.">
+  <img src="docs/readme/critters.png" width="820" alt="The crew sheet: five Critters, each in six states, drawn as the same small mascot with a slab body, arm nubs and four stub legs. Lead (the main conversation) wears a crown and is orange. Explorer (explore and search agents) has an antenna and a raised arm and is teal. Builder (build and plan agents) wears a hard hat and is blue. Reviewer (review, test and verify agents) wears glasses and is violet. General (general-purpose and every other type) is plain and sky blue. The face shows the state: queued is dimmed, working has open eyes and blinks, waiting on you looks aside with a question-mark badge, stalled is greyed with shut eyes and a z badge, failed is greyed and sad with an exclamation badge, done is grey with shut eyes. Smaller sheets show the same crew on the day ground and in the micro size.">
 </p>
 
-**Critters** are the agents: small pixel characters drawn from the terminal's own block characters, three rows tall, or two in the band and the slim pane. The shape is the role and the colour is the state, so a glance tells you who is waiting on you and who has failed without reading a word. Only the lead wears the crown. A working Critter blinks about every four seconds; `motion: off` keeps everyone still.
+**Critters** are the agents: small pixel characters drawn from the terminal's own block characters, three rows tall, or two in the band and the slim pane. The colour and the accessory are the role (a crown, a hard hat, an antenna, glasses, or nothing for a general agent), and the face and the badge are the state, so a glance tells you who is waiting on you and who has failed without reading a word. Only the lead wears the crown. A working Critter blinks about every four seconds; `motion: off` keeps everyone still.
 
 ### Steps and Keep
 

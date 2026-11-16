@@ -488,7 +488,7 @@ png('strip', col([card(grid('band-strip', 110)), prompt(113)], 6), { scale: 1.5 
 
 // The crew: every role in every state.
 {
-  const ROLE = { lead: ['Lead', 'the main conversation', 'crown'], scout: ['Scout', 'explore and search agents', 'dish and goggles'], build: ['Builder', 'every other agent', 'hard hat'], check: ['Checker', 'review, test, verify agents', 'magnifier'] }
+  const ROLE = { lead: ['Lead', 'the main conversation', 'crown'], build: ['Builder', 'build and plan agents', 'hard hat'], scout: ['Explorer', 'explore and search agents', 'antenna and raised arm'], check: ['Reviewer', 'review, test, verify agents', 'glasses'], general: ['General', 'general-purpose, other types', 'plain'] }
   const STATE = { queued: 'queued', working: 'working', waiting: 'waiting on you', stalled: 'stalled', failed: 'failed', done: 'done' }
   const ORDER = ['queued', 'working', 'waiting', 'stalled', 'failed', 'done']
   const sheet = (name, ground, Z, full) => {

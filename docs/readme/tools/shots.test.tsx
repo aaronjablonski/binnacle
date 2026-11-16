@@ -9,7 +9,7 @@ import type { Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
 import { flaggedSession, listSession, mapSession } from './agents.fixtures.testkit'
 import { asked, busy, endedOpen, idle, NOW, stopped, watching } from './now.fixtures.testkit'
-import { critterBox, encode, ROLES, STATES } from './raster'
+import { critterBox, encode, CRITTER_ROLES, STATES } from './raster'
 import { screen } from './screen.testkit'
 import { artifactsTimeline, stepsTimeline, stepsUi, tasksTimeline } from './tabs.fixtures.testkit'
 
@@ -139,7 +139,7 @@ test('budget', async ($, on) => {
 test('critters', () => {
   for (const ground of ['night', 'day'] as const) for (const size of ['small', 'micro'] as const) {
     const sheet: unknown[] = []
-    for (const role of ROLES) for (const state of STATES) {
+    for (const role of CRITTER_ROLES) for (const state of STATES) {
       const g = critterBox(role, state, size, { ground })
       sheet.push({ role, state, columns: g.columns, rows: g.rows, cells: encode(g) })
     }

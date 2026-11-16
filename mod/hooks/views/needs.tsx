@@ -656,7 +656,7 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       foldSince ??= now
       const holding = othersRunning && now - foldSince < FOLD_HOLD_MS
       const tooSoon = toastAt !== undefined && now - toastAt < TOAST_EVERY_MS
-      const settling = now - Math.max(...toasts.map(x => x.endedAt)) < FINISH_HOLD_MS
+      const settling = now - foldSince < FOLD_HOLD_MS && now - Math.max(...toasts.map(x => x.endedAt)) < FINISH_HOLD_MS
       // A held toast is never dropped: when the clock is about to stop (nothing live), it goes up at once.
       if ((holding || tooSoon || settling) && clockLive(t, now)) toasts.length = 0
       else foldSince = undefined

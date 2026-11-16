@@ -781,6 +781,28 @@ test('M13: finishes fold over 30 s into one toast with no answer text, and the n
   expect(toasts).toEqual(['2 agents finished', 'Explorer finished: last one'])
 })
 
+// B-I1: the finish settle hold is capped by the fold limit, so a steady stream of finishes cannot starve the toast.
+test('B-I1: 50 finishes 1 s apart give one toast by about 30 s, and its count covers every finish that had arrived', async ($, on) => {
+  const t: Timeline = {
+    ...empty,
+    turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 60_000 } as TurnRow],
+    agents: { main, x0: sub('x0', { status: 'done', endedAt: NOW, doing: 'w0' }) },
+  }
+  const { stored, clock, toasts } = await ticking($, on, t)
+  for (let k = 1; k <= 33; k++) {
+    await clock.advance(1000)
+    const cur = stored.get('timeline') as Timeline
+    stored.set('timeline', { ...cur, agents: { ...cur.agents, ['x' + k]: sub('x' + k, { status: 'done', endedAt: NOW + k * 1000, doing: 'w' + k }) } })
+  }
+  expect(toasts).toHaveLength(1)
+  const n = Number(toasts[0]!.split(' ')[0])
+  expect(toasts[0]).toMatch(/^\d+ agents finished$/)
+  expect(n).toBeGreaterThanOrEqual(30)
+  // None dropped: every finish that had arrived by the toast is in the toasted set.
+  const toasted = ((stored.get('ui') as { toasted?: string[] } | undefined)?.toasted ?? []).length
+  expect(toasted).toBeGreaterThanOrEqual(n)
+})
+
 // Controller ruling on concern 4: a held agent-finished toast is never dropped; when the clock is about to stop it goes up at once.
 test('M13: a toast held by the once-a-minute limit goes up when the clock is about to stop, never dropped', async ($, on) => {
   const t: Timeline = { ...empty, agents: { main, x1: sub('x1', { status: 'done', endedAt: NOW, doing: 'first' }) } }

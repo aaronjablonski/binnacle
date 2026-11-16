@@ -92,3 +92,13 @@ R7 quiet, R8 STOPPED header, R9 gauges bold or red instead of amber, R12 empty a
 - R37 clarified: growth fills every free row at every height, including the mocks' 46 rows; "+ n more" only when the list is longer than the rows left.
 - Pace estimate rounds to the nearest minute (nearest 5 min past 10 min), never down; where the mock's words differ, real data wins.
 - R2 amended (final fix wave, 2026-11-16): hooks get no signal that a permission was settled (a `classic.PermissionRequest` hook's `next(e)` resolves before the dialog opens). (a) While the pane watches, an auto-mode permission is "Checking a permission" until the prompt is covered, then a need at once; the clock clears any ask the pane watched uncovered for 20 s (a waiting dialog always covers the prompt). (b) With no pane, a permission is amber in the band for its first minute (auto mode: "Checking a permission" for 20 s), then dim "asked to run a command · running", never amber again. Questions, plans, MCP input and asks to start an agent or workflow stay amber while they last. Permission notifications need the pane open; Claude Code notifies for its own dialogs. Mock deviation for the owner.
+
+## Amendment 2026-11-16: Mini mascot critters (owner pick)
+
+The owner picked the "Mini mascot" direction from the critter redesign mocks. It replaces family A at both sizes.
+
+- R19 amended: the face shows the state in place of the lamp (queued and working open eyes, waiting looks aside, stalled and done shut, failed sad; the second working frame is the blink face). A sprite has no lamp. Red stays only in the `!` badge, and amber only in the `?` badge.
+- R20 amended: the crew palette gains `sky` (night 0x6fb6f2, day 0x2f8fd8), "Raster only, crew art", for the new general role. Queued mixes 60 % toward the ground. Stalled and failed mix 55 % toward `mute`, not toward the ground. Done is `mix(mute, hue, 0.12)`. Roles: lead ember with a crown, builder iris with a hard hat, explorer (`scout`) teal with an antenna and a raised arm, reviewer (`check`) orchid with glasses, general sky and plain.
+- R23 changed: general-purpose and unknown agent types draw the plain general mascot, not the builder hat. A type whose name says it builds (build, implement, develop, engineer) and a planning agent still draw the hard hat; the lead stays `main` only (R43).
+- The stalled `z` badge is `dim` on `rule` (it was `mute` on `rule`).
+- R22 is unchanged: the text form is as before, with the role word `general` for the new role.

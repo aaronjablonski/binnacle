@@ -5,8 +5,9 @@ import type { On } from 'claude-code'
 import type { Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
 import { SWEEP_FRAMES, SWEEP_STEP_MS, SWEEP_WIDTH, resetSweep, sweepCells } from './delights'
-import { asked, idle, NOW, step, tasksOf } from './now.fixtures.testkit'
+import { asked, busy, idle, NOW, step, tasksOf } from './now.fixtures.testkit'
 import { resetPaint } from './paint'
+import { ACCENT_HUES, decode, PALETTE } from './raster'
 import { screen } from './screen.testkit'
 
 // R36 (the delights) and R35 (the accent). The sweep and the toasts run from
@@ -337,6 +338,68 @@ test('an unknown accent is iris', { options: { accent: 'chartreuse' } }, async (
   const got = await drawnColours($, on, asked())
   expect(got).toContain('suggestion')
 })
+
+// ---------- the accent in the rich look (R35, FX3 item 7) ----------
+
+/** Every Raster of the rich pane: its key and the colours of its cells (foreground and background, as hex numbers). */
+async function drawnRasters($: Engine, on: On, t: Timeline): Promise<Map<string, { cells: string; colours: Set<number> }>> {
+  world(on, t, OPEN)
+  await start($)
+  const ui = await $.ui.mount(PANE(62) as never)
+  const out = new Map<string, { cells: string; colours: Set<number> }>()
+  for (const r of await ui.findAll({ type: 'Raster' })) {
+    const cells = (r.props as { cells: string }).cells
+    const colours = new Set<number>()
+    for (const [, fg, bg] of decode(cells)) {
+      colours.add(fg)
+      colours.add(bg)
+    }
+    out.set(String(r.key), { cells, colours })
+  }
+  await ui.unmount()
+  return out
+}
+
+const rasterBase: { drawn?: Map<string, { cells: string; colours: Set<number> }> } = {}
+/** The Rasters that hold a critter (`now-who`, `agent-<id>-who`, the rest row); the others are structural. */
+const isCritter = (key: string): boolean => /-who$|^rest$|^tether/.test(key)
+
+test('rich: the default accent draws the palette iris in the structural Rasters', async ($, on) => {
+  const drawn = await drawnRasters($, on, busy())
+  rasterBase.drawn = drawn
+  const structural = [...drawn].filter(([k]) => !isCritter(k))
+  expect(structural.map(([k]) => k)).toEqual(expect.arrayContaining([expect.stringMatching(/lintel/)]))
+  const hex = new Set(structural.flatMap(([, v]) => [...v.colours]))
+  expect(hex.has(PALETTE.night.iris)).toBe(true)
+  expect(hex.has(ACCENT_HUES.sky.night.iris)).toBe(false)
+  expect([...drawn.keys()].filter(isCritter)).toEqual(['now-who', 'agent-e1-who', 'agent-b1-who'])
+})
+
+for (const name of ['sky', 'slate'] as const) {
+  test(`rich: accent ${name} draws no iris hex in the lintel, sill and gauges, and the critter cells are unchanged`, { options: { accent: name } }, async ($, on) => {
+    const base = rasterBase.drawn
+    expect(base).toBeDefined()
+    const drawn = await drawnRasters($, on, busy())
+    expect([...drawn.keys()]).toEqual([...base!.keys()])
+    const iris = [PALETTE.night.iris, PALETTE.night.irisSoft, PALETTE.night.irisDeep]
+    let sawAccent = false
+    for (const [key, v] of drawn) {
+      if (isCritter(key)) {
+        // role hues inside a critter never change: the same cells, byte for byte
+        expect([key, v.cells]).toEqual([key, base!.get(key)!.cells])
+        continue
+      }
+      for (const c of iris) expect([key, v.colours.has(c)]).toEqual([key, false])
+      if (v.colours.has(ACCENT_HUES[name].night.iris)) sawAccent = true
+    }
+    expect(sawAccent).toBe(true)
+    // the lintel (working: the accent's own tone) differs from the default's and carries the accent's hex
+    const lintel = [...drawn].find(([k]) => /lintel/.test(k))
+    expect(lintel).toBeDefined()
+    expect(lintel![1].colours.has(ACCENT_HUES[name].night.iris)).toBe(true)
+    expect(lintel![1].cells).not.toBe(base!.get(lintel![0])!.cells)
+  })
+}
 
 test('with the rich look the sweep redraws the lintel Raster at the same size on every frame and the pane never fails', async ($, on) => {
   const w = world(on, clean(), OPEN)

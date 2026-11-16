@@ -1,6 +1,6 @@
 import type { AgentRow, StepStatus, TaskItem } from '../../types'
-import { BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
-import type { CritterSize, Grid, Ground, Hue, Neutral, Size, State } from './raster'
+import { accentPalette, BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
+import type { CritterSize, Grid, Ground, Hue, Neutral, Palette, Size, State } from './raster'
 
 /**
  * The accent (R35): the theme key the structural colour draws in. `iris`
@@ -26,6 +26,20 @@ let accentKey: string = ACCENTS.iris
  */
 export function setAccent(option: unknown): void {
   accentKey = accentKeyOf(option)
+}
+
+/** The accent as its option name (`iris`, `sky`, `slate`), read from the same one value as `C.accent`. */
+export function accentName(): AccentName {
+  return (Object.keys(ACCENTS) as AccentName[]).find(n => ACCENTS[n] === accentKey) ?? 'iris'
+}
+
+/**
+ * The Raster palette for a ground under the current Accent: the structural pieces (lintel, sill, gauges, bars,
+ * the map and the effort chart) draw `iris` from here, so they follow the option as the text does. A critter
+ * never reads this: its role hues come from `CREW_PALETTE`. Put `accentName()` in a piece's `sig`.
+ */
+export function palette(ground: Ground): Palette {
+  return accentPalette(ground, accentName())
 }
 
 /**

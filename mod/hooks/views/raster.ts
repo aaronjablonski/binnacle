@@ -56,6 +56,35 @@ export const PALETTE: { night: Palette; day: Palette } = {
 /** The ground a Raster is mixed for: `style.ts` `groundOf` resolves the `ground` option. */
 export type Ground = 'night' | 'day'
 
+/** The three strengths of the structural accent (`iris`, `irisSoft`, `irisDeep`); the Accent option swaps them. */
+export type AccentHues = Pick<Palette, 'iris' | 'irisSoft' | 'irisDeep'>
+
+/**
+ * The Accent option in Rasters (R35): iris is the palette's own; sky reads like the theme's `ide` blue and
+ * slate like `promptBorder`'s grey-blue, each in the three strengths on both grounds. Only the structural
+ * accent changes (lintel, sill, gauges, bars): role hues inside a critter come from `CREW_PALETTE` and never do.
+ */
+export const ACCENT_HUES: Record<'iris' | 'sky' | 'slate', Record<Ground, AccentHues>> = {
+  iris: {
+    night: { iris: PALETTE.night.iris, irisSoft: PALETTE.night.irisSoft, irisDeep: PALETTE.night.irisDeep },
+    day: { iris: PALETTE.day.iris, irisSoft: PALETTE.day.irisSoft, irisDeep: PALETTE.day.irisDeep },
+  },
+  sky: {
+    night: { iris: 0x7ab8f5, irisSoft: 0x4a7399, irisDeep: 0x24394d },
+    day: { iris: 0x2f7fc7, irisSoft: 0x93bde3, irisDeep: 0xdcebf8 },
+  },
+  slate: {
+    night: { iris: 0xa0acbf, irisSoft: 0x666f7e, irisDeep: 0x30353e },
+    day: { iris: 0x5f6d83, irisSoft: 0xa6b0bf, irisDeep: 0xe3e7ed },
+  },
+}
+
+/** The Raster palette of a ground with the structural accent of `accent` (iris when unknown). */
+export function accentPalette(ground: Ground, accent: string): Palette {
+  const hues = Object.hasOwn(ACCENT_HUES, accent) ? ACCENT_HUES[accent as keyof typeof ACCENT_HUES] : ACCENT_HUES.iris
+  return { ...PALETTE[ground], ...hues[ground] }
+}
+
 /** A meter's hue by how full it is: red from 90 %, amber from 70 %, else iris. */
 export function rate(pct: number): Hue {
   if (pct >= 90) return 'red'

@@ -253,8 +253,9 @@ function withCommand(who: string, command: string, rest: string): string {
 /**
  * What is worth a glance and asks nothing, newest first (by `since`):
  * - `stalled`: one running step past STALL_MIN_MS and past STALL_FACTOR times
- *   its tool's median this session (STALL_MIN_MS stands in for an unknown
- *   median); never a step that is a need, nor an Agent, Workflow or dialog step;
+ *   its tool's median this session (with no median yet, past STALL_MIN_MS
+ *   alone, as R6 reads); never a step that is a need, nor an Agent, Workflow or
+ *   dialog step;
  * - `quiet`: a running loop (the lead's open turn, or a subagent) with no step
  *   running and no activity for QUIET_MS (it may be thinking); the lead is not
  *   quiet while a subagent runs;
@@ -276,7 +277,8 @@ export function watch(t: Timeline, now: number, dismissed: readonly string[] = [
   for (const s of t.steps) {
     if (s.status !== 'running' || s.asking !== undefined || NO_STALL_TOOLS.has(s.tool) || !running(s.agent)) continue
     const ran = now - s.startedAt
-    const limit = Math.max(STALL_MIN_MS, STALL_FACTOR * (medians.get(s.tool) ?? STALL_MIN_MS))
+    const median = medians.get(s.tool)
+    const limit = median === undefined ? STALL_MIN_MS : Math.max(STALL_MIN_MS, STALL_FACTOR * median)
     if (ran <= limit) continue
     const who = agentName(t, s.agent)
     const command = commandOf(s) || s.tool

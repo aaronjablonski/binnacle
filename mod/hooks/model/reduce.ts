@@ -166,6 +166,18 @@ function putTask(t: Timeline, id: string, fn: (old: TaskItem | undefined) => Tas
   return { ...t, tasks: res ? t.tasks.map((x, j) => (j === i ? res : x)) : t.tasks.filter((_, j) => j !== i) }
 }
 
+/**
+ * The task tools win (R16, review C-1): once a task tool writes a task, its
+ * owner's current list from the update tool's `tasks` field goes whole, so the
+ * two never merge. The lead's folded "Earlier" items stay.
+ */
+function toolsWin(t: Timeline, taskId: string): Timeline {
+  const owner = t.tasks.find((x) => x.id === taskId)?.owner
+  if (owner === undefined) return t
+  const kept = t.tasks.filter((x) => !(x.owner === owner && x.id.startsWith('list:') && (owner !== 'main' || inLeadList(x, t.listFrom))))
+  return kept.length === t.tasks.length ? t : { ...t, tasks: kept }
+}
+
 function openTurn(t: Timeline, agent: AgentKey): string | undefined {
   for (let i = t.turns.length - 1; i >= 0; i--) {
     const x = t.turns[i]!
@@ -278,6 +290,7 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
         if (af !== undefined) item.activeForm = af
         return item
       })
+      next = toolsWin(next, id)
     }
   } else if (step.tool === 'TaskUpdate') {
     const id = idOf(pending.taskId) ?? idOf(result.taskId)
@@ -293,6 +306,7 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
         if (af !== undefined) item.activeForm = af
         return item
       })
+      next = toolsWin(next, id)
     }
   } else if (WRITE_TOOLS.has(step.tool)) {
     for (const p of pathsOf(step.tool, pending)) {

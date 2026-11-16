@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Timeline } from '../types'
-import { DESCRIPTION, GUIDE_FIELD, GUIDE_TASKS, GUIDE_TODO, guideText, guideVariant } from './guide'
+import { DESCRIPTION, GUIDE_TEXT } from './guide'
 
 type Box = { timeline?: Timeline; registered: Record<string, unknown>[] }
 
@@ -144,45 +144,37 @@ test("prompt.compose gains exactly one section, last, the guide text for its too
   expect(first.sections.length).toBe(ENGINE_SECTIONS.length + 1)
   expect(first.sections.slice(0, ENGINE_SECTIONS.length)).toEqual(ENGINE_SECTIONS)
   const added = first.sections[first.sections.length - 1]
-  // Only the update tool offered: variant C, the `tasks` field.
-  expect(added?.text).toBe(GUIDE_FIELD)
+  expect(added?.text).toBe(GUIDE_TEXT)
   expect(added?.scope).toBe('session')
   // The same text on every call: the prompt cache holds.
   expect(second).toEqual(first)
 })
 
-test('with the task tools offered the guide names TaskCreate; with TodoWrite, TodoWrite; with neither, the `tasks` field', async ($, on) => {
+// R15 as amended 2026-11-16 (review C1C2 I-1): one fixed text, whatever the tools.
+test('the guide text is identical whatever tools are offered, and names the task tools first and the tasks field second', async ($, on) => {
   world(on)
   on('prompt.compose', () => ({ sections: ENGINE_SECTIONS }))
   const textFor = async (tools: string[]) => (await $.prompt.compose({ ...COMPOSE, tools: [UPDATE, ...tools] })).sections.at(-1)?.text
 
-  const a = await textFor(['Read', 'TaskCreate', 'TaskUpdate', 'TaskList'])
-  const b = await textFor(['Read', 'TodoWrite'])
-  const c = await textFor(['Read', 'Bash'])
-  // A deferred task tool is not in `tools`: it counts as not offered.
-  const deferred = await textFor(['Read', 'ToolSearch'])
-
-  expect(a).toBe(GUIDE_TASKS)
-  expect(a).toContain('create the list with TaskCreate before any other tool call')
-  expect(a).toContain('Mark one task in_progress')
-  expect(a).not.toContain('`tasks` field')
-  expect(b).toBe(GUIDE_TODO)
-  expect(b).toContain('create the list with TodoWrite before any other tool call')
-  expect(b).toContain('Mark one item in_progress')
-  expect(c).toBe(GUIDE_FIELD)
-  expect(c).toContain('send the list in the `tasks` field of mcp__mission-control__update')
-  expect(c).not.toContain('TaskCreate')
-  expect(deferred).toBe(GUIDE_FIELD)
-  // Each variant is a fixed string, the same on every call.
-  expect(await textFor(['Read', 'TaskCreate', 'TaskUpdate'])).toBe(a)
-  expect(guideVariant(['TaskCreate'])).toBe('field')
-  expect(guideVariant(['TaskCreate', 'TaskUpdate', 'TodoWrite'])).toBe('tasks')
-  expect(guideText(['TodoWrite'])).toBe(GUIDE_TODO)
-  for (const text of [GUIDE_TASKS, GUIDE_TODO, GUIDE_FIELD]) {
-    expect(text.startsWith('# Mission Control\n')).toBe(true)
-    expect(text).toContain('A request of one or two steps needs no list.')
-    expect(text).toContain('with `focus`: the goal of the whole request as a plain clause of at most 8 words')
-  }
+  const texts = [
+    await textFor([]),
+    await textFor(['Read', 'TaskCreate', 'TaskUpdate', 'TaskList']),
+    await textFor(['Read', 'TodoWrite']),
+    await textFor(['Read', 'ToolSearch']),
+    await textFor(['Read', 'Bash']),
+  ]
+  for (const text of texts) expect(text).toBe(GUIDE_TEXT)
+  const toolsAt = GUIDE_TEXT.indexOf('create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call')
+  const fieldAt = GUIDE_TEXT.indexOf('if you have neither, send it in the `tasks` field of mcp__mission-control__update')
+  expect(toolsAt > 0).toBe(true)
+  expect(fieldAt > toolsAt).toBe(true)
+  // Round 1's rules stand: threshold, grain, one in progress, closing; and the headline, note and artifact bullets.
+  for (const words of [
+    'when a request will take 3 or more distinct steps', 'never a single tool call', 'Keep one task in progress at a time',
+    'Leave no task in progress when you give your final answer', 'A request of one or two steps needs no list.',
+    'with `focus`: the goal of the whole request as a plain clause of at most 8 words', 'Add `note` when', 'Add `artifact` when',
+  ]) expect(GUIDE_TEXT).toContain(words)
+  expect(GUIDE_TEXT.startsWith('# Mission Control\n')).toBe(true)
 })
 
 test('the `tasks` field replaces the caller\'s own list, bounded; a subagent\'s list never touches the lead\'s', async ($, on) => {

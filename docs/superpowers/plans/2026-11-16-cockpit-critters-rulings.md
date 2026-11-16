@@ -102,3 +102,22 @@ The owner picked the "Mini mascot" direction from the critter redesign mocks. It
 - R23 changed: general-purpose and unknown agent types draw the plain general mascot, not the builder hat. A type whose name says it builds (build, implement, develop, engineer) and a planning agent still draw the hard hat; the lead stays `main` only (R43).
 - The stalled `z` badge is `dim` on `rule` (it was `mute` on `rule`).
 - R22 is unchanged: the text form is as before, with the role word `general` for the new role.
+
+## Amendment 2026-11-16: Motion 1–10 (owner pick, 2026-11-16)
+
+The owner approved motion sketches 1 to 10. Sketches 11 (a warm light at rest) and 12 (a look around at rest) were declined and are not built.
+
+- R24 holds: the blink stays the only loop; the band's critter never moves; nothing moves at idle. Every move below plays once and ends, as a bounded chain of `$.clock.after` (no second standing clock), so the 1 s clock still stops when nothing is live.
+- New one-shot moves, body and eyes only, drawn on the mascot's own rows (each pose keeps two colours to a cell; the crown, the hard hat, the antenna and the glasses stay drawn):
+  - 1: a to-do lands: the done segment flashes, settles, and the next lights in two steps (3 × 160 ms, blits). In the band the new count is in the accent for one 1 s beat (one redraw ends it).
+  - 2: an agent starts: squash, then hop (2 × 120 ms). The same move wakes the lead on a new prompt after rest.
+  - 3: an agent finishes: a nod with eyes shut and a fade to grey in two steps (2 × 150 ms), a 700 ms rest, then one redraw folds the card. The agent-finished toast waits until its newest finish is 1.5 s old, so finishes that land together fold into one toast.
+  - 4: Needs you arrives: the block at half strength (dim amber), full amber one frame later (one redraw at 140 ms); the asker glances toward its badge and hops once (2 × 140 ms), then holds still.
+  - 5: a step lands: the new Steps row carries an accent `▍` for one beat (it rides the 1 s redraw); its activity-map column grows in (2 × 120 ms, blits).
+  - 6: gauges fill: the arcs travel from empty when the pane opens on Now, or from where they were when a gauge jumps 10 points or more (5 × 80 ms, blits). The figures are true from the first frame.
+  - 8: stalled: eyes shut, then the body sinks and dims (2 × 300 ms), then the dim critter with its `z`.
+  - 9: failed: one squash with eyes shut, then dim without the badge (2 × 130 ms), then the red `!`.
+  - 10: all done: the lead squashes, hops and fades to grey on the finish sweep's own frames (no timer of its own).
+- 7 (the tab track slides) is not built: the tab tests read the track row as `━` and `─` text on the terminal, which a Raster track would not draw.
+- R22 narrowed: in the rich look Now's to-do bar is a 1-row Raster of the same `━` cells (where the mock put it), so 1 is a blit; its text form is still `━` runs in `Text`.
+- `motion: off` and the text look show only the end states, except the text cues of 1 (the band count), 4 (one dim-amber frame) and 5 (the row mark). The desktop Svg stays still (R32). Amber stays the dialog colour (R9).

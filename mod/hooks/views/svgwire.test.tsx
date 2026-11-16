@@ -44,7 +44,7 @@ const BAND = {
   props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
-test('the real Now draws the Svg deck on the desktop only, with an alt, and its rows stay Buttons', async ($, on) => {
+test('the real Now draws the Svg deck on the desktop only, with an alt, and no button row under it', async ($, on) => {
   world(on)
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -54,9 +54,10 @@ test('the real Now draws the Svg deck on the desktop only, with an alt, and its 
       const p = svgs[0]!.props as { source: string; alt: string }
       expect(p.source.length).toBeLessThan(SVG_MAX)
       expect(p.alt.length).toBeGreaterThan(0)
-      // The deck's rows that take a press stay Buttons, outside the Svg.
-      const keys = (await ui.findAll({ type: 'Button' })).map(b => b.key)
-      expect(keys).toEqual(expect.arrayContaining(['deck-crew', 'deck-tasks', 'deck-steps']))
+      // R3-B I4: no button row under the Svg (it repeated the tab bar); the tab bar and the sections below stay Buttons.
+      const keys = (await ui.findAll({ type: 'Button' })).map(b => String(b.key))
+      expect(keys.filter(k => k.startsWith('deck-'))).toEqual([])
+      expect(keys).toEqual(expect.arrayContaining(['tab-tasks']))
     } else {
       expect(svgs.length).toBe(0)
     }

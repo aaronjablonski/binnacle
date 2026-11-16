@@ -418,11 +418,14 @@ test('a kept decision opens its step page; the budget line opens the budget view
   await b.unmount()
 })
 
-test('the desktop app keeps the Svg deck in the header\'s place, with its presses as Buttons beside it', async ($, on) => {
+// R3-B I4: meaning changed. It used to press the Svg's own "To do" Button row; that row repeated the tab bar and is gone, so the test now holds that the header Svg stands alone and the tab bar is the way to Tasks.
+test('the desktop app keeps the Svg deck in the header place with no button row under it; the tab bar opens Tasks', async ($, on) => {
   const stored = world(on, busy())
   const ui = await mount($, 62, 46, { surface: 'desktop' })
   expect((await ui.findAll({ type: 'Svg' })).length).toBe(1)
-  await ui.press({ key: 'deck-tasks' })
+  const keys = (await ui.findAll({ type: 'Button' })).map(b => String(b.key))
+  expect(keys.filter(k => k.startsWith('deck-'))).toEqual([])
+  await ui.press({ key: 'tab-tasks' })
   expect(uiOf(stored).tab).toBe('tasks')
   await ui.unmount()
 })

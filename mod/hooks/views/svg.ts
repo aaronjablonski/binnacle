@@ -15,12 +15,10 @@
 // come from the pane's own functions in `svgview.tsx` (`deckHead`), handed in.
 
 import type { AgentRow, Timeline, UiState } from '../../types'
-import { taskMeter } from '../model/meter'
 import { needs, watch } from '../model/alerts'
 import { summary } from '../model/select'
 import { agentsWords, bandModel, bandWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
-import { wordFit } from './fit'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
 import type { Ground, Hue, Palette } from './raster'
 import { CK, crewRole, palette, podStateOf } from './style'
@@ -36,9 +34,6 @@ export type RingFig = { name: string; pct: number }
 
 /** One crew member as a character, with the words its tooltip says. */
 export type CrewFig = { role: Role; state: PodState; title: string }
-
-/** One column of the plan strip: a task's tokens, and whether it is the one in progress. */
-export type PlanFig = { tokens: number; current: boolean; title: string }
 
 /**
  * The header's words, as the pane's header has them: `headWords`' pill, tone,
@@ -71,15 +66,11 @@ export type DeckModel = {
   /** The budget line (R29, R40) the header draws under the goal. */
   budget: Run[]
   rings: RingFig[]
-  crew: CrewFig[]
-  more: number
-  live: number
-  failed: number
-  tasks: { done: number; total: number; plan: PlanFig[] }
+  /** The agents' counts as the pane's Agents head says them (I4, M15). */
+  agents: { working: number; waiting: number; failed: number }
+  tasks: { done: number; total: number }
 }
 
-const MAX_CREW = 6
-const MAX_PLAN = 24
 const MAX_TEXT = 300
 
 /** One line of plain text, at most MAX_TEXT characters. */
@@ -115,18 +106,11 @@ function crewFig(a: AgentRow, found: Flags, state?: PodState): CrewFig {
   return { role, state: st, title: parts.join(', ') }
 }
 
-/** Crew order: live first, then failed, then done; newest start first within each. */
-function crewRank(a: AgentRow): number {
-  if (a.status === 'running') return 0
-  if (a.status === 'error') return 1
-  return 2
-}
-
 /**
  * The deck's model: what Now's Svg draws and its alt says. The header's words
  * are `head`'s (the terminal header's: WAITING FOR YOU while a dialog needs
  * the person, WORKING with the turn's time and the quiet time, STOPPED with
- * its reason, ALL DONE, IDLE); the crew and the plan strip are read here.
+ * its reason, ALL DONE, IDLE); the agents' counts are read here for the alt.
  * Watch rows colour nothing (R9). `covered` is the pane's `isPromptCovered`:
  * with it an auto-mode ask is a need at once (C-1), as the terminal reads it.
  */
@@ -143,15 +127,8 @@ export function deckModel(t: Timeline, u: UiState, now: number, head: DeckHead, 
   const main = t.agents.main
   const lead: CrewFig = main !== undefined ? crewFig(main, flags, head.lead) : { role: 'lead', state: head.lead, title: 'the lead' }
 
-  const ranked = [...subs].sort((x, y) => crewRank(x) - crewRank(y) || y.startedAt - x.startedAt)
-  const crew = ranked.slice(0, MAX_CREW).map(x => crewFig(x, flags))
-
-  const meter = taskMeter(t)
-  const plan = meter.rows.slice(0, MAX_PLAN).map(r => ({
-    tokens: r.tokens,
-    current: r.task.status === 'in_progress',
-    title: `${wordFit(oneLine(r.task.subject), 80)}: ${r.tokens > 0 ? `${tokens(r.tokens)} tokens` : r.task.status}`,
-  }))
+  const running = subs.filter(x => x.status === 'running')
+  const waiting = running.filter(x => flags.asking.has(x.id)).length
 
   return {
     pill: { word: head.pill, hue: head.tone },
@@ -162,11 +139,8 @@ export function deckModel(t: Timeline, u: UiState, now: number, head: DeckHead, 
     isIdle: head.goal.isIdle,
     budget: head.budget,
     rings: head.gauges.map(g => ({ name: g.label, pct: clampPct(g.pct) })),
-    crew,
-    more: Math.max(0, ranked.length - crew.length),
-    live: s.running.length,
-    failed: subs.filter(x => x.status === 'error').length,
-    tasks: { done: s.done, total: s.total, plan },
+    agents: { working: running.length - waiting, waiting, failed: subs.filter(x => x.status === 'error').length },
+    tasks: { done: s.done, total: s.total },
   }
 }
 
@@ -317,28 +291,6 @@ function accents(w: number, h: number, hue: Hue | 'mute'): string {
   )
 }
 
-/** The plan strip: one rounded column a task, its height its tokens, the one in progress in the accent, a done one in soft iris; a queued task a rest tick. */
-function plan(x: number, base: number, width: number, hmax: number, cols: PlanFig[]): string {
-  if (cols.length === 0) return ''
-  const max = Math.max(1, ...cols.map(c => c.tokens))
-  const gap = cols.length > 12 ? 2 : 4
-  const bw = Math.max(2, Math.min(11, (width - gap * (cols.length - 1)) / cols.length))
-  return cols
-    .map((c, i) => {
-      const h = c.tokens > 0 ? Math.max(3, (c.tokens / max) * hmax) : 2
-      const fill = c.current ? ink('iris') : c.tokens === 0 ? ink('rest') : ink('irisSoft')
-      return `<rect class="h" x="${num(x + i * (bw + gap))}" y="${num(base - h)}" width="${num(bw)}" height="${num(h)}" rx="1.5" fill="${fill}"><title>${esc(c.title)}</title></rect>`
-    })
-    .join('')
-}
-
-function badgePill(x: number, y: number, word: string, hue: keyof Palette): string {
-  return (
-    `<rect x="${num(x)}" y="${num(y)}" width="58" height="18" rx="9" fill="none" stroke="${ink(hue)}"></rect>` +
-    text(x + 29, y + 13, word, { size: 10.5, fill: ink(hue), anchor: 'middle' })
-  )
-}
-
 function open(w: number, h: number): string {
   const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${num(w)}" height="${num(h)}" viewBox="0 0 ${num(w)} ${num(h)}">`
   const glass = `<rect x="0.5" y="0.5" width="${num(w - 1)}" height="${num(h - 1)}" rx="8" fill="${ink('ground')}" stroke="${ink('rule')}"></rect>`
@@ -382,10 +334,10 @@ function fitPieces(pieces: Piece[], px: number, size: number): Piece[] {
  * the pill with its meta beside it (WAITING FOR YOU and the wait; WORKING with
  * this turn's time and the quiet time; STOPPED and its reason), the lead's
  * critter, the kicker over the goal on two lines, the budget line, and the
- * two gauge rings (context, and the hotter of the 5 hours and the week); then
- * Agents (critters, and a count of the failed) and To do (the plan strip),
- * each only when it has something to show. No running step, no turn counter,
- * no Next, no Steps trace and no Cache row (the cockpit removed them, R26).
+ * two gauge rings (context, and the hotter of the 5 hours and the week). It
+ * ends there (I4): To do and Agents are the pane's own sections below it, once
+ * each, and the tab bar is the way between pages. No running step, no turn
+ * counter, no Next, no Steps trace and no Cache row (the cockpit removed them, R26).
  * Drawn on `g`, the ground the pane draws on (day on a light theme).
  */
 export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, head: DeckHead, g: Ground = 'night', covered = false): string {
@@ -394,40 +346,16 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, h
   const W = deckWidth(cols)
   const L = 22
   const C = 84
-  const V = W - 106
   const hasRings = m.rings.length > 0
   // The hero's text ends 10 px before the leftmost ring (radius 19, 52 apart, the last at W - 36).
   const heroRight = hasRings ? W - 36 - 52 * (m.rings.length - 1) - 19 - 10 : W - 20
-  const rows: string[] = []
-  let y = 162
-  if (m.crew.length > 0) {
-    let o = label(L, y, 'Agents')
-    const room = Math.max(1, Math.floor((V - 12 - C) / 42))
-    const shown = m.crew.slice(0, room)
-    shown.forEach((c, i) => {
-      o += character(C + i * 42, y - 18, c, 3.2)
-    })
-    const more = m.more + m.crew.length - shown.length
-    if (more > 0) o += text(C + shown.length * 42, y, `+${more}`, { fill: DIM() })
-    if (m.failed > 0) o += badgePill(V, y - 8, `${m.failed} failed`, 'red')
-    rows.push(o)
-    y += 48
-  }
-  if (m.tasks.total > 0) {
-    rows.push(
-      label(L, y, 'To do') +
-        plan(C, y + 6, V - 20 - C, 26, m.tasks.plan) +
-        text(V, y, `${m.tasks.done}/${m.tasks.total}`, { bold: true }),
-    )
-    y += 44
-  }
-  const H = rows.length > 0 ? y - 14 : 150
+  const H = 132
   let s = open(W, H) + accents(W, H, m.pill.hue)
   s += pill(C, 14, m.pill.word, m.pill.hue)
   const pillW = m.pill.word.length * 7.4 + 18
   const metaX = C + pillW + 10
   s += tspans(metaX, 28, fitPieces(runPieces(m.meta), W - 16 - metaX, 11), { size: 11 })
-  s += character(16, 46, m.lead, 4.6)
+  s += character(16, 46, m.lead, 3.2)
   s += text(C, 52, cutTo(m.kicker, heroRight - C, 11), { size: 11, fill: DIM() })
   const focus = wrapTo(m.focus, heroRight - C, 15, 2)
   focus.forEach((line, i) => {
@@ -437,8 +365,6 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, h
   m.rings.forEach((r, i) => {
     s += ring(W - 36 - 52 * (m.rings.length - 1 - i), 78, 19, r)
   })
-  if (rows.length > 0) s += `<path d="M 16 136 H ${num(W - 16)}" stroke="${ink('rest')}" stroke-width="1" stroke-dasharray="1 5"></path>`
-  s += rows.join('')
   s += '</svg>'
   return bounded(s, W, () => m)
 }
@@ -565,7 +491,9 @@ export function nowDeckAlt(t: Timeline, u: UiState, now: number, head: DeckHead,
   const budget = m.budget.map(r => r.text).join('').trim()
   if (budget !== '') parts.push(`${budget}.`)
   if (m.rings.length > 0) parts.push(`${ringsSaid(m)}.`)
-  if (m.crew.length > 0) parts.push(`${m.live} agents working, ${m.failed} failed.`)
+  const a = m.agents
+  const agents = [`${a.working} working`, ...(a.waiting > 0 ? [`${a.waiting} waiting`] : []), ...(a.failed > 0 ? [`${a.failed} failed`] : [])]
+  if (a.working + a.waiting + a.failed > 0) parts.push(`${agents.join(' · ')}.`)
   if (m.tasks.total > 0) parts.push(`${m.tasks.done} of ${m.tasks.total} tasks done.`)
   return parts.join(' ').slice(0, MAX_ALT)
 }

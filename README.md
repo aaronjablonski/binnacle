@@ -221,7 +221,7 @@ Then type `/binnacle`. The band is there from the start; the pane opens when you
 **Always on.** Put the absolute path of `mod/` in `CLAUDE_CODE_PLUGIN_DIRS` under `env` in `~/.claude/settings.json`:
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/absolute/path/to/mission-control-claude-mod/mod" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/absolute/path/to/binnacle-claude-mod/mod" } }
 ```
 
 **From a marketplace.** Not available yet.

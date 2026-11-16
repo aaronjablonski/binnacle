@@ -132,7 +132,6 @@ The default background counts as one of a cell's two colours. Sprites are laid o
 - **Rows.** Now's deck is 11 rows and a map node is 2: on a short pane the map shows fewer agents than the list. The list stays one key away.
 - **Open:** whether a Raster may sit in a row Box beside a Button at these widths (expected, not spiked); `o: open` needs an editor-open call the API may not offer on every surface (else it copies the path); the Options reload question from `distill.md`; the Ledger needs the owner's yes.
 
-
 ## Artboards
 
 - `RichKit`: the four characters × six states, large and small, rings, meters, pills, frame, on a night and a day ground, with an enlarged strip (1440 × 1120).

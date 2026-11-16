@@ -93,7 +93,6 @@ The engine's own collapse (ctrl+x ctrl+a) hides the band entirely, so "collapsed
 
 **Inline strip (under 110 columns, 14 rows).** Tabs and track, then the Now deck on cells 1 to 4 (six rows, no blank rail row, left bracket only) beside `┌ AGENTS` and `┌ LATEST` on cells 5 to 8 with metric at 74 and time at 86. 11 rows. The band under it stays compact.
 
-
 ## Changes against the HUD v2 views being built (`mod/hooks/views/`)
 
 - `style.ts`: add `HULL` (role to three glyphs), `roleOf(agentType)`, `podOf(agent)` returning hull, colour, bold and signal; `C.spark = 'claude'`; `dialOf(pct)`; `RAIL` glyphs; the ASCII fallback set. `rateColor` is unchanged.

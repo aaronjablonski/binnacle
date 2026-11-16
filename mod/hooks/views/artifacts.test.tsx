@@ -345,7 +345,7 @@ test('files changed: o calls openInEditor on a press only, for the file that was
 })
 
 const LONG_TITLE = 'Rate limit design: a token bucket for each API key, with the burst case and the three callers that change'
-const LONG_REF = 'C:/Users/aaron/Documents/GitHub/mission-control-claude-mod/docs/superpowers/plans/2026-11-15-a-very-long-plan-name.md'
+const LONG_REF = 'C:/work/binnacle-claude-mod/docs/superpowers/plans/2026-11-15-a-very-long-plan-name.md'
 const LONG_SUMMARY = 'Why the limiter moves before auth, how the bucket is keyed, what the 429 reply carries, and the three callers that change. Then the follow-up work.'
 const PAGE_ART = art('document', LONG_TITLE, { ref: LONG_REF, summary: LONG_SUMMARY, stepId: 's9', count: 2, updatedAt: NOW - 540_000 })
 

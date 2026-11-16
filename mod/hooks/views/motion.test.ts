@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { EngineInterface } from 'claude-code'
 
-import { begin, bursting, cue, cueOn, forget, isLive, paintTick, resetPaint, tagOf, track, trackBurst } from './paint'
+import { begin, bursting, clockRunning, cue, cueOn, forget, isLive, paintTick, peek, resetPaint, startClock, tagOf, track, trackBurst } from './paint'
 import type { Burst } from './paint'
 import { critterBox, critterFrames, critterPoseBox, encode, MOVE_MS, moveFrames, ring } from './raster'
 import type { Grid, Move } from './raster'
@@ -24,12 +24,15 @@ type Fake = {
   redraws: number[]
   afters: Timer[]
   everies: number
+  /** The `every` timers asked: `ticks()` fires each one still running. */
+  ticks: () => Promise<void>
   deny: string | undefined
   /** Moves the fake clock on by `ms`, firing each timer that falls due, in order. */
   advance: (ms: number) => Promise<void>
 }
 
 function fake(): Fake {
+  const everyFns: { fn: () => void; cancelled: boolean }[] = []
   const f: Fake = {
     $: undefined as unknown as EngineInterface,
     now: 0,
@@ -37,6 +40,10 @@ function fake(): Fake {
     redraws: [],
     afters: [],
     everies: 0,
+    ticks: async () => {
+      for (const h of everyFns) if (!h.cancelled) h.fn()
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    },
     deny: undefined,
     advance: async (ms: number) => {
       const until = f.now + ms
@@ -58,9 +65,11 @@ function fake(): Fake {
         f.afters.push(t)
         return { cancel: () => (t.cancelled = true) }
       },
-      every: () => {
+      every: (_ms: number, fn: () => void) => {
         f.everies += 1
-        return { cancel: () => undefined }
+        const h = { fn, cancelled: false }
+        everyFns.push(h)
+        return { cancel: () => (h.cancelled = true) }
       },
     },
     ui: {
@@ -80,8 +89,8 @@ function fake(): Fake {
 const box = (g: Grid): string => encode(g)
 
 /** Draws a critter the way `inst` does: a tagged instrument through `trackBurst`. */
-function drawCritter(f: Fake, key: string, state: PodState, o: { since?: number; role?: 'lead' | 'general' | 'scout' } = {}): string {
-  const c = critterArgs(o.role ?? 'general', state, { motion: true, ...(o.since !== undefined ? { since: o.since } : {}) })
+function drawCritter(f: Fake, key: string, state: PodState, o: { since?: number; role?: 'lead' | 'general' | 'scout'; fold?: boolean } = {}): string {
+  const c = critterArgs(o.role ?? 'general', state, { motion: true, ...(o.fold === true ? { fold: true } : {}), ...(o.since !== undefined ? { since: o.since } : {}) })
   begin('pane')
   return trackBurst(f.$, 'pane', key, c.sig, c.frames, c.tag!, c.burst, f.now).cells
 }
@@ -144,8 +153,8 @@ test('motion 2: the lead woken by a prompt after rest (done, then working) squas
 test('motion 3: a finish nods with eyes shut, fades in two steps (2 x 150 ms), rests 700 ms in grey, then asks one redraw (the fold)', async () => {
   resetPaint()
   const f = fake()
-  drawCritter(f, 'card', 'working', { since: -100_000 })
-  const mounted = drawCritter(f, 'card', 'done', { since: -100_000 })
+  drawCritter(f, 'card', 'working', { since: -100_000, fold: true })
+  const mounted = drawCritter(f, 'card', 'done', { since: -100_000, fold: true })
   expect(tagOf('pane', 'card')).toBe('done@-100000')
   await f.advance(999)
   expect(f.redraws).toHaveLength(0)
@@ -156,6 +165,50 @@ test('motion 3: a finish nods with eyes shut, fades in two steps (2 x 150 ms), r
   expect(bursting('pane', 'card')).toBe(false)
   await f.advance(10_000)
   expect(f.redraws).toHaveLength(1)
+})
+
+// B-M4: a critter that is not on a folding card (the Crew map, Tasks) nods and fades but asks no redraw.
+test('motion 3: a critter off a folding card plays the nod with no fold redraw', async () => {
+  resetPaint()
+  const f = fake()
+  drawCritter(f, 'row', 'working', { since: -100_000 })
+  const mounted = drawCritter(f, 'row', 'done', { since: -100_000 })
+  await f.advance(2000)
+  expectMove(f, 'row', 'settle', 'general', 'done', mounted, 0)
+  expect(f.redraws).toHaveLength(0)
+})
+
+// B-M5: after a burst the 1 s clock still stops by itself: a burst never makes the paint live, and its timers are `after`, not `every`.
+test('the 1 s clock stops when nothing is live, also right after a burst has played', async () => {
+  resetPaint()
+  const f = fake()
+  drawCritter(f, 'card', 'working', { since: -100_000, fold: true })
+  drawCritter(f, 'card', 'done', { since: -100_000, fold: true })
+  startClock(f.$, () => false)
+  expect(clockRunning()).toBe(true)
+  await f.advance(2000)
+  expect(bursting('pane', 'card')).toBe(false)
+  await f.ticks()
+  expect(clockRunning()).toBe(false)
+  expect(f.everies).toBe(1)
+})
+
+// B-M2: a dry draw (the hidden one of a tab switch) mounts the first frame and records nothing.
+test('peek draws an instrument without tracking it: no entry, no tag, no burst, no shown', async () => {
+  resetPaint()
+  const f = fake()
+  const c = critterArgs('general', 'working', { motion: true, since: -100_000 })
+  drawCritter(f, 'card', 'working', { since: -100_000 })
+  drawCritter(f, 'card', 'done', { since: -100_000, fold: true })
+  expect(bursting('pane', 'card')).toBe(true)
+  const dry = peek(critterArgs('general', 'done', { size: 'small' }).frames)
+  expect(dry.columns).toBe(c.columns)
+  expect(tagOf('pane', 'card')).toBe('done@-100000')
+  expect(bursting('pane', 'card')).toBe(true)
+  await f.advance(2000)
+  expect(f.blits).toHaveLength(2)
+  expect(peek(critterArgs('general', 'done').frames).cells).not.toBe('')
+  expect(tagOf('pane', 'never-drawn')).toBeUndefined()
 })
 
 test('motion 3: the lead does not nod at a finish (the sweep moves it, motion 10)', async () => {

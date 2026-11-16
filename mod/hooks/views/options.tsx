@@ -17,7 +17,7 @@ import { nameFit, wordFit } from './fit'
 import { closePage, openPage } from './pagenav'
 import { frameFootInst, frameTopInst, inst, runText, section } from './parts'
 import type { ViewCtx } from './shell'
-import { C, critterArgs, edges, GRID } from './style'
+import { C, critterArgs, edges, GRID, setAccent } from './style'
 import type { Run } from './style'
 
 /** The hotkey that opens and closes Options (the tab bar's Button). */
@@ -88,6 +88,8 @@ const written = new Map<string, ConfigValue>()
 export function configureOptions(options: PluginOptions): void {
   given = options
   written.clear()
+  // M9: the accent is configuration, set here and on the Accent press, never while drawing.
+  setAccent(valueOf('accent'))
 }
 
 /**
@@ -188,6 +190,7 @@ export async function setOption($: EngineInterface, f: Field, value: ConfigValue
       return
     }
     written.set(f.field, got.value)
+    if (f.field === 'accent') setAccent(got.value)
     $.ui.invalidate('ui.render')
     const when = f.applies === 'now' ? '' : ` (applies ${f.applies})`
     $.ui.toast(`${f.label}: ${shownValue(f, got.value)}${when}`)
@@ -227,13 +230,16 @@ function accentName(): string {
 /**
  * The preview: the three critters the cockpit draws (the lead, a scout that
  * works and a builder that waits), each five cells wide with its role word,
- * and the accent's name in the accent. Text form on a surface with no Raster.
+ * and the accent's name in the accent; under 40 columns the builder and the
+ * accent's words are left out (M6). Text form on a surface with no Raster.
  */
 function previewRow(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { left } = edges(ctx.cols)
   const ground = ctx.ground ?? 'night'
-  const crew = [critterArgs('lead', 'working', { ground }), critterArgs('scout', 'working', { ground }), critterArgs('build', 'waiting', { ground })]
+  // M6: under 40 columns the third critter and the accent's words go, so the row stays inside the body.
+  const narrow = ctx.cols < 40
+  const crew = [critterArgs('lead', 'working', { ground }), critterArgs('scout', 'working', { ground }), ...(narrow ? [] : [critterArgs('build', 'waiting', { ground })])]
   return (
     <Box key="opt-preview" flexDirection="row" paddingLeft={left}>
       {crew.map((c, i) => (
@@ -241,14 +247,16 @@ function previewRow(ctx: ViewCtx, $: EngineInterface): RenderElement {
           {inst(ctx, $, { key: `opt-critter-${i}-inst`, ...c })}
         </Box>
       ))}
-      <Box key="opt-accent" flexDirection="column" flexShrink={0}>
-        <Text key="opt-accent-name" color={C.accent} bold>
-          {accentName()}
-        </Text>
-        <Text key="opt-accent-note" dimColor>
-          the accent
-        </Text>
-      </Box>
+      {narrow ? null : (
+        <Box key="opt-accent" flexDirection="column" flexShrink={0}>
+          <Text key="opt-accent-name" color={C.accent} bold>
+            {accentName()}
+          </Text>
+          <Text key="opt-accent-note" dimColor>
+            the accent
+          </Text>
+        </Box>
+      )}
     </Box>
   )
 }

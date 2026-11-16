@@ -521,7 +521,8 @@ test('row: a tether prefix puts ├╌ at 2 and the hull at 4; two deep, ┆ at 
   await ui.unmount()
 })
 
-test('row: the waiting and stalled flags draw ? and z in the gutter, in the warning colour', async ($, on) => {
+// I-4 / R19 (meaning changed): amber is the dialog's; the stalled z is subtle.
+test('row: the waiting and stalled flags draw ? and z in the gutter, ? in the warning colour and z in subtle', async ($, on) => {
   draws(on, (ctx, $) => (
     <>
       {row(ctx, $, { key: 'asks', flag: 'waiting', glyph: '◉', name: 'asks the person', onPress: () => {} })}
@@ -534,7 +535,7 @@ test('row: the waiting and stalled flags draw ? and z in the gutter, in the warn
     expect(all.find(r => r.includes('asks the person'))?.slice(0, 3)).toBe('? ◉')
     expect(all.find(r => r.includes('has gone quiet'))?.slice(0, 3)).toBe('z ◉')
     expect((await ui.find({ type: 'Text', text: /^\? $/ }))?.props).toMatchObject({ color: 'warning' })
-    expect((await ui.find({ type: 'Text', text: /^z $/ }))?.props).toMatchObject({ color: 'warning' })
+    expect((await ui.find({ type: 'Text', text: /^z $/ }))?.props).toMatchObject({ color: 'subtle' })
     await ui.unmount()
   }
 })

@@ -226,8 +226,11 @@ test('session.start without autoOpen opens nothing, and registers /mc as immedia
   expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
 })
 
+// M10 (order changed, meaning kept): the clock stops once nothing is live and only a capture hook's write starts it
+// again; this world writes the Timeline directly, so it goes from live to idle: a running subagent, a running step,
+// then a done agent and an empty session (main alone), where nothing is invalidated.
 test('the clock invalidates only while a subagent or step runs, and main never counts', async ($, on) => {
-  const { stored, clock } = sessionWorld(on, empty)
+  const { stored, clock } = sessionWorld(on, { ...empty, agents: { main, a1: agent('a1', 'Explore', 'x', 'y') } })
   let invalidated = 0
   on('ui.invalidate', () => {
     invalidated += 1
@@ -236,20 +239,22 @@ test('the clock invalidates only while a subagent or step runs, and main never c
 
   await start($)
   await clock.advance(3000)
-  expect(invalidated).toBe(0)
+  expect(invalidated > 0).toBe(true)
 
+  invalidated = 0
   stored.set('timeline', { ...empty, steps: [step('s1', 1, 'Bash ls', 'running')] })
   await clock.advance(3000)
   expect(invalidated > 0).toBe(true)
 
-  invalidated = 0
   stored.set('timeline', { ...empty, agents: { main, a1: agent('a1', 'Explore', 'x', 'y', 'done') } })
+  await clock.advance(1000)
+  invalidated = 0
   await clock.advance(3000)
   expect(invalidated).toBe(0)
 
-  stored.set('timeline', { ...empty, agents: { main, a1: agent('a1', 'Explore', 'x', 'y') } })
+  stored.set('timeline', empty)
   await clock.advance(3000)
-  expect(invalidated > 0).toBe(true)
+  expect(invalidated).toBe(0)
 })
 
 type Mounted = Awaited<ReturnType<typeof mount>>

@@ -33,7 +33,7 @@ import { openPage } from './pagenav'
 import { runBoardView } from './runboard'
 import { TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
-import { needsYou, waitStates } from './needs'
+import { crewAlerts, waitStates } from './needs'
 import { C, CK, DECK, edges, podOf, statusColor, typeName } from './style'
 import type { PodState } from './style'
 import { treeView } from './tree'
@@ -296,13 +296,11 @@ function listBody(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Ma
  */
 export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
-  const { t, u, cols, now } = ctx
+  const { t, u, cols } = ctx
   try {
     if (u.run !== undefined) return runBoardView(ctx, u.run, $)
-    const problems = needsYou(t, u, now)
-    const ids = new Set(problems.map(p => p.agent))
-    const since = new Map(problems.filter(p => p.kind === 'asking').map(p => [p.agent, p.since] as const))
-    const states = waitStates(ctx.t, ctx.u, ctx.now)
+    // I-2: the same needs and Watch selectors as Now.
+    const { ids, since, states } = crewAlerts(ctx)
     const subs = Object.values(t.agents).filter(a => a.id !== 'main' && (a.runId === undefined || t.runs[a.runId] === undefined))
     const hasRuns = Object.keys(t.runs).length > 0
     const modes = toggles(ctx, $)
@@ -352,14 +350,18 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   }
 }
 
-/** The state pill's word, its text-look colour and its Raster hue; waiting and stalled turn the frame amber. */
-const PILL: Record<PodState, { color: string; hue: 'iris' | 'amber' | 'red' | 'mint' | 'orchid' }> = {
-  queued: { color: C.subtle, hue: 'orchid' },
+/**
+ * The state pill's text-look colour and its Raster hue (I-4, R9, R19): only
+ * waiting is amber (a dialog), failed is red, working takes the accent;
+ * queued, stalled and done are dim, with no frame tone. Never mint or orchid.
+ */
+const PILL: Record<PodState, { color: string; hue: 'iris' | 'amber' | 'red' | 'mute' }> = {
+  queued: { color: C.subtle, hue: 'mute' },
   working: { color: C.live, hue: 'iris' },
   waiting: { color: C.wait, hue: 'amber' },
-  stalled: { color: C.wait, hue: 'amber' },
+  stalled: { color: C.subtle, hue: 'mute' },
   failed: { color: C.fail, hue: 'red' },
-  done: { color: C.result, hue: 'mint' },
+  done: { color: C.subtle, hue: 'mute' },
 }
 
 /** The page frame's pill word per state (R30: waiting is WAITING, not the permission sentence). */
@@ -385,7 +387,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
   const a = t.agents[id]
   if (a === undefined) return page(ctx, $, { key: 'agent-page', title: 'This agent is gone.' })
   const isMain = id === 'main'
-  const waits = waitStates(t, ctx.u, now)
+  const waits = waitStates(ctx)
   const state = waits.get(id)
   const pod = podOf(state !== undefined ? { ...a, state } : a, now)
   const pill = PILL[pod.state]
@@ -515,7 +517,7 @@ export function agentPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderE
       ...frameFor(PILL_WORD[pod.state], `agent ${index} of ${order.length}`),
       pillColor: pill.color,
       pillHue: pill.hue,
-      ...(pod.state === 'waiting' || pod.state === 'stalled' ? { tone: 'warning' as const } : {}),
+      ...(pod.state === 'waiting' ? { tone: 'warning' as const } : {}),
     },
     title: isMain ? typeName('main') : a.description !== '' ? a.description : typeName(a.type),
     ...(a.status === 'running' && a.doing !== '' ? { body: a.doing } : {}),

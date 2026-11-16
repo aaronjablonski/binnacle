@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
 
 import {
-  at, bar10, buckets10, DIAGRAM, fitRuns, keepCells, line, placed, promptTitle, shortPaths, spark10, stack10, toolCell, wordFit, wrapWords,
+  at, bar10, DIAGRAM, fitRuns, keepCells, line, placed, promptTitle, shortPaths, spark10, stack10, toolCell, wordFit, wrapWords,
 } from '../mod/hooks/views/fit'
-import { C, cellCol, cellsFor, COL, GRID, rateColor, statusColor, TAB_CELL, tableCols, tier } from '../mod/hooks/views/style'
+import { C, cellCol, cellsFor, COL, GRID, rateColor, statusColor, tableCols, tier } from '../mod/hooks/views/style'
 
 describe('the grid', () => {
   test('GRID is a 2-column margin and 12-column cells of 10 columns of content', () => {
@@ -40,7 +40,6 @@ describe('the grid', () => {
     expect(tier(32)).toBe('icon')
     expect(tier(31)).toBe('slim')
     expect(tier(20)).toBe('slim')
-    expect(TAB_CELL).toEqual({ wide: 12, mid: 7, icon: 5 })
   })
 
   test('tableCols: name, metric and time at 62; time on the last cell at 50 to 61 and 38 to 49; name only below', () => {
@@ -145,13 +144,6 @@ describe('diagrams, all exactly 10 wide', () => {
       const w = stack10(counts)
       expect(w.reduce((a, b) => a + b, 0)).toBe(10)
     }
-  })
-
-  test('buckets10 counts times per tenth of the span', () => {
-    expect(buckets10([0, 5, 15, 99, 100], 0, 100)).toEqual([2, 1, 0, 0, 0, 0, 0, 0, 0, 2])
-    expect(buckets10([], 0, 100)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    expect(buckets10([7, 7], 7, 7)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 2])
-    expect(buckets10([-5, 200], 0, 100)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
   })
 
   test('spark10: 10 buckets, 8 levels scaled to the largest', () => {

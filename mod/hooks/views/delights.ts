@@ -135,7 +135,7 @@ export async function delightsTick($: EngineInterface, o: { motion: boolean }): 
     const block = todoBlock(t)
     if (block.total >= 2 && block.open === 0 && block.lastDone !== undefined && now - block.lastDone.updatedAt <= FRESH_MS && !u.toasted.includes(todosMark(turn.id))) {
       marks.push(todosMark(turn.id))
-      toast = `All ${block.total} to-dos done`
+      toast = `All ${block.total} done`
     }
     if (marks.length === 0) return
     await updateUi($, cur => ({ ...cur, toasted: [...cur.toasted, ...marks.filter(m => !cur.toasted.includes(m))] }))

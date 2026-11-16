@@ -206,7 +206,7 @@ test('fidelity: CockpitArtifacts at 62 columns matches the mock but for the list
     rows[18] = fig('  ▤ docs/rate-limit-plan.md', 'doc', '12 min')
     rows[21] = rows[21]!.replace(/ +2m$/, '').trimEnd().padEnd(51) + '2 min'.padStart(9)
   })
-  b.patch('order and real data: Kept lists the newest first, and a kept step is from its tool (Write), not a note', rows => {
+  b.patch('implementation choice and real data: Kept lists the newest first (not a ruling), and a kept step is from its tool (Write), not a note', rows => {
     rows[27] = fig('  ★ the failing 429 test', 'Bash', '3 min')
     rows[28] = fig('  ★ The limiter runs after bodyLimit', 'Write', '6 min')
     rows[29] = fig('  ★ limiter order matters', 'Read', '9 min')

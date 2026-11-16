@@ -5,6 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, Run, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
+import { dismissKey, watch } from '../model/alerts'
 
 /** The text look on every surface: the critters draw as their text forms (a state glyph, the role word). */
 const TEXT = { options: { look: 'text' } } as const
@@ -495,9 +496,8 @@ test('LOOK: a stalled agent is z on its critter (no gutter flag in the list, R26
 test('LOOK: a waiting agent has ? on its critter and its time and what it waits for in amber', TEXT, async ($, on) => {
   const t = busy({
     agents: { main, a1: agent('a1', 'Explore', 'find callers', 'Bash'), a2: agent('a2', 'Explore', 'write tests', 'Edit') },
-    // asked 30 s ago: past the 20 s threshold every view shares (see waits.test.tsx)
+    // C-1 (meaning changed): asked outside auto mode, so it shows at once; an uncovered auto ask is only checked now.
     steps: [step('s2', 2, 'Bash npm publish', 'running', { agent: 'a1', tool: 'Bash', asking: NOW - 30_000 })],
-    autoAsk: true,
   })
   seed(on, t, AGENTS_UI)
   for (const surface of SURFACES) {
@@ -515,8 +515,9 @@ test('LOOK: a waiting agent has ? on its critter and its time and what it waits 
   }
 })
 
+// I-2 (meaning changed): the dismissal is Now's own Watch key (`quiet:<agent>:<last>`), not the legacy `stalled:<agent>`.
 test('a dismissed problem leaves no ?, ! or z', TEXT, async ($, on) => {
-  seed(on, stalled(), { ...AGENTS_UI, dismissed: ['stalled:a1', 'stalled:w1'] })
+  seed(on, stalled(), { ...AGENTS_UI, dismissed: watch(stalled(), NOW).map(dismissKey) })
   const ui = await mount($, 'terminal')
   const all = await rows(ui)
   expect(all.some(r => /● {4}z/.test(r))).toBe(false)
@@ -850,5 +851,77 @@ test('the lintel is never refused at narrow widths: the readout is left out wher
       for (const r of all) expect(r.length).toBeLessThanOrEqual(columns)
       await ui.unmount()
     }
+  }
+})
+
+// ---------- I-2: every tab reads Now's needs and Watch ----------
+
+/** A covered auto-mode ask by a2, and a1 running a stalled `npm test` (two earlier 1-minute runs, this one 14 min). */
+const crossTab = (): Timeline =>
+  busy({
+    autoAsk: true,
+    steps: [
+      step('h1', 1, 'Bash npm test', 'done', { agent: 'a1', tool: 'Bash', sig: 'nt', startedAt: NOW - 20 * 60_000, endedAt: NOW - 19 * 60_000 }),
+      step('h2', 2, 'Bash npm test', 'done', { agent: 'a1', tool: 'Bash', sig: 'nt', startedAt: NOW - 18 * 60_000, endedAt: NOW - 17 * 60_000 }),
+      step('h3', 3, 'Bash npm test', 'running', { agent: 'a1', tool: 'Bash', sig: 'nt', startedAt: NOW - 14 * 60_000 }),
+      step('p1', 4, 'Bash npm publish', 'running', { agent: 'a2', tool: 'Bash', asking: NOW - 5000, startedAt: NOW - 6000 }),
+    ],
+    agents: { main, a1: agent('a1', 'Explore', 'run the tests', 'Bash npm test'), a2: agent('a2', 'Explore', 'publish it', 'Bash npm publish') },
+  })
+
+test('I-2: with the dialog over the prompt, every tab says a2 waits at once, and a1 is busy (Stalled), never "No activity"', TEXT, async ($, on) => {
+  const covered = (columns: number) => ({ ...PANE(columns), props: { ...PANE(columns).props, isPromptCovered: true as const }, surface: 'terminal' as const })
+  const stored = seed(on, crossTab(), AGENTS_UI)
+  for (const u of [AGENTS_UI, { ...AGENTS_UI, agentsMode: 'tree' as const }, { ...AGENTS_UI, tab: 'overview' as const }]) {
+    stored.set('ui', u)
+    const ui = await $.ui.mount(covered(80))
+    const all = screen(await ui.drawn()).join('\n')
+    expect(all).not.toContain('No activity')
+    if (u.agentsMode === 'tree') expect(all).toContain('waiting')
+    else expect(all).toMatch(/Waiting for (your answer|you)/)
+    await ui.unmount()
+  }
+})
+
+test('I-2: a Quiet row dismissed on Now (its own key) clears the z on the list and the map', TEXT, async ($, on) => {
+  const t = stalled()
+  const keys = watch(t, NOW).filter(w => w.kind === 'quiet').map(dismissKey)
+  expect(keys.length).toBeGreaterThan(0)
+  const stored = seed(on, t, AGENTS_UI)
+  for (const mode of ['list', 'tree'] as const) {
+    stored.set('ui', { ...AGENTS_UI, agentsMode: mode, dismissed: keys })
+    const ui = await mount($, 'terminal')
+    const all = await rows(ui)
+    expect(all.some(r => /● {4}z/.test(r))).toBe(false)
+    expect(all.filter(r => /^z /.test(r))).toEqual([])
+    await ui.unmount()
+  }
+})
+
+// ---------- I-4: colour roles ----------
+
+/** Every `color` a drawing names, with the text it colours. */
+function colours(node: unknown, out: { color: string; text: string }[] = []): { color: string; text: string }[] {
+  if (node === null || typeof node !== 'object') return out
+  const n = node as { props?: Record<string, unknown>; children?: unknown[] }
+  const text = (x: unknown): string => (typeof x === 'string' ? x : Array.isArray((x as { children?: unknown[] })?.children) ? (x as { children: unknown[] }).children.map(text).join('') : '')
+  const c = n.props?.color ?? n.props?.backgroundColor
+  if (typeof c === 'string') out.push({ color: c, text: text(n) })
+  for (const ch of n.children ?? []) colours(ch, out)
+  return out
+}
+
+test('I-4: stalled, quiet, queued and done agents draw no warning, success or merged on the list, the map and their pages', TEXT, async ($, on) => {
+  const t = stalled()
+  const pages: UiState[] = [AGENTS_UI, { ...AGENTS_UI, agentsMode: 'tree' }, { ...AGENTS_UI, page: { kind: 'agent', id: 'a1' } }]
+  const stored = seed(on, { ...t, steps: t.steps.filter(s => s.asking === undefined) }, AGENTS_UI)
+  for (const u of pages) {
+    stored.set('ui', u)
+    const ui = await mount($, 'terminal')
+    const used = colours(await ui.drawn()).map(x => x.color)
+    expect(used).not.toContain('warning')
+    expect(used).not.toContain('success')
+    expect(used).not.toContain('merged')
+    await ui.unmount()
   }
 })

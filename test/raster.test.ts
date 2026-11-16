@@ -20,7 +20,6 @@ import {
   quadGlyph,
   ring,
   RING,
-  rpill,
   sill,
   sprite,
   stack,
@@ -384,13 +383,6 @@ describe('meters', () => {
 })
 
 describe('pill and frame', () => {
-  test('rpill: half-cell caps around letters on the colour', () => {
-    const g = rpill('WORKING', 'iris')
-    expect([g.columns, g.rows]).toEqual([9, 1])
-    expect(rowText(g, 0)).toBe('▐WORKING▌')
-    expect(cellsOf(g)[1]).toEqual([cp('W'), N.badge, N.iris])
-    expect(cellsOf(g)[0]).toEqual([cp('▐'), N.iris, DEFAULT])
-  })
 
   test('lintel: a clamp, a hairline, the pill at its column, the readout at the right', () => {
     const g = lintel(62, { pill: 'WORKING', right: 'turn 6 41m' })

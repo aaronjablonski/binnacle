@@ -5,6 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, Step, Timeline, TurnRow, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
+import { resetCover } from './needs'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const BAND_SURFACES = ['terminal', 'desktop', 'mobile'] as const
@@ -12,8 +13,12 @@ const NOW = 1_000_000
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
 type Stored = Map<string, unknown>
+/** How often the plugin read the Timeline: the clock's tick reads it every period, so a stopped clock reads nothing (M10). */
+let timelineReads = 0
 
 function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockClock } {
+  // M12: what the pane saw of the prompt is module state; each world starts with none.
+  resetCover()
   const stored: Stored = new Map()
   stored.set('timeline', t)
   if (u) stored.set('ui', u)
@@ -23,6 +28,7 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
   on('ui.log', () => ({ value: undefined }))
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
+    if (key === 'timeline') timelineReads += 1
     const v = stored.get(key)
     return {
       value: {
@@ -106,9 +112,11 @@ const texts = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: st
   (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '')
 
 // LOOK TEST (rewritten for the cockpit band, C6): the band has no pill and no "n need you" count in a row of its own; at 80 columns it is two rows led by the amber "Needs you", narrower one row led by "▲ n needs you"; it still fits 24 columns.
+// C-1 (meaning changed): asked outside auto mode, where an ask shows at once; an uncovered auto ask is only checked.
 test('the band leads with "Needs you" in bold warning and the ask, and still fits at 24 columns', async ($, on) => {
+  const { autoAsk: _auto, ...manual } = asked(30)
   world(on, {
-    ...asked(30),
+    ...manual,
     tasks: [{ id: '1', subject: 'x', status: 'in_progress', owner: 'main', updatedAt: NOW }],
     agents: { main, a1: sub('a1') },
   })
@@ -350,7 +358,8 @@ test('a subagent that just finished toasts the first line of its doing, once', a
   const done = sub('a1', { status: 'done', endedAt: NOW - 500, doing: 'Grep upload\nsecond line' })
   const { stored, clock, toasts } = await ticking($, on, { ...empty, agents: { main, a1: done } })
   await clock.advance(3000)
-  expect(toasts).toEqual(['Explore finished: Grep upload'])
+  // M4 (R23): the toast names the agent's type in friendly case.
+  expect(toasts).toEqual(['Explorer finished: Grep upload'])
   await clock.advance(3000)
   expect(toasts.length).toBe(1)
   expect((stored.get('ui') as UiState).toasted).toEqual(['agent-done:a1'])
@@ -370,7 +379,7 @@ test("a workflow agent's finish toasts its result, not its last step", async ($,
   })
   const { clock, toasts } = await ticking($, on, { ...empty, agents: { main, w1: done } })
   await clock.advance(3000)
-  expect(toasts).toEqual(['workflow-subagent finished: verdict: ok · files: 3'])
+  expect(toasts).toEqual(['Workflow subagent finished: verdict: ok · files: 3'])
 })
 
 
@@ -533,3 +542,124 @@ test('F M12a: a request that ended with tasks open says "stopped 2 min ago" in t
   expect(rows).toContain('Stopped with 1 to do open')
   await ui.unmount()
 })
+
+// ---------- C-1 / I-1: an ask nothing waits on never reads as "Needs you" ----------
+
+const running = (asking: number, auto: boolean, label = 'Bash npm test'): Timeline => ({
+  ...empty,
+  ...(auto ? { autoAsk: true as const } : {}),
+  seq: 1,
+  turns: [{ id: 't1', agent: 'main', prompt: 'test it', startedAt: NOW - 10_000 } as TurnRow],
+  steps: [step('s1', label, { startedAt: NOW - 3000, asking })],
+  agents: { main },
+})
+
+test('C-1: auto mode, the classifier allowed the call: the pane watched 25 s uncovered, the step still runs; no need, no notification, the band is not amber', async ($, on) => {
+  const { stored, clock, notes } = await ticking($, on, running(NOW - 2000, true))
+  const ui = await $.ui.mount(TERMINAL_PANE(false))
+  expect((await texts(ui)).join('\n')).toContain('Checking a permission')
+  await follow(ui, clock, 25_000)
+  const s1 = (stored.get('timeline') as Timeline).steps[0]!
+  expect([s1.status, s1.asking]).toEqual(['running', undefined])
+  const shown = (await texts(ui)).join('\n')
+  expect(shown).not.toContain('Needs you')
+  expect(shown).not.toContain('WAITING FOR YOU')
+  expect(shown).not.toContain('Checking a permission')
+  const band = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  const drawn = await band.drawn()
+  expect(JSON.stringify(drawn)).not.toContain('"warning"')
+  expect((await texts(band)).join('\n')).not.toContain('Needs you')
+  await band.unmount()
+  await follow(ui, clock, 60_000)
+  expect(notes).toEqual([])
+  await ui.unmount()
+})
+
+test('C-1: auto mode with no pane: the ask is only "Checking a permission", never amber, never notified', async ($, on) => {
+  const { clock, notes } = await ticking($, on, running(NOW - 2000, true))
+  await clock.advance(30_000)
+  const band = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  const words = (await texts(band)).join('\n')
+  expect(words).not.toContain('Needs you')
+  expect(JSON.stringify(await band.drawn())).not.toContain('"warning"')
+  await band.unmount()
+  await clock.advance(120_000)
+  expect(notes).toEqual([])
+})
+
+test('I-1: pane closed, the person answered the ask: after its first minute the band clears to a dim "asked to run a command · running"', async ($, on) => {
+  const { clock } = await ticking($, on, running(NOW - 5000, false, 'Bash cargo build'))
+  const early = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  expect((await texts(early)).join('\n')).toContain('Needs you')
+  await early.unmount()
+  await clock.advance(60_000)
+  const band = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  const words = (await texts(band)).join('\n')
+  expect(words).not.toContain('Needs you')
+  expect(words).not.toContain('waiting')
+  expect(words).toContain('asked to run a command · running')
+  expect(JSON.stringify(await band.drawn())).not.toContain('"warning"')
+  await band.unmount()
+})
+
+test('C-1: a real dialog in auto mode still shows at once on the pane and in the band, and notifies at a minute', async ($, on) => {
+  const { clock, notes } = await ticking($, on, running(NOW - 1000, true))
+  const ui = await $.ui.mount(TERMINAL_PANE(true))
+  expect((await texts(ui)).join('\n')).toContain('Needs you')
+  const band = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  expect((await texts(band)).join('\n')).toContain('Needs you')
+  await band.unmount()
+  await follow(ui, clock, 58_000)
+  expect(notes).toEqual([])
+  await follow(ui, clock, 4000)
+  expect(notes).toEqual(['Waiting on you: Bash npm test'])
+  await ui.unmount()
+})
+
+test('M2: a cover open before the ask (a search) is not its dialog: closing it clears nothing; the real dialog that follows is still a need', async ($, on) => {
+  const { stored, clock } = await ticking($, on, running(NOW - 30_000, false))
+  // The search opened before the ask came: the covered run began before `asking`.
+  const t0 = { ...running(NOW - 30_000, false), steps: [] }
+  stored.set('timeline', t0)
+  const ui = await $.ui.mount(TERMINAL_PANE(true))
+  await ui.drawn()
+  await clock.advance(1000)
+  stored.set('timeline', running(NOW + 1000, false))
+  await ui.redraw()
+  await ui.redraw(TERMINAL_PANE(false).props)
+  await clock.advance(1000)
+  expect((stored.get('timeline') as Timeline).steps[0]!.asking).toBe(NOW + 1000)
+  // The dialog now covers the prompt: it is a need at once.
+  await ui.redraw(TERMINAL_PANE(true).props)
+  expect((await texts(ui)).join('\n')).toContain('Needs you')
+  await ui.unmount()
+})
+
+// ---------- M10: the one clock stops when nothing is live ----------
+
+test('M10: the 1 s clock stops once nothing runs, nothing is fresh and the cache is cold; a new step starts it again', async ($, on) => {
+  const idle: Timeline = {
+    ...empty,
+    turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 90_000, endedAt: NOW - 60_000 } as TurnRow],
+    agents: { main },
+  }
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  const { stored, clock } = await ticking($, on, idle)
+  await clock.advance(3000)
+  // Stopped: five more seconds read nothing.
+  let before = timelineReads
+  await clock.advance(5000)
+  expect(timelineReads).toBe(before)
+  // A step's call: the capture hook writes it, which starts the clock; its ticks read the Timeline again.
+  await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'toolu_w' } as never)
+  expect((stored.get('timeline') as Timeline).steps.some(x => x.id === 'toolu_w')).toBe(true)
+  before = timelineReads
+  await clock.advance(3000)
+  expect(timelineReads).toBeGreaterThan(before)
+  // Nothing live again: it stops.
+  await clock.advance(25_000)
+  before = timelineReads
+  await clock.advance(5000)
+  expect(timelineReads).toBe(before)
+})
+

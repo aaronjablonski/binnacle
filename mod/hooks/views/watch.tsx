@@ -42,13 +42,15 @@ export const WATCH_TEXT = 15
 
 /**
  * A row's sentence: the model's words for a long run, a stall and a quiet
- * loop (R6); a repeat or a loop quotes its command, as the mock reads:
- * `“npm test upload” failed 3 times in a row`.
+ * loop (R6); a repeat or a loop quotes its command, after its agent's name
+ * when a subagent ran it: `Explorer: “npm test upload” failed 3 times in a row`.
  */
 export function watchSentence(w: Watch): string {
   const cmd = shortPaths((w.command ?? '').replace(/\s+/g, ' ').trim())
-  if (w.kind === 'repeat' && cmd !== '') return `“${cmd}” failed ${w.count ?? 2} times in a row`
-  if (w.kind === 'loop' && cmd !== '') return `“${cmd}” ran ${w.count ?? 3} times this turn`
+  // M5: a subagent's row names it, as the model's sentences do; the lead's keeps the mock's words (CockpitNowWatch).
+  const who = w.agent !== 'main' ? `${w.who}: ` : ''
+  if (w.kind === 'repeat' && cmd !== '') return `${who}“${cmd}” failed ${w.count ?? 2} times in a row`
+  if (w.kind === 'loop' && cmd !== '') return `${who}“${cmd}” ran ${w.count ?? 3} times this turn`
   return w.sentence
 }
 

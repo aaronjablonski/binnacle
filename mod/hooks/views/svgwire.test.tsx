@@ -5,6 +5,7 @@ import type { Timeline } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { SVG_MAX } from './svg'
+import { PALETTE } from './raster'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 5_000_000
@@ -124,4 +125,16 @@ test('the Pane in the desktop widget placement draws the slim view: no tab bar, 
   const dock = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 80 }, surface: 'desktop' })
   expect(await dock.find({ type: 'Button', key: 'tab-tasks' })).toBeDefined()
   await dock.unmount()
+})
+
+// FW-A: the band hands its ground to the desktop band Svg, so a day theme (here the `ground` option) draws day hexes.
+test('the desktop band Svg takes the ground: day hexes with ground day, night hexes by default', { options: { ground: 'day' } }, async ($, on) => {
+  world(on)
+  const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const [svg] = await ui.findAll({ type: 'Svg' })
+  const source = (svg!.props as { source: string }).source.toLowerCase()
+  expect(source).toContain(hex(PALETTE.day.ink))
+  expect(source).not.toContain(hex(PALETTE.night.ink))
+  await ui.unmount()
 })

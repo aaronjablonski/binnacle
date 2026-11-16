@@ -5,16 +5,27 @@ import type { On } from 'claude-code'
 import type { AgentRow, Step, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
+import { resetCover } from './needs'
 import { screen } from './screen.testkit'
-import { HULL } from './style'
+import { GLYPHS } from './style'
 
 // One waiting agent, one rule: the same `?` on every view that draws the
 // agent, and none once the ask is dismissed.
+//
+// C-1 (meaning changed): the ask came in auto mode, so it waits on the person
+// only while its dialog covers the prompt (the pane's `isPromptCovered`; the
+// band reads what the pane saw). Uncovered it is only "Checking a
+// permission", at any age: the 20 s promotion is gone.
 
 const NOW = 1_000_000
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 
-function seed(on: On, t: Timeline, u: UiState): void {
+/** Whether the dialog covers the prompt in the drawings a test makes. */
+let cover = true
+
+function seed(on: On, t: Timeline, u: UiState, covered = true): void {
+  resetCover()
+  cover = covered
   mock.clock(on, { now: NOW })
   on('ui.log', () => ({ value: undefined }))
   on('state.get', (_, e) => {
@@ -29,9 +40,8 @@ const worker: AgentRow = {
   id: 'a1', parent: 'main', type: 'Explore', description: 'find callers', status: 'running',
   startedAt: NOW - 60_000, lastStepAt: NOW - 5_000, doing: 'Bash rm -rf build', stepCount: 1, taskId: 't1',
 }
-// a1 asked 30 s ago: past the 20 s threshold, so it is waiting on the person.
+// a1 asked 30 s ago, in auto mode: waiting on the person while its dialog covers the prompt.
 const asking: Step = { id: 's1', seq: 1, agent: 'a1', tool: 'Bash', label: 'Bash rm -rf build', status: 'running', startedAt: NOW - 40_000, asking: NOW - 30_000 }
-// The ask came in auto mode, where the 20 s threshold applies (R2: outside auto an ask shows at once).
 const T: Timeline = {
   ...empty,
   autoAsk: true,
@@ -47,7 +57,7 @@ const PANE = (columns: number) =>
     plugin: 'mission-control',
     component: 'Pane',
     requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+    props: { title: 'Mission Control', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {}, ...(cover ? { isPromptCovered: true as const } : {}) },
   }) as const
 const BAND = (columns: number) =>
   ({
@@ -59,7 +69,7 @@ const BAND = (columns: number) =>
 const uiOf = (tab: UiState['tab'], dismissed: string[]): UiState => ({ ...initialUi, tab, dismissed })
 
 // Every hull of every role and state, from the one table the views draw with.
-const HULLS: string[] = Object.values(HULL).flatMap(h => [...h])
+const HULLS: string[] = Object.values(GLYPHS.hull).flatMap(h => [...h])
 /**
  * A signal as a view draws it, and only there: in a row's gutter cell (column
  * 0, then a space) or as a pod's suffix (right after a hull). A `?` inside a
@@ -81,6 +91,10 @@ async function paneRows($: Engine, columns = 62): Promise<string[]> {
   return rows
 }
 async function bandRows($: Engine, columns: number): Promise<string[]> {
+  // The band has no isPromptCovered: it reads what the pane's last drawing saw.
+  const pane = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  await pane.drawn()
+  await pane.unmount()
   const ui = await $.ui.mount({ ...BAND(columns), surface: 'terminal' })
   const rows = screen(await ui.drawn())
   await ui.unmount()
@@ -104,20 +118,21 @@ for (const view of VIEWS) {
     seed(on, T, uiOf(view.tab, []))
     expect((view.shows ?? signalled)(await view.rows($))).toBe(true)
   })
-  // Now's and the band's needs take no dismissal (owner ruling 4: no `x` on a permission): a dismissed ask still shows there.
-  test(`a dismissed ask shows ${view.name === 'Now' || view.name.startsWith('band') ? 'its mark still' : 'no ?'} on ${view.name}`, LOOK(view), async ($, on) => {
+  // Needs take no dismissal (owner ruling 4: no `x` on a permission), and every view reads Now's needs (I-2, meaning
+  // changed for Agents and Tasks, which read the legacy list that a dismissal hid): a dismissed ask still shows everywhere.
+  test(`a dismissed ask shows its mark still on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, T, uiOf(view.tab, ['asking:s1']))
-    expect((view.shows ?? anyMark)(await view.rows($))).toBe(view.name === 'Now' || view.name.startsWith('band'))
+    expect((view.shows ?? anyMark)(await view.rows($))).toBe(true)
   })
-  test(`an ask younger than 20 s shows no ? on ${view.name}`, LOOK(view), async ($, on) => {
-    seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, uiOf(view.tab, []))
+  test(`an auto-mode ask with no dialog over the prompt shows no ? on ${view.name}, even 30 s old`, LOOK(view), async ($, on) => {
+    seed(on, T, uiOf(view.tab, []), false)
     expect((view.shows ?? anyMark)(await view.rows($))).toBe(false)
   })
 }
 
 for (const mode of ['list', 'tree'] as const) {
   test(`an ask 5 s old marks nothing in the Agents ${mode}: no !, ? or z`, { options: { look: 'text' } }, async ($, on) => {
-    seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, { ...uiOf('agents', []), agentsMode: mode })
+    seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, { ...uiOf('agents', []), agentsMode: mode }, false)
     const rows = await paneRows($)
     expect(rows.some(r => r.includes('find callers'))).toBe(true)
     expect(gutterFlag(rows)).toBe(undefined)

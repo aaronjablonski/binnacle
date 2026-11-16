@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Ev, Timeline } from '../mod/types'
 import { empty, reduce } from '../mod/hooks/model/reduce'
-import { agentGroups, agentTree, stepGroups, summary, taskTree, treeLines } from '../mod/hooks/model/select'
+import { agentGroups, agentTree, stepGroups, summary } from '../mod/hooks/model/select'
 
 const fold = (evs: Ev[], from: Timeline = empty): Timeline => evs.reduce(reduce, from)
 let clock = 5000
@@ -16,27 +16,6 @@ const agent = (id: string, parent = 'main', extra: Record<string, unknown> = {})
 const turnStart = (turnId: string, who = 'main'): Ev => ({ kind: 'turn.start', at: at(), turnId, agent: who, prompt: turnId })
 const turnEnd = (turnId: string, who = 'main', failed = false): Ev =>
   ({ kind: 'turn.end', at: at(), turnId, agent: who, answer: '', failed })
-
-describe('taskTree', () => {
-  it('nests an agent under the task it was spawned in and its own tasks under it', () => {
-    const t = fold([
-      start('s1', 'TodoWrite', { todos: [{ content: 'plan', status: 'completed' }, { content: 'build', status: 'in_progress' }] }),
-      agent('a1'),
-      start('s2', 'TodoWrite', { todos: [{ content: 'sub one', status: 'pending' }, { content: 'sub two', status: 'pending' }] }, 'a1'),
-    ])
-    const tree = taskTree(t)
-    expect(tree.map((n) => n.task.subject)).toEqual(['plan', 'build'])
-    expect(tree[0]!.agents).toEqual([])
-    expect(tree[1]!.agents).toHaveLength(1)
-    expect(tree[1]!.agents[0]!.agent.id).toBe('a1')
-    expect(tree[1]!.agents[0]!.tasks.map((x) => x.subject)).toEqual(['sub one', 'sub two'])
-  })
-
-  it("keeps an unlinked agent's tasks at the top level", () => {
-    const t = fold([start('s', 'TodoWrite', { todos: [{ content: 'loose', status: 'pending' }] }, 'a9')])
-    expect(taskTree(t).map((n) => n.task.subject)).toEqual(['loose'])
-  })
-})
 
 describe('agentGroups', () => {
   it('puts runless first and counts done', () => {
@@ -60,7 +39,7 @@ describe('agentGroups', () => {
   })
 })
 
-describe('agentTree and treeLines', () => {
+describe('agentTree', () => {
   it('nests a sub-subagent two levels down and a run under its caller', () => {
     const t = fold([
       agent('A'),
@@ -84,26 +63,6 @@ describe('agentTree and treeLines', () => {
     expect(run.children.map((c) => c.key)).toEqual(['W1', 'W2'])
   })
 
-  it('builds prefixes and skips folded children', () => {
-    const t = fold([agent('A'), agent('A1', 'A'), agent('B')])
-    const root = agentTree(t)
-    const lines = treeLines(root, [])
-    expect(lines.map((l) => [l.key, l.prefix])).toEqual([
-      ['main', ''],
-      ['A', '├─ '],
-      ['A1', '│  └─ '],
-      ['B', '└─ '],
-    ])
-    const folded = treeLines(root, ['A'])
-    expect(folded.map((l) => l.key)).toEqual(['main', 'A', 'B'])
-    expect(folded[1]!.folded).toBe(true)
-    expect(folded[0]!.folded).toBe(false)
-  })
-
-  it('uses three spaces under a last child', () => {
-    const t = fold([agent('A'), agent('A1', 'A'), agent('A2', 'A')])
-    expect(treeLines(agentTree(t), []).map((l) => l.prefix)).toEqual(['', '└─ ', '   ├─ ', '   └─ '])
-  })
 })
 
 describe('stepGroups', () => {

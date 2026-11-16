@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, Budget, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { modelCells, modelName, resetClock, resetText, tokenText, windowName } from './budget'
+import { modelName, modelTotals, resetClock, resetText, tokenText, windowName } from './budget'
 import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
@@ -101,7 +101,8 @@ test('helpers: model, tokens, window names and reset text', () => {
   expect(windowName('five_hour')).toBe('5h')
   expect(windowName('seven_day')).toBe('7d')
   expect(windowName('weekly_extra')).toBe('weekly extra')
-  expect(resetText(NOW + 2 * HOUR, NOW)).toBe('resets in 2h00')
+  // M3 (R27): reset times read in words.
+  expect(resetText(NOW + 2 * HOUR, NOW)).toBe('resets in 2 h')
   expect(resetText(NOW - 5, NOW)).toBe('resets now')
 })
 
@@ -258,8 +259,8 @@ test('text form: Models and Agents are sections with tokens and a 10-cell share 
     expect(colOf(a2, '●')).toBe(2)
     expect(rows.join('\n')).not.toContain('$')
     expect(rows.join('\n')).not.toContain('Cost')
-    // Sonnet holds 80 % of the tokens: 8 lit cells in the model colour, 2 in the rest.
-    const lit = (await m.findAll({ type: 'Text' })).filter(f => f.text === '━━━━━━━━' && (f.props as { color?: string }).color === 'merged')
+    // Sonnet holds 80 % of the tokens: 8 lit cells in the accent (I-4: never `merged`), 2 in the rest.
+    const lit = (await m.findAll({ type: 'Text' })).filter(f => f.text === '━━━━━━━━' && (f.props as { color?: string }).color === 'suggestion')
     expect(lit.length).toBeGreaterThan(0)
     await m.press({ key: 'budget-back' })
     await m.unmount()
@@ -387,7 +388,7 @@ test('cost is hidden by default', async ($, on) => {
   await a.unmount()
 })
 
-test('modelCells gives the two heaviest models as their share of all tokens', () => {
+test('modelTotals gives each model with its tokens, heaviest first (M11: modelCells is gone; the Models rows read this)', () => {
   const t = {
     ...empty,
     agents: {
@@ -397,11 +398,9 @@ test('modelCells gives the two heaviest models as their share of all tokens', ()
       a3: agent('a3', { model: 'claude-haiku-5-5', tokensIn: 10_000, tokensOut: 0 }),
     },
   }
-  const cells = modelCells(t)
-  expect(cells.map(c => c.label)).toEqual(['OPUS', 'SONNET'])
-  expect(cells.map(c => c.value)).toEqual(['60%', '30%'])
-  expect(cells.every(c => c.gfx.reduce((n, r) => n + r.text.length, 0) === 10)).toBe(true)
-  expect(modelCells(empty)).toEqual([])
+  const totals = modelTotals(t)
+  expect(totals.map(x => [x.model, x.tokens])).toEqual([[modelName('claude-opus-5-5'), 60_000], [modelName('claude-sonnet-5-5'), 30_000], [modelName('claude-haiku-5-5'), 10_000]])
+  expect(modelTotals(empty)).toEqual([])
 })
 
 // A clock-driven world: the session has started, the ticker runs.
@@ -443,7 +442,7 @@ test('a window toasts at 70 and again at each 10 points, once each', async ($, o
     withBudget(budget({ contextPct: 10, windows: [{ name: 'five_hour', pct: 71, resetsAt: NOW + HOUR }] })),
   )
   await clock.advance(2000)
-  expect(toasts).toEqual(['5h window at 71% · resets in 59m'])
+  expect(toasts).toEqual(['5h window at 71% · resets in 59 min'])
   await clock.advance(3000)
   expect(toasts.length).toBe(1)
   const t = stored.get('timeline') as Timeline
@@ -566,4 +565,21 @@ test('/mc re-reads a budget older than 60 s', async ($, on) => {
   await $.command.run({ command: 'mc', args: '' } as never)
   expect(reads.n).toBe(1)
   expect((stored.get('timeline') as Timeline).budget?.contextPct).toBe(85)
+})
+
+// I-4 (owner ruling 1): the model shares, the cache key and the week legend are in the accent or dim, never `merged` (the orchid role).
+test('I-4: the budget view names no merged colour, with models, agents and the cache drawn', { options: { look: 'text' } }, async ($, on) => {
+  world(
+    on,
+    withBudget(budget({ costUsd: 3.21 }), {
+      agents: {
+        main,
+        a1: agent('a1', { model: 'claude-sonnet-5-5', tokensIn: 40_000, tokensOut: 1200 }),
+        a2: agent('a2', { status: 'running', description: 'write tests', model: 'claude-opus-5-5', tokensIn: 10_000, tokensOut: 0 }),
+      },
+    }),
+  )
+  const m = await openBudget($, 'terminal', 62)
+  expect(JSON.stringify(await m.drawn())).not.toContain('"merged"')
+  await m.unmount()
 })

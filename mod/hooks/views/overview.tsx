@@ -437,12 +437,12 @@ export function agentsSection(
   const sum: Run[] = [{ text: String(live.length - waiting), bold: true }, { text: ' working', dim: true }]
   if (waiting > 0) sum.push({ text: ' · ', dim: true }, { text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
   if (failed > 0) sum.push({ text: ' · ', dim: true }, { text: String(failed), color: CK.fail, bold: true }, { text: ' failed', color: CK.fail })
-  // F I5: "1 + 1 waiting" when "1 working · 1 waiting" does not fit beside the title.
+  // F I5, M5: when "1 working · 1 waiting" does not fit beside the title, the working count goes and the words stay (R30): "1 waiting".
   const sumShort: Run[][] = []
   if (waiting > 0 || failed > 0) {
-    const s: Run[] = [{ text: String(live.length - waiting), bold: true }]
-    if (waiting > 0) s.push({ text: ' + ', dim: true }, { text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
-    if (failed > 0) s.push({ text: ' + ', dim: true }, { text: String(failed), color: CK.fail, bold: true }, { text: ' failed', color: CK.fail })
+    const s: Run[] = []
+    if (waiting > 0) s.push({ text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
+    if (failed > 0) s.push(...(s.length > 0 ? [{ text: ' · ', dim: true }] : []), { text: String(failed), color: CK.fail, bold: true }, { text: ' failed', color: CK.fail })
     sumShort.push(s)
   }
   const out: RenderElement[] = [section(ctx, $, 'Agents', sum, { key: 'sec-agents', onPress: openAgents, short: sumShort })]
@@ -634,7 +634,7 @@ function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: Heade
     ]
   }
   if (watch.length > 0) return [{ key: '↵', label: 'open' }, ...(watch[0]!.agent !== 'main' ? [{ key: 'v', label: 'transcript' }] : []), { key: 'x', label: 'dismiss' }]
-  if (isRest(hs)) return [{ key: '↵', label: 'open' }, { hotkey: 'e', label: 'export handoff', id: 'hint-export', onPress: async () => { await exportDigest($) } }, { key: 'esc', label: 'prompt' }]
+  if (isRest(hs)) return [{ key: '↵', label: 'open' }, { hotkey: 'e', label: 'export digest', id: 'hint-export', onPress: async () => { await exportDigest($) } }, { key: 'esc', label: 'prompt' }]
   return [{ key: '↵', label: 'open' }, { key: '0', label: 'options' }, { key: 'esc', label: 'prompt' }]
 }
 

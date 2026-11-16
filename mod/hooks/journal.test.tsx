@@ -5,7 +5,7 @@ import type { Timeline } from '../types'
 import { CLEAR_MARK_MAX_AGE_MS, MAX_TEXT, MIN_PRUNE_AGE_MS, bodyOf, loadSnapshot, prune, readBody, saveSnapshot, writeBody } from './journal'
 import { empty } from './model/reduce'
 import { initialUi } from './state'
-import { needsYou } from './views/needs'
+import { problems } from './model/select'
 
 const HOME = 'C:/home'
 const ROOT = `${HOME}/.claude/mission-control`
@@ -681,7 +681,7 @@ test('an adopted snapshot raises no NEEDS YOU and no notify, five minutes on', a
   expect(t.steps.find(s => s.id === 's1')).toMatchObject({ status: 'interrupted', endedAt: T })
   expect(t.steps.find(s => s.id === 's1')?.asking).toBe(undefined)
   expect(t.agents.a1).toMatchObject({ status: 'done', endedAt: T })
-  expect(needsYou(t, initialUi, NOW + 5 * 60_000)).toEqual([])
+  expect(problems(t, NOW + 5 * 60_000, initialUi.dismissed)).toEqual([])
   expect(notes).toEqual([])
   expect(toasts).toEqual([])
 })

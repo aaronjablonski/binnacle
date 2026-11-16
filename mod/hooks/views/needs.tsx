@@ -1,21 +1,20 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, NotifyMode, Timeline, UiState } from '../../types'
-import { alertNotes, answeredAsks, autoFocuses, CHECKING_TEXT, headerState, needs, spanText } from '../model/alerts'
-import type { Need, NeedsView } from '../model/alerts'
+import type { AgentRow, NotifyMode, Step, Timeline } from '../../types'
+import { alertNotes, answeredAsks, autoFocuses, CHECKING_TEXT, headerState, needs, settledAsks, spanText, watch } from '../model/alerts'
+import type { Need, NeedsView, Watch } from '../model/alerts'
 import { oneLine } from '../model/label'
 import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
 import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '../model/meter'
 import type { RunLimits } from '../model/meter'
-import { problems, summary } from '../model/select'
-import type { Problem } from '../model/select'
+import { summary } from '../model/select'
 import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, fitRuns, shortPaths, span, toolName, wordFit, wrapWords } from './fit'
+import { fitRuns, shortPaths, span, toolName, wordFit, wrapWords } from './fit'
 import { openStepInline } from './openstep'
 import { allClear, inst, runText, section } from './parts'
 import type { Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, CK, COCKPIT, critterArgs, critterOf, edges, podOf } from './style'
+import { CK, COCKPIT, critterArgs, critterOf, edges, podOf, typeName } from './style'
 import type { CritterArgs, Pod, PodState } from './style'
 
 // The ask delays live in the model now (limits.ts; the rule is alerts.ts's `needs`).
@@ -38,7 +37,7 @@ let limits: RunLimits = runLimits(undefined)
 let doneSound = false
 let watchNotify = false
 
-/** Sets the limits `needsYou` passes to `problems`, whether a done notification also plays a sound, and whether Watch rows notify (R10). Register time. */
+/** Sets the limits the crew's Watch reads (`crewAlerts`), whether a done notification also plays a sound, and whether Watch rows notify (R10). Register time. */
 export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unknown; doneSound?: unknown; watchNotify?: unknown } | undefined): void {
   limits = runLimits(o)
   doneSound = o?.doneSound === true
@@ -47,78 +46,6 @@ export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unkn
 
 /** The long-run limits in force (minutes; 0 is off). */
 export const needsLimits = (): Required<RunLimits> => runLimits(limits)
-
-/**
- * The legacy combined list (needs, watch rows, failed turns), for the views
- * wave 2 has not reached yet (the band, Agents, Tasks, the run board): an ask
- * shows at once unless it came in auto mode, where it waits ASK_MS (R2; they
- * have no `isPromptCovered`). Now reads `needsView` and watch.tsx instead.
- * Watch rows never take autoFocus (`focusable`).
- */
-export function needsYou(t: Timeline, u: UiState, now: number): Problem[] {
-  return problems(t, now, u.dismissed, limits, {})
-}
-
-/** Whether a problem's row may take autoFocus: a need only, never a watch row or a failed turn. */
-export const focusable = (p: Problem): boolean => p.kind === 'asking' && autoFocuses(p.need ?? 'permission')
-
-/** One line for a problem: the kind's wording around its label. */
-export function problemText(p: Problem): string {
-  const label = oneLine(p.label)
-  switch (p.kind) {
-    case 'asking':
-      return label
-    case 'repeat':
-      return `${label} failed ×${p.count ?? 2}`
-    case 'loop':
-      return `${label} looped ×${p.count ?? 3}`
-    case 'stalled':
-      return `${label} stalled`
-    case 'long-run':
-      return `${label} long run`
-    default:
-      return `turn failed: ${label}`
-  }
-}
-
-/** The kind as a label-column word (ten wide at most), for the NEEDS YOU rows and the band: `PERMISSION`, `LONG RUN`, `STALLED`. */
-export function kindLabel(p: Problem): string {
-  switch (p.kind) {
-    case 'asking':
-      return 'PERMISSION'
-    case 'long-run':
-      return 'LONG RUN'
-    case 'stalled':
-      return 'STALLED'
-    case 'repeat':
-      return 'FAILED'
-    case 'loop':
-      return 'LOOP'
-    default:
-      return 'TURN FAILED'
-  }
-}
-
-/** The detail that sits beside the kind: how long it has run against its limit, how quiet it is, how often it failed. */
-export function needDetail(p: Problem, now: number): string {
-  switch (p.kind) {
-    case 'asking':
-      return `asked ${elapsed(p.since, now)} ago`
-    case 'long-run': {
-      const start = p.since - (p.limitMs ?? 0)
-      // R27 durations: `64 min` reads `1 h 4 min`; the limit in minutes, as the option sets it.
-      return `${spanText(Math.max(0, now - start))} of ${Math.round((p.limitMs ?? 0) / 60_000)} min`
-    }
-    case 'stalled':
-      return `quiet ${elapsed(p.since, now)}`
-    case 'repeat':
-      return `failed ×${p.count ?? 2}`
-    case 'loop':
-      return `looped ×${p.count ?? 3}`
-    default:
-      return 'failed'
-  }
-}
 
 // Which item of NEEDS YOU is opened. Ephemeral pane state like onscreen.ts's:
 // a render hook may not write `$.state`, and a reload starting at the first
@@ -143,34 +70,44 @@ export function moveNeed($: EngineInterface, delta: 1 | -1, count: number): void
 
 // ---------- the crew: who asks, who stalled ----------
 
-/** The agents the problems point at: an ask is `waiting` (the hull's `?`), a stall `stalled` (`z`). Waiting wins. */
-export function waitStates(t: Timeline, u: UiState, now: number): Map<string, PodState> {
-  const out = new Map<string, PodState>()
-  for (const p of needsYou(t, u, now)) {
-    if (p.kind === 'asking') out.set(p.agent, 'waiting')
-    else if (p.kind === 'stalled' && !out.has(p.agent)) out.set(p.agent, 'stalled')
+/** What the crew views read of the alert model, from the same selectors as Now (I-2). */
+export type CrewAlerts = {
+  /** The needs as the pane shows them (`isPromptCovered` applied). */
+  view: NeedsView
+  /** The Watch rows not dismissed, under the limits in force: Now's Watch, row for row. */
+  rows: Watch[]
+  /** An agent with a need is `waiting` (`?`); one with a Stalled step or a Quiet row `stalled` (`z`), as Now's cards doze. Waiting wins. */
+  states: Map<string, PodState>
+  /** The agents with a need or a Watch row: the rows `n`/`p` visit. */
+  ids: Set<string>
+  /** When each asking agent's oldest need was raised. */
+  since: Map<string, number>
+}
+
+/** The crew's alerts: Now's `needs` and `watch` selectors, so every tab says the same of an agent. Pure; writes nothing. */
+export function crewAlerts(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'>): CrewAlerts {
+  const view = doingView(ctx)
+  const rows = watch(ctx.t, ctx.now, ctx.u.dismissed, limits)
+  const states = new Map<string, PodState>()
+  const since = new Map<string, number>()
+  for (const n of view.items) {
+    states.set(n.agent, 'waiting')
+    if (!since.has(n.agent)) since.set(n.agent, n.since)
   }
-  return out
+  for (const w of rows) if ((w.kind === 'stalled' || w.kind === 'quiet') && !states.has(w.agent)) states.set(w.agent, 'stalled')
+  const ids = new Set<string>([...view.items.map(n => n.agent), ...rows.map(w => w.agent)])
+  return { view, rows, states, ids, since }
+}
+
+/** The agents' wait states (`crewAlerts(ctx).states`). */
+export function waitStates(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'>): Map<string, PodState> {
+  return crewAlerts(ctx).states
 }
 
 /** An agent as a pod, with its state taken from `waits` (else from its status). */
 export function podFor(a: AgentRow, waits: Map<string, PodState>, now: number): Pod {
   const state = waits.get(a.id)
   return podOf({ id: a.id, type: a.type, status: a.status, ...(state !== undefined ? { state } : {}) }, now)
-}
-
-/** The state pill's word and colour: waiting on the person, working, all done, or idle. */
-export function paneState(ctx: ViewCtx): { word: string; color: string } {
-  const { t, u, now } = ctx
-  if (needsYou(t, u, now).length > 0) return { word: 'WAITING', color: C.wait }
-  const working =
-    t.steps.some(x => x.status === 'running') ||
-    t.tasks.some(x => x.status === 'in_progress') ||
-    Object.values(t.agents).some(a => a.id !== 'main' && a.status === 'running')
-  if (working) return { word: 'WORKING', color: C.live }
-  const s = summary(t)
-  if (s.total > 0 && s.done === s.total) return { word: 'ALL DONE', color: C.subtle }
-  return { word: 'IDLE', color: C.subtle }
 }
 
 // ---------- the needs slot (cockpit spec "CockpitNowNeedsYou", R1 to R5) ----------
@@ -180,40 +117,62 @@ export function paneState(ctx: ViewCtx): { word: string; color: string } {
 // auto-mode ask is being settled (R2), else the Needs you block. Needs come
 // from the alert model's `needs` selector (no dismissals: no `x` on a need).
 
-// What the pane last saw of the prompt (F C1). Ephemeral pane state like
+// What the pane last saw of the prompt (F C1, C-1). Ephemeral pane state like
 // onscreen.ts's: a drawing notes its own `isPromptCovered` here and writes no
-// `$.state`; the clock reads it and records on the Timeline the asks whose
-// dialog it saw close (`step.unask`). Only the terminal pane is read: the
-// prop speaks of the terminal's keys, and another surface's drawing (with no
-// prop) must not read as "the dialog closed". A reload starts it empty, which
-// only delays a clear until the step ends. Bounded by MAX_COVERED.
+// `$.state`; the clock reads it and records on the Timeline the asks it saw
+// settled (`step.unask`). Only the terminal pane is read: the prop speaks of
+// the terminal's keys, and another surface's drawing (with no prop) must not
+// read as "the dialog closed". A reload starts it empty, which only delays a
+// clear by ASK_MS. Bounded by MAX_COVERED.
 const MAX_COVERED = 50
-// `coveredAt` and `uncoveredAt` hold the drawing's number (`seq`), not the time: two drawings in one millisecond keep their order.
-const cover: { seq: number; coveredAt: Map<string, number>; uncoveredAt?: number; drawnAt?: number; covered?: boolean } = { seq: 0, coveredAt: new Map() }
+/**
+ * `coveredAt` and `uncoveredAt` hold the drawing's number (`seq`), not the
+ * time: two drawings in one millisecond keep their order. `coveredSince` is
+ * when the current run of covered drawings began, `clearSince` when the
+ * current unbroken run of uncovered ones did (a gap past WATCHING_MS breaks
+ * a run: the pane was not looking).
+ */
+const cover: {
+  seq: number; coveredAt: Map<string, number>; uncoveredAt?: number; drawnAt?: number; covered?: boolean
+  coveredSince?: number; clearSince?: number
+} = { seq: 0, coveredAt: new Map() }
 /** The pane counts as watching the prompt while its last terminal drawing is this fresh (it redraws every second while a step runs). */
 const WATCHING_MS = 5_000
 
 /**
- * Notes what a terminal drawing of the pane saw (no `$.state`, no redraw):
- * covered, each asking step is marked seen covered by this drawing;
- * uncovered, this drawing is the latest without a dialog. O(steps). Any
- * other site or surface is ignored.
+ * Notes what a terminal drawing of the pane saw (no `$.state`, no redraw).
+ * Covered: the oldest asking step is marked seen covered by this drawing,
+ * and only when it was asked at or before this covered run began (M2: a
+ * search, `/model` or a queued dialog opened before the ask is not its
+ * dialog). Uncovered: this drawing is the latest without a dialog, and the
+ * uncovered run goes on (or starts). O(steps). Any other site or surface is
+ * ignored.
  */
 export function observeCover(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): void {
   const e = ctx.e
   if (e === undefined || e.component !== 'Pane' || e.surface !== 'terminal') return
+  const fresh = cover.drawnAt !== undefined && ctx.now - cover.drawnAt <= WATCHING_MS
+  const covered = ctx.isPromptCovered === true
+  const continues = fresh && cover.covered === covered
   cover.drawnAt = ctx.now
-  cover.covered = ctx.isPromptCovered === true
+  cover.covered = covered
   const seq = ++cover.seq
-  if (ctx.isPromptCovered !== true) {
+  if (!covered) {
     cover.uncoveredAt = seq
+    delete cover.coveredSince
+    if (!continues || cover.clearSince === undefined) cover.clearSince = ctx.now
     return
   }
+  delete cover.clearSince
+  if (!continues || cover.coveredSince === undefined) cover.coveredSince = ctx.now
+  let oldest: Step | undefined
   for (const s of ctx.t.steps) {
     if (s.status !== 'running' || s.asking === undefined) continue
-    cover.coveredAt.delete(s.id)
-    cover.coveredAt.set(s.id, seq)
+    if (oldest === undefined || s.asking < oldest.asking!) oldest = s
   }
+  if (oldest === undefined || oldest.asking! > cover.coveredSince) return
+  cover.coveredAt.delete(oldest.id)
+  cover.coveredAt.set(oldest.id, seq)
   while (cover.coveredAt.size > MAX_COVERED) cover.coveredAt.delete(cover.coveredAt.keys().next().value!)
 }
 
@@ -224,6 +183,8 @@ export function resetCover(): void {
   delete cover.uncoveredAt
   delete cover.drawnAt
   delete cover.covered
+  delete cover.coveredSince
+  delete cover.clearSince
 }
 
 /** Whether the terminal pane drew lately, so an answered ask is cleared and permission notifications may be raised (`alertNotes` `watching`). */
@@ -234,28 +195,34 @@ export function paneWatching(now: number): boolean {
 /**
  * Whether the terminal pane's last drawing, if fresh, had a dialog holding the prompt. The band has no
  * `isPromptCovered` of its own, so it reads this: an ask the pane shows as Needs you at once (R2: covered)
- * is never "Checking a permission" in the band (FX3, M-3). Not drawn lately, it is false (R2's delay stands).
+ * is never "Checking a permission" in the band (FX3, M-3). Not drawn lately, it is false.
  */
 export function paneCovered(now: number): boolean {
   return paneWatching(now) && cover.covered === true
 }
 
 /**
- * The clock's half of F C1: the asks the pane saw covered and then
- * uncovered are taken off the Timeline (`step.unask`), and forgotten here.
- * Clock only (it writes state). Returns how many were cleared.
+ * The clock's half of F C1 and C-1: the asks the pane saw covered and then
+ * uncovered (answered at the dialog), and the asks it watched uncovered for
+ * ASK_MS (settled with no dialog: `settledAsks`), are taken off the
+ * Timeline (`step.unask`) and forgotten here. Clock only (it writes state).
+ * Returns how many were cleared.
  */
-async function clearAnswered($: EngineInterface, t: Timeline): Promise<number> {
+async function clearAnswered($: EngineInterface, t: Timeline, now: number): Promise<number> {
   for (const id of cover.coveredAt.keys()) {
     const s = t.steps.find(x => x.id === id)
     if (s === undefined || s.status !== 'running' || s.asking === undefined) cover.coveredAt.delete(id)
   }
-  const ids = answeredAsks(t, cover.coveredAt, cover.uncoveredAt)
+  const watching = paneWatching(now)
+  const ids = new Set([
+    ...answeredAsks(t, cover.coveredAt, cover.uncoveredAt),
+    ...(watching && cover.covered !== true ? settledAsks(t, now, cover.clearSince) : []),
+  ])
   for (const id of ids) {
     await apply($, { kind: 'step.unask', id })
     cover.coveredAt.delete(id)
   }
-  return ids.length
+  return ids.size
 }
 
 /** What blocks the session now, with the pane's `isPromptCovered` (R2: covered, an ask shows at once). A terminal pane's drawing also notes what it saw (`observeCover`). */
@@ -483,14 +450,14 @@ export function spreadRuns(left: Run[], right: Run[], cols: number): Run[] {
 /** A main turn this long or longer, ended normally, raises the done notification. */
 export const DONE_MS = 60_000
 
-/** `Done in 6m 12s: the focus. 3 tasks closed, 1 error.` */
+/** `Done in 6 min: the focus. 3 tasks closed, 1 error.` (R27: `6m 12s` is for Steps alone.) */
 export function doneText(t: Timeline, ms: number): string {
   const focus = summary(t).focus
   const turn = thisTurn(t)
   const bits: string[] = []
   if (turn !== undefined && turn.tasksClosed.length > 0) bits.push(`${turn.tasksClosed.length} ${turn.tasksClosed.length === 1 ? 'task' : 'tasks'} closed`)
   if (turn !== undefined && turn.errors > 0) bits.push(`${turn.errors} ${turn.errors === 1 ? 'error' : 'errors'}`)
-  const head = `Done in ${span(ms, { steps: true })}${focus !== undefined ? `: ${wordFit(oneLine(focus), 80)}` : ''}`
+  const head = `Done in ${span(ms)}${focus !== undefined ? `: ${wordFit(oneLine(focus), 80)}` : ''}`
   return bits.length > 0 ? `${head}. ${bits.join(', ')}.` : head
 }
 
@@ -548,10 +515,10 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
     const now = await $.clock.now()
     const mode = notify ?? 'waits'
     // F C1: an ask whose dialog the pane saw close is answered; the Timeline says so before anything reads it.
-    if ((await clearAnswered($, t)) > 0) t = await readTimeline($)
+    if ((await clearAnswered($, t, now)) > 0) t = await readTimeline($)
     await countdownTick($, t, now)
 
-    const notes: { id: string; text: string }[] = alertNotes(t, u, now, { mode, watchNotify, limits, freshMs: FRESH_MS, watching: paneWatching(now) })
+    const notes: { id: string; text: string }[] = alertNotes(t, u, now, { mode, watchNotify, limits, freshMs: FRESH_MS, watching: paneWatching(now), covered: paneCovered(now) })
     let doneId: string | undefined
     // One notification when a main turn of a minute or more ended normally.
     if (notifies(mode, 'done')) {
@@ -573,7 +540,7 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       // A workflow agent's answer is empty and its doing is its last step: its result says more.
       const result = a.result !== undefined ? oneLine(a.result) : ''
       const first = result !== '' ? result : oneLine(a.doing.split('\n')[0] ?? '')
-      toasts.push({ id, text: `${a.type} finished${first !== '' ? `: ${first}` : ''}` })
+      toasts.push({ id, text: `${typeName(a.type)} finished${first !== '' ? `: ${first}` : ''}` })
     }
     // R36: finishes fold into one toast. While other agents still run, the first finish waits a moment for the rest.
     const othersRunning = Object.values(t.agents).some(a => a.id !== 'main' && a.status === 'running')

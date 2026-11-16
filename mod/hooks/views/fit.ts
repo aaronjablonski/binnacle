@@ -50,41 +50,12 @@ export function clock(ms: number, seconds = false): string {
   return seconds ? `${base}:${two(d.getSeconds())}` : base
 }
 
-/** `parts` joined by ' · ' and packed into lines of at most `columns`; a part wider than a line is cut. */
-export function packParts(parts: string[], columns: number): string[] {
-  const lines: string[] = []
-  let line = ''
-  for (const raw of parts) {
-    const part = fit(raw, columns)
-    if (part === '') continue
-    if (line === '') {
-      line = part
-    } else if (line.length + 3 + part.length <= columns) {
-      line = `${line} · ${part}`
-    } else {
-      lines.push(line)
-      line = part
-    }
-  }
-  if (line !== '') lines.push(line)
-  return lines
-}
-
 /**
  * A line of '─' as wide as `columns`; '' for no room.
  * @deprecated HUD v1: v2 draws no rules. Kept until wave 2 replaces its callers.
  */
 export function rule(columns: number): string {
   return '─'.repeat(Math.max(0, columns))
-}
-
-/**
- * The filled and the resting blocks of a progress bar of `columns` cells.
- * @deprecated HUD v1. Use `bar`; the spec removes this once wave 2 lands.
- */
-export function blockBar(done: number, total: number, columns: number): { filled: string; rest: string } {
-  const cells = barSplit(done, total, columns)
-  return { filled: '█'.repeat(cells.filled), rest: '░'.repeat(cells.rest) }
 }
 
 /**
@@ -203,23 +174,6 @@ export function stack10(counts: number[]): number[] {
     const i = out.indexOf(Math.max(...out))
     out[i] = (out[i] ?? 0) - 1
     left++
-  }
-  return out
-}
-
-/**
- * Counts `times` into 10 buckets over `from` … `to` (steps per tenth of the
- * session). `to` itself falls in the last bucket; times outside are left out.
- * A span of zero puts every time equal to `to` in the last bucket.
- * @deprecated Use `buckets(times, from, to, 10)` (or 22 in a deck).
- */
-export function buckets10(times: number[], from: number, to: number): number[] {
-  const out: number[] = new Array<number>(DIAGRAM).fill(0)
-  const span = to - from
-  for (const t of times) {
-    if (t < from || t > to) continue
-    const i = span <= 0 ? DIAGRAM - 1 : Math.min(DIAGRAM - 1, Math.floor(((t - from) / span) * DIAGRAM))
-    out[i] = (out[i] ?? 0) + 1
   }
   return out
 }

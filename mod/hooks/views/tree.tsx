@@ -155,14 +155,13 @@ function rightSegs(ctx: ViewCtx, o: { state?: Run; pips?: Run[]; tokens?: string
 
 const firstCol = (segs: Seg[], fallback: number): number => segs.reduce((m, s) => Math.min(m, s.col), fallback)
 
-const FLAG: Record<'waiting' | 'stalled' | 'failed', Run> = {
+const FLAG: Record<'waiting' | 'failed', Run> = {
   waiting: { text: '?', color: CK.ask, bold: true },
-  stalled: { text: 'z', color: CK.ask, bold: true },
   failed: { text: '!', color: CK.fail, bold: true },
 }
 
-/** The gutter flag of an agent's state, column 0: the map only (R26). */
-const flagOf = (state: PodState): Seg[] => (state === 'waiting' || state === 'stalled' || state === 'failed' ? [{ col: 0, ...FLAG[state] }] : [])
+/** The gutter flag of an agent's state, column 0: the map only, `?` and `!` only (R26); a stalled agent's `z` is its critter's dim badge (R19, I-4). */
+const flagOf = (state: PodState): Seg[] => (state === 'waiting' || state === 'failed' ? [{ col: 0, ...FLAG[state] }] : [])
 
 const STATE_STYLE: Record<PodState, Omit<Run, 'text'>> = {
   queued: { dim: true },

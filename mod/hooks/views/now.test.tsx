@@ -239,7 +239,7 @@ test('n steps to the next ask when two wait; the footer offers it then', async (
   await ui.unmount()
 })
 
-// FX3 I-3: the hidden `e` arm of Now at rest. The footer says `e export handoff` as text; the press is on the armed Button and reaches the same exportDigest the `/mc export` command runs.
+// FX3 I-3: the hidden `e` arm of Now at rest. The footer says `e export digest` as text (M5: Artifacts' own words); the press is on the armed Button and reaches the same exportDigest the `/mc export` command runs.
 test('Now at rest e: the armed hint exports the handoff, the same write /mc export makes', async ($, on) => {
   const stored = world(on, { ...idle(), journal: 'sess1' }, initialUi, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
   const writes: string[] = []
@@ -254,7 +254,7 @@ test('Now at rest e: the armed hint exports the handoff, the same write /mc expo
   on('ui.toast', () => ({ value: undefined }))
   const ui = await mount($, 62, 46)
   const rows = await rowsOf(ui)
-  expect(rows[rows.length - 1]).toContain('e export handoff')
+  expect(rows[rows.length - 1]).toContain('e export digest')
   expect(await ui.find({ key: 'arm-hint-export' })).toBeDefined()
   await ui.press({ key: 'arm-hint-export' })
   await ui.unmount()
@@ -306,12 +306,14 @@ test('Watch: the long runner\'s time on its card is bold, never amber (R6)', asy
 
 // ---------- the header (R7, R8, R12) ----------
 
+// I-3 (meaning changed): quiet is R6's, no step running; the running steps here ended `ms` ago and the agents run on with nothing in flight.
 test('R7: after 2 min with no activity the header reads "· quiet n min", dim; bold past 5 min', async ($, on) => {
   const t = busy()
   const still = (ms: number): Timeline => ({
     ...t,
-    steps: t.steps.map(s => (s.status === 'running' ? { ...s, startedAt: NOW - ms } : s)),
-    agents: Object.fromEntries(Object.entries(t.agents).map(([k, a]) => [k, { ...a, startedAt: Math.min(a.startedAt, NOW - ms), ...(a.endedAt !== undefined ? { endedAt: Math.min(a.endedAt, NOW - ms) } : {}) }])),
+    steps: t.steps.map(s => (s.status === 'running' ? { ...s, status: 'done' as const, startedAt: Math.min(s.startedAt, NOW - ms - 1000), endedAt: NOW - ms } : { ...s, startedAt: Math.min(s.startedAt, NOW - ms - 1000), ...(s.endedAt !== undefined ? { endedAt: Math.min(s.endedAt, NOW - ms) } : {}) })),
+    agents: Object.fromEntries(Object.entries(t.agents).map(([k, a]) => [k, { ...a, startedAt: Math.min(a.startedAt, NOW - ms), ...(a.lastStepAt !== undefined ? { lastStepAt: Math.min(a.lastStepAt, NOW - ms) } : {}), ...(a.endedAt !== undefined ? { endedAt: Math.min(a.endedAt, NOW - ms) } : {}) }])),
+    turns: t.turns.map(x => ({ ...x, startedAt: Math.min(x.startedAt, NOW - ms) })),
   })
   const stored = world(on, still(3 * 60_000))
   let ui = await mount($)

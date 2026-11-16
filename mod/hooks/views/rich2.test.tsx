@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import type { AgentRow, Budget, Step, TaskItem, Timeline, TurnRow, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { kindLabel, needDetail, needsYou } from './needs'
+import { needs, watch } from '../model/alerts'
 import { rowsUsed, sectionRows, NOW_SECTIONS } from './fit'
 import { setLedgerRows, weekSpec } from './budget'
 import { keepLog, LOGS, screen } from './screen.testkit'
@@ -102,7 +102,7 @@ const waitingT = (extra: Partial<Timeline> = {}): Timeline =>
     ...extra,
   })
 
-test('long run is labelled LONG RUN with the time against its limit, a stalled agent STALLED, an ask PERMISSION', async ($, on) => {
+test('the alert model sorts a long run, a quiet agent and an ask: Watch rows with the time against the limit, and a permission need', async ($, on) => {
   const t = waitingT({ steps: [step('s1', 1, 'Bash npm test', 'error', { tool: 'Bash', agent: 'a2', endedAt: NOW - 4000 })] })
   // Limits 60/120 and the ten-minute quiet rule (owner ruling 4, R6).
   const long = { ...t.agents.a1!, startedAt: NOW - 64 * 60_000, lastStepAt: NOW - 20_000 }
@@ -110,13 +110,12 @@ test('long run is labelled LONG RUN with the time against its limit, a stalled a
   const asking = waitingT()
   const all = { ...t, agents: { ...t.agents, a1: long, a3: stalled }, steps: [...t.steps, askAt(180)] }
   world(on, all)
-  const list = needsYou(all, initialUi, NOW)
-  const byKind = Object.fromEntries(list.map(p => [p.kind, p]))
-  expect(kindLabel(byKind['long-run']!)).toBe('LONG RUN')
-  expect(needDetail(byKind['long-run']!, NOW)).toBe('1 h 4 min of 60 min')
-  expect(kindLabel(byKind['stalled']!)).toBe('STALLED')
-  expect(needDetail(byKind['stalled']!, NOW)).toBe('quiet 11m')
-  expect(kindLabel(byKind['asking']!)).toBe('PERMISSION')
+  // M11: the legacy labels (LONG RUN, STALLED, PERMISSION) are gone with `needsYou`; the same three things, in the alert model's words.
+  const rows = watch(all, NOW, initialUi.dismissed)
+  const byKind = Object.fromEntries(rows.map(w => [w.kind, w]))
+  expect(byKind['long-run']!.sentence).toBe('Explorer has run 64 min (limit 60)')
+  expect(byKind['quiet']!.sentence).toBe('Explorer: no activity for 11 min, may be thinking')
+  expect(needs(all, NOW).items.map(n => n.kind)).toEqual(['permission'])
   void asking
   // A taller pane (60 rows): at 40 the one card that fits is the asker's (F M10: the agent that needs you is kept first), and the long runner's card, which shows its time, needs room.
   const ui = await mount($, 62, 60)
@@ -290,7 +289,8 @@ test('done fires once for a turn of a minute or more that ended normally, with t
   await clock.advance(3000)
   await clock.advance(3000)
   expect(notes.length).toBe(1)
-  expect(notes[0]).toContain('Done in 6m 12s')
+  // M3 (R27): `6m 12s` is for Steps alone.
+  expect(notes[0]).toContain('Done in 6 min')
   expect(notes[0]).toContain('Grouping timeline steps by agent')
   expect((stored.get('ui') as UiState).notified).toEqual(['done:t1'])
 })

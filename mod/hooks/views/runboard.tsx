@@ -127,7 +127,7 @@ export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): R
   }
   const total = b.agents.reduce((n, a) => n + Math.min(STRIP_MAX, b.steps[a.id]?.length ?? 0), 0)
   const perBlock = total <= BLOCK_BUDGET
-  const states = waitStates(ctx.t, ctx.u, ctx.now)
+  const states = waitStates(ctx)
   const stats = `${b.done} of ${b.agents.length} agents done · ${b.failed} failed · ${cellTime(b.elapsed)}`
   return (
     <Box flexDirection="column">

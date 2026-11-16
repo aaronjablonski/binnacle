@@ -218,7 +218,7 @@ function agentsBlock(ctx: ViewCtx, $: EngineInterface, st: NowState, max: number
             </Text>
           ) : (
             <Text key={`slim-agent-${a.id}-doing`} dimColor wrap="truncate-end">
-              {wordFit(doing(step, st.view), room)}
+              {doing(step, st.view, room)}
             </Text>
           )}
         </Box>

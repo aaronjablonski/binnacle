@@ -10,7 +10,7 @@ import { openAgentPage, runningStep } from './agentmeta'
 import { lineOf, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
 import { clock, doing, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
-import { waitStates } from './needs'
+import { doingView, waitStates } from './needs'
 import { openPage } from './pagenav'
 import { blank, frameFootInst, frameTopInst, inst, page, runText, section } from './parts'
 import type { InstSpec, PageBlock, Run } from './parts'
@@ -42,7 +42,7 @@ const keyOf = (x: TaskItem): string => `${x.owner}:${x.id}`
 
 const byNewest = (a: TaskItem, b: TaskItem): number => b.updatedAt - a.updatedAt
 
-/** The agents working on a task: those it was in progress for, or the agent that owns it. */
+/** The agents working on a task: those it was in progress for, or the agent that owns it; the newest first, as the mock lists them. */
 function agentsOn(t: Timeline, task: TaskItem): AgentRow[] {
   if (task.owner !== 'main') {
     const owner = t.agents[task.owner]
@@ -50,7 +50,7 @@ function agentsOn(t: Timeline, task: TaskItem): AgentRow[] {
   }
   return Object.values(t.agents)
     .filter(a => a.id !== 'main' && a.parent === 'main' && a.taskId === task.id)
-    .sort((a, b) => a.startedAt - b.startedAt)
+    .sort((a, b) => b.startedAt - a.startedAt)
 }
 
 /** A token count as `72k` or `1.2M`; empty for none. */
@@ -189,11 +189,12 @@ function tetherRow(ctx: ViewCtx, $: EngineInterface, t: Timeline, a: AgentRow, s
       ? [{ text: 'Waiting for your answer', color: CK.ask }]
       : state === 'failed'
         ? [{ text: oneLine((a.result ?? a.doing ?? '').split('\n')[0] ?? '') || 'Stopped by an error', color: CK.fail }]
-        : [{ text: doing(runningStep(t, a.id)), dim: true }]
+        : [{ text: doing(runningStep(t, a.id), doingView(ctx), Math.max(0, room - span(ctx.now - a.startedAt).length - 2 - typeName(a.type).length - 2)), dim: true }]
   const time: Run[] = [{ text: span(ctx.now - a.startedAt), dim: true }]
   const rw = time[0]!.text.length
   const name = typeName(a.type)
-  const left = fitRuns([{ text: name, bold: true }, { text: '  ', dim: true }, ...what], Math.max(1, room - rw - 2)) as Run[]
+  // F M14: a doing line that does not fit leaves the row whole (the verb at least stays when it fits), never a cut.
+  const left = fitRuns([{ text: name, bold: true }, ...(what[0]!.text === '' ? [] : [{ text: '  ', dim: true }, ...what])], Math.max(1, room - rw - 2)) as Run[]
   const lw = left.reduce((n, x) => n + x.text.length, 0)
   const body = [...left, { text: ' '.repeat(Math.max(1, room - lw - rw)) }, ...time].filter(x => x.text !== '')
   const key = `task-agent-${a.id}`

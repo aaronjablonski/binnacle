@@ -409,12 +409,12 @@ export function agentsSection(
           ? [{ text: span(now - a.startedAt), bold: true, dim: true }]
           : span(now - a.startedAt)
     // F I1: in auto mode's checking gap the card says "Checking a permission", as the needs slot and the band do.
-    const what: string | Run[] =
+    const what: string | Run[] | ((room: number) => string | Run[]) =
       a.status === 'error'
         ? [{ text: oneLine((a.result ?? a.doing ?? '').split('\n')[0] ?? '') || 'Stopped by an error', color: CK.fail }]
         : need !== undefined
           ? [{ text: 'Waiting for your answer', color: CK.ask }]
-          : doing(runningStep(t, a.id), o.view)
+          : (room: number) => doing(runningStep(t, a.id), o.view, room)
     out.push(
       agentCard(ctx, $, {
         key,

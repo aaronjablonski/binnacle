@@ -212,10 +212,7 @@ test('fidelity: CockpitSlim busy at 26 columns matches the mock but for the list
   world(on, busy())
   const got = await drawn($, 26, 46)
   const b = new Board('SlimBusy').patch(R25, badgeCol(20, 24, 5))
-  b.patch('real data: doing() phrases cut at a word to the 18 columns', rows => {
-    rows[21] = rows[21]!.replace('Searching src/', 'Searching…')
-    rows[24] = rows[24]!.replace('Editing tests', 'Editing…')
-  })
+  b.patch('real data: the step edits test/rateLimit.test.ts, which does not fit the 19 columns left, so doing() keeps the verb alone (F I7); the mock says "Editing tests", wording the data does not hold', b.sub(24, 'Editing tests', 'Editing'))
   b.patch('R23: General', b.sub(23, 'Builder', 'General'))
   b.patch('real data: the kept decision\'s own words, wrapped', rows => {
     rows[31] = ' ★ Decided: the limiter'
@@ -243,10 +240,7 @@ test('fidelity: CockpitSlim asked at 26 columns matches the mock but for the lis
     return addRow(24, ' 1 working · 1 waiting')(rows)
   })
   b.patch(R25, badgeCol(25, 29, 5))
-  b.patch('real data and R23: Searching… / General', rows => {
-    rows[26] = rows[26]!.replace('Searching src/', 'Searching…')
-    rows[28] = rows[28]!.replace('Builder', 'General')
-  })
+  b.patch('R23 and real data: the type of the waiting agent is General (general-purpose), not Builder', b.sub(28, 'Builder', 'General'))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitSlim (asked)', b.rows, got, b.names, 26)).toBe('matches')
   expect(got.length).toBe(46)

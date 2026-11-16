@@ -250,6 +250,14 @@ export function needsView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'> & 
   return needs(ctx.t, ctx.now, { covered: ctx.isPromptCovered === true })
 }
 
+/**
+ * The needs view a card's `doing` reads (F I1): the same answer as `needsView`
+ * but without noting what the pane saw, so a card may ask it as often as it likes.
+ */
+export function doingView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'>): NeedsView {
+  return needs(ctx.t, ctx.now, { covered: ctx.isPromptCovered === true })
+}
+
 /** The needs slot's line under a stopped turn (F I2): no tick, plain words. */
 export const STOPPED_TEXT = 'Stopped. Send a prompt to carry on'
 

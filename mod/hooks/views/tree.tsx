@@ -9,6 +9,7 @@ import { modelName, tokenText } from './budget'
 import { hueHex, lineOf, nodeOf, pipRuns, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
 import { doing, nameFit, wordFit, wrapWords } from './fit'
+import { doingView } from './needs'
 import { blank, frameTopInst, inst } from './parts'
 import type { Run } from './parts'
 import type { ViewCtx } from './shell'
@@ -196,7 +197,7 @@ function mainNode(k: Ctx, $: EngineInterface, main: AgentRow, working: boolean):
   })
   const model = main.model !== undefined && main.model !== '' ? ` · ${modelName(main.model)}` : ''
   const room = Math.max(1, firstCol(nums, c.right + 2) - 2 - TASK_NAME + 1)
-  const what = t.now?.focus ?? (working ? doing(runningStep(t, 'main')) : '')
+  const what = t.now?.focus ?? (working ? doing(runningStep(t, 'main'), doingView(ctx)) : '')
   const critter = critterOf(main, { state, ground: ctx.ground ?? 'night', motion: ctx.motion === true })
   return nodeOf(ctx, $, {
     key: 'node-main',
@@ -239,7 +240,7 @@ function agentNode(k: Ctx, $: EngineInterface, a: AgentRow, last: boolean, inner
     const what =
       state === 'waiting'
         ? [{ col: AGENT_NAME, text: '▸ ', color: CK.accent }, { col: AGENT_NAME + 2, text: 'Waiting for your answer', color: CK.ask }]
-        : [{ col: AGENT_NAME, text: '▸ ', color: CK.accent }, { col: AGENT_NAME + 2, text: wordFit(doing(runningStep(ctx.t, a.id)), Math.max(1, c.right - AGENT_NAME - 1)), dim: true }]
+        : [{ col: AGENT_NAME, text: '▸ ', color: CK.accent }, { col: AGENT_NAME + 2, text: doing(runningStep(ctx.t, a.id), doingView(ctx), Math.max(1, c.right - AGENT_NAME - 1)), dim: true }]
     rows.push(what)
   } else {
     wrapWords(failReason(ctx.t, a), Math.max(1, c.right - AGENT_NAME + 1), 2).forEach(r => rows.push([{ col: AGENT_NAME, text: r, dim: true }]))

@@ -2,7 +2,7 @@
 // .superpowers/sdd/2026-11-16-cockpit-critters/ref/gen-cockpit.js and the CrewMapClear board of
 // ref/gen-crew.js (mapPane(NIGHT, false), the folded default; and mapPane(DAY, true), one done
 // task unfolded), dumped row by row (each generator models every board as terminal cells).
-// ¤ marks a Raster cell. Imported by agents.fidelity.test.tsx only.
+// ¤ marks a Raster cell. A bar Raster (the to-do bar, the Models and digest bars, the slim budget bars) is written out cell by cell, ━ or a gap, so the fidelity tests compare it (F I3); ¤ stays for the critters, rings, lintels and charts, whose text forms are checked in their own tests. Imported by agents.fidelity.test.tsx only.
 export const MOCK: Record<string, { rows: string[] }> = {
   CockpitAgents: {
     rows: [
@@ -12,7 +12,7 @@ export const MOCK: Record<string, { rows: string[] }> = {
       "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
       "  2 agents working                    31 finished · 1 failed",
       "",
-      "  Models    ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤   ■ Sonnet 71%",
+      "  Models    ━━━━━━━━━━━━━━━━━━━ ━━━━━━━━   ■ Sonnet 71%",
       "  Tokens    1.9M across 34 agents          ■ Opus 29%",
       "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
       "",

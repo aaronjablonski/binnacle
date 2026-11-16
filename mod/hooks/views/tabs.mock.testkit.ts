@@ -1,7 +1,7 @@
 // A test helper, not part of the mod: the CockpitTasks, CockpitSteps and CockpitArtifacts boards of
 // .superpowers/sdd/2026-11-16-cockpit-critters/ref/gen-cockpit.js, dumped row by row (the generator models
 // every board as terminal cells). Imported by tabs.fidelity.test.tsx only.
-// Generated from gen-cockpit.js (ref/): each board as terminal rows (trailing blanks cut), ¤ marks a Raster cell.
+// Generated from gen-cockpit.js (ref/): each board as terminal rows (trailing blanks cut), ¤ marks a Raster cell. A bar Raster (the to-do bar, the Models and digest bars, the slim budget bars) is written out cell by cell, ━ or a gap, so the fidelity tests compare it (F I3); ¤ stays for the critters, rings, lintels and charts, whose text forms are checked in their own tests.
 export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row: number; col: number; w: number; h: number }[] }> = {
   CockpitTasks: {
     rows: [
@@ -11,7 +11,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
       "  9 of 14 done                about 20 min left at this pace",
       "",
-      "  ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      "  ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━━",
       "",
       "  Effort so far   ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
       "  one bar a task  ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
@@ -115,7 +115,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "",
       "   e: Export digest    to the journal and the clipboard",
       "",
-      "  It will hold    ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      "  It will hold    ━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━ ━━━━━━   ",
       "                  ■ summary  ■ 9 tasks  ■ 3 kept  ■ 6 files",
       "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
       "",

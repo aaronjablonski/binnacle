@@ -7,6 +7,20 @@ import type { Run } from '../mod/hooks/views/style'
 const textOf = (runs: Run[]) => runs.map(r => r.text).join('')
 
 describe('doing(step): tool calls as the spec’s verbs', () => {
+  test('doing with a room (F I7) shortens by clause and never ends in an ellipsis', () => {
+    const grep = { tool: 'Grep', label: 'Grep "upload("', pending: { pattern: 'upload(', path: 'src/server' } }
+    expect(doing(grep, undefined, 40)).toBe('Searching src/server for “upload(”')
+    expect(doing(grep, undefined, 30)).toBe('Searching src/server')
+    expect(doing(grep, undefined, 19)).toBe('Searching src/')
+    expect(doing(grep, undefined, 9)).toBe('Searching')
+    expect(doing(grep, undefined, 8)).toBe('')
+    const edit = { tool: 'Edit', label: 'Edit test/rateLimit.test.ts' }
+    expect(doing(edit, undefined, 30)).toBe('Editing test/rateLimit.test.ts')
+    expect(doing(edit, undefined, 25)).toBe('Editing rateLimit.test.ts')
+    expect(doing(edit, undefined, 19)).toBe('Editing')
+    for (let room = 0; room < 60; room++) expect(doing(grep, undefined, room)).not.toMatch(/…/)
+  })
+
   test('Read, Grep, Glob, Bash, Edit, Write, Agent, thinking and asking', () => {
     expect(doing({ tool: 'Read', label: 'Read server/upload.ts', pending: { file_path: '/repo/src/server/upload.ts' } })).toBe('Reading server/upload.ts')
     expect(doing({ tool: 'Grep', label: 'Grep "upload("', pending: { pattern: 'upload(', path: 'src/server' } })).toBe('Searching src/server for “upload(”')
@@ -148,6 +162,22 @@ describe('bars in ━ (R13, R22)', () => {
     expect(b.some(r => r.color === 'subtle')).toBe(true)
   })
 
+  test('todoBar (F I3): 14 tasks in 28 cells are 14 dashes with gaps, not one solid line', () => {
+    const b = todoBar(28, 14, 9, 1)
+    expect(textOf(b)).toHaveLength(28)
+    const segs = textOf(b).split(' ')
+    expect(segs).toHaveLength(14)
+    expect(segs.every(s => /^━{1,2}$/.test(s))).toBe(true)
+  })
+
+  test('todoBar (F I3): more tasks than half the cells draw one cell a task, as the mock slim bar (14 in 24)', () => {
+    const b = todoBar(24, 14, 9, 1)
+    // gen-cockpit.js todoS: task i is the cell floor(i * 24 / 14).
+    expect(textOf(b)).toBe('━━ ━ ━━ ━ ━ ━━ ━ ━━ ━ ━ ')
+    const kinds = b.filter(r => r.text.includes('━')).map(r => (r.dim === true ? 'done' : r.color === CK.accent ? 'now' : 'open'))
+    expect(kinds.filter((k, i) => k !== kinds[i - 1])).toEqual(['done', 'now', 'open'])
+  })
+
   test('todoBar: more tasks than cells is proportional (done, current, open) with no gaps', () => {
     const b = todoBar(24, 40, 30, 1)
     expect(textOf(b)).toBe('━'.repeat(24))
@@ -157,6 +187,14 @@ describe('bars in ━ (R13, R22)', () => {
   test('todoBar: all done is success; no tasks is the rest', () => {
     expect(todoBar(20, 4, 4, 0).every(r => r.text.trim() === '' || r.color === 'success')).toBe(true)
     expect(todoBar(10, 0, 0, 0)).toEqual([{ text: '━'.repeat(10), color: 'subtle' }])
+  })
+
+  test('ruleBar with gaps (F I3): the last cell of every part but the last is a blank, as the mock Models bar (19, a gap, 8)', () => {
+    const r = ruleBar(28, [{ count: 71, color: CK.accent }, { count: 29, dim: true }], undefined, true)
+    expect(textOf(r)).toBe(`${'━'.repeat(19)} ${'━'.repeat(8)}`)
+    // A part of one cell keeps it (no gap): nothing vanishes into a gap.
+    expect(textOf(ruleBar(10, [{ count: 1 }, { count: 1000 }], undefined, true))).toBe('━'.repeat(10))
+    expect(textOf(ruleBar(10, [{ count: 3 }, { count: 7 }], undefined, true))).toBe('━━ ━━━━━━━')
   })
 
   test('ruleBar and pctBar: exactly the width, a non-zero part keeps a cell', () => {

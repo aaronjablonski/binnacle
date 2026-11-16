@@ -138,7 +138,7 @@ function listHeader(ctx: ViewCtx, $: EngineInterface, subs: AgentRow[]): RenderE
       const parts: { count: number; color: string; dim?: boolean }[] = models.slice(0, 2).map((m, i) => ({ count: m.tokens, color: CK.accent, ...(i === 0 ? {} : { dim: true }) }))
       const rest = models.slice(2).reduce((n, m) => n + m.tokens, 0)
       if (rest > 0) parts.push({ count: rest, color: C.subtle })
-      const bar = barSegs(ruleBar(cells, parts), 12)
+      const bar = barSegs(ruleBar(cells, parts, undefined, true), 12)
       out.push(lineOf(ctx, $, { key: 'agents-models', body: [label, ...bar, ...legend(models, 0)] }))
       second = legend(models, 1)
     } else {

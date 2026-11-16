@@ -7,18 +7,20 @@ import {
   CRITTER_BADGE,
   DEFAULT,
   DONE_HUE_TRACE,
-  FAILED_TOWARD_GROUND,
+  FACE_OF,
+  FAILED_TOWARD_MUTE,
   GAUGE_PAIR,
   GAUGE_RING,
   Grid,
   PALETTE,
   QUEUED_TOWARD_GROUND,
   ROLE_HUE,
-  ROLES,
-  STALLED_TOWARD_GROUND,
+  CRITTER_ROLES,
+  STALLED_TOWARD_MUTE,
   STATES,
   cellsOf,
   critter,
+  critterBody,
   critterBox,
   critterFrames,
   critterShape,
@@ -32,7 +34,7 @@ import {
   mix,
   type CritterSize,
   type Ground,
-  type Role,
+  type CritterRole,
   type State,
 } from '../mod/hooks/views/raster'
 
@@ -41,8 +43,8 @@ const GROUNDS: Ground[] = ['night', 'day']
 const FRAMES: (1 | 2)[] = [1, 2]
 
 /** Every combination the generator checks, at the two cockpit sizes. */
-const all = function* (): Generator<[Role, State, CritterSize, Ground, 1 | 2]> {
-  for (const role of ROLES) for (const state of STATES) for (const size of SIZES) for (const ground of GROUNDS) for (const frame of FRAMES) yield [role, state, size, ground, frame]
+const all = function* (): Generator<[CritterRole, State, CritterSize, Ground, 1 | 2]> {
+  for (const role of CRITTER_ROLES) for (const state of STATES) for (const size of SIZES) for (const ground of GROUNDS) for (const frame of FRAMES) yield [role, state, size, ground, frame]
 }
 
 const glyphs = (g: Grid): string[] => {
@@ -58,16 +60,14 @@ const coloursIn = (g: Grid, x: number, row: number): number => {
   return new Set(q.map(v => (v === undefined ? 'ground' : v))).size
 }
 
-describe('Critters: family A at small and micro', () => {
+describe('Critters: the mini mascot at small and micro', () => {
   test('every grid is exactly 10 x 6 (small) or 8 x 4 (micro) sub-pixels of known marks', () => {
-    for (const role of ROLES) {
-      for (const size of SIZES) {
-        const rows = critterShape(role, size)
-        expect(rows).toHaveLength(CRITTER[size].h)
-        for (const r of rows) {
-          expect([...r]).toHaveLength(CRITTER[size].w)
-          expect(r).toMatch(/^[.#eopw]+$/)
-        }
+    for (const [role, state, size, , frame] of all()) {
+      const rows = critterShape(role, size, state, frame)
+      expect(rows).toHaveLength(CRITTER[size].h)
+      for (const r of rows) {
+        expect([...r]).toHaveLength(CRITTER[size].w)
+        expect(r).toMatch(/^[.#pqedfwk]+$/)
       }
     }
   })
@@ -81,7 +81,7 @@ describe('Critters: family A at small and micro', () => {
       expect(() => encode(g)).not.toThrow()
       n++
     }
-    expect(n).toBe(4 * 6 * 2 * 2 * 2)
+    expect(n).toBe(5 * 6 * 2 * 2 * 2)
   })
 
   test('the box adds one badge column: 6 x 3 and 5 x 2, the badge only in the top right cell', () => {
@@ -97,71 +97,85 @@ describe('Critters: family A at small and micro', () => {
     }
   })
 
-  test('role identity: the four roles differ in shape and in glyphs at both sizes', () => {
+  test('role identity: the five roles differ in shape and in glyphs at both sizes', () => {
     for (const size of SIZES) {
-      const shapes = ROLES.map(r => critterShape(r, size).join('\n'))
-      expect(new Set(shapes).size).toBe(4)
-      const drawn = ROLES.map(r => glyphs(critter(r, 'working', size)).join('\n'))
-      expect(new Set(drawn).size).toBe(4)
+      const shapes = CRITTER_ROLES.map(r => critterShape(r, size).join('\n'))
+      expect(new Set(shapes).size).toBe(5)
+      // Compared as encoded (glyphs and colours): at micro the reviewer's glasses differ from the plain mascot in colour only.
+      const drawn = CRITTER_ROLES.map(r => encode(critter(r, 'working', size)))
+      expect(new Set(drawn).size).toBe(5)
       // and the hues differ too
-      const hues = ROLES.map(r => CREW_PALETTE.night[ROLE_HUE[r]])
-      expect(new Set(hues).size).toBe(4)
+      const hues = CRITTER_ROLES.map(r => CREW_PALETTE.night[ROLE_HUE[r]])
+      expect(new Set(hues).size).toBe(5)
     }
   })
 
-  test('the shape is one grid per role and size: a state only recolours it', () => {
-    for (const role of ROLES) {
+  test('the state moves only the face, never the silhouette or the accessory: the same cells are lit in every state', () => {
+    for (const role of CRITTER_ROLES) {
       for (const size of SIZES) {
-        const occupied = (s: State) => {
-          const g = critter(role, s, size)
-          const out: boolean[] = []
-          for (let r = 0; r < g.rows; r++) for (let x = 0; x < g.columns; x++) for (const v of g.cell(x, r).q) out.push(v !== undefined)
-          return out.join('')
-        }
+        const occupied = (st: State, frame: 1 | 2 = 1) => critterShape(role, size, st, frame).map(r => r.replace(/[^.]/g, '#')).join('/')
         const base = occupied('working')
-        for (const s of STATES) expect(occupied(s)).toBe(base)
+        for (const st of STATES) expect(occupied(st)).toBe(base)
+        expect(occupied('working', 2)).toBe(base)
       }
     }
   })
 
-  test('state recolour: queued 62 %, stalled 42 %, failed 50 % toward the ground, done grey with a trace of the hue', () => {
+  test('the face shows the state: open (queued, working), look (waiting), shut (stalled, done), sad (failed); frame 2 of working is the blink', () => {
+    expect(FACE_OF).toEqual({ queued: 'open', working: 'open', waiting: 'look', stalled: 'shut', failed: 'sad', done: 'shut' })
+    for (const size of SIZES) {
+      const face = (st: State, frame: 1 | 2 = 1) => critterShape('general', size, st, frame).join('/')
+      expect(face('queued')).toBe(face('working'))
+      expect(face('stalled')).toBe(face('done'))
+      expect(face('working', 2)).not.toBe(face('working'))
+      expect(face('working', 2)).toBe(face('stalled'))
+      expect(face('stalled')).not.toBe(face('working'))
+      // The micro faces are two pixels wide: only the small size tells all four apart.
+      if (size === 'small') expect(new Set([face('working'), face('waiting'), face('stalled'), face('failed')]).size).toBe(4)
+    }
+  })
+
+  test('state recolour: queued 60 % toward the ground, stalled and failed 55 % toward mute, done grey with a trace of the hue', () => {
     for (const ground of GROUNDS) {
       const pal = CREW_PALETTE[ground]
-      for (const role of ROLES) {
+      for (const role of CRITTER_ROLES) {
         const hue = pal[ROLE_HUE[role]]
         expect(critterTone('#', role, 'working', pal)).toBe(hue)
         expect(critterTone('#', role, 'waiting', pal)).toBe(hue)
         expect(critterTone('#', role, 'queued', pal)).toBe(mix(hue, pal.ground, QUEUED_TOWARD_GROUND))
-        expect(critterTone('#', role, 'stalled', pal)).toBe(mix(hue, pal.ground, STALLED_TOWARD_GROUND))
-        expect(critterTone('#', role, 'failed', pal)).toBe(mix(hue, pal.ground, FAILED_TOWARD_GROUND))
+        expect(critterTone('#', role, 'stalled', pal)).toBe(mix(hue, pal.mute, STALLED_TOWARD_MUTE))
+        expect(critterTone('#', role, 'failed', pal)).toBe(mix(hue, pal.mute, FAILED_TOWARD_MUTE))
         expect(critterTone('#', role, 'done', pal)).toBe(mix(pal.mute, hue, DONE_HUE_TRACE))
+        expect(critterBody(role, 'failed', pal)).toBe(critterTone('#', role, 'failed', pal))
       }
     }
-    expect([QUEUED_TOWARD_GROUND, STALLED_TOWARD_GROUND, FAILED_TOWARD_GROUND, DONE_HUE_TRACE]).toEqual([0.62, 0.42, 0.5, 0.12])
+    expect([QUEUED_TOWARD_GROUND, STALLED_TOWARD_MUTE, FAILED_TOWARD_MUTE, DONE_HUE_TRACE]).toEqual([0.6, 0.55, 0.55, 0.12])
   })
 
-  test('badges: ? on amber (waiting), z in mute on rule grey (stalled), ! on red (failed); none otherwise', () => {
+  test('sky is the general hue, in the crew palette only: night 0x6fb6f2, day 0x2f8fd8', () => {
+    expect(CREW_PALETTE.night.sky).toBe(0x6fb6f2)
+    expect(CREW_PALETTE.day.sky).toBe(0x2f8fd8)
+    expect(ROLE_HUE.general).toBe('sky')
+    expect(ROLE_HUE).toEqual({ lead: 'ember', scout: 'teal', build: 'iris', check: 'orchid', general: 'sky' })
+  })
+
+  test('badges: ? on amber (waiting), z in dim on rule grey (stalled), ! on red (failed); none otherwise', () => {
     expect(CRITTER_BADGE.waiting).toEqual({ ch: '?', fg: 'badge', bg: 'amber' })
-    expect(CRITTER_BADGE.stalled).toEqual({ ch: 'z', fg: 'mute', bg: 'rule' })
+    expect(CRITTER_BADGE.stalled).toEqual({ ch: 'z', fg: 'dim', bg: 'rule' })
     expect(CRITTER_BADGE.failed).toEqual({ ch: '!', fg: 'badge', bg: 'red' })
     for (const s of ['queued', 'working', 'done'] as State[]) expect(CRITTER_BADGE[s]).toBeUndefined()
   })
 
-  test('R19: amber only as the waiting lamp, red only as the failed lamp, no mint anywhere in a body', () => {
+  test('R19: red only in the failed badge, amber only in the waiting badge, no mint in a body: a sprite has no lamp', () => {
     for (const [role, state, size, ground, frame] of all()) {
       const pal = CREW_PALETTE[ground]
       const g = critter(role, state, size, { ground, frame })
       const used = new Set<number>()
       for (let r = 0; r < g.rows; r++) for (let x = 0; x < g.columns; x++) for (const v of g.cell(x, r).q) if (v !== undefined) used.add(v)
       expect(used.has(pal.mint)).toBe(false)
-      // The micro grid has no lamp: there the badge alone carries the state.
-      const lamp0 = critterShape(role, size).some(r => r.includes('o'))
-      expect(used.has(pal.amber)).toBe(state === 'waiting' && lamp0)
-      expect(used.has(pal.red)).toBe(state === 'failed' && lamp0)
-      const lamp = critterTone('o', role, state, pal, frame)
-      if (state === 'waiting') expect(lamp).toBe(pal.amber)
-      if (state === 'failed') expect(lamp).toBe(pal.red)
-      if (state === 'failed') expect(critterTone('e', role, state, pal, frame)).not.toBe(pal.red)
+      expect(used.has(pal.amber)).toBe(false)
+      expect(used.has(pal.red)).toBe(false)
+      expect(critterShape(role, size, state, frame).some(r => r.includes('o'))).toBe(false)
     }
   })
 

@@ -19,6 +19,7 @@ import { openStep } from './openstep'
 import { agentCard, blank, header, heightOf, inst, runText, section } from './parts'
 import type { InstSpec, Run } from './parts'
 import { drawCritter, Grid } from './raster'
+import type { CritterRole } from './raster'
 import type { ViewCtx } from './shell'
 import { TAB_ROWS } from './shell'
 import { deckSvg } from './svgview'
@@ -360,7 +361,7 @@ export function agentsEndOnCard(t: Timeline, rest: boolean, cards: number): bool
 /** The resting crew at idle: the lead and up to three agents that finished, micro critters at a pitch of 5, lamps off. */
 export function restingSpec(t: Timeline, ground: 'night' | 'day'): InstSpec {
   const seen = new Set<string>(['lead'])
-  const roles: ('lead' | 'scout' | 'build' | 'check')[] = ['lead']
+  const roles: CritterRole[] = ['lead']
   for (const a of subagents(t).sort((x, y) => (y.endedAt ?? 0) - (x.endedAt ?? 0))) {
     if (roles.length >= 4) break
     const r = crewRole(a.id, a.type)

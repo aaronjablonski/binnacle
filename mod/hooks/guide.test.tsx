@@ -361,3 +361,34 @@ test("with guide: false the update tool's row is the engine's and other rows pas
     }
   }
 })
+
+// ---------- R3-A ----------
+
+test('I8: the guide says a tasks-only update is fine the moment a task is done, and no longer forbids a call of its own', () => {
+  expect(GUIDE_TEXT).toContain('When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done.')
+  expect(GUIDE_TEXT).toContain('never send an update that changes nothing')
+  expect(GUIDE_TEXT).not.toContain('never as a call of their own')
+  expect(GUIDE_TEXT).not.toContain('mark it done the moment it is finished')
+})
+
+test('M11: a tasks-only update reads "to-do list updated"; a long focus is cut at a word, never inside one', async ($, on) => {
+  world(on)
+  const list = await $.ui.mount({
+    plugin: 'mission-control', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_3',
+    props: row(UPDATE, { tasks: [{ title: 'Read', state: 'done' }] }),
+  })
+  expect((await list.find({ type: 'Text' }))?.text).toBe('◆ Mission Control updated: to-do list updated')
+  await list.unmount()
+  const long = await $.ui.mount({
+    plugin: 'mission-control', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_4',
+    props: row(UPDATE, { focus: 'Adding rate limiting to the upload route and the download route' }),
+    viewport: { columns: 60, rows: 40 },
+  })
+  const text = (await long.find({ type: 'Text' }))?.text ?? ''
+  expect(text.length <= 60).toBe(true)
+  expect(text.endsWith('…')).toBe(true)
+  const words = 'Adding rate limiting to the upload route and the download route'.split(' ')
+  const kept = text.slice('◆ Mission Control updated: '.length, -1).split(' ')
+  for (const w of kept) expect(words).toContain(w)
+  await long.unmount()
+})

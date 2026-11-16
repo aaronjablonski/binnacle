@@ -4,6 +4,7 @@ import type { Update } from '../types'
 import { UPDATE_TOOL } from './capture'
 import { MAX_LINE, MAX_LIST_ITEMS, MAX_LIST_TITLE, MAX_REF } from './model/limits'
 import { apply, debug, errText } from './state'
+import { wordFit } from './views/fit'
 import { observeRow } from './views/onscreen'
 
 // The guide is the one place the mod adds to a conversation: one tool and
@@ -62,11 +63,11 @@ export const UPDATE_SCHEMA = {
 export const GUIDE_TEXT = [
   '# Mission Control',
   'The person follows this session in a side panel with a headline, a to-do list and notes. They glance at it instead of reading the transcript, so keep it true.',
-  '- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__mission-control__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time and mark it done the moment it is finished; do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.',
+  '- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__mission-control__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time. When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done. Do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.',
   '- Headline: with your first tool call(s) on a new request, call mcp__mission-control__update with `focus`: the goal of the whole request as a plain clause of at most 8 words ("Adding rate limiting to the upload route"). Send it again only if the goal itself changes; the to-do list shows the current step.',
   '- Add `note` when you learn something the person would want to find again: a decision, a root cause, a surprising fact. One line.',
   '- Add `artifact` when you produce a result or a link worth keeping (review findings, a report, a pull request).',
-  'Send these alongside other tool calls, never as a call of their own just to say nothing changed. Skip all of it for replies that need no tools. Do not mention the panel or these updates in your replies.',
+  'Send these alongside other tool calls where you can, and never send an update that changes nothing. Skip all of it for replies that need no tools. Do not mention the panel or these updates in your replies.',
 ].join('\n')
 
 const SECTION = { id: SECTION_ID, text: GUIDE_TEXT, scope: 'session' } as const
@@ -92,13 +93,13 @@ function updateOf(e: Record<string, unknown>): Update {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined)
 
-function rowText(input: unknown, columns: number): string {
+/** What the transcript row says (M11): the focus, the note, the artifact, "to-do list updated" for a list alone, else "noted"; cut at a word. */
+export function rowText(input: unknown, columns: number): string {
   const u = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const art = typeof u.artifact === 'object' && u.artifact !== null ? (u.artifact as Record<string, unknown>) : {}
-  const what = str(u.focus) ?? str(u.note) ?? str(art.title) ?? 'noted'
-  const full = (ROW_PREFIX + what).replace(/\s+/g, ' ').trim()
-  const room = Math.max(ROW_PREFIX.length + 1, columns)
-  return full.length <= room ? full : `${full.slice(0, room - 1)}…`
+  const what = str(u.focus) ?? str(u.note) ?? str(art.title) ?? (Array.isArray(u.tasks) ? 'to-do list updated' : 'noted')
+  const room = Math.max(ROW_PREFIX.length + 2, columns)
+  return ROW_PREFIX + wordFit(what, room - ROW_PREFIX.length)
 }
 
 export function registerGuide(on: On, options: PluginOptions): void {

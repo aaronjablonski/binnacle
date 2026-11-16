@@ -76,6 +76,15 @@ R7 quiet, R8 STOPPED header, R9 gauges bold or red instead of amber, R12 empty a
 
 ## Amendments after the screens review (review-C3C6, 2026-11-16)
 
-- R28 amended: the engine always draws a hotkeyed Button as `k: word` with a colon, so every footer and row hint uses that form: visible hotkeyed Buttons, one notation, no hidden or zero-size Buttons anywhere. This is a mock deviation, listed for the owner.
+- R28 amended (merges review-C3C6 I-1/I-2 with Fable round 2 I8):
+  - The footer is plain Text hints in the mock's notation (key bold in the accent, no colon), with exactly the mock's hints for each screen.
+  - Each key is armed on the visible body Button that already shows it (`f: Find a step`, `d: show all`, `e: Export digest`); those labels keep the engine's colon, as the mocks do.
+  - Keys with no body Button (`n`, `p`, `0`) are armed by one hidden Button each, in one place in `shell.tsx`. This is flagged for the owner's live check.
+  - `0 options` is drawn only where the mock draws it (Now).
+- R39: Needs you ends in an amber filled chip that is plain Text, ` esc  back to the prompt ` when focused and ` answer in the prompt ↓ ` when not. The Artifacts button reads `e: Export digest` (Fable round 2 I9).
+- R40: the idle budget line is "644k of 1M used · cache warm 2 min", in whole minutes. This is a mock deviation (the mock ticks m:ss); the band uses the same words.
+- R41: "Stalled" needs earlier runs of the same signature (3 × their median, floor 5 min). With no history the row is "Long step", which never notifies.
+- R42: tabs show full names from 54 columns, whole short words below that (`Now Tasks Crew Steps Files`), and icons only under 38.
+- R43: only `main` is the lead (wears the crown). The text form drops the role word where the name stands beside it.
 - R37: lists grow with the pane height (`scroll.bodyRows`) on Tasks, Steps and Artifacts. This is the owner's earlier binding rule 2, and it overrides the mocks' `+ n more` at 46 rows. Now keeps its height rule.
 - R38: the Options page takes the cockpit look like the other pages.

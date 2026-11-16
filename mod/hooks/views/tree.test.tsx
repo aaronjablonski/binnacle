@@ -321,7 +321,8 @@ test('a failed agent on the map is a micro critter with a red !, its name in bol
   const at = idxWith(all, 'read the config')
   expect(all[at]).toMatch(/^! {3}│ {2}├╌ × {3}! {2}read the config…? +failed/)
   expect(colOf(all[at + 1]!, 'Stopped: the schema file is missing')).toBe(17)
-  expect(all[at + 1]).toContain('scout')
+  // R43 (F M8): no role word under the glyph, the name stands beside it.
+  expect(all[at + 1]).not.toContain('scout')
   const found = await ui.findAll({ type: 'Text' })
   expect(found.filter(f => f.text === '!').map(f => propsOf(f).color)).toContain('error')
   expect(found.filter(f => (f.text ?? '').startsWith('read the')).map(f => propsOf(f).bold)).toContain(true)

@@ -8,7 +8,7 @@ import { EMPTY, RUN_GLYPH, agentCols, cellTime, failReason, isOpen, openAgentPag
 import { modelName, tokenText } from './budget'
 import { hueHex, lineOf, nodeOf, pipRuns, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
-import { doing, nameFit, wordFit, wrapWords } from './fit'
+import { clauseFit, doing, nameFit, wordFit, wrapWords } from './fit'
 import { doingView } from './needs'
 import { blank, frameTopInst, inst } from './parts'
 import type { Run } from './parts'
@@ -234,7 +234,7 @@ function agentNode(k: Ctx, $: EngineInterface, a: AgentRow, last: boolean, inner
       ...(first ? { [TETHER]: last ? '╰' : '├', [TETHER + 1]: '╌' } : last ? {} : { [TETHER]: '│' }),
     })
   const name = a.description.replace(/\s+/g, ' ').trim() || typeName(a.type)
-  const rows: Seg[][] = [[{ col: AGENT_NAME, text: nameFit(name, room), ...(live ? {} : { bold: true }) }, ...nums]]
+  const rows: Seg[][] = [[{ col: AGENT_NAME, text: clauseFit(name, room), ...(live ? {} : { bold: true }) }, ...nums]]
   if (live) {
     rows.push([{ col: AGENT_NAME, text: `${typeName(a.type)}${model}`, dim: true }])
     const what =
@@ -289,7 +289,7 @@ function foldedRow(k: Ctx, $: EngineInterface, g: MapGroup, a: AgentRow, last: b
   const body: Seg[] = [
     { col: AGENT_CRITTER, text: '▪', color: hueHex(role, ctx.ground ?? 'night') },
     { col: typeCol, text: nameFit(type, Math.max(1, end - typeCol + 1)), color: hueHex(role, ctx.ground ?? 'night') },
-    ...(job !== '' && end - jobCol + 1 >= 4 ? [{ col: jobCol, text: wordFit(job, end - jobCol + 1), dim: true }] : []),
+    ...(job !== '' && end - jobCol + 1 >= 4 ? [{ col: jobCol, text: clauseFit(job, end - jobCol + 1), dim: true }] : []),
     ...nums,
   ]
   const key = `done-${g.key}-${a.id}`
@@ -332,7 +332,7 @@ function groupRows(k: Ctx, $: EngineInterface, g: MapGroup, last: boolean): Rend
     lineOf(ctx, $, {
       key,
       pre: trunk({ [TRUNK]: last ? '╰' : '├', [TRUNK + 1]: '─' }),
-      body: [{ col: TASK_MARK, text: mark, ...markStyle }, { col: TASK_NAME, text: nameFit(g.label, room), ...(g.band === 'now' ? { bold: true } : { dim: true }) }, ...nums],
+      body: [{ col: TASK_MARK, text: mark, ...markStyle }, { col: TASK_NAME, text: clauseFit(g.label, room), ...(g.band === 'now' ? { bold: true } : { dim: true }) }, ...nums],
       ...(foldable ? { onPress: () => updateUi($, cur => toggleOpen(cur, g.key)) } : {}),
     }),
   )

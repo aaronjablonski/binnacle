@@ -332,8 +332,11 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     } else {
       const list = listBody(ctx, $, ids, states, since)
       targets = list.targets
+      // F M6: the toggles sit in the row under the tabs on the list as on the map, so pressing `t` moves nothing but the lists.
+      out.push(modes)
       if (subs.length > 0) out.push(...listHeader(ctx, $, subs), blank(ctx, $, 'gap-readout'))
-      out.push(modes, blank(ctx, $, 'gap-toggles'), list.el)
+      else out.push(blank(ctx, $, 'gap-toggles'))
+      out.push(list.el)
       hints = [{ key: '↵', label: 'open agent' }, ...(list.failed > 0 ? [{ key: 'v', label: 'transcript' }] : []), ...nextPrev(false), { key: 'esc', label: 'prompt' }]
     }
     const foot = footerSlot(ctx, $, hints)

@@ -693,6 +693,8 @@ export type CritterOpts = {
   motion?: boolean
   /** Shifts the blink so agents blink apart; `critterOf` derives one from the id when absent. */
   phase?: number
+  /** Whether the text form writes the role word under the glyph: `critterArgs` does (the header's lead), `critterOf` does not, since a name stands beside it (R43). */
+  roleWord?: boolean
 }
 
 /**
@@ -731,7 +733,8 @@ export function critterArgs(role: Role, state: PodState, o: Omit<CritterOpts, 's
   const { glyph, badge } = critterGlyph(state)
   const first: Run[] = [glyph, { text: ' '.repeat(columns - 1 - (badge !== undefined ? 1 : 0)) }]
   if (badge !== undefined) first.push(badge)
-  const fallback: Run[][] = [first, [{ text: ROLE_WORD[role].padEnd(columns), dim: true }]]
+  // R43: the role word only where no name stands beside the critter; a blank row otherwise.
+  const fallback: Run[][] = [first, [{ text: (o.roleWord === false ? '' : ROLE_WORD[role]).padEnd(columns), dim: true }]]
   for (let i = 2; i < box.rows; i++) fallback.push([{ text: ' '.repeat(columns) }])
   return {
     role,
@@ -748,11 +751,11 @@ export function critterArgs(role: Role, state: PodState, o: Omit<CritterOpts, 's
 /**
  * An agent as a critter (the cockpit form of `spriteOf`): role from
  * `crewRole` (`main` is the lead), state from `o.state` when given, else the
- * agent's own (`podStateOf`).
+ * agent's own (`podStateOf`). Its text form has no role word (R43: its name is beside it).
  *
  * @example inst(ctx, $, { key: `card-${a.id}`, ...critterOf(a, { ground, motion }) })
  */
 export function critterOf(agent: PodAgent, o: CritterOpts = {}): CritterArgs {
   const state = o.state ?? podStateOf(agent)
-  return critterArgs(crewRole(agent.id, agent.subagentType ?? agent.type), state, { ...o, phase: o.phase ?? phaseOf(agent.id) })
+  return critterArgs(crewRole(agent.id, agent.subagentType ?? agent.type), state, { ...o, roleWord: o.roleWord ?? false, phase: o.phase ?? phaseOf(agent.id) })
 }

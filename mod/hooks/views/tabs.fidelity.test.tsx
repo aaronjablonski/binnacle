@@ -119,7 +119,6 @@ test('fidelity: CockpitTasks at 62 columns matches the mock but for the listed d
   world(on, tasksTimeline(), { ...initialUi, tab: 'tasks' })
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitTasks')
-  b.patch('real data: 41 min over 9 done is 4.6 min a task, times 5 left is 23 min, which rounds to 25 (the mock says 20)', b.sub(4, 'about 20 min', 'about 25 min'))
   b.patch('R25: the micro critter box is 5 wide, its badge column at 8 (the mock has 4), and the gap row under a card is not part of the box', rows => {
     rows[15] = '    ¤¤¤¤¤ Builder  Editing middleware/index.ts        1m 40s'
     rows[16] = '    ¤¤¤¤¤'

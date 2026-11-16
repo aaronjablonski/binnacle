@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { countdown, doing, pctBar, ruleBar, span, todoBar, TOOL_NAMES, toolName, toolRoom, wrapWords } from '../mod/hooks/views/fit'
+import { clauseFit, countdown, doing, growCaps, pctBar, ruleBar, span, todoBar, TOOL_NAMES, toolName, toolRoom, warmWords, wrapWords } from '../mod/hooks/views/fit'
 import { CK, COCKPIT, critterArgs, critterGlyph, critterOf, crewRole, edges, gaugeStyle, groundOf, isTextTheme, motionOn, themeOf, typeName } from '../mod/hooks/views/style'
 import type { Run } from '../mod/hooks/views/style'
 
@@ -272,5 +272,25 @@ describe('style: ground, theme, columns, roles', () => {
     expect(a.role).toBe('scout')
     expect(a.frames()).toHaveLength(4)
     expect(critterOf({ id: 'a7', type: 'Explore', status: 'running' }, { motion: false }).frames()).toHaveLength(1)
+  })
+})
+
+describe('FX2b helpers', () => {
+  test('clauseFit (F M4): a cut name never ends on a word that wants another', () => {
+    expect(clauseFit('Wire limiter into the chain', 22)).toBe('Wire limiter…')
+    expect(clauseFit('Wire limiter into the chain', 40)).toBe('Wire limiter into the chain')
+    expect(clauseFit('the chain of events', 6)).toBe('the…')
+  })
+
+  test('growCaps (R37): the floor at the mock, then the spare rows in order, a finished list frees its more line', () => {
+    expect(growCaps(0, [{ count: 12, cap: 5 }, { count: 9, cap: 3 }])).toEqual([5, 3])
+    expect(growCaps(4, [{ count: 12, cap: 5 }, { count: 9, cap: 3 }])).toEqual([9, 3])
+    expect(growCaps(10, [{ count: 12, cap: 5 }, { count: 9, cap: 3 }])).toEqual([12, 7])
+    expect(growCaps(99, [{ count: 12, cap: 5 }, { count: 9, cap: 3 }])).toEqual([12, 9])
+    expect(growCaps(99, [{ count: 2, cap: 5 }])).toEqual([5])
+  })
+
+  test('warmWords (R40): whole minutes, never "about", never m:ss', () => {
+    expect(warmWords(171_000)).toBe('2 min')
   })
 })

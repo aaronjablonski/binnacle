@@ -115,7 +115,7 @@ export const HEADER_ROWS = 9
  * budget line the budget view. On the desktop app the Svg deck stands in for
  * it (C6 restyles that Svg).
  */
-export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs: HeaderState, todo: TodoBlock, o: { key?: string; press?: Press; short?: boolean; svg?: boolean } = {}): RenderElement {
+export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs: HeaderState, todo: TodoBlock, o: { key?: string; press?: Press; short?: boolean; svg?: boolean; compact?: boolean } = {}): RenderElement {
   const press = o.press ?? asIs
   const svg = o.press === undefined && o.svg !== false
     ? deckSvg(ctx, $, [
@@ -130,7 +130,7 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
   const ground = ctx.ground ?? 'night'
   const { left, right } = edges(ctx.cols)
   // The budget line's room: up to the gauges at 62 columns and up, else the content width (header in parts.tsx).
-  const budget = budgetWords(ctx.t, ctx.now, { idle: isRest(hs), room: ctx.cols >= 62 ? COCKPIT.gauge - left - 2 : right - left + 1 })
+  const budget = budgetWords(ctx.t, ctx.now, { idle: isRest(hs), room: ctx.cols >= 62 ? right + 1 - 20 - left - 2 : right - left + 1 })
   // Slim: the turn's time alone ("41 min"), and nothing beside WAITING FOR YOU.
   if (o.short === true) w.meta = hs.state === 'working' && hs.turnMs !== undefined ? [{ text: span(hs.turnMs), dim: true }] : hs.state === 'waiting' ? [] : w.meta
   return header(ctx, $, {
@@ -146,6 +146,7 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
     ...(budget.length > 0 ? { budget, onBudget: press(() => setBudgetOpen($, true)) } : {}),
     gauges: nowGauges(ctx.t),
     ground,
+    ...(o.compact === true ? { compact: true } : {}),
   })
 }
 
@@ -228,13 +229,24 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
   const p = todoPlan(todo, n)
   if (p.allDone) {
     const last = todo.lastDone
-    const runs: Run[] = [{ text: '✓', color: CK.ok }, { text: ` All ${todo.total} done${last !== undefined ? ` · the last was “${oneLine(last.subject)}”` : ''}`, dim: true }]
+    const head: Run[] = [{ text: '✓', color: CK.ok }, { text: ` All ${todo.total} done`, dim: true }]
+    const tail = last !== undefined ? `the last was “${oneLine(last.subject)}”` : ''
+    // F M10: the last task wraps to a second row before any of it is cut.
+    const together = head.reduce((n, r) => n + r.text.length, 0) + (tail !== '' ? 3 + tail.length : 0) <= content
+    const row1: Run[] = together && tail !== '' ? [...head, { text: ` · ${tail}`, dim: true }] : head
     out.push(
       <Text key="todo-all" wrap="truncate-end">
         {' '.repeat(left)}
-        {(fitRuns(runs, content) as Run[]).filter(r => r.text !== '').map((r, i) => runText(r, ctx.e, $, `todo-all-${i}`))}
+        {(fitRuns(row1, content) as Run[]).filter(r => r.text !== '').map((r, i) => runText(r, ctx.e, $, `todo-all-${i}`))}
       </Text>,
     )
+    if (!together && tail !== '') {
+      out.push(
+        <Text key="todo-all-last" dimColor wrap="truncate-end">
+          {`${' '.repeat(left + 2)}${wordFit(tail, Math.max(1, content - 2))}`}
+        </Text>,
+      )
+    }
     return out
   }
   // F I12: a task's tag shortens ("now · 12 min", then "now") and then goes before its title is cut; the current
@@ -434,7 +446,10 @@ export function agentsSection(
     sumShort.push(s)
   }
   const out: RenderElement[] = [section(ctx, $, 'Agents', sum, { key: 'sec-agents', onPress: openAgents, short: sumShort })]
-  const shown = all.slice(0, Math.max(1, cards))
+  // F M10: when not every card fits, the agents that need you are kept first, and the cards stay in their own order.
+  const room = Math.max(1, cards)
+  const kept = new Set([...all.filter(a => asking.has(a.id)), ...all.filter(a => !asking.has(a.id))].slice(0, room).map(a => a.id))
+  const shown = all.length <= room ? all : all.filter(a => kept.has(a.id))
   for (const a of shown) {
     const need = asking.get(a.id)
     const state: PodState = a.status === 'error' ? 'failed' : need !== undefined ? 'waiting' : dozing.has(a.id) ? 'stalled' : a.status === 'done' ? 'done' : 'working'
@@ -607,9 +622,9 @@ import type { FootHint } from './tabkit'
 export type { FootHint }
 
 /** Now's footer for its state: a need, a Watch row, rest, or busy (the mocks' footers). */
-function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: HeaderState, cols: number): FootHint[] {
-  // Under 40 columns the compact header has no budget line: `b` opens the budget view from here.
-  if (cols < 40) return [{ hotkey: 'b', label: 'budget', id: 'hint-budget', onPress: () => setBudgetOpen($, true) }, { key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
+function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: HeaderState, cols: number, compact = false): FootHint[] {
+  // Under 40 columns, or under 30 rows (F M13), the compact header has no budget line: `b` opens the budget view from here.
+  if (cols < 40 || compact) return [{ hotkey: 'b', label: 'budget', id: 'hint-budget', onPress: () => setBudgetOpen($, true) }, { key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
   if (view.items.length > 0) {
     const count = view.items.length
     return [
@@ -682,17 +697,19 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { view, watch, hs, todo } = st
   const rest = isRest(hs)
   const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
-  const bar = footerSlot(ctx, $, nowHints($, view, watch, hs, ctx.cols))
+  // F M13: under 30 rows the header is the compact one (no critter block or gauges), so To do and an agent stay in view.
+  const compact = (ctx.bodyRows ?? 46) < 30
+  const bar = footerSlot(ctx, $, nowHints($, view, watch, hs, ctx.cols, compact))
   const footRows = bar !== null ? 2 : 0
 
-  const headEl = nowHeader(ctx, $, view, hs, todo)
+  const headEl = nowHeader(ctx, $, view, hs, todo, compact ? { compact: true } : {})
   const turn = rest ? turnSection(ctx, $) : []
   const tw = todoWants(todo)
   const cards = cardAgents(ctx.t).length
   const ag = rest || cards === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(3, cards) }
   const nn = noteItems(ctx.t).length
   const nw = nn === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(4, nn) }
-  const headH = ctx.look === 'svg' ? 9 : HEADER_ROWS
+  const headH = ctx.look === 'svg' ? 9 : compact ? heightOf(headEl) : HEADER_ROWS
   const fixed =
     headH + 1 +
     needsSlotHeight(view, 3, { cols: ctx.cols, now: ctx.now }) + 1 +

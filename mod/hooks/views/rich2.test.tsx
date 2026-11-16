@@ -118,7 +118,8 @@ test('long run is labelled LONG RUN with the time against its limit, a stalled a
   expect(needDetail(byKind['stalled']!, NOW)).toBe('quiet 11m')
   expect(kindLabel(byKind['asking']!)).toBe('PERMISSION')
   void asking
-  const ui = await mount($)
+  // A taller pane (60 rows): at 40 the one card that fits is the asker's (F M10: the agent that needs you is kept first), and the long runner's card, which shows its time, needs room.
+  const ui = await mount($, 62, 60)
   // Now draws them as Watch rows (C3): the kind in words, the model's sentence (R6, R27).
   const got = screen(await ui.drawn()).join(' ')
   expect(got).toContain('Long run')

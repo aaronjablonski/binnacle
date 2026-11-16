@@ -301,6 +301,23 @@ export function nameFit(text: string, cols: number): string {
   return got === '' && cols >= 1 && text.trim() !== '' ? '…' : got
 }
 
+/** Words a clause never ends on: a cut after one of them leaves the sentence hanging ("Wire limiter into the…"). */
+const HANGING = new Set(['the', 'a', 'an', 'of', 'into', 'to', 'for', 'and', 'or', 'in', 'on', 'at', 'with', 'by', 'from', 'as', 'is'])
+
+/**
+ * `nameFit` that cuts at a clause (F M4): a name that has to be cut never ends on a word that wants another
+ * ("Wire limiter into the…" is "Wire limiter…"), as long as a word is left.
+ *
+ * @example clauseFit('Wire limiter into the chain', 22) // 'Wire limiter…'
+ */
+export function clauseFit(text: string, cols: number): string {
+  const got = nameFit(text, cols)
+  if (!got.endsWith('…') || got === '…') return got
+  const words = got.slice(0, -1).split(' ')
+  while (words.length > 1 && HANGING.has((words[words.length - 1] ?? '').toLowerCase())) words.pop()
+  return `${words.join(' ')}…`
+}
+
 /** Short names a table's 5-wide tool column shows for tools whose names are longer. */
 const TOOL_SHORT: Record<string, string> = {
   SubagentHandback: 'Hand',

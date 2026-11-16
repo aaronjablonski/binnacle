@@ -68,7 +68,14 @@ function rightColumn(ctx: ViewCtx, $: EngineInterface, st: NowState, rows: numbe
   const deal = dealRows(rows - fixed - tw.floor - 3 * ag.floor, tw, ag, { floor: 0, want: 0 })
   const o = press !== undefined ? { press } : {}
   const todo = todoSection(ctx, $, st.todo, deal.todo, { ...o, ended: isRest(st.hs) })
-  const agents = rest ? [] : agentsSection(ctx, $, Math.max(1, deal.cards), { view: st.view, watch: st.watch, rest, ...o })
+  const todoH = todo.reduce((n, el) => n + heightOf(el), 0)
+  // F M10: fewer cards rather than a cut: the "+ n more working" line is always drawn when a card is left out.
+  let cardsShown = Math.max(1, deal.cards)
+  let agents = rest ? [] : agentsSection(ctx, $, cardsShown, { view: st.view, watch: st.watch, rest, ...o })
+  while (cardsShown > 1 && todoH + 1 + agents.reduce((n, el) => n + heightOf(el), 0) > rows) {
+    cardsShown--
+    agents = agentsSection(ctx, $, cardsShown, { view: st.view, watch: st.watch, rest, ...o })
+  }
   return upTo([...todo, ...(agents.length > 0 ? [blank(ctx, $, 'strip-right-gap'), ...agents] : [])], rows)
 }
 

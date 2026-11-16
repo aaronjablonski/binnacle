@@ -139,6 +139,12 @@ test('fidelity: CockpitAgents (list) at 62 columns matches the mock but for the 
     rows[26] = retime(rows[26]!, '7m 44s', '7 min')
     rows[27] = retime(rows[27]!, '1m 52s', '1 min')
   })
+  b.patch('M6: the List / Map toggle row is in the row under the tabs, as on the crew map, so the list has none under its header (the mock puts it there on this board only)', rows => {
+    const toggles = rows[10]!
+    rows.splice(10, 2)
+    rows.splice(3, 0, toggles)
+    rows.splice(rows.length - 1, 0, '')
+  })
   compare('CockpitAgents', b, got, 62)
 })
 
@@ -148,16 +154,21 @@ const STATE_AT = 36
 const TOKENS_END = 49
 const TIME_END = 59
 
-/** The longest head of `text` that ends at a word and leaves a `…`, at most `room` wide (the cut `wordFit` makes). */
+/**
+ * The longest head of `text` that ends at a word and leaves a `…`, at most `room` wide, without a word that wants
+ * another at its end (F M4: "Wire limiter…", never "Wire limiter into the…"). R26 moved the State column to 36,
+ * which is why the mock's whole names have to be cut at all.
+ */
 function cut(text: string, room: number): string {
   if (text.length <= room) return text
-  let out = ''
+  const words: string[] = []
   for (const w of text.split(' ')) {
-    const next = out === '' ? w : `${out} ${w}`
+    const next = [...words, w].join(' ')
     if (next.length + 1 > room) break
-    out = next
+    words.push(w)
   }
-  return `${out}…`
+  while (words.length > 1 && ['the', 'a', 'an', 'of', 'into', 'to', 'for', 'and', 'or', 'in', 'on', 'at', 'with', 'by', 'from', 'as', 'is'].includes(words[words.length - 1]!.toLowerCase())) words.pop()
+  return `${words.join(' ')}…`
 }
 
 type Kind = 'task' | 'agent' | 'plain' | 'main' | 'child'

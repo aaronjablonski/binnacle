@@ -1257,6 +1257,8 @@ export type HeaderSpec = {
   onBudget?: () => void | Promise<void>
   /** Up to two gauges at columns 40 and 51 (at 62 columns and up); narrower, they join the budget line as words. */
   gauges?: Gauge[]
+  /** The compact form at any width (F M13: a pane under 30 rows): no critter, gauges or budget line. */
+  compact?: boolean
   ground?: Ground
 }
 
@@ -1303,7 +1305,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
   const top = inst(ctx, $, frameTopInst(`${spec.key}-lintel`, cols, tone, ground))
   const foot = inst(ctx, $, frameFootInst(`${spec.key}-sill`, cols, tone, ground))
 
-  if (cols < HEADER_COMPACT_UNDER) {
+  if (cols < HEADER_COMPACT_UNDER || spec.compact === true) {
     const pillRow = meta.length > 0 && pill.text.length + 2 + width(meta) <= content ? spread([pill], meta, content) : padTo([pill], content)
     const lines = wrapWords(spec.title, content, 3)
     return (
@@ -1330,9 +1332,11 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
   }
 
   const gauges = (spec.gauges ?? []).slice(0, 2)
-  const withGauges = gauges.length > 0 && COCKPIT.gauge + GAUGE_PAIR.columns <= right + 1
+  // F M9: the gauges end at the content's right edge (column 40 at 62, as the mock), so on a wider pane they move with it.
+  const gaugeAt = right + 1 - GAUGE_PAIR.columns
+  const withGauges = gauges.length > 0 && gaugeAt >= COCKPIT.gauge
   const textCol = COCKPIT.text
-  const textRoom = withGauges ? COCKPIT.headline : right - textCol + 1
+  const textRoom = withGauges ? gaugeAt - textCol - 2 : right - textCol + 1
   const titleLines = wrapWords(spec.title, textRoom, 2)
   const titleEls: RenderElement[] = [0, 1].map(i => {
     const s = titleLines[i] ?? ''
@@ -1351,7 +1355,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
   })
   const critterEl =
     spec.critter !== undefined ? inst(ctx, $, { key: `${spec.key}-who`, ...spec.critter }) : <Text key={`${spec.key}-who`}> </Text>
-  const blockWidth = withGauges ? COCKPIT.gauge : cols
+  const blockWidth = withGauges ? gaugeAt : cols
   const block = (
     <Box key={`${spec.key}-block`} flexDirection="row">
       <Box key={`${spec.key}-left`} flexDirection="column" width={blockWidth} flexShrink={0}>
@@ -1374,7 +1378,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
   )
   // The budget line, and under each gauge its word (centred under its 9 cells).
   let budget = runsOf(spec.budget)
-  const budgetRoom = withGauges ? COCKPIT.gauge - left - 2 : content
+  const budgetRoom = withGauges ? gaugeAt - left - 2 : content
   if (!withGauges && gauges.length > 0) {
     for (const g of gauges) {
       const words: Run[] = [{ text: budget.length > 0 ? ' · ' : '', dim: true }, { text: `${g.label} `, dim: true }, { text: gaugeFigure(g.pct), ...figureStyle(g.pct) }]
@@ -1393,7 +1397,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
   const budgetBody = budget.map((r, i) => runText(r, ctx.e, $, `${spec.key}-b${i}`))
   const budgetRow = (
     <Box key={`${spec.key}-budget-row`} flexDirection="row">
-      <Box key={`${spec.key}-budget-box`} width={withGauges ? COCKPIT.gauge : cols} paddingLeft={left} flexShrink={0}>
+      <Box key={`${spec.key}-budget-box`} width={withGauges ? gaugeAt : cols} paddingLeft={left} flexShrink={0}>
         {budget.length === 0 ? (
           <Text key={`${spec.key}-budget`}> </Text>
         ) : spec.onBudget !== undefined ? (

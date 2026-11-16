@@ -139,7 +139,7 @@ export function watchBlock(ctx: ViewCtx, $: EngineInterface, rows: Watch[], cap:
     out.push(
       <Box key={`${key}-keys`} flexDirection="row" paddingLeft={WATCH_TEXT} columnGap={3}>
         {kept.map(k => (
-          <Button key={k.key} hotkey={k.hotkey} plain onPress={k.run}>
+          <Button key={k.key} hotkey={k.hotkey} plain dimColor onPress={k.run}>
             {k.label}
           </Button>
         ))}

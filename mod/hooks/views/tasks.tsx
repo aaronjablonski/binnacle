@@ -68,11 +68,11 @@ const spentMs = (m: TaskMeterRow | undefined): number => (m !== undefined ? m.ms
 
 const FIVE_MIN = 5 * 60_000
 
-/** "about 25 min left at this pace": the average time a done task took this request, times the tasks left. Nothing before one is done. */
+/** "about 20 min left at this pace": the average time a done task took this request, times the tasks left, rounded down (whole minutes under 10, 5 minutes above). Nothing before one is done. */
 function paceRuns(done: number, open: number, since: number | undefined, now: number): Run[] {
   if (open <= 0 || done <= 0 || since === undefined || now <= since) return []
   const left = ((now - since) / done) * open
-  const rounded = left < 10 * 60_000 ? Math.max(60_000, Math.round(left / 60_000) * 60_000) : Math.round(left / FIVE_MIN) * FIVE_MIN
+  const rounded = left < 10 * 60_000 ? Math.max(60_000, Math.floor(left / 60_000) * 60_000) : Math.floor(left / FIVE_MIN) * FIVE_MIN
   return [{ text: 'about ', dim: true }, { text: span(rounded), bold: true }, { text: ' left at this pace', dim: true }]
 }
 

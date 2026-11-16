@@ -33,15 +33,15 @@ export function modelName(id: string): string {
   return family?.[1] ?? bare
 }
 
-/** A token count in a few characters: 950, 1.2k, 41k, 1.3M. */
+/** A token count in a few characters: 950, 1.2k, 5k, 41k, 1.3M (a trailing `.0` is dropped: 5k, never 5.0k). */
 export function tokenText(n: number): string {
   if (n < 1000) return String(Math.max(0, Math.round(n)))
   if (n < 10_000) {
     const v = (n / 1000).toFixed(1)
-    if (v !== '10.0') return `${v}k`
+    if (v !== '10.0') return `${v.replace(/\.0$/, '')}k`
   }
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`
-  return `${(n / 1_000_000).toFixed(1)}M`
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
 }
 
 /** A window's kind as a short label: `five_hour` is `5h`, `seven_day` is `7d`; others lose their underscores. */

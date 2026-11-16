@@ -327,15 +327,16 @@ test('LOOK: the header counts, the model share and the tokens, from the agents t
   seed(on, MIXED, AGENTS_UI)
   const ui = await mount($, 'terminal')
   const all = await rows(ui)
-  expect(all[4]).toBe('  1 agent working                      1 finished · 1 failed')
+  // F M6: the toggle row is the row under the tabs (row 3), so the lintel is row 4 and the header row 5.
+  expect(all[5]).toBe('  1 agent working                      1 finished · 1 failed')
   const models = rowWith(all, 'Models')
   expect(colOf(models, '━')).toBe(12)
   expect(models).toContain('■ Sonnet 59%')
   const tokens = rowWith(all, 'Tokens')
   expect(tokens).toContain('across 3 agents')
   expect(colOf(tokens, '259k')).toBe(12)
-  // the lintel and the sill frame it, and the toggle row follows after a blank
-  expect(all[3]).toMatch(/^┏━━─+$/)
+  // the lintel and the sill frame it, and the toggle row is above the lintel
+  expect(all[4]).toMatch(/^┏━━─+$/)
   expect(all[idxWith(all, 'Tokens') + 1]).toMatch(/^─+━━┛$/)
   await ui.unmount()
 })

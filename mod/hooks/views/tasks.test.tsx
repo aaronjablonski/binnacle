@@ -450,9 +450,9 @@ test('the active task has its agents tethered under it as micro critters: the ty
     expect([colOf(second, 'General'), second.slice(10).startsWith('General  Thinking')]).toEqual([10, true])
     expect([first.trimEnd().endsWith('1 min'), first.trimEnd().length, second.trimEnd().length]).toEqual([true, 60, 60])
     expect(rows[at + 3]).toBe('')
-    // the text form of a critter is the state glyph at 4 and its role word under it
+    // the text form of a critter is the state glyph at 4 and nothing under it: the name stands beside it, so no role word (R43, F M8)
     if (surface !== 'terminal') {
-      expect([colOf(first, '●'), colOf(rows[at + 2] ?? '', 'scout'), colOf(rows[at + 5] ?? '', 'build')]).toEqual([4, 4, 4])
+      expect([colOf(first, '●'), colOf(rows[at + 2] ?? '', 'scout'), colOf(rows[at + 5] ?? '', 'build')]).toEqual([4, -1, -1])
     }
     await ui.unmount()
   }

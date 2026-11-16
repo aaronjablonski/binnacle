@@ -19,7 +19,7 @@ import type { Action, Detail, InstSpec, Run } from './parts'
 import { Grid, PALETTE } from './raster'
 import type { ViewCtx } from './shell'
 import { C, CK, edges, typeName } from './style'
-import { flushRight, hasTime, midEnd, moreRow, nameLimit, openedBlock, stepGlyph, withFooter } from './tabkit'
+import { flushRight, growBody, hasTime, midEnd, moreRow, nameLimit, openedBlock, stepGlyph } from './tabkit'
 
 // The Steps tab (cockpit spec "CockpitSteps"): `f: Find a step` and the
 // total, the chips `All  Kept  Errors  In view`, the activity map, "This
@@ -433,166 +433,174 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       }
     }
 
-    // ---- the list: every block with its height, then only those near the window are drawn
-    const items: Item[] = []
-    const gap = (): void => {
-      const last = items[items.length - 1]
-      if (last === undefined || last.isBlank === true) return
-      items.push({ key: `gap-${items.length}`, height: 1, isBlank: true, draw: () => blank(ctx, $, `gap-${items.length}`) })
-    }
-    const add = (key: string, height: number, draw: () => RenderElement): void => {
-      items.push({ key, height, draw })
-    }
-    const mid = midEnd(cols)
-    const toolW = toolRoom(cols)
-    const stepRow = (s: Step, isOpen: boolean): RenderElement => {
-      const keptStep = s.pin !== undefined
-      const calm = s.status === 'done' || s.status === 'denied' || s.status === 'interrupted'
-      const end = s.status === 'running' ? ctx.now : (s.endedAt ?? s.startedAt)
-      const hit = find.hits.has(s.id)
-      const live = s.status === 'running'
-      const glyphRun: Run = keptStep && calm ? { text: '★', color: CK.accent } : s.status === 'running' ? { text: stepGlyph(s.status), color: CK.accent } : s.status === 'error' ? { text: stepGlyph(s.status), color: CK.fail } : { text: stepGlyph(s.status), dim: true }
-      const nameCol = toolW > 0 ? 4 + toolW + 1 : 4
-      const body: Seg[] = [{ col: 2, ...glyphRun }]
-      if (toolW > 0) body.push({ col: 4, text: toolName(s.tool, toolW), ...(isOpen || live ? { bold: true } : {}) })
-      const room = Math.max(1, nameLimit(cols) - nameCol)
-      let col = nameCol
-      for (const r of fitRuns(marked(nameOf(s, room), find.query), room) as Run[]) {
-        if (r.text === '') continue
-        body.push({ ...(isOpen ? { bold: true } : {}), ...r, col })
-        col += r.text.length
-      }
-      const who: Run = hit ? { text: 'in result', color: C.accent } : { text: s.agent === 'main' ? 'main' : typeName(agentName(t, s.agent)), dim: true }
-      if (mid !== undefined) body.push(...flushRight([who], mid))
-      if (hasTime(cols)) body.push(...flushRight([{ text: live ? 'now' : span(end - s.startedAt, { steps: true }), dim: true }], right))
-      return lineOf(ctx, $, {
-        key: `step-${s.id}`,
-        ...(seen(s.id) ? { pre: [{ col: 0, text: '◂', color: C.live }] } : {}),
-        body,
-        // Enter on a step row opens its page (rich rule 4); `b` comes back to the row.
-        onPress: () => openStep($, s.id, `step-${s.id}`),
-      })
-    }
-    const addStep = (s: Step): void => {
-      const isOpen = u.stepOpen === s.id
-      add(`step-${s.id}`, 1, () => stepRow(s, isOpen))
-      const note = s.pin !== undefined && s.pin !== '' ? oneLine(s.pin) : ''
-      if (!isOpen) {
-        if (note !== '') add(`kept-${s.id}`, 1, () => lineOf(ctx, $, { key: `kept-${s.id}`, body: [{ col: 4, text: wordFit(`kept: “${note}”`, Math.max(1, right - 3)), dim: true }] }))
-        return
-      }
-      const body = bodyOfOpen(u, s.id)?.body
-      const details = stepDetails(t, s, u, ctx.now)
-      const actions: Action[] = [
-        { hotkey: 'g', label: 'chat', key: `chat-${s.id}`, onPress: () => showInChat($, s.id) },
-        { hotkey: 'k', label: s.pin === undefined ? 'keep' : 'unkeep', key: `keep-${s.id}`, onPress: () => toggleKeep($, s) },
-        { hotkey: 'c', label: 'copy', key: `copy-${s.id}`, onPress: () => copyResult($, stepMarkdown(s, body), surface) },
-      ]
-      add(`open-${s.id}`, details.length + 1, () => <Box key={`open-${s.id}`} flexDirection="column">{openedBlock(ctx, $, { key: `open-${s.id}`, details, actions, right: '↵ full page' })}</Box>)
-      gap()
-    }
-    const addMore = (key: string, n: number, what: string, onPress: () => Promise<void>): void => {
-      add(key, 1, () => moreRow(ctx, $, key, `+ ${n} ${what}`, onPress))
-    }
-    // The turn that is running or ran last (the newest main turn): its head reads "This turn".
-    const newestTurn = t.turns.filter(x => x.agent === 'main').reduce<TurnRow | undefined>((a, b) => (a === undefined || b.startedAt > a.startedAt ? b : a), undefined)
-    // A turn: its head (a Button when older), up to 6 rows, `+ n more in this turn`.
-    const addTurn = (g: Group, isNewest: boolean): void => {
-      const id = groupId(g)
-      gap()
-      const ids = g.steps.map(s => s.id)
-      const isThis = isNewest && g.turn !== undefined && g.turn.id === newestTurn?.id
-      const title = isThis ? 'This turn' : g.turn === undefined ? 'Earlier steps' : titleOf(g, 34)
-      const sum: Run[] = isThis ? [{ text: wordFit(promptTitle(g.turn!.prompt, 40) || '“(no prompt)”', right - left - 14), dim: true }] : [{ text: `${g.steps.length} ${g.steps.length === 1 ? 'step' : 'steps'}`, dim: true }]
-      add(`turn-${id}`, 1, () => section(ctx, $, title, sum, { key: `turn-${id}`, ...(isNewest ? {} : { onPress: () => toggleTurn($, id, ids) }) }))
-      const every = u.openTurns.includes(allOf(id))
-      const visible = every ? g.steps : g.steps.filter((s, i) => i < TURN_ROWS || s.id === u.stepOpen)
-      for (const s of visible) addStep(s)
-      const hidden = g.steps.length - visible.length
-      if (hidden > 0) addMore(`more-${id}`, hidden, 'more in this turn', () => toggleMark($, allOf(id)))
-    }
-
-    const [newest, ...older] = groups as [Group, ...Group[]]
+    // R37: This turn and Earlier turns keep the mock's 6 and 3 at 46 rows and grow with the pane after that.
     const isOpenGroup = (g: Group): boolean => u.openTurns.includes(groupId(g)) || g.steps.some(s => s.id === u.stepOpen)
-    addTurn(newest, true)
-    for (const g of older.filter(isOpenGroup)) addTurn(g, false)
+    const [newest, ...older] = groups as [Group, ...Group[]]
     const earlier = older.filter(g => !isOpenGroup(g))
-    if (earlier.length > 0) {
-      gap()
-      add('sec-earlier', 1, () => section(ctx, $, 'Earlier turns', String(earlier.length), { key: 'sec-earlier' }))
-      const every = u.openTurns.includes(ALL_EARLIER)
-      for (const g of every ? earlier : earlier.slice(0, EARLIER_ROWS)) {
-        const id = groupId(g)
-        const ids = g.steps.map(s => s.id)
-        add(`turn-${id}`, 1, () => {
-          const body: Seg[] = [{ col: 2, text: '○', color: C.subtle }]
-          const mark = `${g.steps.length} ${find.active ? plural(g.steps.length, 'hit', 'hits') : plural(g.steps.length, 'step', 'steps')}`
-          const timeText = g.turn !== undefined ? clock(g.turn.startedAt) : ''
-          const room = Math.max(1, (mid !== undefined ? mid - mark.length - 2 : hasTime(cols) ? right - timeText.length - 2 : right + 1) - 4)
-          body.push({ col: 4, text: titleOf(g, room) })
-          if (mid !== undefined) body.push(...flushRight([{ text: mark, dim: true }], mid))
-          if (hasTime(cols) && timeText !== '') body.push(...flushRight([{ text: timeText, dim: true }], right))
-          return lineOf(ctx, $, { key: `turn-${id}`, body, onPress: () => toggleTurn($, id, ids) })
+    const lists = [
+      { count: newest.steps.length, cap: TURN_ROWS },
+      { count: earlier.length, cap: EARLIER_ROWS },
+    ]
+    const build = (caps: number[]): { out: RenderElement[]; hints: FootHint[] } => {
+      // ---- the list: every block with its height, then only those near the window are drawn
+      const items: Item[] = []
+      const gap = (): void => {
+        const last = items[items.length - 1]
+        if (last === undefined || last.isBlank === true) return
+        items.push({ key: `gap-${items.length}`, height: 1, isBlank: true, draw: () => blank(ctx, $, `gap-${items.length}`) })
+      }
+      const add = (key: string, height: number, draw: () => RenderElement): void => {
+        items.push({ key, height, draw })
+      }
+      const mid = midEnd(cols)
+      const toolW = toolRoom(cols)
+      const stepRow = (s: Step, isOpen: boolean): RenderElement => {
+        const keptStep = s.pin !== undefined
+        const calm = s.status === 'done' || s.status === 'denied' || s.status === 'interrupted'
+        const end = s.status === 'running' ? ctx.now : (s.endedAt ?? s.startedAt)
+        const hit = find.hits.has(s.id)
+        const live = s.status === 'running'
+        const glyphRun: Run = keptStep && calm ? { text: '★', color: CK.accent } : s.status === 'running' ? { text: stepGlyph(s.status), color: CK.accent } : s.status === 'error' ? { text: stepGlyph(s.status), color: CK.fail } : { text: stepGlyph(s.status), dim: true }
+        const nameCol = toolW > 0 ? 4 + toolW + 1 : 4
+        const body: Seg[] = [{ col: 2, ...glyphRun }]
+        if (toolW > 0) body.push({ col: 4, text: toolName(s.tool, toolW), ...(isOpen || live ? { bold: true } : {}) })
+        const room = Math.max(1, nameLimit(cols) - nameCol)
+        let col = nameCol
+        for (const r of fitRuns(marked(nameOf(s, room), find.query), room) as Run[]) {
+          if (r.text === '') continue
+          body.push({ ...(isOpen ? { bold: true } : {}), ...r, col })
+          col += r.text.length
+        }
+        const who: Run = hit ? { text: 'in result', color: C.accent } : { text: s.agent === 'main' ? 'main' : typeName(agentName(t, s.agent)), dim: true }
+        if (mid !== undefined) body.push(...flushRight([who], mid))
+        if (hasTime(cols)) body.push(...flushRight([{ text: live ? 'now' : span(end - s.startedAt, { steps: true }), dim: true }], right))
+        return lineOf(ctx, $, {
+          key: `step-${s.id}`,
+          ...(seen(s.id) ? { pre: [{ col: 0, text: '◂', color: C.live }] } : {}),
+          body,
+          // Enter on a step row opens its page (rich rule 4); `b` comes back to the row.
+          onPress: () => openStep($, s.id, `step-${s.id}`),
         })
       }
-      if (!every && earlier.length > EARLIER_ROWS) {
-        addMore('more-earlier', earlier.length - EARLIER_ROWS, 'more', () => toggleMark($, ALL_EARLIER))
+      const addStep = (s: Step): void => {
+        const isOpen = u.stepOpen === s.id
+        add(`step-${s.id}`, 1, () => stepRow(s, isOpen))
+        const note = s.pin !== undefined && s.pin !== '' ? oneLine(s.pin) : ''
+        if (!isOpen) {
+          if (note !== '') add(`kept-${s.id}`, 1, () => lineOf(ctx, $, { key: `kept-${s.id}`, body: [{ col: 4, text: wordFit(`kept: “${note}”`, Math.max(1, right - 3)), dim: true }] }))
+          return
+        }
+        const body = bodyOfOpen(u, s.id)?.body
+        const details = stepDetails(t, s, u, ctx.now)
+        const actions: Action[] = [
+          { hotkey: 'g', label: 'chat', key: `chat-${s.id}`, onPress: () => showInChat($, s.id) },
+          { hotkey: 'k', label: s.pin === undefined ? 'keep' : 'unkeep', key: `keep-${s.id}`, onPress: () => toggleKeep($, s) },
+          { hotkey: 'c', label: 'copy', key: `copy-${s.id}`, onPress: () => copyResult($, stepMarkdown(s, body), surface) },
+        ]
+        add(`open-${s.id}`, details.length + 1, () => <Box key={`open-${s.id}`} flexDirection="column">{openedBlock(ctx, $, { key: `open-${s.id}`, details, actions, right: '↵ full page' })}</Box>)
+        gap()
       }
-    }
-    while (items.length > 0 && items[items.length - 1]?.isBlank === true) items.pop()
+      const addMore = (key: string, n: number, what: string, onPress: () => Promise<void>): void => {
+        add(key, 1, () => moreRow(ctx, $, key, `+ ${n} ${what}`, onPress))
+      }
+      // The turn that is running or ran last (the newest main turn): its head reads "This turn".
+      const newestTurn = t.turns.filter(x => x.agent === 'main').reduce<TurnRow | undefined>((a, b) => (a === undefined || b.startedAt > a.startedAt ? b : a), undefined)
+      // A turn: its head (a Button when older), up to 6 rows, `+ n more in this turn`.
+      const addTurn = (g: Group, isNewest: boolean): void => {
+        const id = groupId(g)
+        gap()
+        const ids = g.steps.map(s => s.id)
+        const isThis = isNewest && g.turn !== undefined && g.turn.id === newestTurn?.id
+        const title = isThis ? 'This turn' : g.turn === undefined ? 'Earlier steps' : titleOf(g, 34)
+        const sum: Run[] = isThis ? [{ text: wordFit(promptTitle(g.turn!.prompt, 40) || '“(no prompt)”', right - left - 14), dim: true }] : [{ text: `${g.steps.length} ${g.steps.length === 1 ? 'step' : 'steps'}`, dim: true }]
+        add(`turn-${id}`, 1, () => section(ctx, $, title, sum, { key: `turn-${id}`, ...(isNewest ? {} : { onPress: () => toggleTurn($, id, ids) }) }))
+        const every = u.openTurns.includes(allOf(id))
+        const visible = every ? g.steps : g.steps.filter((s, i) => i < caps[0]! || s.id === u.stepOpen)
+        for (const s of visible) addStep(s)
+        const hidden = g.steps.length - visible.length
+        if (hidden > 0) addMore(`more-${id}`, hidden, 'more in this turn', () => toggleMark($, allOf(id)))
+      }
 
-    const totalRows = items.reduce((sum, it) => sum + it.height, 0)
-    const { offset, bodyRows } = scrollOf(ctx)
-    const win = windowRows(totalRows, offset, bodyRows, Math.max(MIN_PAD, bodyRows))
-    const drawn: RenderElement[] = []
-    let top = 0
-    let bottom = 0
-    let cursor = 0
-    for (const it of items) {
-      const start = cursor
-      const end = cursor + it.height
-      cursor = end
-      if (end <= win.from) {
-        top = end
-        continue
+      addTurn(newest, true)
+      for (const g of older.filter(isOpenGroup)) addTurn(g, false)
+      if (earlier.length > 0) {
+        gap()
+        add('sec-earlier', 1, () => section(ctx, $, 'Earlier turns', String(earlier.length), { key: 'sec-earlier' }))
+        const every = u.openTurns.includes(ALL_EARLIER)
+        for (const g of every ? earlier : earlier.slice(0, caps[1]!)) {
+          const id = groupId(g)
+          const ids = g.steps.map(s => s.id)
+          add(`turn-${id}`, 1, () => {
+            const body: Seg[] = [{ col: 2, text: '○', color: C.subtle }]
+            const mark = `${g.steps.length} ${find.active ? plural(g.steps.length, 'hit', 'hits') : plural(g.steps.length, 'step', 'steps')}`
+            const timeText = g.turn !== undefined ? clock(g.turn.startedAt) : ''
+            const room = Math.max(1, (mid !== undefined ? mid - mark.length - 2 : hasTime(cols) ? right - timeText.length - 2 : right + 1) - 4)
+            body.push({ col: 4, text: titleOf(g, room) })
+            if (mid !== undefined) body.push(...flushRight([{ text: mark, dim: true }], mid))
+            if (hasTime(cols) && timeText !== '') body.push(...flushRight([{ text: timeText, dim: true }], right))
+            return lineOf(ctx, $, { key: `turn-${id}`, body, onPress: () => toggleTurn($, id, ids) })
+          })
+        }
+        if (!every && earlier.length > caps[1]!) {
+          addMore('more-earlier', earlier.length - caps[1]!, 'more', () => toggleMark($, ALL_EARLIER))
+        }
       }
-      if (start >= win.to) {
-        bottom += it.height
-        continue
-      }
-      drawn.push(it.draw())
-    }
+      while (items.length > 0 && items[items.length - 1]?.isBlank === true) items.pop()
 
-    // ---- the footer: only while the pane has the focus
-    const openStepRow = u.stepOpen !== undefined ? t.steps.find(s => s.id === u.stepOpen) : undefined
-    const nextHint = (label: string): FootHint => ({ hotkey: 'n', label, id: 'hint-n', onPress: walk(1) })
-    // `p` is armed without a hint: the mock's footer has `n next error` and `f find` only.
-    const prevHint: FootHint = { hotkey: 'p', label: 'prev', id: 'hint-p', onPress: walk(-1), hidden: true }
-    let hints: FootHint[]
-    if (openStepRow !== undefined && targetIds.length === 0) {
-      const body = bodyOfOpen(u, openStepRow.id)?.body
-      hints = [
-        { key: '↵', label: 'full step' },
-        { hotkey: 'q', label: 'quote', id: 'hint-q', onPress: () => quoteInPrompt($, quoteOf(openStepRow, body)) },
-        { key: 'esc', label: 'close' },
+      const totalRows = items.reduce((sum, it) => sum + it.height, 0)
+      const { offset, bodyRows } = scrollOf(ctx)
+      const win = windowRows(totalRows, offset, bodyRows, Math.max(MIN_PAD, bodyRows))
+      const drawn: RenderElement[] = []
+      let top = 0
+      let bottom = 0
+      let cursor = 0
+      for (const it of items) {
+        const start = cursor
+        const end = cursor + it.height
+        cursor = end
+        if (end <= win.from) {
+          top = end
+          continue
+        }
+        if (start >= win.to) {
+          bottom += it.height
+          continue
+        }
+        drawn.push(it.draw())
+      }
+
+      // ---- the footer: only while the pane has the focus
+      const openStepRow = u.stepOpen !== undefined ? t.steps.find(s => s.id === u.stepOpen) : undefined
+      const nextHint = (label: string): FootHint => ({ hotkey: 'n', label, id: 'hint-n', onPress: walk(1) })
+      // `p` is armed without a hint: the mock's footer has `n next error` and `f find` only.
+      const prevHint: FootHint = { hotkey: 'p', label: 'prev', id: 'hint-p', onPress: walk(-1), hidden: true }
+      let hints: FootHint[]
+      if (openStepRow !== undefined && targetIds.length === 0) {
+        const body = bodyOfOpen(u, openStepRow.id)?.body
+        hints = [
+          { key: '↵', label: 'full step' },
+          { hotkey: 'q', label: 'quote', id: 'hint-q', onPress: () => quoteInPrompt($, quoteOf(openStepRow, body)) },
+          { key: 'esc', label: 'close' },
+        ]
+      } else if (find.active) {
+        hints = targetIds.length > 0 ? [nextHint('next hit'), prevHint, { key: 'esc', label: 'clear' }] : [{ key: 'esc', label: 'clear' }]
+      } else if (targetIds.length > 0) {
+        hints = [{ key: '↵', label: 'open step' }, nextHint('next error'), prevHint, { key: 'f', label: 'find' }]
+      } else {
+        hints = [{ key: '↵', label: 'open step' }, { key: 'f', label: 'find' }, { key: 'esc', label: 'prompt' }]
+      }
+
+      const body: RenderElement[] = [
+        ...deck,
+        <Box key="list" flexDirection="column">
+          {top > 0 ? <Box key="space-top" height={top} /> : null}
+          {drawn}
+          {bottom > 0 ? <Box key="space-bottom" height={bottom} /> : null}
+        </Box>,
       ]
-    } else if (find.active) {
-      hints = targetIds.length > 0 ? [nextHint('next hit'), prevHint, { key: 'esc', label: 'clear' }] : [{ key: 'esc', label: 'clear' }]
-    } else if (targetIds.length > 0) {
-      hints = [{ key: '↵', label: 'open step' }, nextHint('next error'), prevHint, { key: 'f', label: 'find' }]
-    } else {
-      hints = [{ key: '↵', label: 'open step' }, { key: 'f', label: 'find' }, { key: 'esc', label: 'prompt' }]
+    return { out: body, hints }
     }
-
-    const body: RenderElement[] = [
-      ...deck,
-      <Box key="list" flexDirection="column">
-        {top > 0 ? <Box key="space-top" height={top} /> : null}
-        {drawn}
-        {bottom > 0 ? <Box key="space-bottom" height={bottom} /> : null}
-      </Box>,
-    ]
-    return <Box flexDirection="column">{withFooter(ctx, $, body, hints)}</Box>
+    return <Box flexDirection="column">{growBody(ctx, $, lists, build)}</Box>
   } catch (err) {
     debug($, `timeline view failed: ${errText(err)}`)
     return <Text dimColor>{wordFit(`Steps: ${errText(err)}`, cols)}</Text>

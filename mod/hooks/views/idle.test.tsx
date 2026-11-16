@@ -8,7 +8,7 @@ import { initialUi } from '../state'
 import { resetPaint } from './paint'
 
 // Idle is still (plan constraint 5): while the session waits and the prompt
-// cache is warm, Now's budget line counts down ("cache stays warm 4:48",
+// cache is warm, Now's budget line counts down ("cache warm 4:48",
 // R29). The cockpit's lintel carries no readout, so nothing is blitted: the
 // pane is invalidated at most once every 10 s on every surface, and it all
 // stops once the cache is cold.

@@ -18,7 +18,7 @@ import { Grid, PALETTE } from './raster'
 import type { Ground } from './raster'
 import type { ViewCtx } from './shell'
 import { C, CK, COL, critterGlyph, critterOf, edges, podOf, statusColor, typeName } from './style'
-import { colHeads, flushRight, hasTime, midEnd, moreRow, nameLimit, stepGlyph, withFooter } from './tabkit'
+import { colHeads, flushRight, growBody, hasTime, midEnd, moreRow, nameLimit, stepGlyph } from './tabkit'
 import type { FootHint } from './overview'
 
 // The Tasks tab (cockpit spec "CockpitTasks"): a header (how many are done,
@@ -235,178 +235,187 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const chartRows = meter.rows.filter(m => currentKeys.has(keyOf(m.task)))
     const waits = waitStates(t, u, now)
     const toPage = (key: string) => (): Promise<void> => openPage($, 'task', key, `task-${key}`)
-    const out: RenderElement[] = []
-    const gap = (): void => void out.push(blank(ctx, $, `gap-${out.length}`))
-
-    const emptyList = current.length === 0
-    if (!emptyList) {
-      // The counts are the lead's list (R11); with no lead list, every task.
-      const lead = block.total > 0
-      const total = lead ? block.total : current.length
-      const nDone = lead ? block.done : done.length
-      const hasCurrent = lead ? block.current !== undefined : active.length > 0
-      out.push(inst(ctx, $, frameTopInst('tasks-lintel', cols, 'iris', ground)))
-      const sentence: Run[] = nDone === total && total > 0 ? [{ text: `All ${total} done`, bold: true }] : [{ text: `${nDone} of ${total} done`, bold: true }]
-      const pace = paceRuns(nDone, total - nDone, block.since, now)
-      const paceW = pace.reduce((n, r) => n + r.text.length, 0)
-      const first: Seg[] = [{ col: left, ...sentence[0]! }]
-      if (paceW > 0 && paceW + sentence[0]!.text.length + 4 <= right - left + 1) first.push(...flushRight(pace, right))
-      out.push(lineOf(ctx, $, { key: 'tasks-count', body: first }))
-      out.push(blank(ctx, $, 'tasks-gap-bar'))
-      out.push(
-        <Text key="tasks-bar" wrap="truncate-end">
-          {' '.repeat(left)}
-          {todoBar(right - left + 1, total, nDone, hasCurrent ? 1 : 0).map((r, i) => runText(r, ctx.e, $, `tasks-bar-${i}`))}
-        </Text>,
-      )
-      out.push(blank(ctx, $, 'tasks-gap-effort'))
-      const chartCol = 18
-      const room = right - chartCol + 1
-      const heavy = chartRows.reduce<TaskMeterRow | undefined>((a, m) => (m.tokens > 0 && (a === undefined || m.tokens > a.tokens) ? m : a), undefined)
-      if (room >= 12 && cols >= 50) {
-        out.push(
-          <Box key="tasks-effort" flexDirection="row">
-            <Box key="tasks-effort-words" flexDirection="column" width={chartCol} flexShrink={0}>
-              <Text key="tasks-effort-0" dimColor>{`${' '.repeat(left)}Effort so far`}</Text>
-              <Text key="tasks-effort-1" dimColor>{`${' '.repeat(left)}one bar a task`}</Text>
-            </Box>
-            {inst(ctx, $, effortInst(chartRows, room, ground))}
-          </Box>,
-        )
-      }
-      if (heavy !== undefined) {
-        const tail = `, ${tok(heavy.tokens)}`
-        const label = wordFit(oneLine(heavy.task.subject), Math.max(1, right - left + 1 - 'Heaviest: '.length - tail.length))
-        out.push(
-          lineOf(ctx, $, {
-            key: 'tasks-heaviest',
-            body: [{ col: left, text: 'Heaviest: ', dim: true }, { col: left + 10, text: label }, { col: left + 10 + label.length, text: tail, dim: true }],
-          }),
-        )
-      } else if (room < 12 || cols < 50) {
-        out.push(noteRow(ctx, $, 'tasks-effort-none', 'Effort so far: no tokens yet'))
-      }
-      out.push(inst(ctx, $, frameFootInst('tasks-sill', cols, 'iris', ground)))
-      gap()
-    }
-
     const unfolded = u.doneAll === true
-    const doneCap = unfolded ? UNFOLDED_CAP : DONE_CAP
-    const doneShown = done.slice(0, doneCap)
-    const doneMore = done.length - doneShown.length
+    // R37: Up next, Done and Earlier keep the mock's caps at 46 rows and grow with the pane after that.
+    const lists = [
+      { count: queued.length, cap: QUEUED_CAP },
+      { count: done.length, cap: unfolded ? UNFOLDED_CAP : DONE_CAP },
+      { count: earlier.length, cap: unfolded ? UNFOLDED_CAP : EARLIER_CAP },
+    ]
+    const build = (caps: number[]): { out: RenderElement[]; hints: FootHint[] } => {
+      const out: RenderElement[] = []
+      const gap = (): void => void out.push(blank(ctx, $, `gap-${out.length}`))
 
-    if (emptyList) {
-      out.push(section(ctx, $, 'To do', undefined, { key: 'sec-todo' }))
-      out.push(noteRow(ctx, $, 'todo-none', NO_LIST_TEXT))
-      if (earlier.length > 0) gap()
-    }
-
-    if (active.length > 0) {
-      out.push(section(ctx, $, 'Doing now', String(active.length), { key: 'sec-doing' }))
-      for (const x of active.slice(0, ACTIVE_CAP)) {
-        const key = keyOf(x)
-        const m = byTask.get(key)
-        const used = m !== undefined ? tok(m.tokens) : ''
+      const emptyList = current.length === 0
+      if (!emptyList) {
+        // The counts are the lead's list (R11); with no lead list, every task.
+        const lead = block.total > 0
+        const total = lead ? block.total : current.length
+        const nDone = lead ? block.done : done.length
+        const hasCurrent = lead ? block.current !== undefined : active.length > 0
+        out.push(inst(ctx, $, frameTopInst('tasks-lintel', cols, 'iris', ground)))
+        const sentence: Run[] = nDone === total && total > 0 ? [{ text: `All ${total} done`, bold: true }] : [{ text: `${nDone} of ${total} done`, bold: true }]
+        const pace = paceRuns(nDone, total - nDone, block.since, now)
+        const paceW = pace.reduce((n, r) => n + r.text.length, 0)
+        const first: Seg[] = [{ col: left, ...sentence[0]! }]
+        if (paceW > 0 && paceW + sentence[0]!.text.length + 4 <= right - left + 1) first.push(...flushRight(pace, right))
+        out.push(lineOf(ctx, $, { key: 'tasks-count', body: first }))
+        out.push(blank(ctx, $, 'tasks-gap-bar'))
         out.push(
-          taskRow(ctx, $, {
-            key: `task-${key}`,
-            glyph: { text: '▸', color: CK.accent },
-            name: [{ text: oneLine(x.activeForm ?? x.subject), bold: true }],
-            ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
-            time: { text: span(now - x.updatedAt), color: CK.accent },
-            mark: CK.accent,
-            onPress: toPage(key),
-          }),
+          <Text key="tasks-bar" wrap="truncate-end">
+            {' '.repeat(left)}
+            {todoBar(right - left + 1, total, nDone, hasCurrent ? 1 : 0).map((r, i) => runText(r, ctx.e, $, `tasks-bar-${i}`))}
+          </Text>,
         )
-        const agents = agentsOn(t, x)
-        const shown = agents.slice(0, TETHERED_AGENTS)
-        // The last agent keeps two rows when the section's gap follows (the mock's six rows for two agents); a more line keeps the blank.
-        shown.forEach((a, i) => out.push(tetherRow(ctx, $, t, a, stateOf(a, waits), i === shown.length - 1 && agents.length === shown.length)))
-        if (agents.length > shown.length) out.push(moreRow(ctx, $, 'tether-more', `+ ${agents.length - shown.length} more agents`))
+        out.push(blank(ctx, $, 'tasks-gap-effort'))
+        const chartCol = 18
+        const room = right - chartCol + 1
+        const heavy = chartRows.reduce<TaskMeterRow | undefined>((a, m) => (m.tokens > 0 && (a === undefined || m.tokens > a.tokens) ? m : a), undefined)
+        if (room >= 12 && cols >= 50) {
+          out.push(
+            <Box key="tasks-effort" flexDirection="row">
+              <Box key="tasks-effort-words" flexDirection="column" width={chartCol} flexShrink={0}>
+                <Text key="tasks-effort-0" dimColor>{`${' '.repeat(left)}Effort so far`}</Text>
+                <Text key="tasks-effort-1" dimColor>{`${' '.repeat(left)}one bar a task`}</Text>
+              </Box>
+              {inst(ctx, $, effortInst(chartRows, room, ground))}
+            </Box>,
+          )
+        }
+        if (heavy !== undefined) {
+          const tail = `, ${tok(heavy.tokens)}`
+          const label = wordFit(oneLine(heavy.task.subject), Math.max(1, right - left + 1 - 'Heaviest: '.length - tail.length))
+          out.push(
+            lineOf(ctx, $, {
+              key: 'tasks-heaviest',
+              body: [{ col: left, text: 'Heaviest: ', dim: true }, { col: left + 10, text: label }, { col: left + 10 + label.length, text: tail, dim: true }],
+            }),
+          )
+        } else if (room < 12 || cols < 50) {
+          out.push(noteRow(ctx, $, 'tasks-effort-none', 'Effort so far: no tokens yet'))
+        }
+        out.push(inst(ctx, $, frameFootInst('tasks-sill', cols, 'iris', ground)))
+        gap()
       }
-      if (active.length > ACTIVE_CAP) out.push(moreRow(ctx, $, 'active-more', `+ ${active.length - ACTIVE_CAP} more doing now`))
-      if (queued.length > 0 || done.length > 0 || earlier.length > 0) gap()
-    }
 
-    if (queued.length > 0) {
-      out.push(section(ctx, $, 'Up next', String(queued.length), { key: 'sec-next' }))
-      queued.slice(0, QUEUED_CAP).forEach((x, i) => {
-        const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
-        out.push(
-          taskRow(ctx, $, {
-            key: `task-${keyOf(x)}`,
-            glyph: { text: '○', color: C.subtle },
-            name: [{ text: oneLine(x.subject) }],
-            ...(ownerType !== undefined ? { mid: { text: typeShort(ownerType), dim: true } } : {}),
-            ...(i === 0 ? { time: { text: 'next', dim: true } } : {}),
-            onPress: toPage(keyOf(x)),
-          }),
-        )
-      })
-      if (queued.length > QUEUED_CAP) out.push(moreRow(ctx, $, 'queued-more', `+ ${queued.length - QUEUED_CAP} more to do`))
-      if (done.length > 0 || earlier.length > 0) gap()
-    }
+      const doneCap = caps[1]!
+      const doneShown = done.slice(0, doneCap)
+      const doneMore = done.length - doneShown.length
 
-    if (done.length > 0) {
-      out.push(section(ctx, $, 'Done', colHeads(cols, String(done.length), 'tokens', 'time'), { key: 'sec-done' }))
-      for (const x of doneShown) {
-        const m = byTask.get(keyOf(x))
-        const used = m !== undefined ? tok(m.tokens) : ''
-        const took = spentMs(m)
-        out.push(
-          taskRow(ctx, $, {
-            key: `task-${keyOf(x)}`,
-            glyph: { text: '✓', dim: true },
-            name: [{ text: oneLine(x.subject), dim: true }],
-            ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
-            time: { text: took > 0 ? span(took) : span(now - x.updatedAt), dim: true },
-            onPress: toPage(keyOf(x)),
-          }),
-        )
+      if (emptyList) {
+        out.push(section(ctx, $, 'To do', undefined, { key: 'sec-todo' }))
+        out.push(noteRow(ctx, $, 'todo-none', NO_LIST_TEXT))
+        if (earlier.length > 0) gap()
       }
-      // `d` lists every done task where the rule shows only some (and folds them again).
-      if (unfolded || doneMore > 0) {
-        const toggle = (): Promise<void> =>
-          updateUi($, s => {
-            if (s.doneAll === true) {
-              const { doneAll: _folded, ...rest } = s
-              return rest
-            }
-            return { ...s, doneAll: true }
-          })
-        out.push(
-          <Box key="done-more" flexDirection="row" paddingLeft={COL.name} columnGap={3}>
-            <Text key="done-more-text" dimColor>{doneMore > 0 ? `+ ${doneMore} more` : ''}</Text>
-            <Button key="hint-d" hotkey="d" plain dimColor onPress={toggle}>
-              {unfolded ? 'newest 3' : 'show all'}
-            </Button>
-          </Box>,
-        )
-      }
-      if (earlier.length > 0) gap()
-    }
 
-    if (earlier.length > 0) {
-      out.push(section(ctx, $, 'Earlier', String(earlier.length), { key: 'sec-earlier' }))
-      const cap = unfolded ? UNFOLDED_CAP : EARLIER_CAP
-      for (const x of earlier.slice(0, cap)) {
-        out.push(
-          taskRow(ctx, $, {
-            key: `task-${keyOf(x)}`,
-            glyph: { text: '✓', dim: true },
-            name: [{ text: oneLine(x.subject), dim: true }],
-            onPress: toPage(keyOf(x)),
-          }),
-        )
+      if (active.length > 0) {
+        out.push(section(ctx, $, 'Doing now', String(active.length), { key: 'sec-doing' }))
+        for (const x of active.slice(0, ACTIVE_CAP)) {
+          const key = keyOf(x)
+          const m = byTask.get(key)
+          const used = m !== undefined ? tok(m.tokens) : ''
+          out.push(
+            taskRow(ctx, $, {
+              key: `task-${key}`,
+              glyph: { text: '▸', color: CK.accent },
+              name: [{ text: oneLine(x.activeForm ?? x.subject), bold: true }],
+              ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
+              time: { text: span(now - x.updatedAt), color: CK.accent },
+              mark: CK.accent,
+              onPress: toPage(key),
+            }),
+          )
+          const agents = agentsOn(t, x)
+          const shown = agents.slice(0, TETHERED_AGENTS)
+          // The last agent keeps two rows when the section's gap follows (the mock's six rows for two agents); a more line keeps the blank.
+          shown.forEach((a, i) => out.push(tetherRow(ctx, $, t, a, stateOf(a, waits), i === shown.length - 1 && agents.length === shown.length)))
+          if (agents.length > shown.length) out.push(moreRow(ctx, $, 'tether-more', `+ ${agents.length - shown.length} more agents`))
+        }
+        if (active.length > ACTIVE_CAP) out.push(moreRow(ctx, $, 'active-more', `+ ${active.length - ACTIVE_CAP} more doing now`))
+        if (queued.length > 0 || done.length > 0 || earlier.length > 0) gap()
       }
-      if (earlier.length > cap) out.push(moreRow(ctx, $, 'earlier-more', `+ ${earlier.length - cap} more`))
-    }
 
-    const hints: FootHint[] = []
-    if (current.length > 0 || earlier.length > 0) hints.push({ key: '↵', label: 'open task' })
-    if (unfolded || doneMore > 0) hints.push({ key: 'd', label: unfolded ? 'newest 3' : 'all done' })
-    hints.push({ key: 'esc', label: 'prompt' })
-    return <Box flexDirection="column">{withFooter(ctx, $, out, hints)}</Box>
+      if (queued.length > 0) {
+        out.push(section(ctx, $, 'Up next', String(queued.length), { key: 'sec-next' }))
+        queued.slice(0, caps[0]!).forEach((x, i) => {
+          const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
+          out.push(
+            taskRow(ctx, $, {
+              key: `task-${keyOf(x)}`,
+              glyph: { text: '○', color: C.subtle },
+              name: [{ text: oneLine(x.subject) }],
+              ...(ownerType !== undefined ? { mid: { text: typeShort(ownerType), dim: true } } : {}),
+              ...(i === 0 ? { time: { text: 'next', dim: true } } : {}),
+              onPress: toPage(keyOf(x)),
+            }),
+          )
+        })
+        if (queued.length > caps[0]!) out.push(moreRow(ctx, $, 'queued-more', `+ ${queued.length - caps[0]!} more to do`))
+        if (done.length > 0 || earlier.length > 0) gap()
+      }
+
+      if (done.length > 0) {
+        out.push(section(ctx, $, 'Done', colHeads(cols, String(done.length), 'tokens', 'time'), { key: 'sec-done' }))
+        for (const x of doneShown) {
+          const m = byTask.get(keyOf(x))
+          const used = m !== undefined ? tok(m.tokens) : ''
+          const took = spentMs(m)
+          out.push(
+            taskRow(ctx, $, {
+              key: `task-${keyOf(x)}`,
+              glyph: { text: '✓', dim: true },
+              name: [{ text: oneLine(x.subject), dim: true }],
+              ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
+              time: { text: took > 0 ? span(took) : span(now - x.updatedAt), dim: true },
+              onPress: toPage(keyOf(x)),
+            }),
+          )
+        }
+        // `d` lists every done task where the rule shows only some (and folds them again).
+        if (unfolded || doneMore > 0) {
+          const toggle = (): Promise<void> =>
+            updateUi($, s => {
+              if (s.doneAll === true) {
+                const { doneAll: _folded, ...rest } = s
+                return rest
+              }
+              return { ...s, doneAll: true }
+            })
+          out.push(
+            <Box key="done-more" flexDirection="row" paddingLeft={COL.name} columnGap={3}>
+              <Text key="done-more-text" dimColor>{doneMore > 0 ? `+ ${doneMore} more` : ''}</Text>
+              <Button key="hint-d" hotkey="d" plain dimColor onPress={toggle}>
+                {unfolded ? 'newest 3' : 'show all'}
+              </Button>
+            </Box>,
+          )
+        }
+        if (earlier.length > 0) gap()
+      }
+
+      if (earlier.length > 0) {
+        out.push(section(ctx, $, 'Earlier', String(earlier.length), { key: 'sec-earlier' }))
+        const cap = caps[2]!
+        for (const x of earlier.slice(0, cap)) {
+          out.push(
+            taskRow(ctx, $, {
+              key: `task-${keyOf(x)}`,
+              glyph: { text: '✓', dim: true },
+              name: [{ text: oneLine(x.subject), dim: true }],
+              onPress: toPage(keyOf(x)),
+            }),
+          )
+        }
+        if (earlier.length > cap) out.push(moreRow(ctx, $, 'earlier-more', `+ ${earlier.length - cap} more`))
+      }
+
+      const hints: FootHint[] = []
+      if (current.length > 0 || earlier.length > 0) hints.push({ key: '↵', label: 'open task' })
+      if (unfolded || doneMore > 0) hints.push({ key: 'd', label: unfolded ? 'newest 3' : 'all done' })
+      hints.push({ key: 'esc', label: 'prompt' })
+    return { out, hints }
+    }
+    return <Box flexDirection="column">{growBody(ctx, $, lists, build)}</Box>
   } catch (err) {
     debug($, `tasks view failed: ${errText(err)}`)
     return <Text dimColor>{`Tasks: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>

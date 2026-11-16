@@ -174,26 +174,23 @@ test('fidelity: CockpitArtifacts at 62 columns matches the mock but for the list
   world(on, artifactsTimeline(), { ...initialUi, tab: 'artifacts' })
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitArtifacts')
-  b.patch('R33 and R30: the filled button is drawn as `[ label ]` (Button variant primary) and the words are "saved to this session and copied" (the mock: to the journal and the clipboard)', rows => void (rows[6] = '  [ Export digest ]  saved to this session and copied'))
-  b.patch('R30: "The digest will contain" is longer than "It will hold", so the bar takes its own row under it and the legend one more row under that; real data: made counts the 2 artifacts and the 6 files, so the legend says 8 made (the mock says 6 files)', rows => {
-    rows[8] = '  The digest will contain'
-    rows[9] = '  ' + '¤'.repeat(58)
-    return addRow(10, '  ■ summary  ■ 9 tasks  ■ 3 kept  ■ 8 made')(rows)
-  })
+  b.patch('R33, R30 and R39: the filled button is drawn as `[ e: Export digest ]` (Button variant primary) and the words are "saved to this session and copied" (the mock: to the journal and the clipboard)', rows => void (rows[6] = '  [ e: Export digest ]  saved to this session and copied'))
+  b.patch('R30: "The digest will contain" is longer than "It will hold", so its bar starts at column 27 and is 33 cells (the mock\'s starts at 18 and is 40); real data: the four parts take the digest\'s own weights, not the mock\'s sample ones', rows => void (rows[8] = '  The digest will contain  ━━━━━━━━━━ ━━━━━━━━━ ━━ ━━━━━━━━━'))
+  b.patch('R30: the legend starts at column 2, under the label, because the four words need 40 columns and the bar leaves 33', rows => void (rows[9] = '  ■ summary  ■ 9 tasks  ■ 3 kept  ■ 6 files'))
   b.patch('column heads: kind, edits and from end at 49 like their figures (the mock ends them at 50)', rows => {
-    rows[13] = head('Artifacts', '2  ·  kind       age')
-    rows[21] = head('Files changed', '6  ·  edits      last')
-    rows[27] = head('Kept', '3  ·  from       age')
+    rows[12] = head('Artifacts', '2  ·  kind       age')
+    rows[20] = head('Files changed', '6  ·  edits      last')
+    rows[26] = head('Kept', '3  ·  from       age')
   })
   b.patch('R27: ages read 9 min, 12 min and 2 min (the mock: 9m, 12m, 2m)', rows => {
-    rows[14] = fig('▍ ↗ Rate limit design', 'page', '9 min')
-    rows[19] = fig('  ▤ docs/rate-limit-plan.md', 'doc', '12 min')
-    rows[22] = rows[22]!.replace(/ +2m$/, '').trimEnd().padEnd(51) + '2 min'.padStart(9)
+    rows[13] = fig('▍ ↗ Rate limit design', 'page', '9 min')
+    rows[18] = fig('  ▤ docs/rate-limit-plan.md', 'doc', '12 min')
+    rows[21] = rows[21]!.replace(/ +2m$/, '').trimEnd().padEnd(51) + '2 min'.padStart(9)
   })
   b.patch('order and real data: Kept lists the newest first, and a kept step is from its tool (Write), not a note', rows => {
-    rows[28] = fig('  ★ the failing 429 test', 'Bash', '3 min')
-    rows[29] = fig('  ★ The limiter runs after bodyLimit', 'Write', '6 min')
-    rows[30] = fig('  ★ limiter order matters', 'Read', '9 min')
+    rows[27] = fig('  ★ the failing 429 test', 'Bash', '3 min')
+    rows[28] = fig('  ★ The limiter runs after bodyLimit', 'Write', '6 min')
+    rows[29] = fig('  ★ limiter order matters', 'Read', '9 min')
   })
   check('CockpitArtifacts', b, got)
 })
@@ -295,9 +292,9 @@ test('fidelity: on the terminal the Steps map sits where the mock puts it: 58 x 
 test('fidelity: on the terminal the Artifacts Rasters are the lintel and the sill (the digest bar is Text, R22)', async ($, on) => {
   world(on, artifactsTimeline(), { ...initialUi, tab: 'artifacts' })
   const boxes = await boxesOf($, 62, 46)
-  // The mock: lintel 3,0 62x1; digest 8,18 42x1; sill 10,0 62x1. Drawn: the digest bar is Text, one row lower with its label, the sill at 11.
+  // The mock: lintel 3,0 62x1; digest 8,18 42x1; sill 10,0 62x1. Drawn: the digest bar is Text beside its label, so the sill is where the mock puts it, at 10.
   expect(boxes).toEqual([
     { row: 3, col: 0, w: 62, h: 1 },
-    { row: 11, col: 0, w: 62, h: 1 },
+    { row: 10, col: 0, w: 62, h: 1 },
   ])
 })

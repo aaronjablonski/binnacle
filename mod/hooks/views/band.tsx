@@ -87,8 +87,10 @@ function trimRuns(runs: Run[], room: number): Run[] {
       out.push(r)
       left -= r.text.length
     } else {
-      const cut = wordFit(r.text, left)
-      if (cut !== '') out.push({ ...r, text: cut })
+      // F I4: a run's leading spaces are its separator, kept apart from the words that are cut.
+      const lead = /^s*/.exec(r.text)![0]
+      const cut = wordFit(r.text.slice(lead.length), left - lead.length)
+      if (cut !== '') out.push({ ...r, text: lead + cut })
       left = 0
     }
   }
@@ -210,8 +212,12 @@ function rowOne(m: BandModel, room: number): Run[] {
   if (m.form === 'asked' && m.ask !== undefined) {
     const a = m.ask
     const essential: Run[] = [{ text: 'Needs you', color: CK.ask, bold: true }, plain(`   ${a.sentence}  `), bold(a.tool)]
-    const left: Run[] = [...essential, ...(a.command !== '' ? [bold(`  ${a.command}`)] : [])]
     const right: Run[] = [{ text: 'answer below ↓', color: CK.ask }]
+    // F I4: the command is its own run after a plain separator, and is dropped whole when not even two words of it fit.
+    const cmdRoom = room - widthOf(essential) - 2 - 2 - widthOf(right)
+    const cut = a.command !== '' && cmdRoom > 0 ? wordFit(a.command, cmdRoom) : ''
+    const command = cut.replace(/…$/, '').trim().includes(' ') || cut === a.command ? cut : ''
+    const left: Run[] = [...essential, ...(command !== '' ? [plain('  '), bold(command)] : [])]
     return spread(left, right, room, widthOf(essential))
   }
   const head: Run[] = m.form === 'stopped' ? [{ text: 'Stopped', color: CK.fail, bold: true }, plain('   ')] : [dim(`${m.kicker}   `)]
@@ -219,7 +225,8 @@ function rowOne(m: BandModel, room: number): Run[] {
   for (const which of ['both', 'context', 'none'] as const) {
     const right = gauges(m, which)
     const roomLeft = room - widthOf(right) - (right.length > 0 ? 2 : 0) - widthOf(head)
-    const goal = wordFit(m.focus, roomLeft)
+    // F M14: at 80 the goal is cut at a word without an ellipsis, as the mock's 64-column row is.
+    const goal = cutWords(m.focus, roomLeft)
     if (goal === '' && m.focus !== '' && which !== 'none') continue
     if (roomLeft >= MIN_FOCUS || which === 'none' || m.focus.length <= roomLeft) {
       return spread([...head, ...(goal !== '' ? [style(goal)] : [])], right, room)

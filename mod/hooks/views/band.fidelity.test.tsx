@@ -131,7 +131,7 @@ test('fidelity: CockpitBand idle matches the mock but for the listed deviations'
   world(on, idle())
   const got = await drawn($, 104)
   new Board('idle')
-    .patch('R29 and whole minutes: "cache stays warm about 2 min" (the countdown is never m:ss)', sub(0, 'cache warm 2:51', 'cache stays warm about 2 min'))
+    .patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', sub(0, 'cache warm 2:51', 'cache warm 2 min'))
     .check('CockpitBand idle', got, 104)
 })
 

@@ -483,12 +483,12 @@ test('the newest artifact is open by default: Link and Made by at 4 and 14, then
   }
 })
 
-// BEHAVIOUR CHANGE (cockpit, principle 5: spare rows stay empty): Files changed was grown by the pane's height (binding rule 2, up from 3); it shows the newest 3 and `+ n more` at any height, as the mock does.
-test('Files changed shows the newest 3 and a more line at any height', async ($, on) => {
+// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned Files changed to 3 at any height; the mock's 3 and `+ n more` are the floor at 46 rows and under, and the list grows with the pane beyond them.
+test('Files changed shows the newest 3 and a more line up to 46 rows, and grows with the pane beyond (R37)', async ($, on) => {
   const changed = ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts', 'j.ts', 'k.ts', 'l.ts']
   seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed }), ART_UI)
   for (const surface of SURFACES) {
-    for (const bodyRows of [24, 50]) {
+    for (const bodyRows of [24, 46]) {
       const ui = await mount($, surface, 62, false, bodyRows)
       const rows = await drawnRows(ui)
       await ui.unmount()
@@ -498,6 +498,13 @@ test('Files changed shows the newest 3 and a more line at any height', async ($,
       expect(list.filter(r => r.slice(2, 3) === '·').map(r => r.slice(4, 30).trimEnd())).toEqual(['l.ts', 'k.ts', 'j.ts'])
       expect(list.find(r => r.startsWith('    + '))).toBe('    + 9 more')
     }
+    // 60 rows is 14 beyond the mock's 46: all twelve files fit, and the more line goes.
+    const tall = await mount($, surface, 62, false, 60)
+    const tallRows = await drawnRows(tall)
+    await tall.unmount()
+    const from = tallRows.findIndex(r => r.startsWith('  Files changed'))
+    expect(tallRows.slice(from + 1).filter(r => r.slice(2, 3) === '·')).toHaveLength(12)
+    expect(tallRows.slice(from + 1).some(r => r.startsWith('    + '))).toBe(false)
   }
 })
 
@@ -518,12 +525,15 @@ test('Handoff header: the title, the filled export button with its words, The di
     expect(title.includes('exported')).toBe(true)
     expect(rows[at + 1]).toBe('')
     const button = rows[at + 2] ?? ''
-    expect([colOf(button, '[ Export digest ]'), colOf(button, 'saved to this session and copied')]).toEqual([2, 21])
+    expect([colOf(button, '[ e: Export digest ]'), colOf(button, 'saved to this session and copied')]).toEqual([2, 24])
     expect(rows.join('\n')).not.toContain('journal')
+    // M5: the label and the bar share a row, the bar from column 27 with a gap between its parts; the legend is under the label (R39: the key is in the button's label).
     expect(colOf(rows[at + 4] ?? '', 'The digest will contain')).toBe(2)
-    expect((rows[at + 5] ?? '').trim()).toMatch(/^━{58}$/)
-    expect(rows[at + 6]?.trim()).toBe('■ summary  ■ 2 tasks  ■ 1 kept  ■ 2 made')
-    expect(colOf(rows[at + 6] ?? '', '■')).toBe(2)
+    const bar = (rows[at + 4] ?? '').slice(27).trimEnd()
+    expect(bar).toMatch(/^━+( ━+)+$/)
+    expect(bar.length).toBeLessThanOrEqual(33)
+    expect(rows[at + 5]?.trim()).toBe('■ summary  ■ 2 tasks  ■ 1 kept  ■ 1 file')
+    expect(colOf(rows[at + 5] ?? '', '■')).toBe(2)
     expect(rows.join('\n')).not.toContain('It will hold')
     // the button is the screen's one filled button: variant "primary", and it stays a Button
     const found = await ui.find({ type: 'Button', key: 'handoff-export' })
@@ -623,16 +633,27 @@ test('a long path is cut from the left in the Link line and fits 32 columns', as
   }
 })
 
-// BEHAVIOUR CHANGE (cockpit, principle 5): Artifacts was grown by the pane's height (binding rule 2, up from 6); it shows 6 and `+ n more` at any height.
-test('Artifacts shows 6 rows and a more line at any height', async ($, on) => {
+// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned Artifacts to 6 at any height; 6 and `+ n more` are the floor at 46 rows and under, and the list grows with the pane beyond them.
+test('Artifacts shows 6 rows and a more line up to 46 rows, and grows with the pane beyond (R37)', async ($, on) => {
   const many = Array.from({ length: 24 }, (_, i) => art('link', `L${i + 1}`, { ref: `r${i + 1}`, updatedAt: NOW - (i + 1) * 1000 }))
   seed(on, tl(many), { ...ART_UI, artifactOpen: '' })
-  for (const bodyRows of [10, 24, 50]) {
+  for (const bodyRows of [10, 24, 46]) {
     const ui = await mount($, 'terminal', 62, false, bodyRows)
     expect((await artButtons(ui)).length).toBe(6)
     expect((await drawnRows(ui)).some(r => r === '    + 18 more')).toBe(true)
     await ui.unmount()
   }
+  // 60 rows: 14 rows beyond the mock's 46 go to the list (more rows than 6, a shorter more line); 80 rows show every artifact.
+  const mid = await mount($, 'terminal', 62, false, 60)
+  const shown = (await artButtons(mid)).length
+  expect(shown).toBeGreaterThan(6)
+  expect(shown).toBeLessThan(24)
+  expect((await drawnRows(mid)).some(r => r === `    + ${24 - shown} more`)).toBe(true)
+  await mid.unmount()
+  const tall = await mount($, 'terminal', 62, false, 80)
+  expect((await artButtons(tall)).length).toBe(24)
+  expect((await drawnRows(tall)).some(r => r.startsWith('    + '))).toBe(false)
+  await tall.unmount()
 })
 
 test('the header shows the last export from lastExport: "last exported" and its time, or "not exported yet"', async ($, on) => {
@@ -653,7 +674,7 @@ test('the header shows the last export from lastExport: "last exported" and its 
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "DIGEST: a 22-cell stack Raster ... text form a run of ▄": the bar is Text `━` runs (R22) and needs no Raster; no words estimate and no part count.
-test('the digest bar is 58 cells of ━ in the four parts, and the legend names them', async ($, on) => {
+test('the digest bar is ━ in the four parts with a gap between them, beside its label from column 27, and the legend names them (M5)', async ($, on) => {
   const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
   const steps = [kept, ...[2, 3, 4, 5].map(n => step(`s${n}`, n, `Read f${n}`))]
   const tasks = [1, 2].map(n => ({ id: String(n), subject: `task ${n}`, status: 'completed' as const, owner: 'main', updatedAt: NOW }))
@@ -661,19 +682,20 @@ test('the digest bar is 58 cells of ━ in the four parts, and the legend names 
   const ui = await mount($, 'terminal')
   expect(await ui.find({ type: 'Raster', key: 'digest' })).toBeUndefined()
   const rows = await drawnRows(ui)
-  const bar = rows.find(r => /^ {2}━{58}$/.test(r))
+  const bar = rows.find(r => /^ {2}The digest will contain {2}━+( ━+)+$/.test(r))
   expect(bar).toBeDefined()
+  expect(bar!.slice(27).length).toBeLessThanOrEqual(33)
   expect(rows.join('\n')).not.toMatch(/words|parts/)
   await ui.unmount()
 })
 
-test('a digest with nothing in it is a rest bar and has no legend', async ($, on) => {
+test('a digest with nothing in it is a rest bar (33 cells beside the label) and has no legend', async ($, on) => {
   seed(on, tl([]), ART_UI)
   const ui = await mount($, 'desktop')
   const rows = await drawnRows(ui)
   const at = rows.findIndex(r => r.includes('The digest will contain'))
-  expect((rows[at + 1] ?? '').trim()).toMatch(/^━{58}$/)
-  expect(rows[at + 2]?.includes('■')).toBe(false)
+  expect((rows[at] ?? '').slice(27).trim()).toMatch(/^━{33}$/)
+  expect(rows[at + 1]?.includes('■')).toBe(false)
   await ui.unmount()
 })
 

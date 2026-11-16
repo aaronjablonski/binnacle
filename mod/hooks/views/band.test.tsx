@@ -379,7 +379,7 @@ test('idle is one dim line at every width and in either pane state: the tick, th
   }
   const at64 = (await bandRows($, 64, 'mobile'))[0]!
   expect(at64).toContain('1 h 18 min')
-  expect(at64).not.toContain('cache stays warm')
+  expect(at64).not.toContain('cache warm')
   const texts = await textsAt($, 104, 'mobile')
   expect(texts.find(x => x.text === '✓ ')?.props).toMatchObject({ color: 'success' })
   expect(texts.filter(x => x.props.color === 'warning' || x.props.color === 'error')).toEqual([])

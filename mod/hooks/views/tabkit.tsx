@@ -7,7 +7,7 @@ import type { Action, Detail, Run } from './parts'
 import { armKeys, TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
 import { STEP_GLYPH } from './agentmeta'
-import { shortPaths, wordFit } from './fit'
+import { growCaps, shortPaths, wordFit } from './fit'
 import { CK, edges } from './style'
 
 // The parts the Tasks, Steps and Artifacts tabs share (cockpit spec
@@ -202,6 +202,35 @@ export function withFooter(ctx: ViewCtx, $: EngineInterface, out: RenderElement[
   for (let i = 0; i < pad; i++) filled.push(blank(ctx, $, `pad-${i}`))
   filled.push(foot)
   return filled
+}
+
+/** The pane height the mocks are drawn at: the rows a tab's lists keep their caps in (R37). */
+export const MOCK_ROWS = 46
+
+/**
+ * R37, the owner's binding rule 2: a tab's lists grow with the pane's height. `build(caps)` draws the rows and
+ * the footer's hints with each list showing `caps[i]` items; at the mocks' 46 rows the caps are the lists'
+ * own (the mock's `+ n more`), and every row the pane has beyond 46 goes to the lists in order (`growCaps`),
+ * as far as the rows the tab left free hold them. The blank row above the footer always stays.
+ */
+export function growBody(
+  ctx: ViewCtx,
+  $: EngineInterface,
+  lists: readonly { count: number; cap: number }[],
+  build: (caps: number[]) => { out: RenderElement[]; hints: FootHint[] },
+): RenderElement[] {
+  const floor = lists.map(l => l.cap)
+  const first = build(floor)
+  const rows = (ctx.bodyRows ?? MOCK_ROWS) - TAB_ROWS
+  const used = (out: RenderElement[]): number => out.reduce((n, el) => n + heightOf(el), 0)
+  const beyond = (ctx.bodyRows ?? MOCK_ROWS) - MOCK_ROWS
+  const spare = Math.min(beyond, rows - 2 - used(first.out))
+  if (spare > 0 && lists.some(l => l.count > l.cap)) {
+    const caps = growCaps(spare, lists)
+    const second = build(caps)
+    if (used(second.out) <= rows - 2) return withFooter(ctx, $, second.out, second.hints)
+  }
+  return withFooter(ctx, $, first.out, first.hints)
 }
 
 /** A name that may hold paths: whole while it fits `room`, else its paths shortened (`…/file.ts`), then cut at a word. */

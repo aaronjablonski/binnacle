@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, NotifyMode, Timeline, UiState } from '../../types'
-import { alertNotes, answeredAsks, autoFocuses, CHECKING_TEXT, headerState, needs, promptHint, spanText } from '../model/alerts'
+import { alertNotes, answeredAsks, autoFocuses, CHECKING_TEXT, headerState, needs, spanText } from '../model/alerts'
 import type { Need, NeedsView } from '../model/alerts'
 import { oneLine } from '../model/label'
 import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
@@ -10,7 +10,7 @@ import type { RunLimits } from '../model/meter'
 import { problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, fitRuns, shortPaths, span, toolName, wordFit } from './fit'
+import { elapsed, fitRuns, shortPaths, span, toolName, wordFit, wrapWords } from './fit'
 import { openStepInline } from './openstep'
 import { allClear, inst, runText, section } from './parts'
 import type { Run } from './parts'
@@ -291,17 +291,20 @@ export function askerCritter(ctx: ViewCtx, n: Need, size: 'small' | 'micro' = 's
 }
 
 /**
- * The words in place of a control (R3): no call hands the keys back to the
- * prompt, so nothing pretends to be a button. While the pane holds the keys,
- * `esc` in the accent and "back to the prompt" (R28: the key, no colon);
- * otherwise "answer in the prompt ↓". A permission adds "allow or deny".
+ * The words in place of a control (R3, R39): no call hands the keys back to
+ * the prompt, so nothing pretends to be a button, yet the row keeps the
+ * mock's weight: an amber filled chip that is plain Text, ` esc  back to the
+ * prompt ` while the pane holds the keys, ` answer in the prompt ↓ `
+ * otherwise. A permission adds "allow or deny" after it when it fits.
+ * Under `room` columns the chip's words shorten (` esc  to the prompt `,
+ * ` esc  prompt `).
  */
-export function promptRuns(n: Pick<Need, 'kind'>, isFocused: boolean): Run[] {
-  const hint = promptHint(isFocused)
-  const at = hint.indexOf(': ')
-  const runs: Run[] = at > 0 ? [{ text: hint.slice(0, at), color: CK.accent }, { text: ` ${hint.slice(at + 2)}`, dim: true }] : [{ text: hint, dim: true }]
-  if (n.kind === 'permission') runs.push({ text: isFocused ? '  then allow or deny' : '  allow or deny', dim: true })
-  return runs
+export function promptRuns(n: Pick<Need, 'kind'>, isFocused: boolean, room = Infinity): Run[] {
+  const forms = isFocused ? [' esc  back to the prompt ', ' esc  to the prompt ', ' esc  prompt '] : [' answer in the prompt ↓ ', ' in the prompt ↓ ', ' prompt ↓ ']
+  const form = forms.find(f => f.length <= room) ?? forms[forms.length - 1]!
+  const chip: Run = { text: form, color: CK.inverse, bg: CK.ask, bold: true }
+  const tail = n.kind === 'permission' ? (isFocused ? '  then allow or deny' : '  allow or deny') : ''
+  return tail !== '' && form.length + tail.length <= room ? [chip, { text: tail, dim: true }] : [chip]
 }
 
 /** What the opened need's second row says: the tool in amber bold and its command bold; the question, plan or message bold. */
@@ -313,12 +316,25 @@ export function askRuns(n: Need): Run[] {
   return cmd !== '' ? [{ text: shortPaths(cmd), bold: true }] : [{ text: n.verb, dim: true }]
 }
 
-/** Rows of the slot for `view`, `cap` other needs listed: 1, or the head, the opened need's 3 and the rest. */
-export function needsSlotHeight(view: NeedsView, cap = 3): number {
+/**
+ * The opened need's sentence at `cols` (F I5): one row with "asked 40s ago" beside it when both fit, else the
+ * sentence alone, else the sentence wrapped to two rows.
+ */
+export function needSentence(n: Pick<Need, 'who' | 'verb' | 'since'>, now: number, cols: number): { fitsAge: boolean; lines: string[] } {
+  const { right } = edges(cols)
+  const room = Math.max(1, right - COCKPIT.text + 1)
+  const sentence = `${n.who} ${n.verb}`
+  const fitsAge = sentence.length + 2 + `asked ${spanText(now - n.since)} ago`.length <= room
+  return { fitsAge, lines: fitsAge || sentence.length <= room ? [sentence] : wrapWords(sentence, room, 2) }
+}
+
+/** Rows of the slot for `view`, `cap` other needs listed: 1, or the head, the opened need's 3 (4 when its sentence wraps, with `cols`) and the rest. */
+export function needsSlotHeight(view: NeedsView, cap = 3, o: { cols?: number; now?: number } = {}): number {
   if (view.items.length === 0) return 1
   const others = view.items.length - 1
   const shown = Math.min(others, cap)
-  return 1 + 3 + shown + (others > shown ? 1 : 0)
+  const wraps = o.cols !== undefined && o.now !== undefined && needSentence(view.items[openedNeed(view.items.length)]!, o.now, o.cols).lines.length > 1
+  return 1 + 3 + (wraps ? 1 : 0) + shown + (others > shown ? 1 : 0)
 }
 
 /**
@@ -377,7 +393,14 @@ export function needsSlot(
   const fit = (runs: Run[]): Run[] => (fitRuns(runs, room) as Run[]).filter(r => r.text !== '')
   const age: Run[] = [{ text: `asked ${spanText(now - n.since)} ago`, dim: true }]
   const who: Run = { text: n.who, ...(n.askerAmbiguous ? {} : { bold: true }) }
-  const first = spreadRuns([who, { text: ` ${n.verb}` }], age, room)
+  // F I5: "asked 40s ago" goes before any of the sentence is cut, and the sentence wraps to a second row before it is cut.
+  const { fitsAge, lines } = needSentence(n, now, ctx.cols)
+  const runsOfLine = (line: string, i: number): Run[] => {
+    const head = i === 0 ? Math.min(line.length, who.text.length) : 0
+    return [{ text: line.slice(0, head), ...(who.bold === true ? { bold: true } : {}) }, { text: line.slice(head) }].filter(r => r.text !== '')
+  }
+  const first = fitsAge ? spreadRuns([who, { text: ` ${n.verb}` }], age, room) : runsOfLine(lines[0]!, 0)
+  const second = lines[1] !== undefined ? runsOfLine(lines[1], 1) : undefined
   const key = `open-${n.key}`
   const marker = (k: string): RenderElement => (
     <Text key={k} color={CK.ask}>
@@ -387,9 +410,7 @@ export function needsSlot(
   out.push(
     <Box key="need-open" flexDirection="row">
       <Box key="need-marks" flexDirection="column" width={left} flexShrink={0}>
-        {marker('need-mark-0')}
-        {marker('need-mark-1')}
-        {marker('need-mark-2')}
+        {Array.from({ length: 3 + (second !== undefined ? 1 : 0) }, (_, i) => marker(`need-mark-${i}`))}
       </Box>
       <Box key="need-who" width={textCol - left} flexShrink={0}>
         {inst(ctx, $, { key: 'asker', ...askerCritter(ctx, n) })}
@@ -398,11 +419,16 @@ export function needsSlot(
         <Button key={key} plain autoFocus={autoFocuses(n.kind) ? true : undefined} onPress={press(() => openNeed($, n))}>
           {first.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
         </Button>
+        {second !== undefined ? (
+          <Text key="need-sentence-2" wrap="truncate-end">
+            {second.map((r, i) => runText(r, ctx.e, $, `need-sentence-2-${i}`))}
+          </Text>
+        ) : null}
         <Text key="need-ask" wrap="truncate-end">
           {fit(askRuns(n)).map((r, i) => runText(r, ctx.e, $, `need-ask-${i}`))}
         </Text>
         <Text key="need-prompt" wrap="truncate-end">
-          {fit(promptRuns(n, ctx.isFocused === true)).map((r, i) => runText(r, ctx.e, $, `need-prompt-${i}`))}
+          {promptRuns(n, ctx.isFocused === true, room).map((r, i) => runText(r, ctx.e, $, `need-prompt-${i}`))}
         </Text>
       </Box>
     </Box>,

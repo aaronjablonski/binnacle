@@ -172,12 +172,14 @@ test('Needs you: amber head and count, the asker\'s critter waiting, the sentenc
   for (const i of [1, 2, 3]) expect(rows[head + i]!.startsWith('▍ ')).toBe(true)
   expect(rows[head + 1]!.slice(9)).toMatch(/^General asks to run a command +asked 40s ago$/)
   expect(rows[head + 2]!.slice(9)).toBe('Bash  npm run deploy -- --env staging')
-  expect(rows[head + 3]!.slice(9)).toBe('esc back to the prompt  then allow or deny')
+  expect(rows[head + 3]!.slice(9)).toBe(' esc  back to the prompt   then allow or deny')
   const found = await ui.findAll({ type: 'Text' })
   const colour = (t: string): string | undefined => (found.find(f => f.text === t)?.props as { color?: string } | undefined)?.color
   expect(colour('Needs you')).toBe('warning')
   expect(colour('Bash')).toBe('warning')
-  expect(colour('esc')).toBe('suggestion')
+  // R39: the words are one amber filled chip of plain Text (the inverse colour on the amber ground).
+  const chip = found.find(f => f.text === ' esc  back to the prompt ')
+  expect(chip?.props).toMatchObject({ color: 'inverseText', backgroundColor: 'warning' })
   expect((await ui.find({ key: 'open-asking:s-b1' }))?.props).toMatchObject({ autoFocus: true })
   // No `x` on a permission (owner ruling 4) and no Button that pretends to hand the keys back (R3).
   const buttons = await ui.findAll({ type: 'Button' })
@@ -192,8 +194,8 @@ test('R3: without the keys, the words point at the prompt: "answer in the prompt
   world(on, asked())
   const ui = await mount($, 62, 46, { covered: true, focused: false })
   const rows = await rowsOf(ui)
-  expect(rows.some(r => r.slice(9).startsWith('answer in the prompt ↓  allow or deny'))).toBe(true)
-  expect(rows.join('\n')).not.toContain('esc back to the prompt')
+  expect(rows.some(r => r.slice(9).startsWith(' answer in the prompt ↓   allow or deny'))).toBe(true)
+  expect(rows.join('\n')).not.toContain('back to the prompt')
   await ui.unmount()
 })
 
@@ -298,11 +300,11 @@ test('R7: after 2 min with no activity the header reads "· quiet n min", dim; b
 })
 
 // BEHAVIOUR CHANGE (task C3b, item 4): was "cache stays warm m:ss" (2:51, jumping 10 s at a time); the countdown is whole minutes now.
-test('R29: the cache countdown shows at idle only, in whole minutes: "cache stays warm about 2 min"', async ($, on) => {
+test('R29 and R40: the cache countdown shows at idle only, in whole minutes: "cache warm 2 min"', async ($, on) => {
   const stored = world(on, idle())
   let ui = await mount($)
   const line = (await rowsOf(ui))[10]!
-  expect(line).toContain('cache stays warm about 2 min')
+  expect(line).toContain('cache warm 2 min')
   expect(line).not.toMatch(/\d:\d\d/)
   await ui.unmount()
   stored.set('timeline', busy())
@@ -311,30 +313,30 @@ test('R29: the cache countdown shows at idle only, in whole minutes: "cache stay
   await ui.unmount()
 })
 
-test('the warm words are about N min while at least a minute is left, and "under 1 min" near the end', async ($, on) => {
+test('the warm words are N min while at least a minute is left, and "under 1 min" near the end (R40)', async ($, on) => {
   // 12 s after the last reply of a 5 min cache: 4 min 48 s left.
   const stored = world(on, { ...idle(), cache: { at: NOW - 12_000 } })
   let ui = await mount($)
-  expect((await rowsOf(ui))[10]).toContain('cache stays warm about 4 min')
+  expect((await rowsOf(ui))[10]).toContain('cache warm 4 min')
   await ui.unmount()
   // 250 s after it: 50 s left.
   stored.set('timeline', { ...idle(), cache: { at: NOW - 250_000 } })
   ui = await mount($)
   const near = (await rowsOf(ui))[10]!
-  expect(near).toContain('cache stays warm under 1 min')
+  expect(near).toContain('cache warm under 1 min')
   expect(near).not.toMatch(/\d:\d\d/)
   await ui.unmount()
 })
 
 test('warmWords: whole minutes rounded down, "under 1 min" in the last minute, never m:ss', () => {
-  expect(warmWords(288_000)).toBe('about 4 min')
-  expect(warmWords(171_000)).toBe('about 2 min')
-  expect(warmWords(60_000)).toBe('about 1 min')
+  expect(warmWords(288_000)).toBe('4 min')
+  expect(warmWords(171_000)).toBe('2 min')
+  expect(warmWords(60_000)).toBe('1 min')
   expect(warmWords(59_999)).toBe('under 1 min')
   expect(warmWords(1000)).toBe('under 1 min')
   expect(warmWords(0)).toBe('under 1 min')
   expect(warmWords(-5000)).toBe('under 1 min')
-  expect(warmWords(3_600_000)).toBe('about 60 min')
+  expect(warmWords(3_600_000)).toBe('60 min')
   for (const ms of [0, 1000, 59_000, 61_000, 171_000, 299_000, 3_599_000]) expect(warmWords(ms)).not.toMatch(/\d:\d\d/)
 })
 

@@ -207,7 +207,7 @@ test('the budget view: rings, the output rate, Cache with the warm words, then M
   for (const k of ['budget-rings', 'budget-lintel', 'budget-sill']) expect(got).toContain(k)
   for (const gone of ['win-ctx', 'win-5h', 'win-7d', 'cache']) expect(got).not.toContain(gone)
   expect(rows.some(r => r.includes('% read'))).toBe(true)
-  expect(rows.some(r => r.trim() === 'stays warm about 4 min')).toBe(true)
+  expect(rows.some(r => r.trim() === 'stays warm 4 min')).toBe(true)
   expect(rows.filter(r => r.includes('warm')).join('\n')).not.toMatch(/\d:\d\d/)
   expect(rows.some(r => r.includes('going cold re-sends'))).toBe(true)
   expect(rows.some(r => r.startsWith('  Models'))).toBe(true)

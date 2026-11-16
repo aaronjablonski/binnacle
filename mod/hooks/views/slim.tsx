@@ -94,7 +94,7 @@ function needsBlock(ctx: ViewCtx, $: EngineInterface, st: NowState): Block {
   const head = wrapWords(`${n.who} ${verb}`, room, 2)
   const cmd = oneLine(n.kind === 'input' ? n.message ?? '' : n.command ?? '')
   const lines = cmd !== '' ? wrapWords(cmd, room, 2) : []
-  const hint = (promptRuns(n, ctx.isFocused === true).slice(0, 2) as Run[])
+  const hint = promptRuns(n, ctx.isFocused === true, room)
   const mark = (k: string, body: RenderElement | string): RenderElement => (
     <Box key={k} flexDirection="row">
       <Text color={CK.ask}>{'▍ '}</Text>

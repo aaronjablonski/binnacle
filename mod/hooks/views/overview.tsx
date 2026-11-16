@@ -9,7 +9,7 @@ import { todoBlock } from '../model/todo'
 import type { TodoBlock } from '../model/todo'
 import { leaveDetail, updateUi } from '../state'
 import { budgetView, budgetWords, exportLedger, isBudgetOpen, nowGauges, setBudgetOpen } from './budget'
-import { doing, fitRuns, span, todoBar, wordFit } from './fit'
+import { doing, fitRuns, span, todoBar, wordFit, wrapWords } from './fit'
 import { argOf, headline } from './lay'
 import { exportDigest } from './handoff'
 import { moveNeed, needsSlot, needsSlotHeight, needsView, spreadRuns } from './needs'
@@ -180,6 +180,13 @@ export function todoPlan(todo: TodoBlock, n: number): TodoPlan {
 export const planRows = (p: TodoPlan, empty: boolean): number =>
   empty || p.allDone ? 1 : (p.lastDone !== undefined ? 1 : 0) + (p.current !== undefined ? 1 : 0) + p.open.length + (p.more > 0 ? 1 : 0)
 
+/** The extra row the current task takes when its title wraps to two rows (F I12): 1, else 0. */
+export function todoWrapRows(todo: TodoBlock, cols: number): number {
+  if (todo.empty || todo.current === undefined) return 0
+  const { left, right } = edges(cols)
+  return 2 + oneLine(todo.current.subject).length > right - left + 1 ? 1 : 0
+}
+
 /** The list rows To do wants at most (every row its tasks can fill), and its floor (current, next, `+ k`). */
 export function todoWants(todo: TodoBlock): { floor: number; want: number } {
   if (todo.empty) return { floor: 1, want: 1 }
@@ -230,36 +237,59 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
     )
     return out
   }
-  const row = (x: TaskItem, runs: Run[], right2: Run[], mark?: string): RenderElement => {
+  // F I12: a task's tag shortens ("now · 12 min", then "now") and then goes before its title is cut; the current
+  // task, still too long, wraps to two rows as slim's does.
+  const row = (x: TaskItem, runs: Run[], tags: Run[][], mark?: string, wrap = false): RenderElement => {
     const key = `task-${x.owner}-${x.id}`
-    const body = spreadRuns(runs, right2, content)
+    const titleW = runs.reduce((n, r) => n + r.text.length, 0)
+    const tag = tags.find(g => titleW + 2 + g.reduce((n, r) => n + r.text.length, 0) <= content) ?? (titleW <= content ? [] : undefined)
+    const lines = tag === undefined && wrap ? wrapWords(oneLine(x.subject), Math.max(1, content - 2), 2) : undefined
+    const body = lines === undefined ? spreadRuns(runs, tag ?? [], content) : []
+    const markEl = (k: string): RenderElement =>
+      mark !== undefined ? (
+        <Text key={k} color={mark}>
+          {'▍ '}
+        </Text>
+      ) : (
+        <Text key={k}>{' '.repeat(left)}</Text>
+      )
+    const press1 = press(() => openPage($, 'task', `${x.owner}:${x.id}`, key))
+    if (lines !== undefined) {
+      return (
+        <Box key={`row-${key}`} flexDirection="row">
+          <Box key={`${key}-marks`} flexDirection="column" width={left} flexShrink={0}>
+            {lines.map((_, i) => (mark !== undefined ? <Text key={`${key}-mark-${i}`} color={mark}>{'▍'}</Text> : <Text key={`${key}-mark-${i}`}>{' '}</Text>))}
+          </Box>
+          <Box key={`${key}-lines`} flexDirection="column">
+            <Button key={key} plain onPress={press1}>
+              {[runs[0]!, { ...runs[1]!, text: lines[0]! }].map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
+            </Button>
+            <Text key={`${key}-line2`} bold>{`  ${lines[1] ?? ''}`}</Text>
+          </Box>
+        </Box>
+      )
+    }
     return (
       <Box key={`row-${key}`} flexDirection="row">
-        {mark !== undefined ? (
-          <Text key={`${key}-mark`} color={mark}>
-            {'▍ '}
-          </Text>
-        ) : (
-          <Text>{' '.repeat(left)}</Text>
-        )}
-        <Button key={key} plain onPress={press(() => openPage($, 'task', `${x.owner}:${x.id}`, key))}>
+        {markEl(`${key}-mark`)}
+        <Button key={key} plain onPress={press1}>
           {body.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
         </Button>
       </Box>
     )
   }
-  if (p.lastDone !== undefined) out.push(row(p.lastDone, [{ text: `✓ ${oneLine(p.lastDone.subject)}`, dim: true }], []))
+  if (p.lastDone !== undefined) out.push(row(p.lastDone, [{ text: `✓ ${oneLine(p.lastDone.subject)}`, dim: true }], [[]]))
   if (p.current !== undefined) {
     const tint = todo.paused ? CK.ask : CK.accent
-    const note: Run[] = todo.paused
-      ? [{ text: 'paused', color: CK.ask }]
+    const notes: Run[][] = todo.paused
+      ? [[{ text: 'paused', color: CK.ask }]]
       : o.ended === true
-        ? [{ text: 'stopped', dim: true }]
-        : [{ text: 'now', color: CK.accent }, { text: ` · ${span(ctx.now - p.current.updatedAt)}`, dim: true }]
-    out.push(row(p.current, [{ text: '▸ ', color: tint }, { text: oneLine(p.current.subject), bold: true }], note, tint))
+        ? [[{ text: 'stopped', dim: true }]]
+        : [[{ text: 'now', color: CK.accent }, { text: ` · ${span(ctx.now - p.current.updatedAt)}`, dim: true }], [{ text: 'now', color: CK.accent }]]
+    out.push(row(p.current, [{ text: '▸ ', color: tint }, { text: oneLine(p.current.subject), bold: true }], notes, tint, true))
   }
   p.open.forEach((x, i) => {
-    out.push(row(x, [{ text: '○ ', color: CK.rule }, { text: oneLine(x.subject) }], i === 0 ? [{ text: 'next', dim: true }] : []))
+    out.push(row(x, [{ text: '○ ', color: CK.rule }, { text: oneLine(x.subject) }], i === 0 ? [[{ text: 'next', dim: true }]] : [[]]))
   })
   if (p.more > 0) {
     out.push(
@@ -395,7 +425,15 @@ export function agentsSection(
   const sum: Run[] = [{ text: String(live.length - waiting), bold: true }, { text: ' working', dim: true }]
   if (waiting > 0) sum.push({ text: ' · ', dim: true }, { text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
   if (failed > 0) sum.push({ text: ' · ', dim: true }, { text: String(failed), color: CK.fail, bold: true }, { text: ' failed', color: CK.fail })
-  const out: RenderElement[] = [section(ctx, $, 'Agents', sum, { key: 'sec-agents', onPress: openAgents })]
+  // F I5: "1 + 1 waiting" when "1 working · 1 waiting" does not fit beside the title.
+  const sumShort: Run[][] = []
+  if (waiting > 0 || failed > 0) {
+    const s: Run[] = [{ text: String(live.length - waiting), bold: true }]
+    if (waiting > 0) s.push({ text: ' + ', dim: true }, { text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
+    if (failed > 0) s.push({ text: ' + ', dim: true }, { text: String(failed), color: CK.fail, bold: true }, { text: ' failed', color: CK.fail })
+    sumShort.push(s)
+  }
+  const out: RenderElement[] = [section(ctx, $, 'Agents', sum, { key: 'sec-agents', onPress: openAgents, short: sumShort })]
   const shown = all.slice(0, Math.max(1, cards))
   for (const a of shown) {
     const need = asking.get(a.id)
@@ -413,7 +451,7 @@ export function agentsSection(
       a.status === 'error'
         ? [{ text: oneLine((a.result ?? a.doing ?? '').split('\n')[0] ?? '') || 'Stopped by an error', color: CK.fail }]
         : need !== undefined
-          ? [{ text: 'Waiting for your answer', color: CK.ask }]
+          ? (room: number): Run[] => [{ text: room >= 23 ? 'Waiting for your answer' : 'Waiting for you', color: CK.ask }]
           : (room: number) => doing(runningStep(t, a.id), o.view, room)
     out.push(
       agentCard(ctx, $, {
@@ -657,9 +695,9 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const headH = ctx.look === 'svg' ? 9 : HEADER_ROWS
   const fixed =
     headH + 1 +
-    needsSlotHeight(view) + 1 +
+    needsSlotHeight(view, 3, { cols: ctx.cols, now: ctx.now }) + 1 +
     (watch.length > 0 ? watchHeight(ctx, watch, WATCH_CAP) + 1 : 0) +
-    (todo.empty ? 1 : 3) + 1 +
+    (todo.empty ? 1 : 3) + todoWrapRows(todo, ctx.cols) + 1 +
     (turn.length > 0 ? turn.length + 1 : 0) +
     agentsHeight(ctx.t, rest, ag.floor) - 3 * ag.floor + 1 +
     (nn > 0 ? 1 : 0)

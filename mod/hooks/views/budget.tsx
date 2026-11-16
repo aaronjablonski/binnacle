@@ -889,10 +889,10 @@ const sizeText = (n: number): string => (n >= 1_000_000 ? `${Math.round(n / 1_00
  * The header's budget line: "620k of 1M used" (the figure in ink, the rest
  * dim), "context 62% used" without a token count, "no budget reading yet"
  * without one (the line stays, so the budget view is a press away); while
- * `idle` and the cache is still warm, " · cache stays warm about 4 min" (R29:
+ * `idle` and the cache is still warm, " · cache warm 4 min" (R29, R40:
  * shown at idle only, in whole minutes, "under 1 min" in the last one).
  * Longer than `room` the figure drops "used", then " of 1M" ("644k · cache
- * stays warm about 4 min"), then the countdown goes.
+ * warm 4 min"), then the countdown goes.
  */
 export function budgetWords(t: Timeline, now: number, o: { idle: boolean; room?: number }): Run[] {
   const width = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
@@ -915,7 +915,7 @@ function budgetRuns(t: Timeline, now: number, idle: boolean, how: Fullness): Run
   else out.push({ text: 'no budget reading yet', dim: true })
   if (idle) {
     const warm = cacheLine(t).warmUntil
-    if (warm !== undefined && warm > now) out.push({ text: `${out.length > 0 ? ' · ' : ''}cache stays warm ${warmWords(warm - now)}`, dim: true })
+    if (warm !== undefined && warm > now) out.push({ text: `${out.length > 0 ? ' · ' : ''}cache warm ${warmWords(warm - now)}`, dim: true })
   }
   return out
 }

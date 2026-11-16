@@ -886,11 +886,11 @@ test('pressing an Earlier turns row opens that turn as a section; pressing its h
   }
 })
 
-// BEHAVIOUR CHANGE (cockpit, principle 5: spare rows stay empty): a turn was grown by the pane's height (binding rule 2, up from 5); it shows 6 rows and `+ n more in this turn` at any height, as the mock does.
-test('a turn shows 6 rows and "+ n more in this turn" at any height; pressing it shows them all', async ($, on) => {
+// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned a turn to 6 rows at any height; 6 and `+ n more in this turn` are the floor at 46 rows and under, and the turn grows with the pane beyond them (the next test).
+test('a turn shows 6 rows and "+ n more in this turn" up to 46 rows; pressing it shows them all', async ($, on) => {
   const stored = world(on, manySteps(30), TL_UI)
   for (const surface of SURFACES) {
-    for (const bodyRows of [10, 24, 50]) {
+    for (const bodyRows of [10, 24, 46]) {
       put(stored, manySteps(30), TL_UI)
       const ui = await mount($, surface, 62, bodyRows)
       const rows = await drawnRows(ui)
@@ -913,8 +913,25 @@ test('a turn shows 6 rows and "+ n more in this turn" at any height; pressing it
   }
 })
 
-// BEHAVIOUR CHANGE (cockpit, principle 5): Earlier turns was grown by the pane's height (binding rule 2, up from 6); it shows 3 and `+ n more` at any height, as the mock does.
-test('Earlier turns shows 3 rows and "+ n more" at any height; pressing it lists every turn', async ($, on) => {
+// R37 (new): the turn's rows grow with the pane beyond the mocks' 46 rows.
+test('a turn grows with the pane beyond 46 rows: more rows at 60, every step at 90, no more line (R37)', async ($, on) => {
+  const stored = world(on, manySteps(30), TL_UI)
+  const count = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
+    put(stored, manySteps(30), TL_UI)
+    const ui = await mount($, 'vscode', 62, bodyRows)
+    const rows = await drawnRows(ui)
+    await ui.unmount()
+    return { n: rows.filter(r => r.includes('Edit')).length, more: rows.find(r => r.includes('more in this turn')) }
+  }
+  const at60 = await count(60)
+  expect(at60.n).toBeGreaterThan(6)
+  expect(at60.n).toBeLessThan(30)
+  expect(at60.more).toBe(`    + ${30 - at60.n} more in this turn`)
+  expect(await count(90)).toEqual({ n: 30, more: undefined })
+})
+
+// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned Earlier turns to 3 at any height; 3 and `+ n more` are the floor at 46 rows and under, and the list grows beyond them (the next test).
+test('Earlier turns shows 3 rows and "+ n more" up to 46 rows; pressing it lists every turn', async ($, on) => {
   const turns = Array.from({ length: 15 }, (_, i) => turn(`t${i}`, `job ${i}`, NOW - (20 - i) * 60_000))
   const steps = turns.map((x, i) => step(`s${i}`, i + 1, `Read f${i}.ts`, 'done', { turnId: x.id, tool: 'Read' }))
   const stored = world(on, { ...empty, turns, steps }, TL_UI)
@@ -926,8 +943,11 @@ test('Earlier turns shows 3 rows and "+ n more" at any height; pressing it lists
     await ui.unmount()
     return { n, more: rows.find(r => r.includes('more') && r.includes('+')) }
   }
-  for (const bodyRows of [12, 30, 50]) expect(await at(bodyRows)).toEqual({ n: 3, more: '    + 11 more' })
-  expect(await at(50, { ...TL_UI, openTurns: ['all:earlier'] })).toEqual({ n: 14, more: undefined })
+  for (const bodyRows of [12, 30, 46]) expect(await at(bodyRows)).toEqual({ n: 3, more: '    + 11 more' })
+  expect(await at(46, { ...TL_UI, openTurns: ['all:earlier'] })).toEqual({ n: 14, more: undefined })
+  // R37: 8 rows beyond the mock's 46 take 8 more turns, the more line stays; 14 beyond take them all.
+  expect(await at(54)).toEqual({ n: 11, more: '    + 3 more' })
+  expect(await at(60)).toEqual({ n: 14, more: undefined })
 })
 
 // LOOK TEST (edited for the cockpit): the chips are on cells 2, 14, 26 of the chips row.

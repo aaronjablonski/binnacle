@@ -16,7 +16,7 @@ import { blank, frameFootInst, frameTopInst, inst, page, primaryButton, primaryW
 import type { Action, Detail, Run } from './parts'
 import type { ViewCtx } from './shell'
 import { C, CK, COL, DECK, edges } from './style'
-import { colHeads, flushRight, hasTime, midEnd, moreRow, nameLimit, openedBlock, pathFit, withFooter } from './tabkit'
+import { colHeads, flushRight, growBody, hasTime, midEnd, moreRow, nameLimit, openedBlock, pathFit } from './tabkit'
 
 // The Artifacts tab (cockpit spec "CockpitArtifacts"): Handoff as the header
 // (the one filled button, what the digest will contain), then Artifacts with
@@ -114,13 +114,17 @@ function weights(p: DigestParts): number[] {
   return counts.map(n => (n > 0 ? Math.max(n, total * 0.06) : 0))
 }
 
-/** The legend's words per part: `summary`, `9 tasks`, `3 kept`, `8 made`; a part with nothing is left out. */
-function legendOf(p: DigestParts): { style: Omit<Run, 'text'>; text: string }[] {
+/**
+ * The legend's words per part: `summary`, `9 tasks`, `3 kept`, `6 files`; a part with nothing is left out. The last
+ * part is the files changed (the mock's word), or the artifacts when no file changed.
+ */
+function legendOf(p: DigestParts, t: Timeline): { style: Omit<Run, 'text'>; text: string }[] {
+  const files = t.changed.length
   const words: Record<(typeof PARTS)[number]['key'], string> = {
     steps: 'summary',
     tasks: `${p.tasks} ${p.tasks === 1 ? 'task' : 'tasks'}`,
     kept: `${p.kept} kept`,
-    made: `${p.made} made`,
+    made: files > 0 ? `${files} ${files === 1 ? 'file' : 'files'}` : `${t.artifacts.length} ${t.artifacts.length === 1 ? 'artifact' : 'artifacts'}`,
   }
   return PARTS.filter(x => p[x.key] > 0).map(x => ({ style: x.style, text: words[x.key] }))
 }
@@ -158,12 +162,16 @@ function detailsOf(t: Timeline, a: ArtifactRow, cols: number, stepSeq: number | 
   const out: Detail[] = []
   if (a.ref !== undefined && a.ref !== '') {
     // A path keeps its end (the file name); a link or page keeps its start.
-    out.push({ key: 'Link', value: a.kind === 'document' ? fitLeft(a.ref, room) : a.ref })
+    // M14: a link is whole or not shown (a cut link opens nothing); a path keeps its end.
+    if (a.kind === 'document') out.push({ key: 'Link', value: fitLeft(a.ref, room) })
+    else if (a.ref.length <= room) out.push({ key: 'Link', value: a.ref })
   }
   if (a.summary !== undefined && a.summary !== '') out.push({ key: 'About', value: a.summary })
   const who = a.agent === 'main' ? 'main' : (t.agents[a.agent]?.type ?? a.agent)
   const bits = [who, ...(stepSeq !== undefined ? [`step ${stepSeq}`] : []), ...(a.count > 1 ? [`version ${a.count}`] : [])]
-  out.push({ key: 'Made by', value: bits.join(', ') })
+  // Whole bits only: "main, step 148" before "main, step 148, version…".
+  const madeBy = bits.reduce((got, bit) => (got === '' ? bit : `${got}, ${bit}`.length <= room ? `${got}, ${bit}` : got), '')
+  out.push({ key: 'Made by', value: madeBy })
   return out
 }
 
@@ -180,156 +188,192 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const newest = rows[0]?.id
     // Absent, the newest is open; '' means the person closed it.
     const openId = u.artifactOpen ?? newest
-    const out: RenderElement[] = []
-    const gap = (): void => void out.push(blank(ctx, $, `gap-${out.length}`))
+    // R37: Artifacts, Files changed and Kept keep the mock's caps at 46 rows and grow with the pane after that.
+    const lists = [
+      { count: rows.length, cap: ARTIFACT_CAP },
+      { count: t.changed.length, cap: FILES_CAP },
+      { count: t.steps.filter(x => x.pin !== undefined).length, cap: KEPT_CAP },
+    ]
+    const build = (caps: number[]): { out: RenderElement[]; hints: FootHint[] } => {
+      const out: RenderElement[] = []
+      const gap = (): void => void out.push(blank(ctx, $, `gap-${out.length}`))
 
-    // ---- Handoff: the header (a press exports the digest), what the digest will contain
-    const parts = digestParts(t, ctx.now)
-    const last = t.lastExport
-    const lastRuns: Run[] = [{ text: last !== undefined ? `last exported ${clock(last.at)}` : 'not exported yet', dim: true }]
-    const exportNow = async (): Promise<void> => void (await exportDigest($))
-    const content = right - left + 1
-    out.push(inst(ctx, $, frameTopInst('handoff-lintel', cols, 'iris', ground)))
-    out.push(lineOf(ctx, $, { key: 'handoff-title', body: [{ col: left, text: 'Handoff', bold: true }, ...flushRight(lastRuns, right)] }))
-    out.push(blank(ctx, $, 'handoff-gap-button'))
-    const buttonW = primaryWidth('Export digest')
-    const sentence = 'saved to this session and copied'
-    out.push(
-      <Box key="handoff-export-row" flexDirection="row">
-        <Text key="handoff-export-pad">{' '.repeat(left)}</Text>
-        {primaryButton(ctx, $, { key: 'handoff-export', label: 'Export digest', hotkey: 'e', onPress: exportNow })}
-        {left + buttonW + 2 + sentence.length <= right + 1 ? <Text key="handoff-export-note" dimColor>{`  ${sentence}`}</Text> : null}
-      </Box>,
-    )
-    out.push(blank(ctx, $, 'handoff-gap-digest'))
-    out.push(lineOf(ctx, $, { key: 'digest-label', body: [{ col: left, text: 'The digest will contain', dim: true }] }))
-    const w = weights(parts)
-    out.push(
-      <Text key="digest-bar" wrap="truncate-end">
-        {' '.repeat(left)}
-        {ruleBar(content, PARTS.map((x, i) => ({ count: w[i] ?? 0, ...x.style }))).map((r, i) => runText(r, ctx.e, $, `digest-bar-${i}`))}
-      </Text>,
-    )
-    const legend: Seg[] = []
-    let lc: number = left
-    for (const x of legendOf(parts)) {
-      legend.push({ col: lc, text: '■', ...x.style }, { col: lc + 2, text: x.text, dim: true })
-      lc += 2 + x.text.length + 2
-    }
-    out.push(lineOf(ctx, $, { key: 'digest-legend', body: legend }))
-    out.push(inst(ctx, $, frameFootInst('handoff-sill', cols, 'iris', ground)))
-    gap()
-
-    // ---- Artifacts
-    const files = fileEdits(t)
-    // A file's actions show only while no artifact is open: they share the hotkeys `o` and `c`.
-    const noArtifactOpen = openId === undefined || openId === ''
-    const fileSel = noArtifactOpen ? (files.find(f => f.path === fileOpen) ?? (rows.length === 0 ? files[0] : undefined))?.path : undefined
-
-    out.push(section(ctx, $, 'Artifacts', rows.length > 0 ? colHeads(cols, String(rows.length), 'kind', 'age') : undefined, { key: 'sec-artifacts' }))
-    if (rows.length === 0) {
-      wrapWords(EMPTY, Math.max(1, right - left + 1), 5).forEach((l, i) => {
-        out.push(lineOf(ctx, $, { key: `empty-${i}`, body: [{ col: left, text: l, dim: true }] }))
-      })
-    }
-    const shownRows = rows.slice(0, ARTIFACT_CAP)
-    shownRows.forEach((a, i) => {
-      const seq = a.stepId !== undefined ? stepSeq.get(a.stepId) : undefined
-      const isOpen = a.id === openId
-      const room = Math.max(1, nameLimit(cols) - COL.name)
-      const body: Seg[] = [{ col: 2, text: GLYPH[a.kind], ...(isOpen && a.kind === 'page' ? { color: CK.accent } : TONE[a.kind]) }, { col: COL.name, text: wordFit(a.title, room), ...(isOpen ? { bold: true } : {}) }]
-      if (mid !== undefined) body.push(...flushRight([{ text: KIND[a.kind], dim: true }], mid))
-      if (hasTime(cols)) body.push(...flushRight([{ text: ago(ctx.now - a.updatedAt), dim: true }], right))
+      // ---- Handoff: the header (a press exports the digest), what the digest will contain
+      const parts = digestParts(t, ctx.now)
+      const last = t.lastExport
+      const lastRuns: Run[] = [{ text: last !== undefined ? `last exported ${clock(last.at)}` : 'not exported yet', dim: true }]
+      const exportNow = async (): Promise<void> => void (await exportDigest($))
+      const content = right - left + 1
+      out.push(inst(ctx, $, frameTopInst('handoff-lintel', cols, 'iris', ground)))
+      out.push(lineOf(ctx, $, { key: 'handoff-title', body: [{ col: left, text: 'Handoff', bold: true }, ...flushRight(lastRuns, right)] }))
+      out.push(blank(ctx, $, 'handoff-gap-button'))
+      const exportLabel = 'e: Export digest'
+      const buttonW = primaryWidth(exportLabel)
+      const sentence = 'saved to this session and copied'
       out.push(
-        lineOf(ctx, $, {
-          key: `art-${a.id}`,
-          ...(isOpen ? { pre: [{ col: 0, text: '▍', color: CK.accent }] } : {}),
-          body,
-          // Enter on an artifact row opens its page (rich rule 4); `b` comes back to the row.
-          onPress: () => openPage($, 'artifact', a.id, `art-${a.id}`),
-        }),
+        <Box key="handoff-export-row" flexDirection="row">
+          <Text key="handoff-export-pad">{' '.repeat(left)}</Text>
+          {primaryButton(ctx, $, { key: 'handoff-export', label: exportLabel, hotkey: 'e', onPress: exportNow })}
+          {left + buttonW + 2 + sentence.length <= right + 1 ? <Text key="handoff-export-note" dimColor>{`  ${sentence}`}</Text> : null}
+        </Box>,
       )
-      if (!isOpen) return
-      const stepId = a.stepId
-      const actions: Action[] = []
-      if (stepId !== undefined && seq !== undefined) {
-        actions.push({ hotkey: 'o', label: 'step', key: `act-o-${a.id}`, onPress: () => openStepInline($, stepId) })
-      }
-      const hasRef = a.ref !== undefined && a.ref !== ''
-      actions.push({ hotkey: 'c', label: hasRef ? 'copy link' : 'copy', key: `act-c-${a.id}`, onPress: () => copyText($, a.ref ?? a.title, e.surface) })
-      if (stepId !== undefined && seq !== undefined) {
-        actions.push({ hotkey: 'g', label: 'chat', key: `act-g-${a.id}`, onPress: () => showInChat($, stepId) })
-      }
-      out.push(<Box key={`open-${a.id}`} flexDirection="column">{openedBlock(ctx, $, { key: `open-${a.id}`, details: detailsOf(t, a, cols, seq), actions })}</Box>)
-      if (i < shownRows.length - 1 || rows.length > ARTIFACT_CAP) out.push(blank(ctx, $, `below-${a.id}`))
-    })
-    if (rows.length > ARTIFACT_CAP) out.push(moreRow(ctx, $, 'artifacts-more', `+ ${rows.length - ARTIFACT_CAP} more`))
-
-    // ---- Files changed
-    if (files.length > 0) {
-      gap()
-      out.push(section(ctx, $, 'Files changed', colHeads(cols, String(files.length), 'edits', 'last'), { key: 'sec-files' }))
-      const markCol = mid !== undefined ? mid - 13 : undefined
-      const limit = markCol !== undefined ? markCol - 2 : nameLimit(cols)
-      files.slice(0, FILES_CAP).forEach((f, i) => {
-        const select = () => {
-          fileOpen = f.path
-          return updateUi($, s => ({ ...s, artifactOpen: '' })).then(() => {
-            try {
-              $.ui.invalidate('ui.render')
-            } catch (err) {
-              debug($, `invalidate failed: ${errText(err)}`)
-            }
-          })
-        }
-        const sel = f.path === fileSel
-        const body: Seg[] = [
-          { col: 2, text: '·', ...(sel ? { color: CK.accent } : { dim: true }) },
-          { col: COL.name, text: pathFit(f.path, Math.max(1, limit - COL.name)), ...(sel ? { bold: true } : {}) },
-        ]
-        if (markCol !== undefined) body.push({ col: markCol, text: '▪'.repeat(Math.min(MARKS, f.edits)), dim: true })
-        if (mid !== undefined) body.push(...flushRight([{ text: String(f.edits), dim: true }], mid))
-        if (hasTime(cols) && f.at !== undefined) body.push(...flushRight([{ text: ago(ctx.now - f.at), dim: true }], right))
-        out.push(lineOf(ctx, $, { key: `file-${i}`, body, onPress: select }))
-        if (!sel) return
-        const path = f.path
+      out.push(blank(ctx, $, 'handoff-gap-digest'))
+      // M5: the label and the bar share a row, the bar from the column after the label, a gap between its parts
+      // (the mock's "It will hold" row). Where the bar would be under 12 cells it takes its own row under the label.
+      const label = 'The digest will contain'
+      const barCol = left + label.length + 2
+      const beside = right + 1 - barCol >= 12
+      const w = weights(parts)
+      const barCells = beside ? right + 1 - barCol : content
+      const bar = ruleBar(barCells, PARTS.map((x, i) => ({ count: w[i] ?? 0, ...x.style })), undefined, true).map((r, i) => runText(r, ctx.e, $, `digest-bar-${i}`))
+      if (beside) {
         out.push(
-          <Box key={`open-file-${i}`} flexDirection="column">
-            {openedBlock(ctx, $, {
-              key: `open-file-${i}`,
-              details: [{ key: 'Path', value: fitLeft(path, Math.max(0, right + 1 - 14)) }],
-              actions: [
-                { hotkey: 'o', label: 'open', key: `act-o-file-${i}`, onPress: async () => void (await openInEditor($, path, undefined, e.surface)) },
-                { hotkey: 'c', label: 'copy path', key: `act-c-file-${i}`, onPress: () => copyText($, path, e.surface) },
-              ],
-            })}
-          </Box>,
+          <Text key="digest-row" wrap="truncate-end">
+            {' '.repeat(left)}
+            <Text key="digest-label" dimColor>{label}</Text>
+            {'  '}
+            {bar}
+          </Text>,
         )
-      })
-      if (files.length > FILES_CAP) out.push(moreRow(ctx, $, 'files-more', `+ ${files.length - FILES_CAP} more`))
-    }
-
-    // ---- Kept: the steps kept in full
-    const keptSteps = t.steps.filter(s => s.pin !== undefined).sort((a, b) => b.startedAt - a.startedAt)
-    if (keptSteps.length > 0) {
+      } else {
+        out.push(lineOf(ctx, $, { key: 'digest-label', body: [{ col: left, text: label, dim: true }] }))
+        out.push(
+          <Text key="digest-bar" wrap="truncate-end">
+            {' '.repeat(left)}
+            {bar}
+          </Text>,
+        )
+      }
+      // The legend wraps to a second row before any word is cut (M14): a part is a square and its word, whole or not shown.
+      const legendRows: Seg[][] = [[]]
+      let lc: number = left
+      for (const x of legendOf(parts, t)) {
+        const need = 2 + x.text.length
+        if (lc + need > right + 1 && legendRows[legendRows.length - 1]!.length > 0 && legendRows.length < 2) {
+          legendRows.push([])
+          lc = left
+        }
+        if (lc + need > right + 1) continue
+        legendRows[legendRows.length - 1]!.push({ col: lc, text: '■', ...x.style }, { col: lc + 2, text: x.text, dim: true })
+        lc += need + 2
+      }
+      legendRows.forEach((l, i) => out.push(lineOf(ctx, $, { key: `digest-legend${i === 0 ? '' : `-${i}`}`, body: l })))
+      out.push(inst(ctx, $, frameFootInst('handoff-sill', cols, 'iris', ground)))
       gap()
-      out.push(section(ctx, $, 'Kept', colHeads(cols, String(keptSteps.length), 'from', 'age'), { key: 'sec-kept' }))
-      const toolW = toolRoom(cols)
-      keptSteps.slice(0, KEPT_CAP).forEach(s => {
-        const note = s.pin !== undefined && s.pin !== '' ? s.pin.replace(/\s+/g, ' ').trim() : ''
-        const text = note !== '' ? note : s.label.startsWith(`${s.tool} `) ? s.label.slice(s.tool.length + 1) : s.label
-        const body: Seg[] = [{ col: 2, text: '★', color: CK.accent }, { col: COL.name, text: pathFit(text, Math.max(1, nameLimit(cols) - COL.name)) }]
-        if (mid !== undefined) body.push(...flushRight([{ text: toolName(s.tool, Math.max(toolW, 4)), dim: true }], mid))
-        if (hasTime(cols)) body.push(...flushRight([{ text: ago(ctx.now - s.startedAt), dim: true }], right))
-        out.push(lineOf(ctx, $, { key: `kept-${s.id}`, body, onPress: () => openStep($, s.id, `kept-${s.id}`) }))
-      })
-      if (keptSteps.length > KEPT_CAP) out.push(moreRow(ctx, $, 'kept-more', `+ ${keptSteps.length - KEPT_CAP} more`))
-      out.push(lineOf(ctx, $, { key: 'kept-note', body: [{ col: COL.name, text: wordFit('Kept steps are never trimmed and export in full.', Math.max(1, right - COL.name + 1)), dim: true }] }))
-    }
 
-    // `e` is armed by the Export button above, so the footer only says it.
-    const hints: FootHint[] = [{ key: '↵', label: 'open artifact' }, { key: 'e', label: 'export' }, { key: 'esc', label: 'prompt' }]
-    return <Box flexDirection="column">{withFooter(ctx, $, out, hints)}</Box>
+      // ---- Artifacts
+      const files = fileEdits(t)
+      // A file's actions show only while no artifact is open: they share the hotkeys `o` and `c`.
+      const noArtifactOpen = openId === undefined || openId === ''
+      const fileSel = noArtifactOpen ? (files.find(f => f.path === fileOpen) ?? (rows.length === 0 ? files[0] : undefined))?.path : undefined
+
+      out.push(section(ctx, $, 'Artifacts', rows.length > 0 ? colHeads(cols, String(rows.length), 'kind', 'age') : undefined, { key: 'sec-artifacts' }))
+      if (rows.length === 0) {
+        wrapWords(EMPTY, Math.max(1, right - left + 1), 5).forEach((l, i) => {
+          out.push(lineOf(ctx, $, { key: `empty-${i}`, body: [{ col: left, text: l, dim: true }] }))
+        })
+      }
+      const shownRows = rows.slice(0, caps[0]!)
+      shownRows.forEach((a, i) => {
+        const seq = a.stepId !== undefined ? stepSeq.get(a.stepId) : undefined
+        const isOpen = a.id === openId
+        const room = Math.max(1, nameLimit(cols) - COL.name)
+        const body: Seg[] = [{ col: 2, text: GLYPH[a.kind], ...(isOpen && a.kind === 'page' ? { color: CK.accent } : TONE[a.kind]) }, { col: COL.name, text: wordFit(a.title, room), ...(isOpen ? { bold: true } : {}) }]
+        if (mid !== undefined) body.push(...flushRight([{ text: KIND[a.kind], dim: true }], mid))
+        if (hasTime(cols)) body.push(...flushRight([{ text: ago(ctx.now - a.updatedAt), dim: true }], right))
+        out.push(
+          lineOf(ctx, $, {
+            key: `art-${a.id}`,
+            ...(isOpen ? { pre: [{ col: 0, text: '▍', color: CK.accent }] } : {}),
+            body,
+            // Enter on an artifact row opens its page (rich rule 4); `b` comes back to the row.
+            onPress: () => openPage($, 'artifact', a.id, `art-${a.id}`),
+          }),
+        )
+        if (!isOpen) return
+        const stepId = a.stepId
+        const actions: Action[] = []
+        if (stepId !== undefined && seq !== undefined) {
+          actions.push({ hotkey: 'o', label: 'step', key: `act-o-${a.id}`, onPress: () => openStepInline($, stepId) })
+        }
+        const hasRef = a.ref !== undefined && a.ref !== ''
+        actions.push({ hotkey: 'c', label: hasRef ? 'copy link' : 'copy', key: `act-c-${a.id}`, onPress: () => copyText($, a.ref ?? a.title, e.surface) })
+        if (stepId !== undefined && seq !== undefined) {
+          actions.push({ hotkey: 'g', label: 'chat', key: `act-g-${a.id}`, onPress: () => showInChat($, stepId) })
+        }
+        out.push(<Box key={`open-${a.id}`} flexDirection="column">{openedBlock(ctx, $, { key: `open-${a.id}`, details: detailsOf(t, a, cols, seq), actions })}</Box>)
+        if (i < shownRows.length - 1 || rows.length > caps[0]!) out.push(blank(ctx, $, `below-${a.id}`))
+      })
+      if (rows.length > caps[0]!) out.push(moreRow(ctx, $, 'artifacts-more', `+ ${rows.length - caps[0]!} more`))
+
+      // ---- Files changed
+      if (files.length > 0) {
+        gap()
+        out.push(section(ctx, $, 'Files changed', colHeads(cols, String(files.length), 'edits', 'last'), { key: 'sec-files' }))
+        const markCol = mid !== undefined ? mid - 13 : undefined
+        const limit = markCol !== undefined ? markCol - 2 : nameLimit(cols)
+        files.slice(0, caps[1]!).forEach((f, i) => {
+          const select = () => {
+            fileOpen = f.path
+            return updateUi($, s => ({ ...s, artifactOpen: '' })).then(() => {
+              try {
+                $.ui.invalidate('ui.render')
+              } catch (err) {
+                debug($, `invalidate failed: ${errText(err)}`)
+              }
+            })
+          }
+          const sel = f.path === fileSel
+          const body: Seg[] = [
+            { col: 2, text: '·', ...(sel ? { color: CK.accent } : { dim: true }) },
+            { col: COL.name, text: pathFit(f.path, Math.max(1, limit - COL.name)), ...(sel ? { bold: true } : {}) },
+          ]
+          if (markCol !== undefined) body.push({ col: markCol, text: '▪'.repeat(Math.min(MARKS, f.edits)), dim: true })
+          if (mid !== undefined) body.push(...flushRight([{ text: String(f.edits), dim: true }], mid))
+          if (hasTime(cols) && f.at !== undefined) body.push(...flushRight([{ text: ago(ctx.now - f.at), dim: true }], right))
+          out.push(lineOf(ctx, $, { key: `file-${i}`, body, onPress: select }))
+          if (!sel) return
+          const path = f.path
+          out.push(
+            <Box key={`open-file-${i}`} flexDirection="column">
+              {openedBlock(ctx, $, {
+                key: `open-file-${i}`,
+                details: [{ key: 'Path', value: fitLeft(path, Math.max(0, right + 1 - 14)) }],
+                actions: [
+                  { hotkey: 'o', label: 'open', key: `act-o-file-${i}`, onPress: async () => void (await openInEditor($, path, undefined, e.surface)) },
+                  { hotkey: 'c', label: 'copy path', key: `act-c-file-${i}`, onPress: () => copyText($, path, e.surface) },
+                ],
+              })}
+            </Box>,
+          )
+        })
+        if (files.length > caps[1]!) out.push(moreRow(ctx, $, 'files-more', `+ ${files.length - caps[1]!} more`))
+      }
+
+      // ---- Kept: the steps kept in full
+      const keptSteps = t.steps.filter(s => s.pin !== undefined).sort((a, b) => b.startedAt - a.startedAt)
+      if (keptSteps.length > 0) {
+        gap()
+        out.push(section(ctx, $, 'Kept', colHeads(cols, String(keptSteps.length), 'from', 'age'), { key: 'sec-kept' }))
+        const toolW = toolRoom(cols)
+        keptSteps.slice(0, caps[2]!).forEach(s => {
+          const note = s.pin !== undefined && s.pin !== '' ? s.pin.replace(/\s+/g, ' ').trim() : ''
+          const text = note !== '' ? note : s.label.startsWith(`${s.tool} `) ? s.label.slice(s.tool.length + 1) : s.label
+          const body: Seg[] = [{ col: 2, text: '★', color: CK.accent }, { col: COL.name, text: pathFit(text, Math.max(1, nameLimit(cols) - COL.name)) }]
+          if (mid !== undefined) body.push(...flushRight([{ text: toolName(s.tool, Math.max(toolW, 4)), dim: true }], mid))
+          if (hasTime(cols)) body.push(...flushRight([{ text: ago(ctx.now - s.startedAt), dim: true }], right))
+          out.push(lineOf(ctx, $, { key: `kept-${s.id}`, body, onPress: () => openStep($, s.id, `kept-${s.id}`) }))
+        })
+        if (keptSteps.length > caps[2]!) out.push(moreRow(ctx, $, 'kept-more', `+ ${keptSteps.length - caps[2]!} more`))
+        const keptNote = ['Kept steps are never trimmed and export in full.', 'Kept steps export in full.'].find(x => x.length <= right - COL.name + 1)
+        if (keptNote !== undefined) out.push(lineOf(ctx, $, { key: 'kept-note', body: [{ col: COL.name, text: keptNote, dim: true }] }))
+      }
+
+      // `e` is armed by the Export button above, so the footer only says it.
+      const hints: FootHint[] = [{ key: '↵', label: 'open artifact' }, { key: 'e', label: 'export' }, { key: 'esc', label: 'prompt' }]
+    return { out, hints }
+    }
+    return <Box flexDirection="column">{growBody(ctx, $, lists, build)}</Box>
   } catch (err) {
     debug($, `artifacts view failed: ${errText(err)}`)
     return <Text dimColor>{`Artifacts: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>

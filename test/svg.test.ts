@@ -4,6 +4,7 @@ import type { AgentRow, Step, TaskItem, Timeline, UiState } from '../mod/types'
 import { CHECKING_TEXT } from '../mod/hooks/model/alerts'
 import { empty } from '../mod/hooks/model/reduce'
 import { bandAlt, bandSvg, deckModel, nowDeckAlt, nowDeckSvg, SVG_MAX } from '../mod/hooks/views/svg'
+import type { DeckHead } from '../mod/hooks/views/svg'
 
 const NOW = 10_000_000
 // state.ts imports claude-code, which vitest cannot load: the pane's initial state, as initialUi has it.
@@ -20,6 +21,22 @@ const u: UiState = {
   toasted: [],
   slim: false,
 }
+
+/**
+ * The header's words the pane's own functions would hand the Svg (svgview.tsx `deckHead`, which vitest cannot load:
+ * it imports the engine). The real words are tested in the engine, mod/hooks/views/svgheader.test.tsx.
+ */
+const head = (over: Partial<DeckHead> = {}): DeckHead => ({
+  pill: 'WORKING',
+  tone: 'iris',
+  meta: [{ text: '10 min this turn', dim: true }],
+  kicker: 'Working on',
+  lead: 'working',
+  goal: { text: 'Wiring the limiter into the middleware chain', isIdle: false },
+  budget: [{ text: '9% of 1M', dim: true }],
+  gauges: [{ pct: 9, label: 'context' }, { pct: 78, label: '5 hours' }, { pct: 22, label: 'this week' }],
+  ...over,
+})
 
 const agent = (id: string, status: AgentRow['status'], type = 'Explore', extra: Partial<AgentRow> = {}): AgentRow => ({
   id, parent: 'main', type, description: `agent ${id}`, status, startedAt: NOW - 120_000, doing: '', stepCount: 1, ...extra,
@@ -52,34 +69,32 @@ function busy(): Timeline {
   }
 }
 
-test('the model reads the timeline: pill, focus, running step, rings, counts', () => {
-  const m = deckModel(busy(), u, NOW)
-  expect(m.pill.word).toBe('WORKING')
+test('the model reads the timeline and the header words: pill, goal, rings, counts, crew', () => {
+  const m = deckModel(busy(), u, NOW, head())
+  expect(m.pill).toEqual({ word: 'WORKING', hue: 'iris' })
   expect(m.focus).toBe('Wiring the limiter into the middleware chain')
-  expect(m.step?.label).toBe('Edit rateLimit.ts')
-  expect(m.rings.map(r => [r.name, r.pct])).toEqual([['CTX', 9], ['5H', 78], ['7D', 22]])
-  expect(m.next).toBe('Run the upload tests on staging')
+  expect(m.rings.map(r => [r.name, r.pct])).toEqual([['context', 9], ['5 hours', 78], ['this week', 22]])
   expect([m.tasks.done, m.tasks.total]).toEqual([2, 4])
-  expect([m.steps.count, m.steps.errors]).toEqual([4, 2])
   expect([m.live, m.failed]).toEqual([2, 1])
   expect(m.crew.length).toBe(4)
   expect(m.crew[0]!.state).toBe('working')
-  expect(m.cache?.readPct).toBe(78)
+  // The cockpit header holds no step line, turn counter, Next, trace or cache.
+  for (const k of ['step', 'right', 'next', 'cache', 'steps']) expect(k in m).toBe(false)
 })
 
 test('the deck Svg shows the model\'s values as text and titles', () => {
-  const s = nowDeckSvg(busy(), u, NOW, 62)
+  const s = nowDeckSvg(busy(), u, NOW, 62, head())
   expect(s.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true)
   expect(s.endsWith('</svg>')).toBe(true)
-  for (const want of ['WORKING', 'Wiring the limiter', 'Edit rateLimit.ts', '2/4', '1 failed']) {
+  for (const want of ['WORKING', 'Wiring the limiter', 'Working on', '10 min this turn', '2/4', '1 failed']) {
     expect(s).toContain(want)
   }
   // R26 / review I-4: the cockpit removed Next, "n live", the Steps trace with its error count and the Cache row.
-  for (const gone of ['>Next<', 'Run the upload tests on staging', ' live', ' errors', '% read', '>Steps<', '>Cache<']) {
+  for (const gone of ['>Next<', 'Run the upload tests on staging', ' live', ' errors', '% read', '>Steps<', '>Cache<', 'Edit rateLimit.ts', '▸', 'turn ']) {
     expect(s).not.toContain(gone)
   }
-  expect(s).toContain('<title>CTX: 9% used</title>')
-  expect(s).toContain('<title>5H: 78% used</title>')
+  expect(s).toContain('<title>context: 9% used</title>')
+  expect(s).toContain('<title>5 hours: 78% used</title>')
   // No animation, no glow, no gradient (R32), and the cockpit palette: the ground, the accent, no ember in the plan strip.
   expect(s).not.toContain('<animate')
   expect(s).not.toContain('filter=')
@@ -112,41 +127,36 @@ test('the band Svg asks in amber with the asker as its critter, and an idle sess
   expect(bandSvg({ ...busy(), turns: [{ id: 't1', agent: 'main', prompt: 'x', startedAt: NOW - 600_000, endedAt: NOW - 1000, failed: true }], agents: { ...empty.agents }, steps: [] }, u, NOW, 120)).toContain('Stopped')
 })
 
-test('R2 through deckModel: an ask in auto mode shows after its 20 s, a permission outside auto at once (the same default problems() has)', () => {
-  const ask = (at: number): Timeline => ({ ...busy(), autoAsk: true, steps: [{ ...step(5, 'running', at - 5000, 'Bash rm -rf build'), tool: 'Bash', asking: at }] })
-  expect(deckModel(ask(NOW - 5_000), u, NOW).pill.word).toBe('WORKING')
-  expect(deckModel(ask(NOW - 30_000), u, NOW).pill).toEqual({ word: 'WAITING', hue: 'amber' })
-  expect(deckModel({ ...ask(NOW - 5_000), autoAsk: false }, u, NOW).pill.word).toBe('WAITING')
-})
-
-test('Watch never turns the pill amber: a stalled agent is a z on its critter and the pill stays WORKING', () => {
+test('Watch never turns anything amber: a stalled agent is a z on its critter', () => {
   const t = busy()
   t.agents = { ...t.agents, a1: { ...agent('a1', 'running', 'Explore'), startedAt: NOW - 90 * 60_000, lastStepAt: NOW - 20 * 60_000 } }
-  const m = deckModel(t, u, NOW)
-  expect(m.pill.word).toBe('WORKING')
+  const m = deckModel(t, u, NOW, head())
   expect(m.crew.find(c => c.title.startsWith('agent a1'))?.state).toBe('stalled')
 })
 
 test('an idle session draws a quiet deck with no rings it has no figure for', () => {
-  const m = deckModel(empty, u, NOW)
+  const quiet = head({ pill: 'IDLE', tone: 'mute', meta: [], kicker: 'Ready', lead: 'done', goal: { text: 'Idle. Nothing running yet.', isIdle: true }, budget: [{ text: 'no budget reading yet', dim: true }], gauges: [] })
+  const m = deckModel(empty, u, NOW, quiet)
   expect(m.pill.word).toBe('IDLE')
   expect(m.rings).toEqual([])
-  const s = nowDeckSvg(empty, u, NOW, 40)
+  const s = nowDeckSvg(empty, u, NOW, 40, quiet)
   expect(s).toContain('IDLE')
   expect(s).not.toContain('<animate')
   expect(s.length).toBeLessThan(SVG_MAX)
 })
 
-test('a problem turns the pill amber WAITING', () => {
-  const t = busy()
-  t.steps = [...t.steps, { ...step(5, 'running', NOW - 60_000, 'Bash rm -rf build'), asking: NOW - 50_000 }]
-  expect(deckModel(t, u, NOW).pill).toEqual({ word: 'WAITING', hue: 'amber' })
+test('a waiting header is the amber pill with its wait beside it', () => {
+  const waiting = head({ pill: 'WAITING FOR YOU', tone: 'amber', meta: [{ text: '1 min', dim: true }], kicker: 'Paused on' })
+  const s = nowDeckSvg(busy(), u, NOW, 62, waiting)
+  expect(s).toContain('WAITING FOR YOU')
+  expect(s).toContain('1 min')
+  expect(s).toContain('fill="#e3b04b"')
 })
 
 test('text from the model is escaped and nothing scripted is written', () => {
   const t = busy()
   t.now = { focus: 'Fix <script> & "quotes"', at: NOW }
-  const s = nowDeckSvg(t, u, NOW, 62)
+  const s = nowDeckSvg(t, u, NOW, 62, head({ goal: { text: 'Fix <script> & "quotes"', isIdle: false } }))
   expect(s).not.toContain('<script')
   expect(s).toContain('&lt;script&gt;')
   expect(s).toContain('&amp;')
@@ -162,22 +172,23 @@ test('a huge session stays under the Svg limit', () => {
   t.steps = Array.from({ length: 2000 }, (_, i) => step(i + 1, i % 7 ? 'done' : 'error', NOW - 2_000_000 + i * 900, 'x'.repeat(400)))
   t.now = { focus: 'y'.repeat(5000), next: 'z'.repeat(5000), at: NOW }
   for (const cols of [30, 62, 200, 600]) {
-    expect(nowDeckSvg(t, u, NOW, cols).length).toBeLessThan(SVG_MAX)
+    expect(nowDeckSvg(t, u, NOW, cols, head({ goal: { text: 'y'.repeat(5000), isIdle: false } })).length).toBeLessThan(SVG_MAX)
     expect(bandSvg(t, u, NOW, cols).length).toBeLessThan(SVG_MAX)
   }
 })
 
 test('the alts say the deck and the band in words', () => {
-  const a = nowDeckAlt(busy(), u, NOW)
-  expect(a).toContain('WORKING')
+  const a = nowDeckAlt(busy(), u, NOW, head())
+  expect(a).toContain('WORKING, 10 min this turn')
+  expect(a).toContain('Working on: Wiring')
   expect(a).toContain('Wiring the limiter into the middleware chain')
   expect(a).toContain('2 of 4 tasks done')
-  expect(a).toContain('CTX 9%')
+  expect(a).toContain('context 9%, 5 hours 78%')
   expect(a).toContain('2 agents working, 1 failed')
-  expect(a).not.toMatch(/live|Next:|steps, d+ errors|Cache/)
+  expect(a).not.toMatch(/live|Next:|steps, d+ errors|Cache|Running|turn d/)
   expect(bandAlt(busy(), u, NOW)).toContain('Working on Wiring the limiter into the middleware chain')
   expect(bandAlt(busy(), u, NOW)).toContain('2 of 4 done')
-  expect(nowDeckAlt(empty, u, NOW).length).toBeGreaterThan(0)
+  expect(nowDeckAlt(empty, u, NOW, head()).length).toBeGreaterThan(0)
 })
 
 test('the desktop band says "Checking a permission" in the checking gap, never "nothing needs you"', () => {

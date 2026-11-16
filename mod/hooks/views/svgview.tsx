@@ -5,12 +5,18 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import type { Timeline, UiState } from '../../types'
+import { headerState, needs } from '../model/alerts'
+import { todoBlock } from '../model/todo'
 import type { BandModel } from './bandmodel'
+import { budgetWords, nowGauges } from './budget'
+import { headline } from './lay'
+import { headWords, isRest } from './overview'
 import type { Ground } from './raster'
 import type { ViewCtx } from './shell'
 import { lookOf } from './style'
 import type { Look, LookOptions } from './style'
 import { bandAlt, bandSvg, nowDeckAlt, nowDeckSvg } from './svg'
+import type { DeckHead } from './svg'
 
 /**
  * The look a draw on `surface` takes: `lookOf`'s, with the Svg kept to the
@@ -20,6 +26,32 @@ import { bandAlt, bandSvg, nowDeckAlt, nowDeckSvg } from './svg'
 export function lookFor(table: object, surface: string, options: LookOptions = {}): Look {
   const look = lookOf(table, options)
   return look === 'svg' && surface !== 'desktop' ? 'text' : look
+}
+
+/**
+ * The words of Now's header for the Svg: the terminal header's own functions
+ * (`headWords`, `headline`, `budgetWords`, `nowGauges`) over the same needs
+ * read (`covered` is the pane's `isPromptCovered`), so the two surfaces say the
+ * same thing. `svg.ts` draws them and stays free of these modules.
+ *
+ * @example nowDeckSvg(t, u, now, cols, deckHead(ctx), ground, covered)
+ */
+export function deckHead(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'>): DeckHead {
+  const { t, now } = ctx
+  const view = needs(t, now, { covered: ctx.isPromptCovered === true })
+  const hs = headerState(t, now, view)
+  const todo = todoBlock(t, view.items.map(n => n.agent))
+  const w = headWords({ ...ctx, cols: 62 } as unknown as ViewCtx, view, hs, todo)
+  return {
+    pill: w.pill,
+    tone: w.pillColor !== undefined ? 'mute' : (w.tone as DeckHead['tone']),
+    meta: w.meta,
+    kicker: w.kicker,
+    lead: w.lead,
+    goal: headline(t),
+    budget: budgetWords(t, now, { idle: isRest(hs) }),
+    gauges: nowGauges(t),
+  }
 }
 
 /** A press the Svg cannot take, drawn as a plain Button beside it: its key (as the text and rich forms key it), label and handler. */
@@ -52,9 +84,10 @@ export function deckSvg(ctx: ViewCtx, $: EngineInterface, presses: SvgPress[] = 
   const table = $.ui.resolve(ctx.e)
   if (ctx.look !== 'svg' || !('Svg' in table)) return null
   const { Box, Svg } = table
+  const head = deckHead(ctx)
   return (
     <Box key="now-svg" flexDirection="column">
-      <Svg source={nowDeckSvg(ctx.t, ctx.u, ctx.now, ctx.cols, ctx.ground ?? 'night', ctx.isPromptCovered === true)} alt={nowDeckAlt(ctx.t, ctx.u, ctx.now, ctx.isPromptCovered === true)} isInteractive />
+      <Svg source={nowDeckSvg(ctx.t, ctx.u, ctx.now, ctx.cols, head, ctx.ground ?? 'night', ctx.isPromptCovered === true)} alt={nowDeckAlt(ctx.t, ctx.u, ctx.now, head, ctx.isPromptCovered === true)} isInteractive />
       {pressRow($, ctx.e, 'now-svg-presses', presses)}
     </Box>
   )

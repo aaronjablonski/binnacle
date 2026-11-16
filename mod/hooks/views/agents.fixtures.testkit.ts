@@ -4,12 +4,16 @@
 // map rules add (a flagged agent, a failure, an unfolded task). Imported by
 // *.test.tsx files only.
 
-import type { AgentRow, Step, TaskItem, Timeline } from '../../types'
+import type { AgentRow, Step, TaskItem, Timeline, TurnRow } from '../../types'
 import { empty } from '../model/reduce'
 
 export const NOW = 10_000_000_000
 const MIN = 60_000
 const SEC = 1000
+
+/** A subagent's run as the reducer records it (C2): a turn of its own naming the lead's open turn; its steps carry this id. */
+const runTurnId = (agentId: string): string => `run-${agentId}`
+const runTurn = (agentId: string, prompt: string, startedAt: number, lead = 't1'): TurnRow => ({ id: runTurnId(agentId), agent: agentId, prompt, startedAt, lead })
 
 export const agent = (id: string, type: string, description: string, startedAt: number, extra: Partial<AgentRow> = {}): AgentRow => ({
   id, parent: 'main', type, description, status: 'running', startedAt, doing: '', stepCount: 1, ...extra,
@@ -59,12 +63,16 @@ export function listSession(): Timeline {
   return {
     ...empty,
     now: { focus: 'Wiring the limiter into the middleware chain', at: NOW - 30 * MIN },
-    turns: [{ id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: NOW - 41 * MIN }],
+    turns: [
+      { id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: NOW - 41 * MIN },
+      runTurn('e1', agents.e1!.description, agents.e1!.startedAt),
+      runTurn('b1', agents.b1!.description, agents.b1!.startedAt),
+    ],
     agents,
     runs: { r1: run },
     steps: [
-      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20 * SEC, { turnId: 't1', pending: { pattern: 'upload(', path: 'src/server' } }),
-      step('s-b1', 101, 'b1', 'Edit', 'Edit test/rateLimit.test.ts', 'running', NOW - 10 * SEC, { turnId: 't1', pending: { file_path: 'test/rateLimit.test.ts' } }),
+      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20 * SEC, { turnId: runTurnId('e1'), pending: { pattern: 'upload(', path: 'src/server' } }),
+      step('s-b1', 101, 'b1', 'Edit', 'Edit test/rateLimit.test.ts', 'running', NOW - 10 * SEC, { turnId: runTurnId('b1'), pending: { file_path: 'test/rateLimit.test.ts' } }),
     ],
   }
 }
@@ -128,12 +136,15 @@ export function mapSession(): Timeline {
   return {
     ...empty,
     now: { focus: 'Wiring the limiter into the middleware chain', at: NOW - 30 * MIN },
-    turns: [{ id: 't1', agent: 'main', prompt: 'add rate limiting', startedAt: NOW - (60 + 48) * MIN }],
+    turns: [
+      { id: 't1', agent: 'main', prompt: 'add rate limiting', startedAt: NOW - (60 + 48) * MIN },
+      runTurn('live', agents.live!.description, agents.live!.startedAt),
+    ],
     agents,
     tasks,
     steps: [
       step('s-m', 90, 'main', 'Bash', 'Bash npm test', 'done', NOW - 108 * MIN, { turnId: 't1', endedAt: NOW - 107 * MIN }),
-      step('s-live', 101, 'live', 'Edit', 'Edit middleware/rateLimit.ts', 'running', NOW - 10 * SEC, { turnId: 't1', pending: { file_path: 'middleware/rateLimit.ts' } }),
+      step('s-live', 101, 'live', 'Edit', 'Edit middleware/rateLimit.ts', 'running', NOW - 10 * SEC, { turnId: runTurnId('live'), pending: { file_path: 'middleware/rateLimit.ts' } }),
     ],
   }
 }
@@ -148,9 +159,10 @@ export function flaggedSession(): Timeline {
   return {
     ...t,
     agents: { ...t.agents, ask: waiting, boom: failed },
+    turns: [...t.turns, runTurn('ask', waiting.description, waiting.startedAt)],
     steps: [
       ...t.steps,
-      step('s-ask', 102, 'ask', 'Bash', 'Bash npm run deploy -- --env staging', 'running', NOW - 90 * SEC, { turnId: 't1', asking: NOW - 40 * SEC, pending: { command: 'npm run deploy -- --env staging' } }),
+      step('s-ask', 102, 'ask', 'Bash', 'Bash npm run deploy -- --env staging', 'running', NOW - 90 * SEC, { turnId: runTurnId('ask'), asking: NOW - 40 * SEC, pending: { command: 'npm run deploy -- --env staging' } }),
     ],
   }
 }

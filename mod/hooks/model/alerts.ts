@@ -40,10 +40,12 @@ const KNOWN_TYPES: Record<string, string> = {
   'general-purpose': 'General', explore: 'Explorer', plan: 'Planner', main: 'Claude',
 }
 
-/** The name a sentence gives an agent: `Claude` for the lead, its type in friendly case for a subagent, `An agent` when it has none. */
+/** The name a sentence gives an agent: `Claude` for the lead, its type in friendly case for a subagent (a plugin's prefix dropped), `An agent` when it has none. */
 export function agentName(t: Timeline, agent: AgentKey): string {
   if (agent === 'main') return 'Claude'
-  const type = oneLine(t.agents[agent]?.type ?? '')
+  const full = oneLine(t.agents[agent]?.type ?? '')
+  // M6: a plugin's agent drops its prefix: `superpowers:code-reviewer` is "Code reviewer".
+  const type = full.includes(':') ? full.slice(full.lastIndexOf(':') + 1) : full
   if (type === '' || type === 'unknown') return 'An agent'
   const known = KNOWN_TYPES[type.toLowerCase()]
   if (known !== undefined) return known

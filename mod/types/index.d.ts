@@ -39,6 +39,7 @@ export type TurnRow = {
   id: string; agent: AgentKey; prompt: string; startedAt: number; endedAt?: number
   failed?: true                          // it ended with an error or a refusal
   aborted?: true                         // the person interrupted it
+  lead?: string                          // a subagent's turn: the main turn open when it started (Steps files its steps there); absent on main turns and on rows an earlier version stored
 }
 export type Now = { focus: string; next?: string; at: number }
 export type Note = { text: string; agent: AgentKey; at: number }
@@ -79,6 +80,7 @@ export type Timeline = {
   asks?: InputAsk[]                      // open MCP input requests (≤ 4)
   failure?: TurnFailure                  // the newest failed main turn's reason
   listFrom?: number                      // when the lead's current list began: a main prompt that started with every lead task complete folds the older ones away ("Earlier")
+  clearedAt?: number                     // when the newest /clear ended a conversation: its headline, list and request fold away, and task-tool ids restarting at 1 key a new task
 }
 /** One item of the update tool's `tasks` list: the whole list is sent each time. */
 export type ListItem = { title: string; state: 'todo' | 'doing' | 'done' }
@@ -105,6 +107,7 @@ export type Ev =
   | { kind: 'measure'; at: number; budget: Budget }
   | { kind: 'agent.model'; id: AgentKey; model: string }
   | { kind: 'export'; at: number; path: string }
+  | { kind: 'clear'; at: number }
 /** When to raise a native notification: never; on waits; on waits and long turns that finished; on those and failed turns too. */
 export type NotifyMode = 'off' | 'waits' | 'done' | 'all'
 /** One session's row in the ledger (`$.store`, at most 400): its local day (YYYY-MM-DD, of its first write), tokens in + out by model (≤ 6 models), and cost when the host reports one. */

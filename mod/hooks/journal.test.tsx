@@ -6,6 +6,7 @@ import { CLEAR_MARK_MAX_AGE_MS, MAX_TEXT, MIN_PRUNE_AGE_MS, bodyOf, loadSnapshot
 import { empty } from './model/reduce'
 import { initialUi } from './state'
 import { problems } from './model/select'
+import { todoBlock } from './model/todo'
 
 const HOME = 'C:/home'
 const ROOT = `${HOME}/.claude/mission-control`
@@ -432,6 +433,42 @@ test('a /clear keeps the timeline, and bodies and snapshots stay in its first jo
   expect(snap.journal).toBe('sess-a')
   expect(snap.steps.map(s => s.id)).toEqual(['toolu_a', 'toolu_b'])
   expect(JSON.parse(d.read(`${ROOT}/sess-b/timeline.json`))).toEqual(saved)
+})
+
+test('C1: after a /clear the cleared request folds away (headline gone, its open list Earlier) and task ids restarting at 1 are new tasks', async ($, on) => {
+  const d = new Disk()
+  const box = world(on, d, 'sess-a')
+  on('tool.call', (_, e) => ({ result: (e as { tool: string }).tool === 'TaskCreate' ? { task: { id: (e as unknown as { id: string }).id } } : {}, text: 'ok' }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const clock = mock.clock(on, { now: 1000 })
+
+  await $.turn.start({ text: 'add rate limiting', turnId: 't1' })
+  await $.tool.call({ tool: 'mcp__mission-control__update', focus: 'Wiring the limiter into the chain' } as never)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Read the route', id: '1', tool_use_id: 'c1' } as never)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Write the limiter', id: '2', tool_use_id: 'c2' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'u1' } as never)
+  await $.turn.complete({ answer: 'paused', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(1000)
+  expect(box.timeline?.now?.focus).toBe('Wiring the limiter into the chain')
+
+  // /clear: the state is kept under a new id; the classic SessionStart marks the conversation cleared.
+  box.sessionId = 'sess-b'
+  await $.classic.SessionStart({ source: 'clear', session_id: 'sess-b' })
+  const t = box.timeline!
+  expect(t.now).toBeUndefined()
+  expect(t.clearedAt).toBe(2000)
+  expect(todoBlock(t).empty).toBe(true)
+  expect(todoBlock(t).earlier.map(x => x.subject)).toEqual(['Read the route', 'Write the limiter'])
+  expect(t.steps.map(s => s.id)).toEqual(['c1', 'c2', 'u1'])
+
+  // The new conversation's task list starts at 1 again: a new task, pending, never the old one's state.
+  await clock.advance(1000)
+  await $.turn.start({ text: 'why is CI slow?', turnId: 't2' })
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Profile the CI build', id: '1', tool_use_id: 'n1' } as never)
+  const after = todoBlock(box.timeline!)
+  expect(after.items.map(x => [x.subject, x.status])).toEqual([['Profile the CI build', 'pending']])
+  expect(box.timeline!.tasks.find(x => x.subject === 'Read the route')?.status).toBe('completed')
 })
 
 test('a /clear with nothing in the state restores as before', async ($, on) => {

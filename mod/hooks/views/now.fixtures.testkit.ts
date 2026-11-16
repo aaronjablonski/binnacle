@@ -3,7 +3,7 @@
 // real views with the mock's data, and the states the rulings add (R8, R12,
 // R13). Imported by *.test.tsx files only.
 
-import type { AgentRow, Step, TaskItem, Timeline } from '../../types'
+import type { AgentRow, Step, TaskItem, Timeline, TurnRow } from '../../types'
 import { empty } from '../model/reduce'
 
 export const NOW = 10_000_000_000
@@ -42,6 +42,15 @@ export const step = (id: string, seq: number, agentId: string, tool: string, lab
   id, seq, agent: agentId, tool, label, status, startedAt, ...extra,
 })
 
+/**
+ * A subagent's run as the reducer records it (C2): `turn.start` fires for
+ * every subagent run, so the run is a turn of its own, naming the main turn
+ * open when it started (`lead`). Its steps carry this turn's id, never the
+ * lead's: `runTurnId(agent)`.
+ */
+export const runTurnId = (agentId: string): string => `run-${agentId}`
+export const runTurn = (agentId: string, prompt: string, startedAt: number, lead = 't1'): TurnRow => ({ id: runTurnId(agentId), agent: agentId, prompt, startedAt, lead })
+
 const KEPT = step('k1', 5, 'main', 'Bash', 'Bash npm test', 'done', NOW - 35 * MIN, { endedAt: NOW - 35 * MIN + 2000, pin: 'Decided: the limiter runs after bodyLimit' })
 const NOTES = [
   { text: 'The tests need the staging bucket', agent: 'main', at: NOW - 30 * MIN },
@@ -53,7 +62,11 @@ export function busy(): Timeline {
   return {
     ...empty,
     now: { focus: 'Wiring the limiter into the middleware chain', at: NOW - 30 * MIN },
-    turns: [{ id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: NOW - 41 * MIN }],
+    turns: [
+      { id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: NOW - 41 * MIN },
+      runTurn('e1', 'find every caller of upload()', NOW - 134_000),
+      runTurn('b1', 'write the rate limit tests', NOW - 100_000),
+    ],
     tasks: tasksOf(9),
     agents: {
       main: { ...empty.agents.main! },
@@ -63,8 +76,8 @@ export function busy(): Timeline {
     },
     steps: [
       KEPT,
-      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20_000, { turnId: 't1', pending: { pattern: 'upload(', path: 'src/server' } }),
-      step('s-b1', 101, 'b1', 'Edit', 'Edit test/rateLimit.test.ts', 'running', NOW - 10_000, { turnId: 't1', pending: { file_path: 'test/rateLimit.test.ts' } }),
+      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20_000, { turnId: runTurnId('e1'), pending: { pattern: 'upload(', path: 'src/server' } }),
+      step('s-b1', 101, 'b1', 'Edit', 'Edit test/rateLimit.test.ts', 'running', NOW - 10_000, { turnId: runTurnId('b1'), pending: { file_path: 'test/rateLimit.test.ts' } }),
     ],
     notes: NOTES,
     budget: { contextTokens: 620_000, contextPct: 62, windows: [{ name: 'five_hour', pct: 20 }, { name: 'seven_day', pct: 34 }], at: NOW },
@@ -82,7 +95,7 @@ export function asked(): Timeline {
       KEPT,
       t.steps[1]!,
       step('s-b1', 101, 'b1', 'Bash', 'Bash npm run deploy -- --env staging', 'running', NOW - 45_000, {
-        turnId: 't1', asking: NOW - 40_000, pending: { command: 'npm run deploy -- --env staging' },
+        turnId: runTurnId('b1'), asking: NOW - 40_000, pending: { command: 'npm run deploy -- --env staging' },
       }),
     ],
   }
@@ -94,11 +107,15 @@ export function watching(): Timeline {
   const fail = (i: number): Step => step(`f${i}`, 10 + i, 'main', 'Bash', 'Bash npm test upload', 'error', NOW - (11 - i) * MIN, { endedAt: NOW - (11 - i) * MIN + 20_000, turnId: 't1' })
   return {
     ...t,
-    turns: [{ id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: NOW - 72 * MIN }],
+    turns: [
+      { id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: NOW - 72 * MIN },
+      runTurn('e1', 'find every caller of upload()', NOW - 64 * MIN),
+      runTurn('b1', 'write the rate limit tests', NOW - 100_000),
+    ],
     agents: { ...t.agents, e1: agent('e1', 'Explore', 'find every caller of upload()', NOW - 64 * MIN, { spawnStep: 'spawn-e1' }) },
     steps: [
       KEPT, fail(0), fail(1), fail(2),
-      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20_000, { turnId: 't1', pending: { pattern: 'upload(', path: 'vendor/' } }),
+      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20_000, { turnId: runTurnId('e1'), pending: { pattern: 'upload(', path: 'vendor/' } }),
       t.steps[2]!,
     ],
     budget: { contextTokens: 853_000, contextPct: 85, windows: [{ name: 'five_hour', pct: 20 }, { name: 'seven_day', pct: 34 }], at: NOW },

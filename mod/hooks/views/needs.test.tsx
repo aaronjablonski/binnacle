@@ -6,6 +6,7 @@ import type { AgentRow, Step, Timeline, TurnRow, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { resetCover } from './needs'
+import { screen } from './screen.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const BAND_SURFACES = ['terminal', 'desktop', 'mobile'] as const
@@ -663,3 +664,119 @@ test('M10: the 1 s clock stops once nothing runs, nothing is fresh and the cache
   expect(timelineReads).toBe(before)
 })
 
+
+// ---------- R3-A ----------
+
+// I1: the desktop and VS Code panes are not the watcher (the type file speaks of `isPromptCovered` in
+// terms of the terminal's keys): with no terminal pane they follow the band's no-pane rule.
+for (const surface of ['desktop', 'vscode'] as const) {
+  test(`I1: a ${surface} pane shows a permission as Needs you for its first minute, then a dim "asked to run a command · running", never the tick`, async ($, on) => {
+    const { clock } = await ticking($, on, running(NOW - 5000, false, 'Bash npm run deploy'))
+    const pane = { ...PANE(62), surface }
+    const early = await $.ui.mount(pane)
+    expect((await texts(early)).join('\n')).toContain('Needs you')
+    await early.unmount()
+    await clock.advance(60_000)
+    const later = await $.ui.mount(pane)
+    const words = (await texts(later)).join('\n')
+    expect(words).not.toContain('Needs you')
+    expect(words).not.toContain('Nothing needs you')
+    expect(words).toContain('asked to run a command · running')
+    await later.unmount()
+  })
+}
+
+test('I1: the terminal pane is still the watcher: an uncovered permission past a minute stays Needs you until the clock sees it settled', async ($, on) => {
+  await ticking($, on, running(NOW - 70_000, false, 'Bash npm run deploy'))
+  const ui = await $.ui.mount(TERMINAL_PANE(false))
+  expect((await texts(ui)).join('\n')).toContain('Needs you')
+  await ui.unmount()
+})
+
+// I5: the ask's command keeps its words from 32 to 47 columns: it wraps to a second row before any cut.
+for (const cols of [32, 36, 40, 44, 47]) {
+  test(`I5: at ${cols} columns the permission command is drawn whole over two rows, with no "…"`, async ($, on) => {
+    const { autoAsk: _a, ...t } = asked(30)
+    world(on, { ...t, steps: [step('s1', 'Bash npm run deploy -- --env staging', { asking: NOW - 30_000, pending: { command: 'npm run deploy -- --env staging' } })] })
+    const ui = await $.ui.mount({ ...PANE(cols), surface: 'terminal' })
+    const all = screen(await ui.drawn())
+    const first = all.findIndex(x => x.includes('Bash') && x.includes('npm'))
+    expect(first >= 0).toBe(true)
+    const rows = all.slice(first, first + 2).map(x => x.replace(/^[\s▍]+/, '')).join(' ')
+    expect(rows.replace(/\s+/g, ' ')).toContain('Bash npm run deploy -- --env staging')
+    for (const x of all.slice(first, first + 2)) expect(x.includes('…')).toBe(false)
+    for (const x of all) expect(x.length <= cols).toBe(true)
+    await ui.unmount()
+  })
+}
+
+// I5 in the band: the ask keeps its words in the one-row form at 32 to 47 columns.
+for (const cols of [32, 40, 47]) {
+  test(`I5: the band at ${cols} columns says the ask in whole words`, async ($, on) => {
+    const { autoAsk: _a, ...t } = asked(30)
+    world(on, t)
+    const band = await $.ui.mount({ ...BAND(cols), surface: 'terminal' })
+    const words = (await texts(band)).join('\n')
+    expect(words).toContain('needs you')
+    expect(words).toContain('Bash')
+    expect(words.includes('…')).toBe(false)
+    await band.unmount()
+  })
+}
+
+// M9: at 80 columns the band's goal never ends on "the", and the ask's command is whole.
+test('M9: the band at 80 columns cuts the goal at a word that is not "the", and moves a long command whole to row 2', async ($, on) => {
+  const goal: Timeline = {
+    ...empty,
+    now: { focus: 'Wiring the limiter into the middleware chain of the upload route', at: NOW - 1000 },
+    turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 60_000 } as TurnRow],
+    steps: [step('s1', 'Bash ls', {})],
+    agents: { main },
+    budget: { contextPct: 62, windows: [{ name: 'seven_day', pct: 34 }], at: NOW },
+  }
+  const { stored } = world(on, goal)
+  const band = await $.ui.mount({ ...BAND(80), surface: 'terminal' })
+  const row1 = (await texts(band)).find(x => x.includes('Working on')) ?? ''
+  expect(row1).toContain('Wiring the limiter')
+  expect(/\bthe\s*(context|$)/.test(row1.replace(/\s+/g, ' ').trim())).toBe(false)
+  expect(row1.includes('…')).toBe(false)
+  await band.unmount()
+
+  const { autoAsk: _a, ...t } = asked(30)
+  stored.set('timeline', { ...t, steps: [step('s1', 'Bash npm run deploy -- --env staging', { asking: NOW - 30_000, pending: { command: 'npm run deploy -- --env staging' } })] })
+  const askBand = await $.ui.mount({ ...BAND(80), surface: 'terminal' })
+  const words = await texts(askBand)
+  expect(words.join('\n')).toContain('npm run deploy -- --env staging')
+  expect(words.join('\n').includes('npm run…')).toBe(false)
+  for (const x of words) for (const line of x.split('\n')) expect(line.length <= 80).toBe(true)
+  await askBand.unmount()
+})
+
+// M13: agent-finished toasts fold over 30 s and never come more than once a minute; folded, no answer text.
+test('M13: finishes fold over 30 s into one toast with no answer text, and the next toast waits out the minute', async ($, on) => {
+  // The lead still works (its turn is open), so the clock keeps ticking while a toast is held.
+  const t: Timeline = {
+    ...empty,
+    turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 60_000 } as TurnRow],
+    agents: {
+      main,
+      r1: sub('r1'),
+      x1: sub('x1', { status: 'done', endedAt: NOW, doing: 'answer one' }),
+    },
+  }
+  const { stored, clock, toasts } = await ticking($, on, t)
+  await clock.advance(10_000)
+  expect(toasts).toEqual([])
+  // A second finish 10 s later folds into the first.
+  const t2 = stored.get('timeline') as Timeline
+  stored.set('timeline', { ...t2, agents: { ...t2.agents, x2: sub('x2', { status: 'done', endedAt: NOW + 10_000, doing: 'answer two' }) } })
+  await clock.advance(22_000)
+  expect(toasts).toEqual(['2 agents finished'])
+  // Another finish soon after: held until a minute has passed since the last toast.
+  const t3 = stored.get('timeline') as Timeline
+  stored.set('timeline', { ...t3, agents: { ...t3.agents, r1: sub('r1', { status: 'done', endedAt: NOW + 33_000, doing: 'last one' }) } })
+  await clock.advance(10_000)
+  expect(toasts).toHaveLength(1)
+  await clock.advance(55_000)
+  expect(toasts).toEqual(['2 agents finished', 'Explorer finished: last one'])
+})

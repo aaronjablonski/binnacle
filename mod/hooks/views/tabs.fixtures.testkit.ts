@@ -3,9 +3,9 @@
 // a test can draw the real tabs with the mock's data. Imported by
 // *.test.tsx files only.
 
-import type { Step, Timeline, UiState } from '../../types'
+import type { Step, Timeline, TurnRow, UiState } from '../../types'
 import { empty } from '../model/reduce'
-import { agent, busy, NOW, step, TASK_TITLES, tasksOf } from './now.fixtures.testkit'
+import { agent, busy, NOW, runTurn, runTurnId, step, TASK_TITLES, tasksOf } from './now.fixtures.testkit'
 
 export { NOW }
 const MIN = 60_000
@@ -28,8 +28,8 @@ export function tasksTimeline(): Timeline {
       b1: { ...agent('b1', 'general-purpose', 'write the rate limit tests', NOW - 100_000), taskId: '10' },
     },
     steps: [
-      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20_000, { turnId: 't1', pending: { pattern: 'upload(', path: 'src/server' } }),
-      step('s-b1', 101, 'b1', 'Edit', 'Edit middleware/index.ts', 'running', NOW - 10_000, { turnId: 't1', pending: { file_path: 'middleware/index.ts' } }),
+      step('s-e1', 100, 'e1', 'Grep', 'Grep "upload("', 'running', NOW - 20_000, { turnId: runTurnId('e1'), pending: { pattern: 'upload(', path: 'src/server' } }),
+      step('s-b1', 101, 'b1', 'Edit', 'Edit middleware/index.ts', 'running', NOW - 10_000, { turnId: runTurnId('b1'), pending: { file_path: 'middleware/index.ts' } }),
     ],
   }
 }
@@ -65,7 +65,7 @@ function atClock(hhmm: string): number {
 export function stepsTimeline(): { t: Timeline; ids: { running: string; done: string; failed: string; kept: string; view: string[] } } {
   const steps: Step[] = []
   let seq = 1
-  const turns = PROMPTS.map(p => ({ id: p.id, agent: 'main', prompt: p.prompt, startedAt: atClock(p.at), endedAt: atClock(p.at) + 5 * MIN }))
+  const turns: TurnRow[] = PROMPTS.map(p => ({ id: p.id, agent: 'main', prompt: p.prompt, startedAt: atClock(p.at), endedAt: atClock(p.at) + 5 * MIN }))
   // Earlier turns: one step each, spread over their own time.
   PROMPTS.forEach((p, ti) => {
     for (let i = 0; i < p.steps; i++) {
@@ -75,9 +75,11 @@ export function stepsTimeline(): { t: Timeline; ids: { running: string; done: st
   })
   const start = NOW - 41 * MIN
   turns.push({ id: 't1', agent: 'main', prompt: 'add rate limiting to the upload', startedAt: start, endedAt: undefined as unknown as number })
+  // C2: each subagent run is a turn of its own, as the reducer records it; its steps carry that turn's id.
+  turns.push(runTurn('e1', 'find every caller', NOW - 8 * MIN), runTurn('b1', 'write the rate limit tests', NOW - 6 * MIN))
   const cur: Step[] = []
   const mk = (id: string, tool: string, label: string, status: Step['status'], agentId: string, startedAt: number, extra: Partial<Step> = {}): void => {
-    cur.push(step(id, 0, agentId, tool, label, status, startedAt, { turnId: 't1', ...extra }))
+    cur.push(step(id, 0, agentId, tool, label, status, startedAt, { turnId: agentId === 'main' ? 't1' : runTurnId(agentId), ...extra }))
   }
   // The 34 older steps of this turn come first (oldest), then the six the mock lists (oldest to newest).
   for (let i = 0; i < 34; i++) mk(`n${i}`, 'Read', `Read src/part${i}.ts`, 'done', 'main', start + i * 30_000, { endedAt: start + i * 30_000 + 800, ...(i === 8 || i === 29 ? { status: 'error' as const } : {}), ...(i === 12 ? { pin: '' } : i === 20 ? { pin: 'check the order' } : {}) })
@@ -96,8 +98,8 @@ export function stepsTimeline(): { t: Timeline; ids: { running: string; done: st
       steps,
       agents: {
         main: { ...empty.agents.main! },
-        e1: agent('e1', 'Explore', 'find every caller', NOW - 5 * MIN),
-        b1: agent('b1', 'general-purpose', 'write the rate limit tests', NOW - 4 * MIN),
+        e1: agent('e1', 'Explore', 'find every caller', NOW - 8 * MIN),
+        b1: agent('b1', 'general-purpose', 'write the rate limit tests', NOW - 6 * MIN),
       },
       budget: t.budget,
       tasks: tasksOf(9),

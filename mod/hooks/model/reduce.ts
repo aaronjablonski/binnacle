@@ -4,7 +4,7 @@ import {
   CACHE_TTL_MS, MAX_AGENTS, MAX_ARTIFACTS, MAX_ASK_TEXT, MAX_ASKS, MAX_CHANGED, MAX_LINE, MAX_LIST_ITEMS, MAX_LIST_TITLE, MAX_MODEL, MAX_NOTES, MAX_PENDING,
   MAX_PENDING_STEPS, MAX_REASON, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_SAMPLES, MAX_STEP_ID, MAX_STEPS, MAX_TASKS, MAX_TURNS, MAX_WINDOWS, SAMPLE_GAP_MS,
 } from './limits'
-import { inLeadList, usesTaskTools } from './todo'
+import { inConversation, inLeadList, usesTaskTools } from './todo'
 import { windowsOf } from './usage'
 
 const DOING_MAX = 80
@@ -159,6 +159,15 @@ function putArtifact(t: Timeline, row: Omit<ArtifactRow, 'count'>): Timeline {
   return { ...t, artifacts: t.artifacts.map((a, j) => (j === i ? next : a)) }
 }
 
+/**
+ * A task-tool id as the timeline keys it: after a `/clear` the task list
+ * starts again at 1, so the id carries the conversation (`c<clearedAt>:<id>`)
+ * and an id that comes round again is a new task (C1). Unchanged before any.
+ */
+function taskKey(t: Timeline, raw: string): string {
+  return t.clearedAt === undefined ? raw : `c${t.clearedAt}:${raw}`
+}
+
 function putTask(t: Timeline, id: string, fn: (old: TaskItem | undefined) => TaskItem | undefined): Timeline {
   const i = t.tasks.findIndex((x) => x.id === id)
   const res = fn(i < 0 ? undefined : t.tasks[i])
@@ -174,7 +183,7 @@ function putTask(t: Timeline, id: string, fn: (old: TaskItem | undefined) => Tas
 function toolsWin(t: Timeline, taskId: string): Timeline {
   const owner = t.tasks.find((x) => x.id === taskId)?.owner
   if (owner === undefined) return t
-  const kept = t.tasks.filter((x) => !(x.owner === owner && x.id.startsWith('list:') && (owner !== 'main' || inLeadList(x, t.listFrom))))
+  const kept = t.tasks.filter((x) => !(x.owner === owner && x.id.startsWith('list:') && (owner !== 'main' ? inConversation(x, t.clearedAt) : inLeadList(x, t.listFrom, t.clearedAt))))
   return kept.length === t.tasks.length ? t : { ...t, tasks: kept }
 }
 
@@ -243,7 +252,7 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
     input.todos.forEach((td, i) => {
       if (!isObj(td)) return
       const item: TaskItem = {
-        id: `todo:${ev.agent}:${i}`,
+        id: taskKey(next, `todo:${ev.agent}:${i}`),
         subject: line(td.content) ?? line(td.subject) ?? `Todo ${i + 1}`,
         status: taskStatus(td.status) ?? 'pending',
         owner: ev.agent, updatedAt: ev.at,
@@ -260,7 +269,8 @@ function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeli
       }
       todos.push(item)
     })
-    next = { ...next, tasks: boundTasks([...next.tasks.filter((x) => x.owner !== ev.agent), ...todos]) }
+    // A cleared conversation's list stays, folded away (C1).
+    next = { ...next, tasks: boundTasks([...next.tasks.filter((x) => x.owner !== ev.agent || !inConversation(x, next.clearedAt)), ...todos]) }
   }
   return next
 }
@@ -279,11 +289,12 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
   const agent = step.agent
 
   if (step.tool === 'TaskCreate') {
-    const id = isObj(result.task) ? idOf(result.task.id) : undefined
-    if (id !== undefined) {
+    const raw = isObj(result.task) ? idOf(result.task.id) : undefined
+    if (raw !== undefined) {
+      const id = taskKey(next, raw)
       next = putTask(next, id, (old) => {
         const item: TaskItem = {
-          id, subject: line(pending.subject) ?? old?.subject ?? `Task ${id}`,
+          id, subject: line(pending.subject) ?? old?.subject ?? `Task ${raw}`,
           status: old?.status ?? 'pending', owner: old?.owner ?? agent, updatedAt: ev.at,
         }
         const af = line(pending.activeForm) ?? old?.activeForm
@@ -293,11 +304,12 @@ function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
       next = toolsWin(next, id)
     }
   } else if (step.tool === 'TaskUpdate') {
-    const id = idOf(pending.taskId) ?? idOf(result.taskId)
-    if (id !== undefined) {
+    const raw = idOf(pending.taskId) ?? idOf(result.taskId)
+    if (raw !== undefined) {
+      const id = taskKey(next, raw)
       next = putTask(next, id, (old) => {
         if (pending.status === 'deleted') return undefined
-        const item: TaskItem = { ...(old ?? { id, subject: `Task ${id}`, status: 'pending', owner: agent }), updatedAt: ev.at }
+        const item: TaskItem = { ...(old ?? { id, subject: `Task ${raw}`, status: 'pending', owner: agent }), updatedAt: ev.at }
         const st = taskStatus(pending.status)
         if (st) item.status = st
         const subject = line(pending.subject)
@@ -345,7 +357,7 @@ function agentStart(t: Timeline, ev: Extract<Ev, { kind: 'agent.start' }>): Time
   let taskId: string | undefined
   let best = -Infinity
   for (const x of next.tasks) {
-    if (x.owner === ev.parent && x.status === 'in_progress' && x.updatedAt >= best) { best = x.updatedAt; taskId = x.id }
+    if (x.owner === ev.parent && x.status === 'in_progress' && inConversation(x, next.clearedAt) && x.updatedAt >= best) { best = x.updatedAt; taskId = x.id }
   }
   return withAgent(next, ev.id, ev.at, (old) => {
     const row: AgentRow = {
@@ -408,7 +420,7 @@ const LIST_STATE: Record<string, TaskItem['status']> = { todo: 'pending', doing:
  */
 function applyList(t: Timeline, agent: AgentKey, raw: unknown[], at: number): Timeline {
   if (usesTaskTools(t, agent)) return t
-  const base = agent === 'main' ? t.listFrom ?? 0 : 0
+  const base = agent === 'main' ? t.listFrom ?? 0 : t.clearedAt ?? 0
   const prefix = `list:${agent}:${base}:`
   const before = new Map(t.tasks.filter((x) => x.id.startsWith(prefix)).map((x) => [x.id, x]))
   const items: TaskItem[] = []
@@ -427,16 +439,35 @@ function applyList(t: Timeline, agent: AgentKey, raw: unknown[], at: number): Ti
     }
     items.push(item)
   }
-  const kept = t.tasks.filter((x) => !(x.owner === agent && x.id.startsWith('list:') && (agent !== 'main' || inLeadList(x, t.listFrom))))
+  const kept = t.tasks.filter((x) => !(x.owner === agent && x.id.startsWith('list:') && (agent !== 'main' ? inConversation(x, t.clearedAt) : inLeadList(x, t.listFrom, t.clearedAt))))
   return { ...t, tasks: boundTasks([...kept, ...items]) }
 }
 
+/**
+ * Only the newest MAX_TURNS turns are kept, but never an open one (M3): a
+ * request with hundreds of subagent runs keeps the lead's running turn. The
+ * oldest ended turns go first.
+ */
+function boundTurns(turns: TurnRow[]): TurnRow[] {
+  let over = turns.length - MAX_TURNS
+  if (over <= 0) return turns
+  return turns.filter((x) => {
+    if (over > 0 && x.endedAt !== undefined) { over--; return false }
+    return true
+  })
+}
+
 function turnStart(t: Timeline, ev: Extract<Ev, { kind: 'turn.start' }>): Timeline {
-  const row = { id: ev.turnId, agent: ev.agent, prompt: cut(oneLine(str(ev.prompt) ?? ''), MAX_LINE), startedAt: ev.at }
-  const next: Timeline = { ...t, turns: dropPast([...t.turns, row], MAX_TURNS) }
+  const row: TurnRow = { id: ev.turnId, agent: ev.agent, prompt: cut(oneLine(str(ev.prompt) ?? ''), MAX_LINE), startedAt: ev.at }
+  // A subagent's run is a turn of its own; Steps files it under the request it serves (C2).
+  if (ev.agent !== 'main') {
+    const lead = openTurn(t, 'main')
+    if (lead !== undefined) row.lead = lead
+  }
+  const next: Timeline = { ...t, turns: boundTurns([...t.turns, row]) }
   // A new main prompt with every task of the lead's list complete folds that list away (R12).
   if (ev.agent === 'main') {
-    const list = t.tasks.filter((x) => x.owner === 'main' && inLeadList(x, t.listFrom))
+    const list = t.tasks.filter((x) => x.owner === 'main' && inLeadList(x, t.listFrom, t.clearedAt))
     if (list.length > 0 && list.every((x) => x.status === 'completed')) next.listFrom = ev.at
   }
   // A main turn's cost share starts from the session's cost as it stands.
@@ -551,7 +582,7 @@ function taskAtTurnEnd(t: Timeline, at: number, ms: number): number {
     })
     return best
   }
-  const open = newest((x) => x.status === 'in_progress')
+  const open = newest((x) => x.status === 'in_progress' && inConversation(x, t.clearedAt))
   return open >= 0 ? open : newest((x) => x.status === 'completed' && x.updatedAt >= at - ms)
 }
 
@@ -672,6 +703,26 @@ function noteExport(t: Timeline, ev: Extract<Ev, { kind: 'export' }>): Timeline 
   return path === '' ? t : { ...t, lastExport: { at: ev.at, path } }
 }
 
+/**
+ * A `/clear` ended the conversation (C1): what it was doing folds away as a
+ * finished request does. Steps, agents, artifacts and the budget stay for
+ * Steps and Artifacts; anything still running is settled (nothing of it can
+ * end now) and open turns end at the clear. The headline (`now`), the failure
+ * and the open asks go; the lead's list folds to "Earlier" whatever its
+ * states (`listFrom`, `clearedAt`), and task-tool ids are keyed anew.
+ */
+function clearConversation(t: Timeline, at: number): Timeline {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return t
+  const settled = settle(t)
+  const turns = settled.turns.map((x): TurnRow => (x.endedAt === undefined ? { ...x, endedAt: Math.max(x.startedAt, at) } : x))
+  const out: Timeline = { ...settled, turns, listFrom: at, clearedAt: at }
+  delete out.now
+  delete out.failure
+  delete out.autoAsk
+  if (out.turnCost !== undefined && out.turnCost.to === undefined) delete out.turnCost
+  return out
+}
+
 function pin(t: Timeline, id: string, note: string | undefined): Timeline {
   const i = t.steps.findIndex((s) => s.id === id)
   if (i < 0) return t
@@ -703,6 +754,7 @@ export function reduce(t: Timeline, ev: Ev): Timeline {
       case 'agent.model': return agentModel(t, ev)
       case 'measure': return measure(t, ev)
       case 'export': return noteExport(t, ev)
+      case 'clear': return clearConversation(t, ev.at)
       default: return t
     }
   } catch {

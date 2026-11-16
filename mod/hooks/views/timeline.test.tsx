@@ -124,15 +124,18 @@ const agent = (id: string, type: string): AgentRow => ({
 })
 const main: AgentRow = { ...empty.agents.main! }
 
-// An older turn t1 with two steps (one by a subagent) and the newest turn t2 with two.
+/** A subagent's run as the reducer records it (C2): its own turn, naming the main turn it serves. */
+const runOf = (id: string, agentId: string, lead: string, startedAt: number): TurnRow => ({ id, agent: agentId, prompt: 'x', startedAt, lead })
+
+// An older turn t1 with two steps (one by a subagent, in its own run's turn) and the newest turn t2 with two.
 function twoTurns(): Timeline {
   return {
     ...empty,
-    turns: [turn('t1', 'what does the upload endpoint accept today?', NOW - 900_000), turn('t2', 'add rate limiting', NOW - 60_000)],
+    turns: [turn('t1', 'what does the upload endpoint accept today?', NOW - 900_000), runOf('r-a1', 'a1', 't1', NOW - 890_000), turn('t2', 'add rate limiting', NOW - 60_000)],
     agents: { main, a1: agent('a1', 'Explore') },
     steps: [
       step('s1', 1, 'Read upload.ts', 'done', { turnId: 't1', tool: 'Read' }),
-      step('s2', 2, 'Grep upload(', 'done', { turnId: 't1', tool: 'Grep', agent: 'a1' }),
+      step('s2', 2, 'Grep upload(', 'done', { turnId: 'r-a1', tool: 'Grep', agent: 'a1' }),
       step('s3', 3, 'Edit rateLimit.ts', 'done', { turnId: 't2' }),
       step('s4', 4, 'Bash npm test', 'error', { turnId: 't2', tool: 'Bash' }),
     ],
@@ -181,9 +184,10 @@ test('narrow: no Text longer than 32', async ($, on) => {
   const t = twoTurns()
   t.steps.push(
     step('s6', 6, 'Edit src/server/middleware/rateLimit.ts', 'done', { turnId: 't2', pin: 'the limiter itself, a long note' }),
-    step('s7', 7, 'Agent general-purpose · write limiter tests', 'running', { turnId: 't2', agent: 'a1' }),
+    step('s7', 7, 'Agent general-purpose · write limiter tests', 'running', { turnId: 'r-a1-2', agent: 'a1' }),
   )
-  t.turns[1] = turn('t2', 'add rate limiting to the upload endpoint and write the tests', NOW - 60_000)
+  t.turns = t.turns.map(x => (x.id === 't2' ? turn('t2', 'add rate limiting to the upload endpoint and write the tests', NOW - 60_000) : x))
+  t.turns.push(runOf('r-a1-2', 'a1', 't2', NOW - 30_000))
   world(on, t, { ...TL_UI, openTurns: ['t1'] })
   for (const surface of SURFACES) {
     const ui = await mount($, surface, 32)
@@ -622,7 +626,7 @@ for (const cols of [62, 50, 40, 32]) {
   test(`at ${cols} columns no row is wider than the pane, with a kept step open and a query`, async ($, on) => {
     const t = pinned()
     t.steps.push(step('s6', 6, 'Edit src/server/middleware/rateLimit.ts', 'done', { turnId: 't2', pin: 'the limiter itself, a long note' }))
-    t.turns[1] = turn('t2', 'add rate limiting to the upload endpoint and write the tests', NOW - 60_000)
+    t.turns = t.turns.map(x => (x.id === 't2' ? turn('t2', 'add rate limiting to the upload endpoint and write the tests', NOW - 60_000) : x))
     const stored = world(on, t, TL_UI, new Map([BODY_S4]))
     for (const ui_ of [{ ...TL_UI, stepOpen: 's6', openTurns: ['t1'] }, { ...TL_UI, query: 'rate', hits: ['s4'], stepOpen: 's4' }]) {
       put(stored, t, ui_)
@@ -1320,4 +1324,64 @@ test('the step page: Tool, Agent, Status, Time, Input, Change as a diff for Edit
       await ui.unmount()
     }
   }
+})
+
+// ---- R3-A ------------------------------------------------------------------
+
+// I2: the agent's name has its own column; it never runs into the label or past the edge. A workflow
+// agent reads "Workflow", a plugin's agent drops its prefix (M6), and an MCP step with no text input is
+// named by its tool's words, never the raw `mcp__server__tool`.
+function crewSteps(): Timeline {
+  return {
+    ...empty,
+    turns: [turn('t1', 'add rate limiting', NOW - 60_000), runOf('r-w', 'w1', 't1', NOW - 50_000), runOf('r-c', 'c1', 't1', NOW - 40_000)],
+    agents: {
+      main,
+      w1: { ...agent('w1', 'workflow-subagent'), status: 'running' },
+      c1: { ...agent('c1', 'superpowers:code-reviewer'), status: 'running' },
+    },
+    steps: [
+      step('s1', 1, 'Bash npm run test -- --filter rateLimit --reporter verbose', 'running', { turnId: 'r-w', tool: 'Bash', agent: 'w1', endedAt: undefined }),
+      step('s2', 2, 'mcp__some_server__do_a_long_thing', 'running', { turnId: 'r-c', tool: 'mcp__some_server__do_a_long_thing', agent: 'c1', endedAt: undefined }),
+      step('s3', 3, 'Edit src/server/middleware/rateLimit.ts', 'done', { turnId: 't1' }),
+    ],
+  }
+}
+
+for (const cols of [62, 40]) {
+  test(`I2: at ${cols} columns step rows keep the agent's name in its own column, inside the pane`, async ($, on) => {
+    world(on, crewSteps(), TL_UI)
+    const ui = await mount($, 'terminal', cols)
+    const rows = screen(await ui.drawn())
+    for (const r of rows) expect(r.length <= cols).toBe(true)
+    const bash = rows.find(r => r.includes('npm run'))!
+    const mcp = rows.find(r => r.includes('long thing'))
+    expect(mcp).toBeDefined()
+    expect(rows.some(r => r.includes('mcp__'))).toBe(false)
+    if (cols >= 50) {
+      expect(bash).toMatch(/\S {2,}Workflow +\S/)
+      expect(bash.includes('Workflow subagent')).toBe(false)
+      expect(mcp!).toMatch(/\S {2,}Code reviewer +\S/)
+      expect(rows.some(r => r.includes('Superpowers'))).toBe(false)
+    }
+    await ui.unmount()
+  })
+}
+
+test('C2: with a subagent running, the lead\'s running turn is "This turn" and holds the subagents\' steps; nothing of it is under Earlier turns', async ($, on) => {
+  const t = crewSteps()
+  t.turns.unshift(turn('t0', 'an earlier request', NOW - 900_000))
+  t.turns[0] = { ...t.turns[0]!, endedAt: NOW - 800_000 }
+  t.steps.unshift(step('s0', 0, 'Read a.ts', 'done', { turnId: 't0', tool: 'Read' }))
+  world(on, t, TL_UI)
+  const ui = await mount($, 'terminal', 62)
+  const rows = screen(await ui.drawn())
+  const thisTurn = rows.findIndex(r => r.includes('This turn'))
+  const earlier = rows.findIndex(r => r.includes('Earlier turns'))
+  expect(thisTurn >= 0).toBe(true)
+  expect(earlier > thisTurn).toBe(true)
+  const block = rows.slice(thisTurn, earlier).join('\n')
+  for (const words of ['npm run', 'long thing', 'rateLimit.ts']) expect(block).toContain(words)
+  expect(rows.slice(earlier).join('\n')).toContain('an earlier request')
+  await ui.unmount()
 })

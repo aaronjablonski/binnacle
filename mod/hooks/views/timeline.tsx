@@ -62,6 +62,27 @@ function agentName(t: Timeline, id: string): string {
   return t.agents[id]?.type ?? id
 }
 
+/** The agent column's width on a step row (I2): the name never runs into the label or past the edge. */
+const WHO_COLUMNS = 13
+
+/**
+ * The agent's name as the step row's agent column says it (I2, M6): a
+ * plugin's prefix dropped (`superpowers:code-reviewer` is "Code reviewer"),
+ * `workflow-subagent` as "Workflow", friendly case, cut at a word to `room`.
+ */
+export function whoName(type: string, room = WHO_COLUMNS): string {
+  const bare = type.includes(':') ? type.slice(type.lastIndexOf(':') + 1) : type
+  const name = bare.toLowerCase() === 'workflow-subagent' ? 'Workflow' : typeName(bare)
+  return wordFit(name, room)
+}
+
+/** An MCP tool's own name in words: `mcp__server__do_a_long_thing` is "do a long thing"; '' for any other tool. */
+function mcpWords(tool: string): string {
+  const m = /^mcp__.+?__(.+)$/.exec(tool)
+  if (m === null) return ''
+  return oneLine(m[1]!.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ')).toLowerCase()
+}
+
 /** The turn's title: the prompt in quotes, cut by word. */
 function titleOf(g: Group, cols: number): string {
   if (g.turn === undefined) return 'Earlier steps'
@@ -69,11 +90,12 @@ function titleOf(g: Group, cols: number): string {
 }
 
 // The tool is its own column, so the name drops the tool's word from the label. A path stays whole while it fits the room.
+// An MCP step with no text input is named by its tool's own words, never the raw `mcp__server__tool` (I2).
 function nameOf(s: Step, room: number): string {
   const prefix = `${s.tool} `
-  const rest = oneLine(s.label.startsWith(prefix) ? s.label.slice(prefix.length) : s.label)
+  const rest = oneLine(s.label.startsWith(prefix) ? s.label.slice(prefix.length) : s.label === s.tool ? '' : s.label)
   if (rest !== '' && rest.length <= room) return rest
-  return shortPaths(rest) || oneLine(s.label)
+  return shortPaths(rest) || mcpWords(s.tool) || oneLine(s.label)
 }
 
 // The text with each case-insensitive occurrence of the query underlined in the accent.
@@ -170,7 +192,7 @@ function stepDetails(t: Timeline, s: Step, u: ViewCtx['u'], now: number): Detail
   }
   if (details.length === 0) {
     const end = s.status === 'running' ? now : (s.endedAt ?? s.startedAt)
-    const who = s.agent === 'main' ? 'main' : typeName(agentName(t, s.agent))
+    const who = s.agent === 'main' ? 'main' : whoName(agentName(t, s.agent), 40)
     const word = s.status === 'error' ? 'failed' : s.status === 'done' ? 'done' : s.status
     details.push({
       key: 'Status',
@@ -464,14 +486,17 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         const nameCol = toolW > 0 ? 4 + toolW + 1 : 4
         const body: Seg[] = [{ col: 2, ...glyphRun }]
         if (toolW > 0) body.push({ col: 4, text: toolName(s.tool, toolW), ...(isOpen || live ? { bold: true } : {}) })
-        const room = Math.max(1, nameLimit(cols) - nameCol)
+        // I2: the agent has its own column; the label stops two columns short of it.
+        const whoText = hit ? 'in result' : s.agent === 'main' ? 'main' : whoName(agentName(t, s.agent))
+        const nameEnd = mid !== undefined ? Math.min(nameLimit(cols), mid - whoText.length - 1) : nameLimit(cols)
+        const room = Math.max(1, nameEnd - nameCol)
         let col = nameCol
         for (const r of fitRuns(marked(nameOf(s, room), find.query), room) as Run[]) {
           if (r.text === '') continue
           body.push({ ...(isOpen ? { bold: true } : {}), ...r, col })
           col += r.text.length
         }
-        const who: Run = hit ? { text: 'in result', color: C.accent } : { text: s.agent === 'main' ? 'main' : typeName(agentName(t, s.agent)), dim: true }
+        const who: Run = hit ? { text: whoText, color: C.accent } : { text: whoText, dim: true }
         if (mid !== undefined) body.push(...flushRight([who], mid))
         if (hasTime(cols)) body.push(...flushRight([{ text: live ? 'now' : span(end - s.startedAt, { steps: true }), dim: true }], right))
         return lineOf(ctx, $, {

@@ -4,7 +4,7 @@ import { debug, errText } from '../state'
 import { sweepCells, sweepFrame, sweepShows } from './delights'
 import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapWords } from './fit'
 import { closePage } from './pagenav'
-import { siteDraws, track, trackBurst } from './paint'
+import { peek, siteDraws, track, trackBurst } from './paint'
 import type { BurstOf } from './paint'
 import { frameFoot, frameTop, GAUGE_FILL_MS, GAUGE_JUMP, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugeFill, gaugePair, getCellAspect } from './raster'
 import type { Grid, Ground, Hue } from './raster'
@@ -673,7 +673,7 @@ export function inst(ctx: ViewCtx, $: EngineInterface, s: InstSpec): RenderEleme
     const { Box, Raster } = table
     const site = ctx.site ?? 'binnacle'
     // A tagged instrument may play a one-shot burst when its tag changes; with motion off it only notes the tag (the end state at once).
-    const p = s.tag !== undefined ? trackBurst($, site, s.key, s.sig, s.frames, s.tag, ctx.motion === true ? s.burst : undefined, ctx.now) : track(site, s.key, s.sig, s.frames)
+    const p = ctx.dry === true ? peek(s.frames) : s.tag !== undefined ? trackBurst($, site, s.key, s.sig, s.frames, s.tag, ctx.motion === true ? s.burst : undefined, ctx.now) : track(site, s.key, s.sig, s.frames)
     if (p.columns !== s.columns || p.rows !== s.rows) {
       throw new Error(`instrument ${s.key} draws ${p.columns}x${p.rows}, not ${s.columns}x${s.rows}`)
     }

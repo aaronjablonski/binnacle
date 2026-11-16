@@ -5,12 +5,13 @@ import type { On } from 'claude-code'
 import type { AgentRow, TaskItem, Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
-import { sinceWords, wordFit } from './fit'
+import { sinceWords, typeShort, wordFit } from './fit'
 import { agent, asked, busy, idle, NOW, tasksOf, watching } from './now.fixtures.testkit'
 import { colOf, screen } from './screen.testkit'
-import { typeName } from './style'
+import { critterGlyph, typeName } from './style'
 import { watchSentence } from './watch'
 import { tokensCell } from './agentmeta'
+import { mapTotals } from './tree'
 
 // Fix round R3-B (Fable round 3: I1 desktop header, I3, I4, I5, I6, I7, M1 to M8, M10, M14, M16). One test file for the
 // views' own behaviour; the fidelity boards and the older tests are in their own files.
@@ -322,6 +323,11 @@ test('M8: the header critter\'s text form reads ● lead on one row, and done is
   world(on, busy())
   const rows = await rowsAt($, 62, 46, 'vscode')
   expect(rows.some(r => /^ {2}● lead/.test(r))).toBe(true)
+  // Mop-up m4: "done is never green" is now asserted: a done crew glyph is the dim check, with no colour at all.
+  const done = critterGlyph('done')
+  expect(done.glyph).toEqual({ text: '✓', dim: true })
+  expect('color' in done.glyph).toBe(false)
+  expect(done.badge).toBeUndefined()
 })
 
 test('M10: the Options footer is the pane\'s last row, written "b back" with no colon', async ($, on) => {
@@ -338,3 +344,28 @@ test('M16: from 38 columns the tabs keep their words; under 38 they are icons', 
   expect((await rowsAt($, 37))[0]).toContain('◆')
 })
 
+
+// ---------- Mop-up (m3, m5, m10) ----------
+
+test('m3: at 36 columns an open and a done task on Tasks wrap before any `…`', async ($, on) => {
+  const long = 'Return 429 with a Retry-After header when the limiter trips for a client'
+  const tasks: TaskItem[] = [
+    { id: '1', subject: long, status: 'completed', owner: 'main', updatedAt: NOW - 5 * 60_000 },
+    { id: '2', subject: 'Doing the thing', status: 'in_progress', owner: 'main', updatedAt: NOW - 60_000 },
+    { id: '3', subject: long.replace('Return', 'Queue'), status: 'pending', owner: 'main', updatedAt: NOW - 60_000 },
+  ]
+  world(on, { ...busy(), tasks }, { ...initialUi, tab: 'tasks' })
+  const rows = await rowsAt($, 36, 60)
+  expect(rows.some(r => r.includes('Retry-After'))).toBe(true)
+  expect(rows.some(r => /Return 429.*…$/.test(r) || /Queue 429.*…$/.test(r))).toBe(false)
+})
+
+test('m5: the crew map total ignores the tasks of a cleared conversation', () => {
+  const mk = (id: string, at: number): TaskItem => ({ id, subject: id, status: 'pending', owner: 'main', updatedAt: at })
+  const t: Timeline = { ...busy(), tasks: [mk('c1:1', 10), mk('2', NOW - 1000)], clearedAt: NOW - 5000 }
+  expect(mapTotals(t, []).tasks).toBe(1)
+})
+
+test('m10: a plugin prefix never shows in a short type label', () => {
+  expect(typeShort('superpowers:code-reviewer')).toBe('code')
+})

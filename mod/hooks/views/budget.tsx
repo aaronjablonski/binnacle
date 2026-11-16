@@ -10,7 +10,7 @@ import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
-import { clock, growLists, listSplit, pctBar, ruleBar, shortPaths, span, warmWords, wordFit, fitRuns } from './fit'
+import { bareType, clock, growLists, listSplit, pctBar, ruleBar, shortPaths, span, warmWords, wordFit, fitRuns } from './fit'
 import { podFor, waitStates } from './needs'
 import { blank, frameFootInst, frameTopInst, heightOf, inst, more, runText, section } from './parts'
 import type { InstSpec, Run } from './parts'
@@ -311,7 +311,7 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       return {
         key: `budget-agent-${id}`,
         glyph: critterGlyph(state).glyph,
-        name: id === 'main' ? 'main' : shortPaths(a.description || a.type),
+        name: id === 'main' ? 'main' : shortPaths(a.description || bareType(a.type)),
         tokens,
         color: CK.accent,
         ...(state === 'done' || state === 'queued' ? { dim: true } : {}),

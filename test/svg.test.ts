@@ -1,8 +1,8 @@
 import { expect, test } from 'vitest'
 
-import type { AgentRow, Step, TaskItem, Timeline, UiState } from '../mod/types'
-import { CHECKING_TEXT } from '../mod/hooks/model/alerts'
-import { empty } from '../mod/hooks/model/reduce'
+import type { AgentRow, Ev, Step, TaskItem, Timeline, UiState } from '../mod/types'
+import { CHECKING_TEXT, watch } from '../mod/hooks/model/alerts'
+import { empty, reduce } from '../mod/hooks/model/reduce'
 import { bandAlt, bandSvg, deckModel, nowDeckAlt, nowDeckSvg, SVG_MAX } from '../mod/hooks/views/svg'
 import type { DeckHead } from '../mod/hooks/views/svg'
 
@@ -131,10 +131,18 @@ test('the band Svg asks in amber with the asker as its critter, and an idle sess
   expect(bandSvg({ ...busy(), turns: [{ id: 't1', agent: 'main', prompt: 'x', startedAt: NOW - 600_000, endedAt: NOW - 1000, failed: true }], agents: { ...empty.agents }, steps: [] }, u, NOW, 120)).toContain('Stopped')
 })
 
-// R3-B I4: meaning changed. It read the stalled agent's `z` from the deck's crew line-up, which the header no longer draws; the alert model still marks the agent, and the header must stay free of amber for it.
-test('Watch never turns anything amber: a stalled agent adds no amber to the header Svg', () => {
-  const t = busy()
-  t.agents = { ...t.agents, a1: { ...agent('a1', 'running', 'Explore'), startedAt: NOW - 90 * 60_000, lastStepAt: NOW - 20 * 60_000 } }
+// R3-B I4 changed this test's meaning (the header no longer draws a crew line-up, so there is no `z` to read); the mop-up restores a real stalled agent behind it: the alert model must mark it stalled, and the header Svg must still carry no amber.
+test('Watch never turns anything amber: a really stalled step adds no amber to the header Svg', () => {
+  const MIN = 60_000
+  const call = { command: 'npm test' }
+  const t = [
+    { kind: 'step.start', at: NOW - 40 * MIN, id: 'w1', agent: 'main', tool: 'Bash', input: call },
+    { kind: 'step.end', at: NOW - 38 * MIN, id: 'w1', status: 'done' },
+    { kind: 'step.start', at: NOW - 38 * MIN, id: 'w2', agent: 'main', tool: 'Bash', input: call },
+    { kind: 'step.end', at: NOW - 36 * MIN, id: 'w2', status: 'done' },
+    { kind: 'step.start', at: NOW - 20 * MIN, id: 'w3', agent: 'main', tool: 'Bash', input: call },
+  ].reduce((acc, ev) => reduce(acc, ev as Ev), busy())
+  expect(watch(t, NOW).some(w => w.kind === 'stalled')).toBe(true)
   const s = nowDeckSvg(t, u, NOW, 62, head())
   expect(s).not.toContain('fill="#e3b04b"')
 })

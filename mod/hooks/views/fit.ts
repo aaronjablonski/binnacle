@@ -313,7 +313,11 @@ export function toolCell(tool: string, room = 5): string {
  * @example typeShort('general-purpose') // 'general'
  * @example typeShort('code-reviewer')   // 'code'
  */
-export function typeShort(type: string, room = 10): string {
+/** An agent type without its plugin prefix (`superpowers:code-reviewer` is `code-reviewer`). */
+export const bareType = (type: string): string => (type.includes(':') ? type.slice(type.lastIndexOf(':') + 1) : type)
+
+export function typeShort(rawType: string, room = 10): string {
+  const type = bareType(rawType)
   if (room <= 0) return ''
   if (type === 'general-purpose') return fit('general', room)
   if (type.length <= room) return type

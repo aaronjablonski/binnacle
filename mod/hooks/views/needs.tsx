@@ -7,7 +7,7 @@ import { oneLine } from '../model/label'
 import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
 import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '../model/meter'
 import type { RunLimits } from '../model/meter'
-import { summary } from '../model/select'
+import { headline } from './bandmodel'
 import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
 import { fitRuns, shortPaths, span, toolName, wordFit, wrapWords } from './fit'
 import { openStepInline } from './openstep'
@@ -525,7 +525,8 @@ export const DONE_MS = 60_000
 
 /** `Done in 6 min: the focus. 3 tasks closed, 1 error.` (R27: `6m 12s` is for Steps alone.) */
 export function doneText(t: Timeline, ms: number): string {
-  const focus = summary(t).focus
+  const h = headline(t)
+  const focus = h.isIdle ? undefined : h.text
   const turn = thisTurn(t)
   const bits: string[] = []
   if (turn !== undefined && turn.tasksClosed.length > 0) bits.push(`${turn.tasksClosed.length} ${turn.tasksClosed.length === 1 ? 'task' : 'tasks'} closed`)

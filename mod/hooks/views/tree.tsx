@@ -1,6 +1,8 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, TaskItem, Timeline } from '../../types'
+import { headline } from './bandmodel'
+import { inConversation } from '../model/todo'
 import { agentTree, runningOnlyTree } from '../model/select'
 import type { TreeNode } from '../model/select'
 import { debug, errText, updateUi } from '../state'
@@ -200,7 +202,8 @@ function mainNode(k: Ctx, $: EngineInterface, main: AgentRow, working: boolean):
   })
   const model = main.model !== undefined && main.model !== '' ? ` · ${modelName(main.model)}` : ''
   const room = Math.max(1, firstCol(nums, c.right + 2) - 2 - TASK_NAME + 1)
-  const what = t.now?.focus ?? (working ? doing(runningStep(t, 'main'), doingView(ctx)) : '')
+  const head = headline(t)
+  const what = !head.isIdle ? head.text : (working ? doing(runningStep(t, 'main'), doingView(ctx)) : '')
   const critter = critterOf(main, { state, ground: ctx.ground ?? 'night', motion: ctx.motion === true })
   return nodeOf(ctx, $, {
     key: 'node-main',
@@ -370,11 +373,10 @@ function spacer(ctx: ViewCtx, $: EngineInterface, key: string): RenderElement {
 }
 
 /** What the map says it counts: agents (without the lead), tasks that have agents, finished agents. */
-export function mapTotals(t: Timeline, groups: MapGroup[]): { agents: number; tasks: number; done: number } {
+export function mapTotals(t: Timeline, _groups: MapGroup[]): { agents: number; tasks: number; done: number } {
   const subs = Object.values(t.agents).filter(a => a.id !== 'main')
-  // R3-B M1: the total counts every task, not only the ones an agent worked on.
-  void groups
-  return { agents: subs.length, tasks: t.tasks.length, done: subs.filter(a => a.status === 'done').length }
+  // R3-B M1: the total counts every task of the standing conversation, not only the ones an agent worked on (C1).
+  return { agents: subs.length, tasks: t.tasks.filter(x => inConversation(x, t.clearedAt)).length, done: subs.filter(a => a.status === 'done').length }
 }
 
 /**

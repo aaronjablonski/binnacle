@@ -100,7 +100,7 @@ function crewFig(a: AgentRow, found: Flags, state?: PodState): CrewFig {
   const flagged = problemState(a.id, found)
   const st = state ?? podStateOf({ id: a.id, type: a.type, status: a.status, ...(flagged !== undefined ? { state: flagged } : {}) })
   const used = (a.tokensIn ?? 0) + (a.tokensOut ?? 0)
-  const who = a.id === 'main' ? 'the lead' : oneLine(a.description || a.type)
+  const who = a.id === 'main' ? 'the lead' : oneLine(a.description || a.type.replace(/^.*:/, ''))
   const parts = [who, st]
   if (a.model !== undefined) parts.push(a.model)
   if (used > 0) parts.push(`${tokens(used)} tokens`)

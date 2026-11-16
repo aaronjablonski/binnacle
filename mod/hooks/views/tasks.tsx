@@ -381,6 +381,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
               name: [{ text: oneLine(x.subject) }],
               ...(ownerType !== undefined ? { mid: { text: typeShort(ownerType), dim: true } } : {}),
               ...(i === 0 ? { time: { text: 'next', dim: true } } : {}),
+              wrap: ctx.cols < 48,
               onPress: toPage(keyOf(x)),
             }),
           )
@@ -402,6 +403,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
               name: [{ text: oneLine(x.subject), dim: true }],
               ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
               time: { text: took > 0 ? span(took) : span(now - x.updatedAt), dim: true },
+              wrap: ctx.cols < 48,
               onPress: toPage(keyOf(x)),
             }),
           )
@@ -437,6 +439,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
               key: `task-${keyOf(x)}`,
               glyph: { text: '✓', dim: true },
               name: [{ text: oneLine(x.subject), dim: true }],
+              wrap: ctx.cols < 48,
               onPress: toPage(keyOf(x)),
             }),
           )

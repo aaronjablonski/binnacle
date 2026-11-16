@@ -617,6 +617,41 @@ test('B-M2: a change that landed before a tab press still plays when the pane is
   await ui.unmount()
 })
 
+// The case B-M2 actually broke: a tagged instrument (the to-do bar) whose new tag the hidden draw used to record.
+test('B-M2: a to-do that landed before a tab press still flashes the bar when the pane is drawn again', async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE())
+  const before = await cellsOf(ui, 'todo-bar')
+  landTask(w)
+  await ui.press({ key: 'tab-overview' })
+  await ui.redraw()
+  expect(await cellsOf(ui, 'todo-bar')).not.toBe(before)
+  await w.clock.advance(5000)
+  expect(blitsOf(w, 'todo-bar').map(b => b.at)).toEqual([160, 320, 480])
+  await ui.unmount()
+})
+
+// B-M7: when the lead asks, the Needs-you asker glances and hops; the header's lead holds still.
+function leadAsks(w: World): void {
+  const t = timeline(w)
+  const s = step('s-main-ask', 102, 'main', 'Bash', 'Bash npm run deploy', 'running', w.clock.now() - 100, {
+    turnId: 't1', asking: w.clock.now() - 100, pending: { command: 'npm run deploy' },
+  })
+  w.stored.set('timeline', { ...t, steps: [...t.steps, s] })
+}
+
+test('B-M7: the lead asking moves the asker only; the header lead does not play the ask', async ($, on) => {
+  const w = world(on, busy())
+  const ui = await $.ui.mount(PANE({ covered: true }))
+  leadAsks(w)
+  await ui.redraw()
+  expect(screen(await ui.drawn()).some(r => r.includes('Needs you'))).toBe(true)
+  await w.clock.advance(3000)
+  expect(blitsOf(w, 'asker').length).toBeGreaterThan(0)
+  expect(blitsOf(w, 'now-who')).toHaveLength(0)
+  await ui.unmount()
+})
+
 // ---------- 8: stalled, through a real view ----------
 
 /** b1 has no step running and has been quiet longer than the limit: the Now card dozes. */
@@ -749,13 +784,16 @@ test('motion 10, text look: no Raster for the lead, nothing blitted', { options:
 })
 
 test('motion 10: while Needs you has rows the lead stays still: the sweep does not play', { timeoutMs: 30_000 }, async ($, on) => {
-  const w = sweepWorld(on, asked())
+  // Every to-do done and the turn just ended (so the sweep would start), with a subagent asking to run a command.
+  const a = asked()
+  const i = idle()
+  const w = sweepWorld(on, { ...i, agents: { ...i.agents, b1: a.agents.b1! }, steps: [...i.steps, a.steps[2]!] })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount(PANE({ covered: true }))
   expect(screen(await ui.drawn()).some(r => r.includes('Needs you'))).toBe(true)
   const seen = await leadOverSweep(w, ui)
-  // The lead may blink (it is working), but it never takes a sweep pose: no squash, hop or half-grey frame.
-  const sweep = GROUNDS.flatMap(g => [0, 1, 3].map(i => encode(critterPoseBox('lead', 'small', sweepPose(i), g))))
+  // The lead never takes a sweep pose: no squash, hop or half-grey frame.
+  const sweep = GROUNDS.flatMap(g => [0, 1, 3].map(k => encode(critterPoseBox('lead', 'small', sweepPose(k), g))))
   expect(seen.length).toBeGreaterThan(0)
   for (const c of seen) expect(sweep).not.toContain(c)
   await ui.unmount()

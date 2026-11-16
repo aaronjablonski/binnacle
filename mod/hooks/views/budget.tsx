@@ -10,7 +10,7 @@ import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
-import { bar, clock, elapsed, growLists, listSplit, meter, shortPaths, wordFit } from './fit'
+import { bar, clock, countdown, elapsed, growLists, listSplit, meter, shortPaths, wordFit } from './fit'
 import { laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { podFor, waitStates } from './needs'
@@ -817,4 +817,69 @@ function weekBlock(ctx: ViewCtx, $: EngineInterface, wide: boolean): RenderEleme
     out.push(runsLine(ctx.e, $, [{ col: COL.glyph, text: `${dollars(usd)} this week`, dim: true }], 'week-cost'))
   }
   return out
+}
+
+// ---------- the cockpit's budget words and gauges (cockpit spec "Header", R9, R29) ----------
+
+/** The context window's size from a reading: the nearest of 200k and 1M to tokens over the share; undefined without both. */
+export function contextSize(b: Budget | undefined): number | undefined {
+  if (b?.contextTokens === undefined || b.contextPct === undefined || b.contextPct <= 0) return undefined
+  const raw = (b.contextTokens * 100) / b.contextPct
+  return Math.abs(Math.log(raw / 200_000)) < Math.abs(Math.log(raw / 1_000_000)) ? 200_000 : 1_000_000
+}
+
+/** A window size in words: `1M`, `200k`. */
+const sizeText = (n: number): string => (n >= 1_000_000 ? `${Math.round(n / 1_000_000)}M` : `${Math.round(n / 1000)}k`)
+
+/**
+ * The header's budget line: "620k of 1M used" (the figure in ink, the rest
+ * dim), "context 62% used" without a token count, "no budget reading
+ * yet" without one (the line stays, so the budget view is a press away); while `idle` and the cache is still warm, " · cache stays warm
+ * 4:48" (R29: the countdown shows at idle only). Longer than `room`, the
+ * figure drops "used" ("644k of 1M · cache stays warm 2:51"), then the
+ * countdown goes.
+ */
+export function budgetWords(t: Timeline, now: number, o: { idle: boolean; room?: number }): Run[] {
+  const full = budgetRuns(t, now, o.idle, true)
+  const width = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
+  // Short of room the figure loses "used" before the countdown is left out.
+  if (o.room === undefined || width(full) <= o.room) return full
+  const short = budgetRuns(t, now, o.idle, false)
+  return width(short) <= o.room ? short : budgetRuns(t, now, false, true)
+}
+
+function budgetRuns(t: Timeline, now: number, idle: boolean, used: boolean): Run[] {
+  const b = t.budget
+  const out: Run[] = []
+  const size = contextSize(b)
+  if (b?.contextTokens !== undefined && size !== undefined) out.push({ text: tokenText(b.contextTokens) }, { text: ` of ${sizeText(size)}${used ? ' used' : ''}`, dim: true })
+  else if (b?.contextPct !== undefined) out.push({ text: 'context ', dim: true }, { text: `${Math.round(b.contextPct)}%` }, { text: ' used', dim: true })
+  else out.push({ text: 'no budget reading yet', dim: true })
+  if (idle) {
+    const warm = cacheLine(t).warmUntil
+    if (warm !== undefined && warm > now) out.push({ text: `${out.length > 0 ? ' · ' : ''}cache stays warm ${countdown(warm - now)}`, dim: true })
+  }
+  return out
+}
+
+/**
+ * Now's two gauges (cockpit spec: the third ring goes to the budget view):
+ * the context, and the hotter of the 5-hour and weekly windows, each with
+ * its word ("context", "5 hours", "this week"). Empty without a reading.
+ */
+export function nowGauges(t: Timeline): { pct: number; label: string }[] {
+  const b = t.budget
+  if (b === undefined) return []
+  const out: { pct: number; label: string }[] = []
+  if (b.contextPct !== undefined) out.push({ pct: b.contextPct, label: 'context' })
+  const five = b.windows.find(w => w.name === 'five_hour')
+  const week = b.windows.find(w => w.name === 'seven_day')
+  const hot = five !== undefined && (week === undefined || five.pct > week.pct) ? { pct: five.pct, label: '5 hours' } : week !== undefined ? { pct: week.pct, label: 'this week' } : undefined
+  if (hot !== undefined) out.push(hot)
+  return out
+}
+
+/** The slim Budget rows: the context and the hotter window, as a short label and a percentage ("context", "week", "5 hours"). */
+export function slimGauges(t: Timeline): { pct: number; label: string }[] {
+  return nowGauges(t).map(g => ({ ...g, label: g.label === 'this week' ? 'week' : g.label }))
 }

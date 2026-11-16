@@ -1,409 +1,314 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { Step, Tab } from '../../types'
-import { summary } from '../model/select'
+import type { Need } from '../model/alerts'
+import { oneLine } from '../model/label'
 import { leaveDetail, updateUi } from '../state'
-import { budgetView, isBudgetOpen, setBudgetOpen, windowName } from './budget'
-import { crewSpec, lintelReadout, planSpec } from './overview'
-import { beadsSpec, lintelSpec, sillSpec, toneOf } from './richkit'
-import { bar, crewRow, GAUGE, pillRun, pips, wordFit, wrapWords } from './fit'
-import { argOf, headline, laid, runsLine } from './lay'
-import type { Placed } from './lay'
-import { chatFor, crewPods, dismissNeed, focusable, needGlyph, needName, needsYou, openProblem, paneState, podFor, waitStates } from './needs'
-import { blank, deck, inst, more, row } from './parts'
-import type { DeckRow, Run } from './parts'
+import { budgetView, isBudgetOpen, setBudgetOpen, slimGauges } from './budget'
+import { doing, pctBar, todoBar, wordFit, wrapWords } from './fit'
+import { argOf } from './lay'
+import { askerCritter, needsSlot, openNeed, promptRuns } from './needs'
+import { cardAgents, footerRow, nowHeader, nowState, noteItems } from './overview'
+import type { NowState } from './overview'
+import { blank, heightOf, inst, more, row, runText } from './parts'
+import type { Run } from './parts'
 import type { ViewCtx } from './shell'
-import { elapsed } from './fit'
-import { C, COL, GLYPHS, GRID, statusColor } from './style'
+import { C, CK, critterOf, edges, gaugeStyle, statusColor, typeName } from './style'
 
-// Under 32 columns: one stacked summary, no tab bar (spec "Slim mode").
-// Grid: gutter 0, content from 2, a value at 14 (the second cell), `›` in the
-// last column. A budget row has three stops: label 2, value 8, bar 14.
-const VALUE = 14
-const BAR = 8
+// Under 32 columns (cockpit spec "CockpitSlim"): one stacked summary, no tab
+// bar, in Now's order: the compact header, the needs slot, To do (the bar,
+// the current task and the next one), Agents (micro critters), Budget (two
+// bars), Notes. Each title is a plain Button with `›` that opens its tab in
+// slim form (or the budget view). Short of rows, whole parts go from the
+// bottom (R34: Needs you, then To do, then the rest, in that order).
+
+/** Where a section's sum starts: after "Agents" and a space. */
+const SUM = 8
+/** Where a budget row's bar starts. */
+const BAR = 16
 const STEP_GLYPH: Record<Step['status'], string> = { running: '▸', done: '✓', error: '✖', denied: '✖', interrupted: '·' }
-
-/** Whether `text` can be drawn in `room` without ending inside a word: its first word fits. */
-function fits(text: string, room: number): boolean {
-  return room > 0 && (text.split(' ')[0] ?? '').length <= room
-}
-
-/** The names that fit `room` whole at the first word, cut by word. A name whose first word is too wide is dropped. */
-function names(texts: string[], room: number): string[] {
-  return texts.filter(t => fits(t, room)).map(t => wordFit(t, room))
-}
-
-type Block = { els: RenderElement[]; rows: number }
-
-/**
- * A section label as one Button: `┌` at 0, the label bold at 2, a dim value at
- * 14 (left out when it would touch `›`) and a dim `›` in the last column.
- */
-function label(
-  ctx: ViewCtx,
-  $: EngineInterface,
-  text: string,
-  value: Run | undefined,
-  key: string,
-  onPress: () => void | Promise<void>,
-  tone?: 'wait',
-): RenderElement {
-  const { Button } = $.ui.resolve(ctx.e)
-  const tint = tone === 'wait' ? C.wait : C.accent
-  const segs: Placed[] = [
-    { col: 0, text: '┌', color: tint },
-    { col: COL.glyph, text: wordFit(text, VALUE - 3), bold: true, ...(tone === 'wait' ? { color: C.wait } : {}) },
-  ]
-  if (value !== undefined && VALUE + value.text.length <= ctx.cols - 2) segs.push({ ...value, col: VALUE })
-  segs.push({ col: ctx.cols - 1, text: '›', dim: true })
-  return (
-    <Button key={key} plain onPress={onPress}>
-      {laid(segs, 0, ctx.e, $, `${key}-`)}
-    </Button>
-  )
-}
 
 function openTab($: EngineInterface, tab: Tab): Promise<void> {
   return updateUi($, u => ({ ...leaveDetail(u), tab }))
 }
 
-/** One name-only line: a glyph at 2 and the name at 4. */
-function line(ctx: ViewCtx, $: EngineInterface, key: string, glyph: string, color: string | undefined, name: string, dim = false): RenderElement {
-  return runsLine(
-    ctx.e,
-    $,
-    [
-      { col: COL.glyph, text: glyph, ...(color !== undefined ? { color } : { dim: true }) },
-      { col: COL.name, text: name, ...(dim ? { dim: true } : {}) },
-    ],
-    key,
-  )
-}
-
-/** The runs laid from `col`, one after the other. */
-function runsAt(runs: Run[], col: number): Placed[] {
-  let at = col
-  return runs.map(r => {
-    const p = { ...r, col: at }
-    at += r.text.length
-    return p
-  })
-}
 
 /**
- * The head (spec "Slim"): a left-only bracket holding the state pill and the
- * focus wrapped to 2 lines. It turns `warning` when something waits.
+ * A section title as one plain Button: the title bold at 1, the sum at 8
+ * when it fits beside `›` (else nothing: the caller draws it on its own
+ * row), `›` dim in the last content column.
  */
-function headBlock(ctx: ViewCtx, $: EngineInterface): Block {
-  const focus = headline(ctx.t)
-  const state = paneState(ctx)
-  const lines = wrapWords(focus.text, ctx.cols - COL.glyph, 2)
-  if (ctx.look === 'rich') {
-    // The lintel carries the pill (from 2) and the turn's age; the focus is two bold lines under it.
-    const { Text } = $.ui.resolve(ctx.e)
-    const ro = lintelReadout(ctx)
-    const turn = ro.right?.startsWith('turn') === true ? ro.right.split(' ').slice(2).join(' ') : undefined
-    const tone = state.word === 'WAITING' ? ('warning' as const) : ('accent' as const)
-    const els: RenderElement[] = [
-      inst(ctx, $, lintelSpec('slim-lintel', ctx.cols, { tone, pill: state.word, pillTone: toneOf(state.color), pillCol: 2, clamp: 1, ...(turn !== undefined && turn !== '' ? { right: turn, rightAmber: ro.amber } : {}) })),
-      ...lines.map((l, i) => (
-        <Text key={`slim-focus-${i}`} wrap="truncate-end" {...(focus.isIdle ? { dimColor: true } : { bold: true })}>
-          {`  ${l}`}
-        </Text>
-      )),
-    ]
-    return { els, rows: els.length }
+function title(ctx: ViewCtx, $: EngineInterface, text: string, sum: Run[], key: string, onPress: () => void | Promise<void>, tone?: 'ask'): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const sw = sum.reduce((n, r) => n + r.text.length, 0)
+  const at = Math.max(SUM, left + text.length + 1)
+  const fits = sw > 0 && at + sw <= right - 1
+  const runs: Run[] = [{ text, bold: true, ...(tone === 'ask' ? { color: CK.ask } : {}) }]
+  let used = left + text.length
+  if (fits) {
+    runs.push({ text: ' '.repeat(at - used) }, ...sum)
+    used = at + sw
   }
-  const rows: DeckRow[] = [
-    { key: 'slim-pill', label: [pillRun(state.word, state.color)] },
-    ...lines.map((l, i): DeckRow => ({ key: `slim-focus-${i}`, label: [{ text: l, ...(focus.isIdle ? { dim: true } : { bold: true }) }] })),
-  ]
-  const els = deck(ctx, $, rows, { key: 'slim-head', side: 'left', tone: state.word === 'WAITING' ? 'warning' : 'accent' })
-  return { els: els !== null ? [els] : [], rows: rows.length }
-}
-
-function needsBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
-  const { Box, Button } = $.ui.resolve(ctx.e)
-  const { t, u, cols, now } = ctx
-  const list = needsYou(t, u, now)
-  const first = list[0]
-  if (first === undefined) return undefined
-  const room = cols - COL.name
-  const mark = needGlyph(first)
-  // The command wraps to a second line instead of being cut.
-  const text = needName(t, first)
-  const wrapped = fits(text, room) ? wrapWords(text, room, 2) : [wordFit(text, room)]
-  const els: RenderElement[] = [
-    label(ctx, $, 'NEEDS YOU', { text: String(list.length), color: C.wait }, 'slim-go-needs', () => openProblem($, first), 'wait'),
-    <Button key={`open-${first.key}`} plain autoFocus={focusable(first) ? true : undefined} onPress={() => openProblem($, first)}>
-      {laid(
-        [
-          { col: COL.glyph, text: mark.glyph, color: mark.color },
-          { col: COL.name, text: wrapped[0] ?? '', bold: true },
-        ],
-        0,
-        ctx.e,
-        $,
-        'slim-need-',
-      )}
-    </Button>,
-  ]
-  if (wrapped[1] !== undefined) els.push(runsLine(ctx.e, $, [{ col: COL.name, text: wrapped[1], bold: true }], 'slim-need-2'))
-  // `g: chat  x: dismiss` as hotkeyed Buttons from column 4, the last left off when it does not fit.
-  const chat = chatFor($, first)
-  const actions = [
-    ...(chat !== undefined ? [{ hotkey: 'g', text: 'chat', key: `chat-${first.key}`, run: chat }] : []),
-    { hotkey: 'x', text: 'dismiss', key: `dismiss-${first.key}`, run: () => dismissNeed($, first) },
-  ]
-  const shown: typeof actions = []
-  let used = COL.name
-  for (const a of actions) {
-    const w = (shown.length > 0 ? 3 : 0) + a.hotkey.length + 2 + a.text.length
-    if (used + w > cols) break
-    shown.push(a)
-    used += w
-  }
-  if (shown.length > 0) {
-    els.push(
-      <Box key="slim-need-actions" flexDirection="row" paddingLeft={COL.name} columnGap={3}>
-        {shown.map(a => (
-          <Button key={a.key} hotkey={a.hotkey} plain onPress={a.run}>
-            {a.text}
-          </Button>
-        ))}
-      </Box>,
-    )
-  }
-  const rest = list.slice(1, 3)
-  const restNames = names(rest.map(p => needName(t, p)), room)
-  if (restNames.length > 0) els.push(blank(ctx, $, 'slim-need-gap'))
-  rest
-    .filter(p => fits(needName(t, p), room))
-    .forEach((p, i) => {
-      const m = needGlyph(p)
-      els.push(line(ctx, $, `slim-need-rest-${i}`, m.glyph, m.color, wordFit(needName(t, p), room)))
-    })
-  return { els, rows: els.length }
-}
-
-/** The plan strip from column 2 with the session's age beside it. */
-function richPlan(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const times = ctx.t.steps.map(x => x.startedAt)
-  const from = times.length > 0 ? Math.min(...times) : ctx.now
-  const cells = Math.max(4, Math.min(14, ctx.cols - COL.glyph - 5))
+  runs.push({ text: ' '.repeat(Math.max(1, right - used)) }, { text: '›', dim: true })
   return (
-    <Box key="slim-plan-row" flexDirection="row">
-      <Text key="slim-plan-pad">{'  '}</Text>
-      {inst(ctx, $, planSpec(ctx.t, cells))}
-      {times.length > 0 ? (
-        <Text key="slim-plan-age" dimColor>
-          {` ${elapsed(from, ctx.now)}`}
-        </Text>
-      ) : null}
+    <Box key={`row-${key}`} flexDirection="row">
+      <Text>{' '.repeat(left)}</Text>
+      <Button key={key} plain onPress={onPress}>
+        {runs.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
+      </Button>
     </Box>
   )
 }
 
-function tasksBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
-  const { t, cols } = ctx
-  const s = summary(t)
-  if (s.total === 0) return undefined
-  const active = t.tasks.filter(x => x.status === 'in_progress').length
-  const plan = ctx.look === 'rich' ? richPlan(ctx, $) : runsLine(ctx.e, $, runsAt(pips(s.done, s.total, cols - COL.glyph >= GAUGE ? GAUGE : 10, active), COL.glyph), 'slim-pips')
-  const els: RenderElement[] = [
-    label(ctx, $, 'TASKS', { text: `${s.done}/${s.total}`, dim: true }, 'slim-go-tasks', () => openTab($, 'tasks')),
-    plan,
-  ]
-  // The current task, or the next one when the current task is the focus.
-  const current = s.current
-  const isFocus = current !== undefined && s.focus === (current.activeForm ?? current.subject)
-  const pick =
-    current !== undefined && !isFocus
-      ? { task: current, glyph: GLYPHS.pip[1], color: C.live }
-      : s.upcoming !== undefined
-        ? { task: s.upcoming, glyph: GLYPHS.pip[2], color: undefined }
-        : undefined
-  if (pick !== undefined) {
-    const text = pick.task.subject.replace(/\s+/g, ' ').trim()
-    if (fits(text, cols - COL.name)) els.push(line(ctx, $, 'slim-task', pick.glyph, pick.color, wordFit(text, cols - COL.name)))
-  }
-  return { els, rows: els.length }
+/** Whether a title's sum fits on its row (else it takes a row of its own under it). */
+function sumFits(ctx: ViewCtx, text: string, sum: Run[]): boolean {
+  const { left, right } = edges(ctx.cols)
+  const sw = sum.reduce((n, r) => n + r.text.length, 0)
+  return Math.max(SUM, left + text.length + 1) + sw <= right - 1
 }
 
-const widthOf = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
-
-/** The crew row that fits `room`: as many pods as there are, up to 7, then `+n`. */
-function crewFit(ctx: ViewCtx, room: number): Run[] {
-  const pods = crewPods(ctx)
-  for (let max = 7; max >= 1; max--) {
-    const runs = crewRow(pods, max)
-    if (widthOf(runs) <= room) return runs
-  }
-  return crewRow(pods, 1, { tight: true })
-}
-
-/** CREW in the rich look: up to three small characters from column 2, then `+n` for the rest and `!n` for the failed ones beside them. */
-function richCrew(ctx: ViewCtx, $: EngineInterface, live: number): Block {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const pods = crewPods(ctx)
-  const slots = Math.max(1, Math.min(3, Math.floor((ctx.cols - COL.glyph - 3) / 6)))
-  const shown = pods.slice(0, slots)
-  const over = pods.length - shown.length
-  const failed = Object.values(ctx.t.agents).filter(a => a.id !== 'main' && a.status === 'error').length
-  const els: RenderElement[] = [
-    label(ctx, $, 'CREW', { text: `${live} live`, dim: true }, 'slim-go-agents', () => openTab($, 'agents')),
-    <Box key="slim-crew-row" flexDirection="row">
-      <Text key="slim-crew-pad">{'  '}</Text>
-      {inst(ctx, $, crewSpec(shown, slots))}
-      <Box key="slim-crew-counts" flexDirection="column" paddingLeft={2}>
-        <Text key="slim-crew-over" dimColor>
-          {over > 0 ? `+${over}` : ' '}
-        </Text>
-        {failed > 0 ? (
-          <Text key="slim-crew-failed" color={C.fail} bold>
-            {`!${failed}`}
-          </Text>
-        ) : null}
-      </Box>
-    </Box>,
-  ]
-  return { els, rows: 3 }
-}
-
-/** CREW (spec "Slim"): `┌ CREW 2 live ›`, one row of pods and the live names with their hulls. Nothing without a subagent. */
-function crewBlock(ctx: ViewCtx, $: EngineInterface, withNames: boolean): Block | undefined {
-  const { t, cols } = ctx
-  const subs = Object.values(t.agents).filter(a => a.id !== 'main')
-  if (subs.length === 0) return undefined
-  const live = subs.filter(a => a.status === 'running').sort((a, b) => a.startedAt - b.startedAt)
-  if (ctx.look === 'rich') return richCrew(ctx, $, live.length)
-  const els: RenderElement[] = [
-    label(ctx, $, 'CREW', { text: `${live.length} live`, dim: true }, 'slim-go-agents', () => openTab($, 'agents')),
-    runsLine(ctx.e, $, runsAt(crewFit(ctx, cols - COL.glyph), COL.glyph), 'slim-crew'),
-  ]
-  if (withNames) {
-    const waits = waitStates(t, ctx.u, ctx.now)
-    live
-      .slice(0, 3)
-      .filter(a => fits(argOf('', a.description || a.type), cols - COL.name))
-      .forEach(a => {
-        const hull = podFor(a, waits, ctx.now).hull
-        els.push(line(ctx, $, `slim-agent-${a.id}`, hull.text, hull.color, wordFit(argOf('', a.description || a.type), cols - COL.name)))
-      })
-  }
-  return { els, rows: els.length }
-}
-
-function budgetBlock(ctx: ViewCtx, $: EngineInterface, withSeven: boolean): Block | undefined {
-  const b = ctx.t.budget
-  if (b === undefined) return undefined
-  const rows: { label: string; pct: number }[] = []
-  if (b.contextPct !== undefined) rows.push({ label: 'CTX', pct: b.contextPct })
-  for (const name of ['five_hour', ...(withSeven ? ['seven_day'] : [])]) {
-    const w = b.windows.find(x => x.name === name)
-    if (w !== undefined) rows.push({ label: windowName(w.name).toUpperCase(), pct: w.pct })
-  }
-  if (rows.length === 0) return undefined
-  const els: RenderElement[] = [
-    label(ctx, $, 'BUDGET', undefined, 'slim-go-budget', () => setBudgetOpen($, true)),
-  ]
-  // The bar is 10 cells at 14 and ends by the last column; where it would not, it is left out (bars are 10 or 22, never in between).
-  for (const r of rows) {
-    const segs: Placed[] = [
-      { col: COL.glyph, text: r.label, dim: true },
-      { col: BAR, text: `${Math.round(r.pct)}%`, bold: true },
-    ]
-    if (ctx.look === 'rich' && ctx.cols >= VALUE + GRID.content) {
-      // Five beads a row, where the bar was.
-      const { Box, Text } = $.ui.resolve(ctx.e)
-      els.push(
-        <Box key={`slim-budget-${r.label}`} flexDirection="row">
-          <Box key={`slim-budget-${r.label}-t`} width={VALUE} flexShrink={0}>
-            <Text key={`slim-budget-${r.label}-text`} wrap="truncate-end">
-              {laid(segs, 0, ctx.e, $, `slim-budget-${r.label}-`)}
-            </Text>
-          </Box>
-          {inst(ctx, $, beadsSpec(`b-${r.label.toLowerCase()}`, 10, r.pct))}
-        </Box>,
-      )
-      continue
-    }
-    if (ctx.cols >= VALUE + GRID.content) segs.push(...runsAt(bar(Math.max(0, Math.min(100, r.pct)), 100, 10), VALUE))
-    els.push(runsLine(ctx.e, $, segs, `slim-budget-${r.label}`))
-  }
-  return { els, rows: els.length }
-}
-
-function latestBlock(ctx: ViewCtx, $: EngineInterface): Block | undefined {
-  const { t, cols } = ctx
-  const room = cols - COL.name
-  const bySeq = [...t.steps].sort((a, b) => b.seq - a.seq)
-  const error = bySeq.find(x => x.status === 'error')
-  const kept = bySeq.find(x => x.pin !== undefined)
-  const items: { id: string; glyph: string; color: string | undefined; text: string }[] = []
-  if (error !== undefined) items.push({ id: error.id, glyph: STEP_GLYPH.error, color: statusColor('error'), text: argOf(error.tool, error.label) || error.tool })
-  if (kept !== undefined) items.push({ id: kept.id, glyph: '★', color: C.spark, text: kept.pin !== undefined && kept.pin !== '' ? kept.pin : argOf(kept.tool, kept.label) })
-  const shown = items.filter(i => fits(i.text, room))
-  if (shown.length === 0) return undefined
-  const errors = bySeq.filter(x => x.status === 'error').length
-  const els: RenderElement[] = [
-    label(ctx, $, 'LATEST', errors > 0 ? { text: `✖ ${errors}`, color: C.fail } : undefined, 'slim-go-latest', () => openTab($, 'timeline')),
-    ...shown.map(i => line(ctx, $, `slim-latest-${i.id}`, i.glyph, i.color, wordFit(i.text, room))),
-  ]
-  return { els, rows: els.length }
-}
-
-/** The stack at a drop level: 0 all, 1 without LATEST, 2 also without 7D, 3 also without the agent names. */
-function stackAt(ctx: ViewCtx, $: EngineInterface, level: number): { els: RenderElement[]; rows: number } {
-  const blocks = [
-    headBlock(ctx, $),
-    needsBlock(ctx, $),
-    crewBlock(ctx, $, level < 3),
-    tasksBlock(ctx, $),
-    budgetBlock(ctx, $, level < 2),
-    level < 1 ? latestBlock(ctx, $) : undefined,
-  ]
-  const els: RenderElement[] = []
-  let rows = 0
-  let n = 0
-  for (const b of blocks) {
-    if (b === undefined || b.els.length === 0) continue
-    if (els.length > 0) {
-      els.push(blank(ctx, $, `slim-gap-${n}`))
-      rows += 1
-    }
-    els.push(...b.els)
-    rows += b.rows
-    n += 1
-  }
-  // The rich form closes with the sill (one clamp cell), straight under the last row.
-  if (ctx.look === 'rich') {
-    els.push(inst(ctx, $, sillSpec('slim-sill', ctx.cols, { tone: needsYou(ctx.t, ctx.u, ctx.now).length > 0 ? 'warning' : 'accent', clamp: 1 })))
-    rows += 1
-  }
-  return { els, rows }
-}
-
-/** `↵ open   esc prompt` from column 2 while the pane has the focus; one space apart where 3 would not fit. */
-function slimFooter(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
-  if (ctx.isFocused !== true) return null
+/** A sum on its own row at the left edge. */
+function sumRow(ctx: ViewCtx, $: EngineInterface, sum: Run[], key: string): RenderElement {
   const { Text } = $.ui.resolve(ctx.e)
-  const gap = ctx.cols >= 23 ? '   ' : ' '
   return (
-    <Text key="footer" dimColor wrap="truncate-end">
-      {`  ↵ open${gap}esc prompt`}
+    <Text key={key} wrap="truncate-end">
+      {' '.repeat(edges(ctx.cols).left)}
+      {sum.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
     </Text>
   )
 }
 
+type Block = RenderElement[]
+
+/** The slim Needs you: the amber head and count, then behind `▍` who asks, the command wrapped to two lines, the words in place of a control (R3). */
+function needsBlock(ctx: ViewCtx, $: EngineInterface, st: NowState): Block {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const items = st.view.items
+  const n: Need | undefined = items[0]
+  if (n === undefined) return needsSlot(ctx, $, st.view)
+  const { left, right } = edges(ctx.cols)
+  const room = right - (left + 1) + 1
+  const verb = n.kind === 'permission' && (n.tool === 'Bash' || n.tool === 'PowerShell') ? 'asks to run' : n.verb
+  const head = wrapWords(`${n.who} ${verb}`, room, 2)
+  const cmd = oneLine(n.kind === 'input' ? n.message ?? '' : n.command ?? '')
+  const lines = cmd !== '' ? wrapWords(cmd, room, 2) : []
+  const hint = (promptRuns(n, ctx.isFocused === true).slice(0, 2) as Run[])
+  const mark = (k: string, body: RenderElement | string): RenderElement => (
+    <Box key={k} flexDirection="row">
+      <Text color={CK.ask}>{'▍ '}</Text>
+      {body}
+    </Box>
+  )
+  const out: Block = [
+    <Box key="slim-needs-head" flexDirection="row">
+      <Text>{' '.repeat(left)}</Text>
+      <Text key="slim-needs-title" bold color={CK.ask}>
+        {'Needs you'}
+      </Text>
+      <Text key="slim-needs-count" bold color={CK.ask}>
+        {`${' '.repeat(Math.max(1, right - left - 9 - String(items.length).length + 1))}${items.length}`}
+      </Text>
+    </Box>,
+    mark(
+      'slim-need-0',
+      <Button key={`open-${n.key}`} plain autoFocus onPress={() => openNeed($, n)}>
+        {head[0]!.startsWith(n.who)
+          ? [
+              <Text key="slim-need-who" bold={n.askerAmbiguous ? undefined : true}>
+                {n.who}
+              </Text>,
+              <Text key="slim-need-verb">{head[0]!.slice(n.who.length)}</Text>,
+            ]
+          : [<Text key="slim-need-line">{head[0]}</Text>]}
+      </Button>,
+    ),
+  ]
+  if (head[1] !== undefined) out.push(mark('slim-need-1', <Text key="slim-need-1-t">{head[1]}</Text>))
+  lines.forEach((l, i) =>
+    out.push(
+      mark(
+        `slim-need-cmd-${i}`,
+        <Text key={`slim-need-cmd-${i}-t`} bold>
+          {l}
+        </Text>,
+      ),
+    ),
+  )
+  out.push(mark('slim-need-hint', <Text key="slim-need-hint-t">{hint.map((r, i) => runText(r, ctx.e, $, `slim-hint-${i}`))}</Text>))
+  return out
+}
+
+/** To do in slim: the title and "9 of 14", the bar, a blank, the current task and the next (wrapped to two lines each), `+ n more`. */
+function todoBlock(ctx: ViewCtx, $: EngineInterface, st: NowState, full: boolean): Block {
+  const { Text } = $.ui.resolve(ctx.e)
+  const todo = st.todo
+  const { left, right } = edges(ctx.cols)
+  const press = (): Promise<void> => openTab($, 'tasks')
+  if (todo.empty) return [title(ctx, $, 'To do', [], 'slim-go-tasks', press), <Text key="slim-todo-none" dimColor>{`${' '.repeat(left)}${wordFit('No to-do list', right - left + 1)}`}</Text>]
+  const sum: Run[] = [{ text: String(todo.done), bold: true }, { text: ` of ${todo.total}`, dim: true }]
+  const out: Block = [
+    title(ctx, $, 'To do', sum, 'slim-go-tasks', press),
+    <Text key="slim-todo-bar">
+      {' '.repeat(left)}
+      {todoBar(right - left + 1, todo.total, todo.done, todo.current !== undefined ? 1 : 0, todo.paused ? { current: { color: CK.ask } } : {}).map((r, i) => runText(r, ctx.e, $, `slim-bar-${i}`))}
+    </Text>,
+  ]
+  if (!full) return out
+  const room = right - (left + 2) + 1
+  const pending = todo.items.filter(x => x.status === 'pending')
+  const rows: Block = []
+  const task = (key: string, glyph: Run, text: string, bold: boolean): void => {
+    wrapWords(oneLine(text), room, 2).forEach((l, i) =>
+      rows.push(
+        <Text key={`${key}-${i}`} wrap="truncate-end">
+          {' '.repeat(left)}
+          {i === 0 ? runText(glyph, ctx.e, $, `${key}-g`) : ' '}
+          {' '}
+          <Text bold={bold ? true : undefined}>{l}</Text>
+        </Text>,
+      ),
+    )
+  }
+  if (todo.current !== undefined) task('slim-task', { text: '▸', color: todo.paused ? CK.ask : CK.accent }, todo.current.subject, true)
+  const next = pending[0]
+  if (next !== undefined) task('slim-next', { text: '○', color: CK.rule }, next.subject, false)
+  const shown = (todo.current !== undefined ? 1 : 0) + (next !== undefined ? 1 : 0)
+  const rest = todo.open - shown
+  if (rest > 0) rows.push(<Text key="slim-todo-more" dimColor>{`${' '.repeat(left + 2)}+ ${rest} more`}</Text>)
+  if (todo.current === undefined && next === undefined) rows.push(<Text key="slim-todo-all" dimColor>{`${' '.repeat(left)}All ${todo.total} done`}</Text>)
+  return [...out, blank(ctx, $, 'slim-todo-gap'), ...rows]
+}
+
+/** Agents in slim: the title and its sum (R30: "1 working · 1 waiting", on its own row when it does not fit), then each card agent as a micro critter at 1 with its name and what it does at 7. */
+function agentsBlock(ctx: ViewCtx, $: EngineInterface, st: NowState, max: number): Block {
+  const { Box, Text } = $.ui.resolve(ctx.e)
+  const all = cardAgents(ctx.t).filter(a => a.status === 'running')
+  if (all.length === 0) return []
+  const { left, right } = edges(ctx.cols)
+  const asking = new Map(st.view.items.map(n => [n.agent, n]))
+  const waiting = all.filter(a => asking.has(a.id)).length
+  const sum: Run[] = [{ text: String(all.length - waiting), bold: true }, { text: ' working', dim: true }]
+  if (waiting > 0) sum.push({ text: ' · ', dim: true }, { text: String(waiting), color: CK.ask, bold: true }, { text: ' waiting', color: CK.ask })
+  const press = (): Promise<void> => openTab($, 'agents')
+  const out: Block = [title(ctx, $, 'Agents', sumFits(ctx, 'Agents', sum) ? sum : [], 'slim-go-agents', press)]
+  if (!sumFits(ctx, 'Agents', sum)) out.push(sumRow(ctx, $, sum, 'slim-agents-sum'))
+  const textAt = left + 6
+  const room = right - textAt + 1
+  const ground = ctx.ground ?? 'night'
+  all.slice(0, max).forEach((a, i) => {
+    const need = asking.get(a.id)
+    const step = ctx.t.steps.filter(s => s.agent === a.id && s.status === 'running').sort((x, y) => y.seq - x.seq)[0]
+    const crit = need !== undefined ? askerCritter(ctx, need, 'micro') : critterOf(a, { size: 'micro', ground, motion: ctx.motion === true })
+    if (i > 0) out.push(blank(ctx, $, `slim-agent-gap-${i}`))
+    out.push(
+      <Box key={`slim-agent-${a.id}`} flexDirection="row">
+        <Text>{' '.repeat(left)}</Text>
+        <Box key={`slim-agent-${a.id}-who`} width={textAt - left} flexShrink={0}>
+          {inst(ctx, $, { key: `slim-crit-${a.id}`, ...crit })}
+        </Box>
+        <Box key={`slim-agent-${a.id}-text`} flexDirection="column" width={room} flexShrink={0}>
+          <Text key={`slim-agent-${a.id}-name`} bold wrap="truncate-end">
+            {wordFit(typeName(a.type), room)}
+          </Text>
+          {need !== undefined ? (
+            <Text key={`slim-agent-${a.id}-doing`} color={CK.ask} wrap="truncate-end">
+              {wordFit('Waiting for you', room)}
+            </Text>
+          ) : (
+            <Text key={`slim-agent-${a.id}-doing`} dimColor wrap="truncate-end">
+              {wordFit(doing(step), room)}
+            </Text>
+          )}
+        </Box>
+      </Box>,
+    )
+  })
+  if (all.length > max) out.push(<Text key="slim-agents-more" dimColor>{`${' '.repeat(textAt)}+ ${all.length - max} more`}</Text>)
+  return out
+}
+
+/** Budget in slim: the title, then the context and the hotter window, each as its word, its figure at 10 and a 9-cell bar at 16. */
+function budgetBlock(ctx: ViewCtx, $: EngineInterface): Block {
+  const { Text } = $.ui.resolve(ctx.e)
+  const gauges = slimGauges(ctx.t)
+  if (gauges.length === 0) return []
+  const { left, right } = edges(ctx.cols)
+  const cells = right - BAR + 1
+  const out: Block = [title(ctx, $, 'Budget', [], 'slim-go-budget', () => setBudgetOpen($, true))]
+  gauges.forEach(g => {
+    const fig = `${Math.round(g.pct)}%`
+    const lead = `${g.label.padEnd(9)}`
+    out.push(
+      <Text key={`slim-budget-${g.label}`} wrap="truncate-end">
+        {' '.repeat(left)}
+        <Text dimColor>{lead}</Text>
+        {runText({ text: fig, ...(g.pct >= 70 ? gaugeStyle(g.pct) : {}) }, ctx.e, $, `slim-budget-${g.label}-pct`)}
+        {cells >= 4 ? ' '.repeat(Math.max(1, BAR - left - lead.length - fig.length)) : ''}
+        {cells >= 4 ? pctBar(cells, g.pct, g.pct >= 90 ? CK.fail : CK.accent).map((r, i) => runText(r, ctx.e, $, `slim-budget-${g.label}-${i}`)) : null}
+      </Text>,
+    )
+  })
+  return out
+}
+
+/** Notes in slim: the title with the count before `›`, then the newest kept step or note wrapped to two lines. */
+function notesBlock(ctx: ViewCtx, $: EngineInterface): Block {
+  const { Text } = $.ui.resolve(ctx.e)
+  const items = noteItems(ctx.t)
+  if (items.length === 0) return []
+  const { left, right } = edges(ctx.cols)
+  const first = items[0]!
+  const lines = wrapWords(oneLine(first.text), right - (left + 2) + 1, 2)
+  const count = String(items.length)
+  return [
+    title(ctx, $, 'Notes', [{ text: `${' '.repeat(Math.max(0, right - 3 - SUM - count.length + 1))}${count}`, dim: true }], 'slim-go-notes', () => openTab($, 'artifacts')),
+    ...lines.map((l, i) => (
+      <Text key={`slim-note-${i}`} wrap="truncate-end">
+        {' '.repeat(left)}
+        {i === 0 ? <Text color={first.star ? CK.accent : CK.rule}>{first.star ? '★' : '·'}</Text> : ' '}
+        {` ${l}`}
+      </Text>
+    )),
+  ]
+}
+
+/** The stack at a drop level: 0 all; 1 without Notes; 2 also without Budget; 3 one agent; 4 no agents; 5 To do without its tasks. */
+function stackAt(ctx: ViewCtx, $: EngineInterface, st: NowState, level: number): Block {
+  const blocks: Block[] = [
+    [nowHeader(ctx, $, st.view, st.hs, st.todo, { short: true, svg: false })],
+    needsBlock(ctx, $, st),
+    todoBlock(ctx, $, st, level < 5),
+    level < 4 ? agentsBlock(ctx, $, st, level < 3 ? 2 : 1) : [],
+    level < 2 ? budgetBlock(ctx, $) : [],
+    level < 1 ? notesBlock(ctx, $) : [],
+  ]
+  const out: Block = []
+  blocks.forEach((b, i) => {
+    if (b.length === 0) return
+    if (out.length > 0) out.push(blank(ctx, $, `slim-gap-${i}`))
+    out.push(...b)
+  })
+  return out
+}
+
+const rowsOf = (els: Block): number => els.reduce((n, el) => n + heightOf(el), 0)
+
+/** `↵ open   esc prompt` (R28: the keys in the accent), only while the pane has the keys. */
+function slimFooter(ctx: ViewCtx, $: EngineInterface): RenderElement | null {
+  return footerRow(ctx, $, [
+    { key: '↵', label: 'open' },
+    { key: 'esc', label: 'prompt' },
+  ])
+}
+
 const TAB_TITLE: Record<Tab, string> = { overview: 'Now', tasks: 'Tasks', agents: 'Agents', timeline: 'Steps', artifacts: 'Artifacts' }
 
-/** The name-only list of a tab, in slim form: `b: back` on its first row. */
+/** The name-only list of a tab, in slim form: `b: back` on its first row, the tab's title, its rows. */
 function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Button } = $.ui.resolve(ctx.e)
-  const { t, u, cols } = ctx
-  const room = cols - COL.name
+  const { Box, Button, Text } = $.ui.resolve(ctx.e)
+  const { t, u } = ctx
+  const { left } = edges(ctx.cols)
   type Item = { key: string; glyph: string; color?: string; text: string; dim?: boolean }
   const items: Item[] = []
   if (u.tab === 'tasks') {
@@ -428,46 +333,53 @@ function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
       items.push({ key: `artifact-${a.id}`, glyph: a.kind === 'link' ? '⎇' : '↗', text: a.title })
     }
   }
-  const usable = items.filter(i => fits(i.text.replace(/\s+/g, ' ').trim(), room))
+  const room = ctx.cols - 4
+  const usable = items.filter(i => (oneLine(i.text).split(' ')[0] ?? '').length <= room)
   const shown = usable.slice(0, 8)
   const els: RenderElement[] = [
-    <Box key="slim-back-row" flexDirection="row" paddingLeft={GRID.margin} columnGap={3}>
+    <Box key="slim-back-row" flexDirection="row" paddingLeft={left} columnGap={3}>
       <Button key="slim-back" hotkey="b" plain onPress={() => openTab($, 'overview')}>
         back
       </Button>
     </Box>,
-    runsLine(ctx.e, $, [{ col: 0, text: '┌', color: C.accent }, { col: COL.glyph, text: TAB_TITLE[u.tab].toUpperCase(), bold: true }], 'slim-tab-title'),
-    ...shown.map(i =>
-      row(ctx, $, { key: i.key, glyph: i.glyph, ...(i.color !== undefined ? { glyphColor: i.color } : {}), name: i.text.replace(/\s+/g, ' ').trim(), ...(i.dim === true ? { dim: true } : {}) }),
-    ),
+    <Text key="slim-tab-title" bold>
+      {`${' '.repeat(left)}${TAB_TITLE[u.tab]}`}
+    </Text>,
+    ...shown.map(i => row(ctx, $, { key: i.key, glyph: i.glyph, ...(i.color !== undefined ? { glyphColor: i.color } : {}), name: oneLine(i.text), ...(i.dim === true ? { dim: true } : {}) })),
   ]
   if (usable.length > shown.length) els.push(more(ctx, $, usable.length - shown.length))
-  if (shown.length === 0) els.push(runsLine(ctx.e, $, [{ col: COL.glyph, text: 'Nothing yet.', dim: true }], 'slim-empty'))
+  if (shown.length === 0) els.push(<Text key="slim-empty" dimColor>{`${' '.repeat(left + 1)}Nothing yet.`}</Text>)
   const bar = slimFooter(ctx, $)
   return <Box flexDirection="column">{[...els, ...(bar !== null ? [blank(ctx, $, 'slim-tab-gap'), bar] : [])]}</Box>
 }
 
 /**
- * The pane under 32 columns (spec "Slim mode"): one stacked summary, no tab
- * bar. The shell calls it whenever `ctx.cols < 32`, whatever the tab.
- *
- * Top to bottom: the focus wrapped by word to 2 lines; NEEDS YOU with its
- * first item focused; TASKS; AGENTS; BUDGET; LATEST. Each `┌` label is a
- * Button that opens that tab's slim list (`b: back` on its first row), or the
- * budget view. When the stack is taller than `bodyRows`, whole parts drop from
- * the bottom: LATEST, then BUDGET's 7D row, then the agent names.
+ * The pane under 32 columns (cockpit spec "CockpitSlim"): the shell calls it
+ * whenever `ctx.cols < 32`, whatever the tab. On Now it is the stack above,
+ * with the footer on the last row; when the stack is taller than
+ * `bodyRows`, whole parts go from the bottom (Notes, Budget, one agent, the
+ * agents, To do's tasks), so Needs you and To do stay longest (R34).
  */
 export function slimView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
   if (isBudgetOpen()) return <Box flexDirection="column">{[budgetView(ctx, $)]}</Box>
   if (ctx.u.tab !== 'overview') return tabList(ctx, $)
+  const st = nowState(ctx)
   const bar = slimFooter(ctx, $)
   const spare = bar !== null ? 2 : 0
-  let level = 0
-  let built = stackAt(ctx, $, level)
-  while (ctx.bodyRows !== undefined && built.rows + spare > ctx.bodyRows && level < 3) {
+  const rows = ctx.bodyRows ?? 46
+  // While a dialog is up, Notes give their rows to it (the slim ask board draws none).
+  let level = st.view.items.length > 0 ? 1 : 0
+  let built = stackAt(ctx, $, st, level)
+  while (rowsOf(built) + spare > rows && level < 5) {
     level += 1
-    built = stackAt(ctx, $, level)
+    built = stackAt(ctx, $, st, level)
   }
-  return <Box flexDirection="column">{[...built.els, ...(bar !== null ? [blank(ctx, $, 'slim-foot-gap'), bar] : [])]}</Box>
+  const out = [...built]
+  if (bar !== null) {
+    const pad = Math.max(1, rows - 1 - rowsOf(built))
+    for (let i = 0; i < pad; i++) out.push(blank(ctx, $, `slim-pad-${i}`))
+    out.push(bar)
+  }
+  return <Box flexDirection="column">{out}</Box>
 }

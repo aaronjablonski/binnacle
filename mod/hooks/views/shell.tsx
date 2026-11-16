@@ -15,8 +15,8 @@ import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, GRID, TAB_CELL, tier } from './style'
-import type { Look, Tier } from './style'
+import { C, GRID, groundOf, isTextTheme, motionOn, TAB_CELL, themeOf, tier } from './style'
+import type { Ground, Look, Tier } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
@@ -48,12 +48,23 @@ export const TABS: { tab: Tab; label: string; short: string; icon: string; hotke
  * when it is `rich`; absent, they draw the text form. `site` is the
  * requestId the draw's Rasters are tracked under for the paint clock (the
  * pane's id); absent, the pane's.
+ *
+ * The cockpit adds (R2, R21, R24, R35): `ground`, the Raster ground resolved
+ * from the `ground` option and the theme (night when absent); `motion`, the
+ * `motion` option (the blink; off when absent); `accent`, the `accent`
+ * option as given (`iris`, `sky`, `slate`; C7 maps it to a theme key);
+ * `isPromptCovered`, the pane's own prop (a dialog may hold the keys, so an
+ * ask shows at once).
  */
 export type ViewCtx = {
   e: RenderInput; t: Timeline; u: UiState; cols: number; now: number; showCost?: boolean
   isFocused?: boolean; bodyRows?: number
   look?: Look; site?: string
+  ground?: Ground; motion?: boolean; accent?: string; isPromptCovered?: boolean
 }
+
+/** The rows the tab bar takes above a tab's body: the tabs, their track and the blank under them. */
+export const TAB_ROWS = 3
 export type View = (ctx: ViewCtx, $: EngineInterface) => RenderElement
 
 /** The key of the tab bar's Options Button (`0`): reached, like a tab, by its hotkey and a click. */
@@ -70,7 +81,7 @@ export function isTabKey(key: string): boolean {
  * press draws the new tab from. Ephemeral UI state, not session state: a
  * reload starts it over. Bounded: `Stops` holds at most MAX_STOPS keys.
  */
-const ring: { stops: Stops; at?: string; input?: RenderInput<'Pane'>; look?: Look } = { stops: { order: [], tabs: [] } }
+const ring: { stops: Stops; at?: string; input?: RenderInput<'Pane'>; look?: Look; options?: PluginOptions } = { stops: { order: [], tabs: [] } }
 
 const ROWS_INLINE = 14
 const COLUMNS_DOCK = 62
@@ -159,7 +170,7 @@ export function registerShell(on: On, options: PluginOptions): void {
       // A new draw of the pane: Rasters it does not track again stop painting.
       begin(PANE)
       // The look option is read on every draw (a press on the Options card's Look row applies at once).
-      const rest = await drawnOf($, e, options.showCost === true, lookOption())
+      const rest = await drawnOf($, e, options, lookOption())
       const width = tier(cols)
       // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary.
       const tree =
@@ -177,6 +188,7 @@ export function registerShell(on: On, options: PluginOptions): void {
       ring.stops = stopsOf(out, isTabKey)
       ring.input = e
       ring.look = rest.look
+      ring.options = options
       return out
     } catch (err) {
       debug($, `pane failed: ${errText(err)}`)
@@ -297,23 +309,33 @@ function tabsGap($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude
 type Drawn = {
   t: Timeline; u: UiState; cols: number; now: number; showCost: boolean
   isFocused: boolean; bodyRows: number; look: Look; site: string
+  ground: Ground; motion: boolean; accent: string; isPromptCovered: boolean
 }
 
 /**
  * What a drawing of the pane reads: the state, the clock and the pane's
  * props, and the look, once per draw, from the surface's element table.
+ * The theme (`/config`'s `theme` row) gives the Raster ground under the
+ * `ground` option's `auto`, and on an ANSI or daltonized theme the text look
+ * unless the `look` option asks for another (R21).
  */
-async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, showCost: boolean, look?: string): Promise<Drawn> {
+async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: PluginOptions, look?: string): Promise<Drawn> {
+  const theme = await themeOf($)
+  const asked = look === undefined || look === 'auto' ? (isTextTheme(theme) ? 'text' : look) : look
   return {
-    look: lookFor($.ui.resolve(e), e.surface, { look }),
+    look: lookFor($.ui.resolve(e), e.surface, asked !== undefined ? { look: asked } : {}),
     site: PANE,
     t: await readTimeline($),
     u: await readUi($),
     cols: e.props.bodyColumns,
     now: await $.clock.now(),
-    showCost,
+    showCost: options.showCost === true,
     isFocused: e.props.isFocused,
     bodyRows: e.props.scroll.bodyRows,
+    ground: groundOf(options.ground, theme),
+    motion: motionOn(options.motion),
+    accent: typeof options.accent === 'string' ? options.accent : 'iris',
+    isPromptCovered: e.props.isPromptCovered === true,
   }
 }
 
@@ -330,7 +352,7 @@ async function switchTab($: EngineInterface, tab: Tab, showCost: boolean): Promi
   if (e === undefined) return
   let key: string | undefined
   try {
-    const rest = { ...(await drawnOf($, e, showCost)), look: ring.look ?? 'text' }
+    const rest = { ...(await drawnOf($, e, { ...(ring.options ?? {}), showCost })), look: ring.look ?? 'text' }
     if (tier(rest.cols) === 'slim') return
     key = stopsOf(withStart(body($, e, rest), isTabKey), isTabKey).start
     if (key === undefined) return

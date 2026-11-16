@@ -1,4 +1,5 @@
 <!-- Draft README for the public release. Images are generated: node docs/readme/gen.js -->
+<!-- TODO: the images under docs/readme/ predate the cockpit and Critters redesign; regenerate them before release. The text below describes the mod as built. -->
 
 <h1 align="center">Mission Control</h1>
 
@@ -32,14 +33,14 @@ Mission Control keeps all of it one keypress away: what Claude is doing now, wha
 
 | | |
 |---|---|
-| <img src="docs/readme/now.svg" alt="Now tab with a NEEDS YOU section" width="600"> | **Now**<br>The current focus and what comes next, then five readouts: tasks, agents, steps, context and the hotter rate window. When Claude waits on you, **NEEDS YOU** goes first: permission requests and repeated failures, each with `g` to jump to it in the chat. |
-| <img src="docs/readme/tasks.svg" alt="Tasks tab" width="600"> | **Tasks, with their sub-agents**<br>Done, active and queued on one scale. The active task shows how many agents work on it and opens to list them. `d` unfolds the done tasks. |
-| <img src="docs/readme/agents.svg" alt="Agents tab as a list" width="600"> | **Agents**<br>Main and every subagent with tokens and time: live first, then failed, then done. Open a row for its result, type and model, then go to its steps or its transcript. Workflow runs get a row under **RUNS** that opens the run board. |
-| <img src="docs/readme/agents-tree.svg" alt="Agents tab as a tree" width="600"> | **Agent tree**<br>`t` draws the same agents as a tree, with a workflow run as a branch. A `!` in the gutter marks a failed agent and every folded branch above it. `r` hides everything that is not running. |
+| <img src="docs/readme/now.svg" alt="Now tab with a NEEDS YOU section" width="600"> | **Now**<br>A header with a pill (WORKING, WAITING FOR YOU, STOPPED, ALL DONE or IDLE), the time this turn, the request's goal and two gauges. Under it **Needs you** (only what blocks the session on a dialog: a permission, a question, a plan or an input request) and **Watch** (a stalled step, a quiet agent, a long run, a repeat; it asks nothing of you), then To do, Agents, and Notes and decisions. |
+| <img src="docs/readme/tasks.svg" alt="Tasks tab" width="600"> | **Tasks, with their sub-agents**<br>How far along the request is, with Effort so far, Doing now (and its agents), Up next and Done. `d` unfolds the done tasks. |
+| <img src="docs/readme/agents.svg" alt="Agents tab as a list" width="600"> | **Agents**<br>Main and every subagent as a card or a map node, with tokens and time: live first, then failed, then done. Open a row for its result, type and model, then go to its steps or its transcript. Workflow runs get a row under **RUNS** that opens the run board. |
+| <img src="docs/readme/agents-tree.svg" alt="Agents tab as a tree" width="600"> | **Agent map**<br>`t` draws the same agents as a map, with a workflow run as a branch. A `!` marks a failed agent and every folded branch above it. `r` hides everything that is not running. |
 | <img src="docs/readme/steps.svg" alt="Steps tab with find" width="600"> | **Steps**<br>Every tool call of the session, grouped by turn. `f` finds across all of them and underlines the hits. Chips filter to kept steps, errors and **In view**. A `◂` marks the rows that are on screen in the chat right now. |
 | <img src="docs/readme/step-open.svg" alt="Steps tab with one step opened" width="600"> | **Open a step, keep a step**<br>Enter opens a step in place: status, the result and `g: chat  k: keep  c: copy`. Enter again shows the full step with its input, result and the diff of any change. **Keep** (`k`) stars a step: kept steps are never trimmed and export in full. |
 | <img src="docs/readme/artifacts.svg" alt="Artifacts tab" width="600"> | **Artifacts and handoff**<br>The pages Claude published, the documents it wrote, the results it reported and the files it changed, newest first. `e` exports a digest of the session to the journal and the clipboard, ready for the next session or a teammate. |
-| <img src="docs/readme/budget.svg" alt="Slim pane with budget rows" width="600"> | **Budget**<br>Context use and the rate-limit windows as bars, amber from 70 % and red from 90 %. Enter on the readouts opens every window with its reset time and the tokens per model. Dollar cost is opt-in. |
+| <img src="docs/readme/budget.svg" alt="Slim pane with budget rows" width="600"> | **Budget**<br>Context use and the rate-limit windows as bars, bold from 70 % and red from 90 %. Enter on the readouts opens every window with its reset time and the tokens per model. Dollar cost is opt-in. |
 | <img src="docs/readme/slim.svg" alt="Slim mode" width="600"> | **Slim sidebar**<br>`/mc slim` shrinks the pane to 28 columns: one stacked summary of focus, needs-you, tasks, agents, budget and latest. Enter on a section opens it. `/mc slim` again restores the full width. |
 
 ### The band
@@ -48,7 +49,7 @@ Mission Control keeps all of it one keypress away: what Claude is doing now, wha
   <img src="docs/readme/band.svg" alt="The band above the prompt in three states: working, waiting on you, all done." width="960">
 </p>
 
-One line above the prompt, shown even when the pane is closed: tasks done, the focus, live agents, errors and budget. When something waits on you, that leads in amber. As the terminal narrows it drops budget first, then words, then cuts the focus at a word boundary.
+One row above the prompt, shown even when the pane is closed: a small picture of the lead, the request's goal and the context and week figures. When a dialog waits on you, "Needs you" and the ask lead in amber; after a failed turn it leads with "Stopped". A second row holds the to-do bar when there is room. As the terminal narrows it drops the gauges first, then cuts the goal at a word boundary.
 
 ### Narrow terminals
 
@@ -56,7 +57,7 @@ One line above the prompt, shown even when the pane is closed: tasks done, the f
   <img src="docs/readme/strip.svg" alt="A 96-column terminal with Mission Control as a strip above the prompt." width="843">
 </p>
 
-Under 110 columns there is no room for a side pane, so Mission Control sits above the prompt as a strip of at most 14 rows, on the same grid: Now on the left, agents and the latest steps on the right.
+`/mc strip` puts Mission Control above the prompt as a strip, on the same grid: Now's header on the left, To do and Agents on the right. The pane itself draws the strip from 96 columns.
 
 ## Install
 
@@ -90,6 +91,8 @@ Type `/mc`. The band is always there; the pane opens when you ask for it.
 | `/mc export` | Writes the session digest to the journal and copies it. |
 | `/mc close` | Closes the pane. |
 | `/mc slim` | Switches between the slim sidebar and the full width. |
+| `/mc strip` | Draws the strip above the prompt instead of the pane. |
+| `/mc options` | Opens the Options page. |
 
 All of them work in the middle of a turn.
 
@@ -105,17 +108,18 @@ All of them work in the middle of a turn.
 | <kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>X</kbd> | Close the pane. |
 | <kbd>1</kbd> to <kbd>5</kbd> | Switch tab. |
 | <kbd>Tab</kbd>, <kbd>Enter</kbd> | Move between rows; open a row. |
-| <kbd>n</kbd> / <kbd>p</kbd> | Next or previous error, find hit or `!`. |
+| <kbd>0</kbd> | Open the Options page. |
+| <kbd>n</kbd> / <kbd>p</kbd> | Next or previous ask, flagged agent, error or find hit. |
 | <kbd>f</kbd> | Find in steps. |
 | <kbd>g</kbd> | Show the row in the chat. |
 | <kbd>k</kbd> | Keep or unkeep a step. |
 | <kbd>c</kbd> | Copy as Markdown. |
 | <kbd>q</kbd> | Quote into the prompt (full step). |
-| <kbd>l</kbd> / <kbd>t</kbd> / <kbd>r</kbd> | Agents: list, tree, running only. |
+| <kbd>l</kbd> / <kbd>t</kbd> / <kbd>r</kbd> | Agents: list, map, working only. |
 | <kbd>s</kbd> / <kbd>v</kbd> | Agent: its steps, its transcript. |
 | <kbd>d</kbd> | Tasks: show all done tasks. |
 | <kbd>e</kbd> | Export the digest. |
-| <kbd>x</kbd> | Dismiss a needs-you item. |
+| <kbd>x</kbd> | Dismiss a Watch row. A need cannot be dismissed. |
 
 Keys reach the pane only while it has focus. Every action is also a button with a label, so nothing depends on a hotkey.
 
@@ -132,8 +136,15 @@ Set them from the plugin's config menu, or under `pluginConfigs["mission-control
 |---|---|---|
 | `autoOpen` | `false` | Open the pane when a session starts. |
 | `guide` | `true` | Add the update tool and one system-prompt section so Claude keeps the panel current. |
-| `notify` | `"waits"` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn fails (`all`), or never (`off`). |
-| `showCost` | `false` | Show the session's dollar cost in the Budget section. |
+| `look` | `"auto"` | `auto`, `rich` or `text`: how the pane and band are drawn. |
+| `ground` | `"auto"` | `auto`, `night` or `day`: the background the crew pictures and the desktop Svg are drawn for. |
+| `motion` | `"on"` | `on` or `off`: whether the crew blinks and the finish sweep plays. |
+| `accent` | `"iris"` | `iris`, `sky` or `slate`: the colour of headings and the marker. |
+| `notify` | `"waits"` | Native notifications: `waits`, `done`, `all` or `off`. Claude Code itself notifies for permission dialogs; this option covers the rest. <!-- TODO: notify wording, to match the alert model once it is settled --> |
+| `watchNotify` | `false` | Also notify, once, when something has stood under Watch for 10 minutes. |
+| `agentLimitMin` | `60` | Show a subagent still working after this many minutes as a long run under Watch (`0` is off). |
+| `turnLimitMin` | `120` | The same for a main turn. |
+| `showCost` | `false` | Show the session's dollar cost in the budget view. |
 
 For a one-off headless run, pass them with `--settings`:
 
@@ -193,7 +204,7 @@ node docs/readme/gen.js        # regenerate the README images
 | `mod/hooks/` | The hooks module: capture, journal, guide. |
 | `mod/hooks/model/` | The pure session model, tested with vitest from `test/`. |
 | `mod/hooks/views/` | The pane, the band and their drawing tests. |
-| `docs/superpowers/specs/` | Design notes. The current one is the [HUD v2 design](docs/superpowers/specs/2026-11-15-mission-control-hud2-design.md). |
+| `docs/superpowers/specs/` | Design notes. The current one is the [cockpit design](docs/superpowers/specs/2026-11-15-mission-control-cockpit-design.md). |
 | `docs/readme/` | These images and `gen.js`, which draws them on the design's character grid. |
 
 `claude --debug-file mod-debug.log --plugin-dir ./mod` logs why a hook was skipped. The engine lays its type file in `mod/.claude-plugin/types/` on first load; that file is the API authority.

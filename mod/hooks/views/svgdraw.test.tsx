@@ -122,8 +122,9 @@ test('the band is a second Svg on the desktop app, none on the terminal or in VS
 
 test('the deck\'s figures are the model\'s', async () => {
   const m = deckModel(busy, initialUi, NOW)
-  expect([m.pill.word, m.tasks.done, m.tasks.total, m.steps.count, m.live]).toEqual(['WORKING', 1, 2, 1, 1])
-  expect(m.rings.map(r => `${r.name} ${r.pct}`)).toEqual(['CTX 12', '5H 40'])
+  expect([m.pill.word, m.tasks.done, m.tasks.total, m.live]).toEqual(['WORKING', 1, 2, 1])
+  // The model has no step count now (the header holds no log); the rings carry the pane's words, not CTX and 5H.
+  expect(m.rings.map(r => `${r.name} ${r.pct}`)).toEqual(['context 12', '5 hours 40'])
 })
 
 // ---------- the whole pane on the desktop app: no Raster anywhere ----------

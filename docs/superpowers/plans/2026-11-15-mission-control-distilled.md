@@ -4,7 +4,7 @@
 
 **Goal:** Build all eight distilled features (Aaron: "I take all distillations", 2026-11-15) on the Neo views: Pace, Cache line, Task meter, Long run (with Roles), Done signal, Options card, Ledger, Quiet delights and Accent; plus the two unranked upgrades (Session cost, Roles).
 
-**Spec:** `docs/superpowers/notes/2026-11-15-feature-distillation.md` § "Our take on each UPGRADE and ADOPT" (Sees / Why / API / Risks per item; binding) and its "four rules". Look: `2026-11-15-mission-control-neo-design.md`. Mocks: canvas `Distill*` boards (restyle them in Neo terms: decks, dials, `▮▯` bars).
+**Spec:** superseded; the features were built in the Neo Rich and cockpit plans.
 
 ## Rulings
 

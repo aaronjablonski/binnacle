@@ -87,30 +87,31 @@ async function bandRows($: Engine, columns: number): Promise<string[]> {
   return rows
 }
 
-const VIEWS: { name: string; tab: UiState['tab']; rows: ($: Engine) => Promise<string[]> }[] = [
+// BEHAVIOUR CHANGE (C6): the band is the cockpit's. Two rows (110 columns) show the ask as the asker's critter, waiting (its `?` badge); one row (62) shows it as the amber `▲`. Like Now's, its needs take no dismissal (R1: no `x` on a permission), so a dismissed ask still shows.
+const VIEWS: { name: string; tab: UiState['tab']; rows: ($: Engine) => Promise<string[]>; shows?: (rows: string[]) => boolean }[] = [
   { name: 'Agents', tab: 'agents', rows: $ => paneRows($) },
   { name: 'Now', tab: 'overview', rows: $ => paneRows($) },
   { name: 'Tasks', tab: 'tasks', rows: $ => paneRows($) },
-  { name: 'band (three rows)', tab: 'overview', rows: $ => bandRows($, 110) },
-  { name: 'band (one row)', tab: 'overview', rows: $ => bandRows($, 80) },
+  { name: 'band (two rows)', tab: 'overview', rows: $ => bandRows($, 110) },
+  { name: 'band (one row)', tab: 'overview', rows: $ => bandRows($, 62), shows: rows => rows.some(r => r.includes('▲')) },
 ]
 
 // LOOK TEST (edited for Rich): the ? is a glyph of the text form (a hull's suffix or a gutter flag); on Now, Agents and the three-row band the rich form draws it in a character, so those are read in the text form here (the rich band is tested in band.test.tsx, the rich Now in rich2.test.tsx).
-const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (three rows)' || view.name === 'Agents' ? { options: { look: 'text' } } : {})
+const LOOK = (view: { name: string }) => (view.name === 'Now' || view.name === 'band (two rows)' || view.name === 'Agents' ? { options: { look: 'text' } } : {})
 
 for (const view of VIEWS) {
   test(`a waiting agent shows ? on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, T, uiOf(view.tab, []))
-    expect(signalled(await view.rows($))).toBe(true)
+    expect((view.shows ?? signalled)(await view.rows($))).toBe(true)
   })
-  // Now's needs take no dismissal (owner ruling 4: no `x` on a permission): a dismissed ask still shows there.
-  test(`a dismissed ask shows ${view.name === 'Now' ? 'its ? still' : 'no ?'} on ${view.name}`, LOOK(view), async ($, on) => {
+  // Now's and the band's needs take no dismissal (owner ruling 4: no `x` on a permission): a dismissed ask still shows there.
+  test(`a dismissed ask shows ${view.name === 'Now' || view.name.startsWith('band') ? 'its mark still' : 'no ?'} on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, T, uiOf(view.tab, ['asking:s1']))
-    expect(anyMark(await view.rows($))).toBe(view.name === 'Now')
+    expect((view.shows ?? anyMark)(await view.rows($))).toBe(view.name === 'Now' || view.name.startsWith('band'))
   })
   test(`an ask younger than 20 s shows no ? on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, uiOf(view.tab, []))
-    expect(anyMark(await view.rows($))).toBe(false)
+    expect((view.shows ?? anyMark)(await view.rows($))).toBe(false)
   })
 }
 

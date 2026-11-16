@@ -105,8 +105,8 @@ const asked = (seconds: number): Timeline => ({
 const texts = async (ui: { findAll: (q: { type: string }) => Promise<{ text?: string }[]> }): Promise<string[]> =>
   (await ui.findAll({ type: 'Text' })).map(f => f.text ?? '')
 
-// LOOK TEST (edited for Rich): the Neo text form, drawn where there is no Raster and with the look option on text; the rich form is tested in rich2.test.tsx.
-test('the band leads with the WAITING pill and the need count in bold warning, and still fits at 24 columns', async ($, on) => {
+// LOOK TEST (rewritten for the cockpit band, C6): the band has no pill and no "n need you" count in a row of its own; at 80 columns it is two rows led by the amber "Needs you", narrower one row led by "▲ n needs you"; it still fits 24 columns.
+test('the band leads with "Needs you" in bold warning and the ask, and still fits at 24 columns', async ($, on) => {
   world(on, {
     ...asked(30),
     tasks: [{ id: '1', subject: 'x', status: 'in_progress', owner: 'main', updatedAt: NOW }],
@@ -116,16 +116,13 @@ test('the band leads with the WAITING pill and the need count in bold warning, a
   for (const surface of BAND_SURFACES.filter(x => x !== 'desktop')) {
     const ui = await $.ui.mount({ ...BAND(80), surface })
     const found = await ui.findAll({ type: 'Text' })
-    const row = found.map(f => f.text ?? '').find(t => t.includes('WAITING')) ?? ''
-    expect(row).toContain(' WAITING ')
-    expect(row).toContain('1 need you')
-    expect(found.find(f => f.text === ' WAITING ' && (f.props as { backgroundColor?: string }).backgroundColor !== undefined)?.props).toMatchObject({ backgroundColor: 'warning', color: 'inverseText' })
-    expect(found.find(f => f.text === '1 need you')?.props).toMatchObject({ bold: true, color: 'warning' })
+    expect(found.find(f => f.text === 'Needs you')?.props).toMatchObject({ bold: true, color: 'warning' })
+    expect(found.some(f => (f.text ?? '').includes('WAITING'))).toBe(false)
     await ui.unmount()
     const narrow = await $.ui.mount({ ...BAND(24), surface })
-    const small = (await narrow.findAll({ type: 'Text' })).map(f => f.text ?? '').find(t => t.includes('WAITING')) ?? ''
+    const small = (await narrow.findAll({ type: 'Text' })).map(f => f.text ?? '').find(t => t.includes('▲')) ?? ''
     expect(small.length <= 24).toBe(true)
-    expect(small).toContain('WAITING')
+    expect(small).toContain('▲')
     await narrow.unmount()
   }
 })

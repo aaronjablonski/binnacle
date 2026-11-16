@@ -58,6 +58,10 @@ export type Samples = { names: string[]; list: Sample[] }   // names ≤ 8, each
 export type CacheClock = { at: number; hour?: true }
 /** The cost of the newest main turn: the session's cost at its start, and at its end (or the latest measure while it runs). */
 export type TurnCost = { turnId: string; from: number; to?: number }
+/** An MCP server's request for the person's input (an elicitation dialog), open until its result comes. */
+export type InputAsk = { id: string; agent: AgentKey; server: string; message: string; at: number }   // id ≤ 64, server ≤ 64, message ≤ 200
+/** Why the newest failed main turn stopped, for the header's STOPPED line. */
+export type TurnFailure = { turnId: string; reason: string }   // reason ≤ 120
 /** What `/mc export` wrote last. */
 export type LastExport = { at: number; path: string }  // path ≤ 1000
 export type Timeline = {
@@ -71,21 +75,31 @@ export type Timeline = {
   cache?: CacheClock
   turnCost?: TurnCost
   lastExport?: LastExport
+  autoAsk?: true                         // the newest permission request came in auto mode (its ask may settle without the person)
+  asks?: InputAsk[]                      // open MCP input requests (≤ 4)
+  failure?: TurnFailure                  // the newest failed main turn's reason
+  listFrom?: number                      // when the lead's current list began: a main prompt that started with every lead task complete folds the older ones away ("Earlier")
 }
+/** One item of the update tool's `tasks` list: the whole list is sent each time. */
+export type ListItem = { title: string; state: 'todo' | 'doing' | 'done' }
 export type Update = {
   focus?: string; next?: string; note?: string
   artifact?: { title: string; kind: 'result' | 'link'; ref?: string; summary?: string }
+  tasks?: ListItem[]
 }
 export type Ev =
   | { kind: 'turn.start'; at: number; turnId: string; agent: AgentKey; prompt: string }
-  | { kind: 'turn.end'; at: number; turnId: string; agent: AgentKey; answer: string; failed: boolean; aborted?: boolean }
+  | { kind: 'turn.end'; at: number; turnId: string; agent: AgentKey; answer: string; failed: boolean; aborted?: boolean; reason?: string }
   | { kind: 'step.start'; at: number; id: string; agent: AgentKey; tool: string; input: Record<string, unknown> }
   | { kind: 'step.end'; at: number; id: string; status: 'done' | 'error' | 'denied'; result?: unknown }
   | { kind: 'agent.start'; at: number; id: AgentKey; parent: AgentKey; type: string; description: string; runId?: string; agentIndex?: number; spawnStep?: string }
   | { kind: 'update'; at: number; agent: AgentKey; update: Update }
   | { kind: 'pin'; id: string; note: string }
   | { kind: 'unpin'; id: string }
-  | { kind: 'step.ask'; at: number; id: string }
+  | { kind: 'step.ask'; at: number; id: string; auto?: boolean }
+  | { kind: 'input.ask'; at: number; id: string; agent: AgentKey; server: string; message: string }
+  | { kind: 'input.done'; id?: string; server: string }
+  | { kind: 'turn.fail'; agent: AgentKey; reason: string }
   | { kind: 'step.unask'; id: string }
   | { kind: 'usage'; at: number; agent: AgentKey; model?: string; tokensIn?: number; tokensOut?: number; cacheRead?: number; cacheWrite?: number; ms?: number; turnId?: string }
   | { kind: 'measure'; at: number; budget: Budget }

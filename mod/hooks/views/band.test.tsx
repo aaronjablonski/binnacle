@@ -94,13 +94,13 @@ const WAITING: Timeline = { ...BUSY, seq: 4, steps: [error, asked('w1', 3), aske
 
 
 
-// A running subagent that started no step for 4 minutes is stalled; a failed one is outlined with `!`.
+// A running subagent quiet for 11 minutes is stalled (R6: ten minutes); a failed one is outlined with `!`.
 const MIXED: Timeline = {
   ...WAITING,
   agents: {
     main: { ...empty.agents.main! },
     a1: agent('a1'),
-    a2: { ...agent('a2', 'general-purpose'), startedAt: NOW - 240_000, lastStepAt: NOW - 240_000 },
+    a2: { ...agent('a2', 'general-purpose'), startedAt: NOW - 660_000, lastStepAt: NOW - 660_000 },
     a3: { ...agent('a3', 'code-reviewer', 'error'), startedAt: NOW - 100 },
     a4: { ...agent('a4', 'Explore', 'done'), startedAt: NOW - 50 },
   },
@@ -478,27 +478,27 @@ test('rich: the band holds no Button', async ($, on) => {
   await ui.unmount()
 })
 
-const LONG_AGENT: Timeline = { ...BUSY, agents: { main: { ...empty.agents.main! }, a1: { ...agent('a1'), startedAt: NOW - 25 * 60_000, lastStepAt: NOW - 1000, description: 'Index the repository' } } }
+const LONG_AGENT: Timeline = { ...BUSY, agents: { main: { ...empty.agents.main! }, a1: { ...agent('a1'), startedAt: NOW - 65 * 60_000, lastStepAt: NOW - 1000, description: 'Index the repository' } } }
 
-test('a long run is labelled long run in every form, never looping', async ($, on) => {
+// Changed meaning (C2, owner ruling 4): a long run is a Watch row, and Watch never leads or colours the band.
+test('a long run never leads the band in any form: no long run, no looping, no WAITING', async ($, on) => {
   seed(on, LONG_AGENT)
   for (const surface of SURFACES) {
     const rows = await bandRows($, 110, surface)
     const all = rows.join('\n')
-    expect(all).toContain('long run')
+    expect(all).not.toContain('long run')
     expect(all).not.toContain('looping')
+    expect(all).not.toContain('WAITING')
   }
-  // the text form's second row names the kind in its own column; the terminal's first row is the ask
-  expect((await bandRows($, 110, 'mobile'))[1]!.lastIndexOf('long run')).toBe(50)
   reseed(LONG_AGENT, { paneOpen: true })
-  expect((await bandRows($, 100))[0]).toContain('long run')
+  expect((await bandRows($, 100))[0]).not.toContain('long run')
 })
 
-test('a long run beside another need reads +1 long run in the rich band', async ($, on) => {
+test('a long run beside a need: the band counts the need alone', async ($, on) => {
   seed(on, { ...LONG_AGENT, steps: [error, asked('w1', 3)] })
   const rows = (await bandRows($, 110)).join('\n')
-  expect(rows).toContain('NEEDS YOU 2')
-  expect(rows).toMatch(/\+1 long run \d+[ms]|permission/)
+  expect(rows).toContain('NEEDS YOU 1')
+  expect(rows).not.toContain('long run')
   expect(rows).not.toContain('looping')
 })
 

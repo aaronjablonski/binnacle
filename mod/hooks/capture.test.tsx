@@ -3,6 +3,7 @@ import type { On } from 'claude-code'
 
 import type { LedgerRow, Timeline, UiState } from '../types'
 import { ASK_MS, needsYou } from './views/needs'
+import { headerState, needs, watch } from './model/alerts'
 
 type Box = { timeline?: Timeline; writes: Timeline[]; clock: ReturnType<typeof mock.clock> }
 
@@ -177,12 +178,13 @@ test("a check that resolves ask marks nothing and raises no need, and the engine
   expect(verdict).toEqual({ decision: 'ask', reason: 'needs a yes' })
 })
 
-test('a permission request marks the running step with the same command; its need shows from 20 s and clears when the step ends', async ($, on) => {
+// R2: in auto mode an uncovered ask waits ASK_MS (the classifier settles most); outside auto it shows at once (next test).
+test('a permission request in auto mode marks the running step with the same command; its need shows from 20 s and clears when the step ends', async ($, on) => {
   const box = world(on)
   unanswered(on)
   let during: Timeline | undefined
   on('tool.call', async () => {
-    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' } })
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm test' }, permission_mode: 'auto' })
     during = box.timeline
     return { result: {}, text: 'ok' }
   })
@@ -198,6 +200,55 @@ test('a permission request marks the running step with the same command; its nee
   expect(ended?.status).toBe('done')
   expect(ended?.asking).toBe(undefined)
   expect(needsYou(box.timeline!, UI, 1000 + 5 * 60_000)).toEqual([])
+})
+
+test('a permission request outside auto mode is one need at once, with its tool, command and asker, and clears when answered', async ($, on) => {
+  const box = world(on)
+  unanswered(on)
+  let during: Timeline | undefined
+  on('tool.call', async () => {
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm run deploy' }, permission_mode: 'default' })
+    during = box.timeline
+    return { result: {}, text: 'ok' }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'npm run deploy', tool_use_id: 'toolu_d' } as never)
+
+  const view = needs(during!, 1000)
+  expect(view.checking).toBe(false)
+  expect(view.items.map(n => [n.kind, n.tool, n.command, n.asker, n.askerAmbiguous, n.sentence])).toEqual([
+    ['permission', 'Bash', 'npm run deploy', 'Claude', false, 'Claude asks to run a command'],
+  ])
+  expect(watch(during!, 1000)).toEqual([])
+  expect(needs(box.timeline!, 2000).items).toEqual([])
+})
+
+test('an MCP input request is a need until its result comes', async ($, on) => {
+  const box = world(on)
+  on('classic.Elicitation', () => ({}))
+  on('classic.ElicitationResult', () => ({}))
+
+  await $.classic.Elicitation({ mcp_server_name: 'github', message: 'Pick a repository', elicitation_id: 'el1' } as never)
+  const view = needs(box.timeline!, 1000)
+  expect(view.items.map(n => [n.kind, n.asker, n.sentence, n.message])).toEqual([['input', 'github', 'github asks for input', 'Pick a repository']])
+
+  await $.classic.ElicitationResult({ mcp_server_name: 'github', elicitation_id: 'el1', action: 'accept' } as never)
+  expect(needs(box.timeline!, 1000).items).toEqual([])
+})
+
+test('a StopFailure gives the failed turn its reason; the header says stopped', async ($, on) => {
+  const box = world(on)
+  on('turn.start', () => ({ turnId: 'tf' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('classic.StopFailure', () => ({}))
+
+  await $.turn.start({ text: 'fix it', turnId: 'tf' })
+  await $.classic.StopFailure({ error: 'rate_limit', error_details: '429 from the API' } as never)
+  await $.turn.complete({ turnId: 'tf', answer: '', reason: 'error' } as never)
+
+  expect(box.timeline?.failure).toEqual({ turnId: 'tf', reason: 'Rate limited: 429 from the API' })
+  const h = headerState(box.timeline!, 5000, needs(box.timeline!, 5000))
+  expect([h.state, h.reason]).toEqual(['stopped', 'Rate limited: 429 from the API'])
 })
 
 test("a permission request from a subagent marks that agent's step, not main's with the same command", async ($, on) => {

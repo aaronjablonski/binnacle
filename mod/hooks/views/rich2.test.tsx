@@ -266,7 +266,7 @@ const askAt = (seconds: number): Step => step('p1', 9, 'Bash rm -rf dist && npm 
 const waitingT = (extra: Partial<Timeline> = {}): Timeline =>
   busy({
     steps: [step('s1', 1, 'Bash npm test', 'error', { tool: 'Bash', agent: 'a2', endedAt: NOW - 4000 }), askAt(180)],
-    agents: { main, a1: agent('a1', 'Explore', 'find every caller of stepRow', 'running', { startedAt: NOW - 25 * 60_000, lastStepAt: NOW - 30_000 }), a2: agent('a2', 'general-purpose', 'write timeline tests') },
+    agents: { main, a1: agent('a1', 'Explore', 'find every caller of stepRow', 'running', { startedAt: NOW - 65 * 60_000, lastStepAt: NOW - 30_000 }), a2: agent('a2', 'general-purpose', 'write timeline tests') },
     ...extra,
   })
 
@@ -285,29 +285,31 @@ test('rich NEEDS YOU: an amber frame with the asker, its kind in words, and g, x
 
 test('long run is labelled LONG RUN with the time against its limit, a stalled agent STALLED, an ask PERMISSION', async ($, on) => {
   const t = waitingT({ steps: [step('s1', 1, 'Bash npm test', 'error', { tool: 'Bash', agent: 'a2', endedAt: NOW - 4000 })] })
-  const long = { ...t.agents.a1!, startedAt: NOW - 24 * 60_000, lastStepAt: NOW - 20_000 }
-  const stalled = agent('a3', 'Explore', 'quiet one', 'running', { startedAt: NOW - 10 * 60_000, lastStepAt: NOW - 4 * 60_000 })
+  // Limits 60/120 and the ten-minute quiet rule (owner ruling 4, R6).
+  const long = { ...t.agents.a1!, startedAt: NOW - 64 * 60_000, lastStepAt: NOW - 20_000 }
+  const stalled = agent('a3', 'Explore', 'quiet one', 'running', { startedAt: NOW - 15 * 60_000, lastStepAt: NOW - 11 * 60_000 })
   const asking = waitingT()
   const all = { ...t, agents: { ...t.agents, a1: long, a3: stalled }, steps: [...t.steps, askAt(180)] }
   world(on, all)
   const list = needsYou(all, initialUi, NOW)
   const byKind = Object.fromEntries(list.map(p => [p.kind, p]))
   expect(kindLabel(byKind['long-run']!)).toBe('LONG RUN')
-  expect(needDetail(byKind['long-run']!, NOW)).toBe('24m of 20m')
+  expect(needDetail(byKind['long-run']!, NOW)).toBe('1 h 4 min of 60 min')
   expect(kindLabel(byKind['stalled']!)).toBe('STALLED')
-  expect(needDetail(byKind['stalled']!, NOW)).toBe('quiet 4m')
+  expect(needDetail(byKind['stalled']!, NOW)).toBe('quiet 11m')
   expect(kindLabel(byKind['asking']!)).toBe('PERMISSION')
   void asking
   const ui = await mount($)
   const got = await texts(ui)
   expect(got).toContain('LONG RUN')
   expect(got).toContain('STALLED')
-  expect(got.some(t2 => t2.includes('24m of 20m'))).toBe(true)
+  // The legacy detail column holds 11 cells: the R27 span shows whole and the limit is cut at a word (C3 redraws Watch).
+  expect(got.some(t2 => t2.includes('1 h 4 min'))).toBe(true)
   await ui.unmount()
 })
 
 test('long run uses the options: agentLimitMin 0 turns it off, a larger one waits', { options: { agentLimitMin: 0 } }, async ($, on) => {
-  const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 40 * 60_000, lastStepAt: NOW - 5_000 }) } })
+  const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 70 * 60_000, lastStepAt: NOW - 5_000 }) } })
   world(on, t)
   const ui = await mount($)
   // I9: Now names the opened need's kind in lower case ('long run'), so both spellings are ruled out;
@@ -317,7 +319,7 @@ test('long run uses the options: agentLimitMin 0 turns it off, a larger one wait
 })
 
 test('long run is shown on Now with the default limit when no option is given', async ($, on) => {
-  const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 40 * 60_000, lastStepAt: NOW - 5_000 }) } })
+  const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 70 * 60_000, lastStepAt: NOW - 5_000 }) } })
   world(on, t)
   const ui = await mount($)
   expect((await texts(ui)).some(x => x.includes('long run') || x.includes('LONG RUN'))).toBe(true)

@@ -118,7 +118,7 @@ test('the card lists every option with its value and when it applies, and a NEVE
   }
   expect(rowOf('Notify').slice(38)).toMatch(/^waits\s+now$/)
   expect(rowOf('Show cost').slice(38)).toMatch(/^off\s+now$/)
-  expect(rowOf('Agent time limit').slice(38, 41)).toBe('20m')
+  expect(rowOf('Agent time limit').slice(38, 41)).toBe('60m')
   expect(rowOf('Open at start').slice(50)).toBe('next start')
   expect(rowOf('Accent').slice(50)).toBe('coming')
   const never = rows.findIndex(r => r.includes('NEVER'))
@@ -176,7 +176,7 @@ test('a number shows − and +, and writes the stepped value', async ($, on) => 
   expect(rows.some(r => r.includes('l: −5') && r.includes('m: +5') && r.includes('x: off'))).toBe(true)
   await ui.press({ key: 'opt-more-agentLimitMin' })
   await ui.press({ key: 'opt-less-agentLimitMin' })
-  expect(sets.map(s => s.value)).toEqual([25, 20])
+  expect(sets.map(s => s.value)).toEqual([65, 60])
   await ui.unmount()
 })
 

@@ -1,6 +1,8 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, NotifyMode, Timeline, UiState } from '../../types'
+import { alertNotes, autoFocuses, spanText } from '../model/alerts'
+import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
 import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '../model/meter'
 import type { RunLimits } from '../model/meter'
 import { dismissKey, problems, summary } from '../model/select'
@@ -18,16 +20,8 @@ import type { ViewCtx } from './shell'
 import { C, COL, DECK, podOf, RAIL, spriteOf, tableCols } from './style'
 import type { Pod, PodState } from './style'
 
-/** An ask counts as "waiting on you" only once it has run this long: in auto mode the classifier settles most within seconds. */
-export const ASK_MS = 20_000
-/**
- * An ask on any tool but Agent and Workflow notifies only once it has run this
- * long: a real permission dialog raises Claude Code's own notification, and a
- * call let through that runs long (a test run, a build) is no wait at all.
- */
-export const NOTIFY_ASK_MS = 60_000
-/** Asks that notify from ASK_MS: their mark clears as soon as the agent they spawn shows. */
-const SPAWNING_TOOLS = new Set(['Agent', 'Workflow'])
+// The ask delays live in the model now (limits.ts; the rule is alerts.ts's `needs`).
+export { ASK_MS, NOTIFY_ASK_MS }
 /** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
 // Where the warm countdown cannot be blitted, the pane is redrawn at most this often.
@@ -41,11 +35,13 @@ export type { NotifyMode }
 // `notify`). A reload starts them over from the options again.
 let limits: RunLimits = runLimits(undefined)
 let doneSound = false
+let watchNotify = false
 
-/** Sets the limits `needsYou` passes to `problems` and whether a done notification also plays a sound. Register time. */
-export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unknown; doneSound?: unknown } | undefined): void {
+/** Sets the limits `needsYou` passes to `problems`, whether a done notification also plays a sound, and whether Watch rows notify (R10). Register time. */
+export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unknown; doneSound?: unknown; watchNotify?: unknown } | undefined): void {
   limits = runLimits(o)
   doneSound = o?.doneSound === true
+  watchNotify = o?.watchNotify === true
 }
 
 /** The long-run limits in force (minutes; 0 is off). */
@@ -53,10 +49,18 @@ export const needsLimits = (): Required<RunLimits> => runLimits(limits)
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
-/** What needs the person: the problems not dismissed, with an ask shown only after ASK_MS. */
+/**
+ * The problems not dismissed, with an ask shown at once unless it came in auto
+ * mode, where it waits ASK_MS (R2; the band and these views pass no
+ * `isPromptCovered`). Watch rows are in the list until wave 2 splits it; they
+ * never take autoFocus (`focusable`).
+ */
 export function needsYou(t: Timeline, u: UiState, now: number): Problem[] {
-  return problems(t, now, u.dismissed, limits).filter(p => p.kind !== 'asking' || now - p.since >= ASK_MS)
+  return problems(t, now, u.dismissed, limits, {})
 }
+
+/** Whether a problem's row may take autoFocus: a need only, never a watch row or a failed turn. */
+export const focusable = (p: Problem): boolean => p.kind === 'asking' && autoFocuses(p.need ?? 'permission')
 
 /** One line for a problem: the kind's wording around its label. */
 export function problemText(p: Problem): string {
@@ -102,7 +106,8 @@ export function needDetail(p: Problem, now: number): string {
       return `asked ${elapsed(p.since, now)} ago`
     case 'long-run': {
       const start = p.since - (p.limitMs ?? 0)
-      return `${elapsed(start, now)} of ${Math.round((p.limitMs ?? 0) / 60_000)}m`
+      // R27 durations: `64 min` reads `1 h 4 min`; the limit in minutes, as the option sets it.
+      return `${spanText(Math.max(0, now - start))} of ${Math.round((p.limitMs ?? 0) / 60_000)} min`
     }
     case 'stalled':
       return `quiet ${elapsed(p.since, now)}`
@@ -410,7 +415,7 @@ function needsFrame(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElemen
         {inst(ctx, $, { key: 'asker', ...asker })}
       </Box>
       <Box key="need-lines" flexDirection="column">
-        <Button key={`open-${first.key}`} plain onPress={() => openProblem($, first)} autoFocus={at === 0 ? true : undefined}>
+        <Button key={`open-${first.key}`} plain onPress={() => openProblem($, first)} autoFocus={at === 0 && focusable(first) ? true : undefined}>
           {laid(line(first, true), DECK.gauge, ctx.e, $, `open-${first.key}-`)}
         </Button>
         <Text key="need-detail" wrap="truncate-end">
@@ -436,7 +441,7 @@ function needsFrame(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElemen
             {kindLabel(p)}
           </Text>
         </Box>
-        <Button key={`open-${p.key}`} plain onPress={() => openProblem($, p)} autoFocus={i === 0 ? true : undefined}>
+        <Button key={`open-${p.key}`} plain onPress={() => openProblem($, p)} autoFocus={i === 0 && focusable(p) ? true : undefined}>
           {laid(line(p, false), DECK.gauge, ctx.e, $, `open-${p.key}-`)}
         </Button>
       </Box>,
@@ -498,7 +503,7 @@ function needsBracket(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElem
       key,
       end: endOf(live),
       els: [
-        <Button key={key} plain onPress={() => openProblem($, p)} autoFocus={i === 0 ? true : undefined}>
+        <Button key={key} plain onPress={() => openProblem($, p)} autoFocus={i === 0 && focusable(p) ? true : undefined}>
           {laid(live, 2, ctx.e, $, `${key}-`)}
         </Button>,
       ],
@@ -618,10 +623,10 @@ async function countdownTick($: EngineInterface, t: Timeline, u: UiState, now: n
 }
 
 /**
- * The clock's one call: raises a native notification once per step id for an
- * ask that has waited ASK_MS on Agent or Workflow and NOTIFY_ASK_MS on any
- * other tool (and, with `all`, once per failed turn that ended within
- * FRESH_MS), and a toast when a subagent has just finished. What was raised is recorded in
+ * The clock's one call: raises the notifications the alert model decides
+ * (`alertNotes`: a need that has waited, a fresh failed turn with `all`, a
+ * Watch row that has stood 10 min only with `watchNotify`), the done
+ * notification, and a toast when a subagent has just finished. What was raised is recorded in
  * `ui` before it is sent. Runs from the clock callback, not a render hook, so
  * it may write state. Never throws.
  */
@@ -633,21 +638,8 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
     const mode = notify ?? 'waits'
     await countdownTick($, t, u, now)
 
-    const notes: { id: string; text: string }[] = []
+    const notes: { id: string; text: string }[] = alertNotes(t, u, now, { mode, watchNotify, limits, freshMs: FRESH_MS })
     let doneId: string | undefined
-    if (notifies(mode, 'wait')) {
-      for (const p of needsYou(t, u, now)) {
-        const id = p.stepId ?? p.key
-        if (u.notified.includes(id)) continue
-        if (p.kind === 'asking') {
-          const tool = t.steps.find(s => s.id === p.stepId)?.tool
-          const wait = tool !== undefined && SPAWNING_TOOLS.has(tool) ? ASK_MS : NOTIFY_ASK_MS
-          if (now - p.since >= wait) notes.push({ id, text: `Waiting on you: ${oneLine(p.label)}` })
-        } else if (p.kind === 'failed-turn' && notifies(mode, 'failed') && now - p.since <= FRESH_MS) {
-          notes.push({ id, text: `Turn failed: ${oneLine(p.label)}` })
-        }
-      }
-    }
     // One notification when a main turn of a minute or more ended normally.
     if (notifies(mode, 'done')) {
       const d = doneTurn(t, DONE_MS - 1)

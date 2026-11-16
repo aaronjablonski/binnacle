@@ -43,6 +43,26 @@ function inputOf(e: Record<string, unknown>): Record<string, unknown> {
   return out
 }
 
+const ERROR_WORDS: Record<string, string> = {
+  authentication_failed: 'Sign-in failed', oauth_org_not_allowed: 'This organization is not allowed', account_on_hold: 'The account is on hold',
+  verification_required: 'The account needs verification', billing_error: 'A billing error', rate_limit: 'Rate limited',
+  overloaded: 'The API is overloaded', invalid_request: 'The API refused the request', model_not_found: 'The model was not found',
+  server_error: 'An API server error', max_output_tokens: 'The reply hit its output limit', cloud_credential_error: 'Cloud credentials failed',
+}
+
+/** StopFailure's error in words, with its details when given. */
+function failureText(error: unknown, details: unknown): string {
+  const head = (typeof error === 'string' ? ERROR_WORDS[error] : undefined) ?? 'An API error ended the turn'
+  return typeof details === 'string' && details.trim() !== '' ? `${head}: ${details}` : head
+}
+
+/** A refusal in words: the API's explanation when it sent one. */
+function refusalText(refusal: unknown): string {
+  const r = typeof refusal === 'object' && refusal !== null ? (refusal as { explanation?: unknown; category?: unknown }) : {}
+  const why = typeof r.explanation === 'string' && r.explanation.trim() !== '' ? r.explanation : typeof r.category === 'string' ? r.category : ''
+  return why !== '' ? `Claude declined: ${why}` : 'Claude declined to answer'
+}
+
 export function registerCapture(on: On): void {
   // When session.measure last wrote the ledger; a reload starts it over.
   let ledgerAt = -Infinity
@@ -115,9 +135,41 @@ export function registerCapture(on: On): void {
       const agent = typeof e.agent_id === 'string' && e.agent_id !== '' ? e.agent_id : 'main'
       const step = promptedStep(await readTimeline($), e.tool_name, e.tool_input, agent)
       if (step === undefined) return
-      await apply($, { kind: 'step.ask', at: await now($), id: step.id })
+      await apply($, { kind: 'step.ask', at: await now($), id: step.id, auto: e.permission_mode === 'auto' })
     })
     return answer
+  }).catch(($, e, next) => next(e))
+
+  // An MCP server asks the person for input (an elicitation dialog): a need
+  // until its result comes, or the turn ends. A hook beneath that blocked it
+  // showed nothing. Observes only.
+  on('classic.Elicitation', async ($, e, next) => {
+    const answer = await next(e)
+    await safely($, 'input.ask', async () => {
+      if (answer.block !== undefined || answer.preventContinuation !== undefined) return
+      const agent = typeof e.agent_id === 'string' && e.agent_id !== '' ? e.agent_id : 'main'
+      const id = typeof e.elicitation_id === 'string' ? e.elicitation_id : ''
+      await apply($, { kind: 'input.ask', at: await now($), id, agent, server: String(e.mcp_server_name ?? ''), message: String(e.message ?? '') })
+    })
+    return answer
+  }).catch(($, e, next) => next(e))
+
+  on('classic.ElicitationResult', async ($, e, next) => {
+    await safely($, 'input.done', async () => {
+      const ev: Extract<Ev, { kind: 'input.done' }> = { kind: 'input.done', server: String(e.mcp_server_name ?? '') }
+      if (typeof e.elicitation_id === 'string' && e.elicitation_id !== '') ev.id = e.elicitation_id
+      await apply($, ev)
+    })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Why a main turn died on an API error, for the header's STOPPED line (R8).
+  on('classic.StopFailure', async ($, e, next) => {
+    await safely($, 'turn.fail', async () => {
+      if (typeof e.agent_id === 'string' && e.agent_id !== '') return
+      await apply($, { kind: 'turn.fail', agent: 'main', reason: failureText(e.error, e.error_details) })
+    })
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   // The session's context fill, rate-limit windows and cost, whenever a unit
@@ -149,7 +201,9 @@ export function registerCapture(on: On): void {
       const aborted = e.isAborted === true || e.reason === 'aborted'
       const agent = e.agentId ?? 'main'
       const at = await now($)
-      await apply($, { kind: 'turn.end', at, turnId: e.turnId, agent, answer: e.answer, failed, aborted })
+      const end: Extract<Ev, { kind: 'turn.end' }> = { kind: 'turn.end', at, turnId: e.turnId, agent, answer: e.answer, failed, aborted }
+      if (e.reason === 'refusal') end.reason = refusalText(e.refusal)
+      await apply($, end)
       // An interrupt reports no usage: its length still counts.
       const used = usageOf(e.usage)
       const ms = typeof e.durationMs === 'number' && Number.isFinite(e.durationMs) && e.durationMs >= 0 ? e.durationMs : undefined

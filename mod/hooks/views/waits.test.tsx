@@ -31,8 +31,10 @@ const worker: AgentRow = {
 }
 // a1 asked 30 s ago: past the 20 s threshold, so it is waiting on the person.
 const asking: Step = { id: 's1', seq: 1, agent: 'a1', tool: 'Bash', label: 'Bash rm -rf build', status: 'running', startedAt: NOW - 40_000, asking: NOW - 30_000 }
+// The ask came in auto mode, where the 20 s threshold applies (R2: outside auto an ask shows at once).
 const T: Timeline = {
   ...empty,
+  autoAsk: true,
   seq: 1,
   steps: [asking],
   tasks: [task],

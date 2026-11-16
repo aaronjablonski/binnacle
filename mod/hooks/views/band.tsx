@@ -604,7 +604,8 @@ export function registerBand(on: On, options: { look?: string } = {}): void {
       const u: UiState = await readUi($)
       const now = await $.clock.now()
       const s = summary(t)
-      const needs = needsYou(t, u, now)
+      // Watch never leads or colours the band: only needs (dialogs) do.
+      const needs = needsYou(t, u, now).filter(p => p.kind === 'asking')
       const live = s.running.length
       const isStrip = u.strip === true
       if (!isStrip && needs.length === 0 && s.total === 0 && live === 0 && !s.focus) return next(e)

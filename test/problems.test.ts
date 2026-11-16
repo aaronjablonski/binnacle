@@ -18,7 +18,7 @@ const turnStart = (turnId: string, who = 'main', prompt = turnId): Ev => ({ kind
 const turnEnd = (turnId: string, who = 'main', failed = false): Ev =>
   ({ kind: 'turn.end', at: at(), turnId, agent: who, answer: '', failed })
 
-const STALL = 180_000
+const QUIET = 600_000
 const TEN_MIN = 600_000
 
 describe('signatureOf', () => {
@@ -92,7 +92,10 @@ describe('problems', () => {
     const t = fold([start('s1', 'Bash', { command: 'rm -rf build' }, 'a1'), { kind: 'step.ask', at: 1_000_500, id: 's1' }])
     const now = 1_010_000
     expect(problems(t, now, [])).toEqual([
-      { key: 'asking:s1', kind: 'asking', label: 'Bash rm -rf build', agent: 'a1', stepId: 's1', since: 1_000_500 },
+      {
+        key: 'asking:s1', kind: 'asking', label: 'Bash rm -rf build', agent: 'a1', stepId: 's1', since: 1_000_500,
+        sentence: 'An agent asks to run a command', need: 'permission',
+      },
     ])
     expect(problems(fold([end('s1')], t), now, [])).toEqual([])
   })
@@ -229,15 +232,17 @@ describe('problems', () => {
     expect(problems(t, clock, []).map((p) => p.kind)).toEqual(['repeat'])
   })
 
-  it('stalled: a running subagent that started no step for more than three minutes', () => {
+  // R6: the old three-minute stall is gone (a thinking agent yields nothing);
+  // a running subagent quiet for ten minutes shows under the legacy `stalled` kind.
+  it('stalled: a running subagent with no step running and no activity for more than ten minutes', () => {
     const t = fold([agent('a1'), start('s1', 'Read', { file_path: 'a.ts' }, 'a1'), end('s1'), agent('a2'), agent('a3')])
-    const last = t.agents.a1!.lastStepAt!
-    expect(last).toBe(t.steps[0]!.startedAt)
+    const last = t.steps[0]!.endedAt!
     const a2Start = t.agents.a2!.startedAt
-    // a3 finished; main never counts.
+    // a3 finished; main has no open turn.
     const done = fold([turnEnd('x', 'a3')], t)
-    expect(problems(done, last + STALL, [])).toEqual([])
-    const got = problems(done, a2Start + STALL + 1, [])
+    expect(problems(done, a2Start + 180_001, [])).toEqual([])
+    expect(problems(done, last + QUIET, [])).toEqual([])
+    const got = problems(done, a2Start + QUIET + 1, [])
     expect(got.map((p) => [p.key, p.kind, p.agent, p.label, p.since])).toEqual([
       ['stalled:a2', 'stalled', 'a2', 'desc a2', a2Start],
       ['stalled:a1', 'stalled', 'a1', 'desc a1', last],
@@ -279,6 +284,11 @@ describe('problems', () => {
     const [p] = problems(t, clock, [])
     expect(dismissKey(p!)).toBe('asking:s1')
     expect(problems(t, clock + 60_000, ['asking:s1'])).toEqual([])
+    const quiet = fold([turnStart('q')])
+    const later = quiet.turns[0]!.startedAt + QUIET + 1
+    const [w] = problems(quiet, later, [])
+    expect(w!.kind).toBe('stalled')
+    expect(problems(quiet, later + 60_000, [dismissKey(w!)])).toEqual([])
   })
 })
 

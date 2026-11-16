@@ -558,14 +558,15 @@ test('RUNS: one row per run on the grid, a failed count in the metric, a press o
   }
 })
 
+// Quiet past ten minutes (R6: an agent thinking for less is no alert).
 const stalled = (): Timeline =>
   busy({
     runs: { r1: run },
     agents: {
       main,
-      a1: { ...agent('a1', 'Explore', 'find callers', 'Grep'), startedAt: NOW - 400_000, lastStepAt: NOW - 300_000 },
+      a1: { ...agent('a1', 'Explore', 'find callers', 'Grep'), startedAt: NOW - 800_000, lastStepAt: NOW - 700_000 },
       a2: agent('a2', 'Explore', 'write tests', 'Edit'),
-      w1: { ...wf('w1', 0, 'read:agent-1', 'x', 'running'), startedAt: NOW - 400_000, lastStepAt: NOW - 300_000 },
+      w1: { ...wf('w1', 0, 'read:agent-1', 'x', 'running'), startedAt: NOW - 800_000, lastStepAt: NOW - 700_000 },
     },
   })
 

@@ -73,3 +73,9 @@ R36. Clean-run sweep: once per finished request, under 1 s, never in the band, n
 ## Mock deviations (for the owner to check)
 
 R7 quiet, R8 STOPPED header, R9 gauges bold or red instead of amber, R12 empty and ended states, R14 one done row, R27 to R30 word and format changes, R29 no cache countdown while working.
+
+## Amendments after the screens review (review-C3C6, 2026-11-16)
+
+- R28 amended: the engine always draws a hotkeyed Button as `k: word` with a colon, so every footer and row hint uses that form: visible hotkeyed Buttons, one notation, no hidden or zero-size Buttons anywhere. This is a mock deviation, listed for the owner.
+- R37: lists grow with the pane height (`scroll.bodyRows`) on Tasks, Steps and Artifacts. This is the owner's earlier binding rule 2, and it overrides the mocks' `+ n more` at 46 rows. Now keeps its height rule.
+- R38: the Options page takes the cockpit look like the other pages.

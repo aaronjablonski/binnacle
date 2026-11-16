@@ -4,11 +4,11 @@
 
 **Goal:** Build ideas 1, 2, 3, 5, 7, 8 and 11 from `docs/superpowers/notes/2026-11-15-dx-ideas.md` (Aaron's pick, 2026-11-15).
 
-**Spec:** `docs/superpowers/notes/2026-11-15-dx-ideas.md` (each idea's "Sees and does", "API", "Risks") plus the rulings below. **Mocks:** https://claude.ai/artifact/R4JHk79nyTdVVFszFwfKsb (`Idea1`, `Idea2`, `Idea3`, `Idea5`, `Idea7`, `Idea8`, `Idea11`; sources in the scratchpad `mcstyles/project/`). Look: `docs/superpowers/specs/2026-11-15-mission-control-restyle-design.md`.
+**Spec:** `docs/superpowers/notes/2026-11-15-dx-ideas.md` (each idea's "Sees and does", "API", "Risks") plus the rulings below. **Mocks:** https://claude.ai/artifact/R4JHk79nyTdVVFszFwfKsb (`Idea1`, `Idea2`, `Idea3`, `Idea5`, `Idea7`, `Idea8`, `Idea11`; sources in the scratchpad `mcstyles/project/`). Look: `docs/superpowers/specs/2026-11-15-binnacle-restyle-design.md`.
 
 ## Global Constraints
 
-- Everything in the main plan's Global Constraints (`docs/superpowers/plans/2026-11-15-mission-control-mod.md` lines 13–24), the restyle plan's, and `docs/superpowers/notes/2026-11-15-docs-pass.md`.
+- Everything in the main plan's Global Constraints (`docs/superpowers/plans/2026-11-15-binnacle-mod.md` lines 13–24), the restyle plan's, and `docs/superpowers/notes/2026-11-15-docs-pass.md`.
 - One unmatched hook per event per module: new events (`tool.check`, `session.measure`) get one hook each, in `capture.ts`; existing events (`turn.complete`, `agent.spawn`, `tool.call`) are extended inside their existing hooks.
 - New hooks observe: `tool.check` and `session.measure` return what `next(e)` resolved to, unchanged.
 - Nothing is added to a conversation. `$.prompt.fill`, `$.ui.scroll`, `$.ui.view`, `$.ui.copy`, `$.fs.write` run only inside a press or a command the person ran; never in a hook on its own.

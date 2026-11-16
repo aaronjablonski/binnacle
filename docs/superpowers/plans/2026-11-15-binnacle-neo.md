@@ -4,11 +4,11 @@
 
 **Goal:** Restyle the HUD v2 views to Neo (Aaron: "the neo redesign is sick, let's build it like this", 2026-11-15): decks with twin brackets, the pod crew, dials, `▮▯` bars, pips, pills, tethered trees, the three-row band.
 
-**Spec:** `docs/superpowers/specs/2026-11-15-mission-control-neo-design.md` (binding), on top of `2026-11-15-mission-control-hud2-design.md` (grid, keys, commands, features unchanged). **Mocks:** canvas top row `Neo*` (https://claude.ai/artifact/R4JHk79nyTdVVFszFwfKsb); sources `scratchpad/mcstyles/project/Neo*.dc.html`, generator `scratchpad/gen-neo.js` (column constants, glyphs, colours).
+**Spec:** `docs/superpowers/specs/2026-11-15-binnacle-neo-design.md` (binding), on top of `2026-11-15-binnacle-hud2-design.md` (grid, keys, commands, features unchanged). **Mocks:** canvas top row `Neo*` (https://claude.ai/artifact/R4JHk79nyTdVVFszFwfKsb); sources `scratchpad/mcstyles/project/Neo*.dc.html`, generator `scratchpad/gen-neo.js` (column constants, glyphs, colours).
 
 ## Global Constraints
 
-- Everything in `docs/superpowers/plans/2026-11-15-mission-control-hud2.md` Global Constraints still binds (grid, ≤ bodyColumns, no mid-word cuts, no Box in a Button, theme keys only, identity keys, render writes no state, the six commands, anti-goals).
+- Everything in `docs/superpowers/plans/2026-11-15-binnacle-hud2.md` Global Constraints still binds (grid, ≤ bodyColumns, no mid-word cuts, no Box in a Button, theme keys only, identity keys, render writes no state, the six commands, anti-goals).
 - Deck rows: rails at column 0 and the last column; label in cell 1; gauge at 14, value at 38, aside at 50 (ends by 59). A bracket that opens also closes.
 - Bars exactly 10 or 22 cells; crew rows never pass column 36 in a table deck; pods pitch 3; ≤ 7 pods in the pane (then 6 + `+n`), ≤ 12 in the band.
 - Hull glyphs only through `podOf`; an ASCII fallback set lives behind one constant in `style.ts`.

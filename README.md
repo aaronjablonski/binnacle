@@ -1,4 +1,4 @@
-<h1 align="center">Mission Control</h1>
+<h1 align="center">Binnacle</h1>
 
 <p align="center">
   <b>A calm cockpit for Claude Code.</b><br>
@@ -14,11 +14,11 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/hero-day.png">
-    <img src="docs/readme/hero.png" width="960" alt="A terminal running Claude Code. The chat is on the left. On the right the Mission Control pane is open on the Now tab: a WORKING pill, 41 min this turn, the goal 'Wiring the limiter into the middleware chain', two gauges at 62% context and 34% this week, 'Nothing needs you', a to-do list at 9 of 14 done, two working agents drawn as small pixel Critters, and three notes. Above the prompt a one-row band repeats the count, the agents and the context figure.">
+    <img src="docs/readme/hero.png" width="960" alt="A terminal running Claude Code. The chat is on the left. On the right the Binnacle pane is open on the Now tab: a WORKING pill, 41 min this turn, the goal 'Wiring the limiter into the middleware chain', two gauges at 62% context and 34% this week, 'Nothing needs you', a to-do list at 9 of 14 done, two working agents drawn as small pixel Critters, and three notes. Above the prompt a one-row band repeats the count, the agents and the context figure.">
   </picture>
 </p>
 
-Mission Control is a mod for [Claude Code](https://claude.com/claude-code). A long session buries the steps that matter under file dumps and test logs, shows one line for each of several agents, and ends with nothing to hand on. Mission Control keeps a pane beside the transcript and a band above the prompt that answer three questions at a glance: what is happening, does anything need me, and how far along is it. It records every step so you can reopen one after it has scrolled away, and it writes a digest when you are done. The transcript itself stays as it is.
+Binnacle is a mod for [Claude Code](https://claude.com/claude-code). A long session buries the steps that matter under file dumps and test logs, shows one line for each of several agents, and ends with nothing to hand on. Binnacle keeps a pane beside the transcript and a band above the prompt that answer three questions at a glance: what is happening, does anything need me, and how far along is it. It records every step so you can reopen one after it has scrolled away, and it writes a digest when you are done. The transcript itself stays as it is.
 
 > [!NOTE]
 > Every picture on this page is drawn from the mod's own views with test data (`node docs/readme/tools/make.mjs`). The chat on the left of the first picture is an illustration. Text colours in a real terminal come from your Claude Code theme; here they use the cockpit's own palette.
@@ -43,7 +43,7 @@ Mission Control is a mod for [Claude Code](https://claude.com/claude-code). A lo
 | **5 Artifacts** | What the session produced: published pages, documents, results, links, changed files, kept steps, and the handoff export. |
 | **Band** | One or two rows above the prompt, there even when the pane is closed. |
 | **Slim** | Under 32 columns the pane is one stacked summary with no tab bar; it keeps a one-line Watch (or "quiet 30 min"). |
-| **Strip** | From 96 columns Now lies on its side; `/mc strip` puts that strip above the prompt instead of the pane. |
+| **Strip** | From 96 columns Now lies on its side; `/binnacle strip` puts that strip above the prompt instead of the pane. |
 | **Desktop app** | The Now header and the band are drawn as pictures (Svg), ending at the header, in the same words and colours. |
 
 The tab bar shortens with the pane: full names from 54 columns, then the short words `Now Tasks Crew Steps Files` down to 38 (as `1:Now` from 38 to 42), and icons only under 38.
@@ -122,7 +122,7 @@ This is the log that Now leaves out: every tool call, grouped by the prompt that
 
 Enter opens a step in place with its result. Enter again opens its page with the input, the full result and the diff of any change. From there `g` shows it in the chat, `c` copies it as Markdown, `q` quotes it into the prompt and `o` opens the file in your editor.
 
-**Keep** (`k`, or `/mc keep <note>`) marks a step you do not want to lose. A kept step shows a `★`, appears in Notes and decisions on Now and in Kept on Artifacts, is never trimmed from the timeline, and goes into the export in full.
+**Keep** (`k`, or `/binnacle keep <note>`) marks a step you do not want to lose. A kept step shows a `★`, appears in Notes and decisions on Now and in Kept on Artifacts, is never trimmed from the timeline, and goes into the export in full.
 
 <br clear="right">
 
@@ -132,7 +132,7 @@ Enter opens a step in place with its result. Enter again opens its page with the
 
 A session ends with something to show for it: pages Claude published, documents it wrote, results it reported, links, and the files it changed with an edit count each. The newest artifact is open; `o` jumps to the step that made it and `c` copies its link.
 
-**Handoff** is the top of the tab. `e` (or `/mc export`) writes a Markdown digest and copies it to the clipboard, ready to paste into the next session or send to a teammate. The digest holds the request, the task list with its marks, the notes, every kept step with its stored input and result, the artifacts, the changed files and anything still open. The bar shows what it will contain before you press.
+**Handoff** is the top of the tab. `e` (or `/binnacle export`) writes a Markdown digest and copies it to the clipboard, ready to paste into the next session or send to a teammate. The digest holds the request, the task list with its marks, the notes, every kept step with its stored input and result, the artifacts, the changed files and anything still open. The bar shows what it will contain before you press.
 
 <br clear="right">
 
@@ -151,7 +151,7 @@ A toast tells you once when the context reaches 80 %.
 ### The band
 
 <p align="center">
-  <img src="docs/readme/band.png" width="900" alt="The band in seven forms. Working: the lead's Critter, 'Working on' and the goal, 'context 62%  week 34%', and a second row with the to-do bar, '9 of 14 done · 2 agents working · nothing needs you' and '/mc'. A dialog waiting: the asking agent's Critter with a question-mark badge, 'Needs you' in amber, 'General asks to run a command Bash npm run deploy -- --env staging', 'answer below'. Something to watch: unchanged but for '2 to watch'. After a failed turn: 'Stopped' and the reason in red. All done: one dim row, 'All 14 done · 1 h 18 min · 6 files changed · cache warm 2 min'. At 64 columns and at 40 columns: one row that drops the goal before the count.">
+  <img src="docs/readme/band.png" width="900" alt="The band in seven forms. Working: the lead's Critter, 'Working on' and the goal, 'context 62%  week 34%', and a second row with the to-do bar, '9 of 14 done · 2 agents working · nothing needs you' and '/binnacle'. A dialog waiting: the asking agent's Critter with a question-mark badge, 'Needs you' in amber, 'General asks to run a command Bash npm run deploy -- --env staging', 'answer below'. Something to watch: unchanged but for '2 to watch'. After a failed turn: 'Stopped' and the reason in red. All done: one dim row, 'All 14 done · 1 h 18 min · 6 files changed · cache warm 2 min'. At 64 columns and at 40 columns: one row that drops the goal before the count.">
 </p>
 
 The band sits above the prompt and is there even when the pane is closed, so the three answers never leave the screen. It shows one Critter (the lead, or whoever is asking), the goal, the to-do bar and the gauges as words. A dialog turns it amber and names the ask. Watch never colours it. When everything is done it shrinks to one dim row, and while the pane is open it is one compact row. A narrow band drops the gauges first, and cuts the goal only at a word.
@@ -162,13 +162,13 @@ The band sits above the prompt and is there even when the pane is closed, so the
   <img src="docs/readme/slim.png" width="640" alt="Three slim panes, 28 columns wide. Working: a compact header, 'Nothing needs you', To do 9 of 14 with the current and next task, Agents with two micro Critters, Budget as two bars, Notes. A dialog waiting: the header in amber and a Needs you block with the wrapped command and 'answer in the prompt'. All done: a green header, a full bar and 'All 14 done'.">
 </p>
 
-**Slim.** `/mc slim` asks for a 28-column pane; any pane under 32 columns draws this way. There is no tab bar: each title opens its tab. A line under Needs you shows how many things to watch and the top one, or "quiet 30 min" when nothing else is up. When rows run short, whole blocks go from the bottom, and Needs you is kept longest.
+**Slim.** `/binnacle slim` asks for a 28-column pane; any pane under 32 columns draws this way. There is no tab bar: each title opens its tab. A line under Needs you shows how many things to watch and the top one, or "quiet 30 min" when nothing else is up. When rows run short, whole blocks go from the bottom, and Needs you is kept longest.
 
 <p align="center">
   <img src="docs/readme/strip.png" width="900" alt="The strip above the prompt, 110 columns wide: the Now header with the lead Critter, the goal and both gauges on the left; To do (9 of 14 done, the current and next task) and Agents (2 working) on the right; the band's compact row beneath, then the prompt.">
 </p>
 
-**Strip.** `/mc strip` closes the pane and draws Now on its side above the prompt, for when you want the full width for the chat. The pane itself uses the same layout from 96 columns. When a dialog waits, the strip puts the ask first, ahead of the header. The strip never takes more than half the terminal's height. A click on a row opens the pane there.
+**Strip.** `/binnacle strip` closes the pane and draws Now on its side above the prompt, for when you want the full width for the chat. The pane itself uses the same layout from 96 columns. When a dialog waits, the strip puts the ask first, ahead of the header. The strip never takes more than half the terminal's height. A click on a row opens the pane there.
 
 <p align="center">
   <img src="docs/readme/desktop.png" width="820" alt="The desktop app's forms. The Now header as a picture, on the night ground and on the day ground: a rounded WORKING pill, the lead Critter, the goal, '620k of 1M used' and two smooth rings. The band as a picture, working and while a dialog waits ('Needs you', the ask, 'answer below').">
@@ -200,7 +200,7 @@ The band sits above the prompt and is there even when the pane is closed, so the
 </tr>
 <tr>
 <td valign="top">The text look carries every word of the rich one.</td>
-<td valign="top"><code>0</code> or <code>/mc options</code>. Look options apply at once. The Never section lists what the mod will not do.</td>
+<td valign="top"><code>0</code> or <code>/binnacle options</code>. Look options apply at once. The Never section lists what the mod will not do.</td>
 </tr>
 </table>
 
@@ -216,7 +216,7 @@ Requires **Claude Code 2.1.325 or newer**. The mods API is early access.
 claude --plugin-dir ./mod
 ```
 
-Then type `/mc`. The band is there from the start; the pane opens when you ask for it.
+Then type `/binnacle`. The band is there from the start; the pane opens when you ask for it.
 
 **Always on.** Put the absolute path of `mod/` in `CLAUDE_CODE_PLUGIN_DIRS` under `env` in `~/.claude/settings.json`:
 
@@ -232,16 +232,17 @@ All of these work in the middle of a turn. They are the only commands.
 
 | Command | Does |
 |---|---|
-| `/mc` | Opens the pane. |
-| `/mc 1` to `/mc 5` | Opens the pane on that tab: Now, Tasks, Agents, Steps, Artifacts. |
-| `/mc keep <note>` | Keeps the newest step of the main conversation, with the note. |
-| `/mc export` | Writes the digest to the journal and copies it. |
-| `/mc close` | Closes the pane. |
-| `/mc slim` | Switches between the slim pane (28 columns) and the full one (62). |
-| `/mc strip` | Closes the pane and draws the strip above the prompt; run again, it restores the band and reopens the pane. |
-| `/mc options` | Opens the Options page. |
+| `/binnacle` | Opens the pane. |
+| `/binnacle 1` to `/binnacle 5` | Opens the pane on that tab: Now, Tasks, Agents, Steps, Artifacts. |
+| `/binnacle keep <note>` | Keeps the newest step of the main conversation, with the note. |
+| `/binnacle export` | Writes the digest to the journal and copies it. |
+| `/binnacle close` | Closes the pane. |
+| `/binnacle slim` | Switches between the slim pane (28 columns) and the full one (62). |
+| `/binnacle strip` | Closes the pane and draws the strip above the prompt; run again, it restores the band and reopens the pane. |
+| `/binnacle options` | Opens the Options page. |
+| `/mc` | Short for `/binnacle`: registered as a second command that takes the same arguments (the API has no alias field). The band's dim hint reads `/mc` to stay short. |
 
-`/mc`, `/mc 1` to `/mc 5`, `/mc slim` and `/mc options` open the pane and so turn the strip off. `/mc close` leaves the strip as it is, and a `/clear` turns it off and folds the cleared conversation away: its tasks, agents and steps leave the pane.
+`/binnacle`, `/binnacle 1` to `/binnacle 5`, `/binnacle slim` and `/binnacle options` open the pane and so turn the strip off. `/binnacle close` leaves the strip as it is, and a `/clear` turns it off and folds the cleared conversation away: its tasks, agents and steps leave the pane.
 
 ## Keys
 
@@ -283,7 +284,7 @@ Hotkeys reach the pane only while it has focus. A key acts on the thing in view:
 
 ## Options
 
-Set them on the Options page (`0`), from the plugin's config menu, or under `pluginConfigs["mission-control"].options` in a settings file.
+Set them on the Options page (`0`), from the plugin's config menu, or under `pluginConfigs["binnacle"].options` in a settings file.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -306,7 +307,7 @@ Set them on the Options page (`0`), from the plugin's config menu, or under `plu
 
 <br>
 
-- `waits` notifies when Claude has waited on you: after a minute for a question, a plan or an input request; after 20 seconds for an ask to start an agent or workflow; and after a minute for any other permission, but only while the Mission Control pane is open and sees the dialog (in auto mode, only once the dialog is on screen).
+- `waits` notifies when Claude has waited on you: after a minute for a question, a plan or an input request; after 20 seconds for an ask to start an agent or workflow; and after a minute for any other permission, but only while the Binnacle pane is open and sees the dialog (in auto mode, only once the dialog is on screen).
 - `done` also notifies when a turn of over 60 seconds finishes.
 - `all` also notifies when a turn fails.
 - `off` never notifies.
@@ -318,14 +319,14 @@ Claude Code notifies for its own dialogs either way.
 For a one-off headless run, pass options with `--settings`:
 
 ```sh
-claude -p "..." --plugin-dir ./mod --settings '{"pluginConfigs":{"mission-control":{"options":{"guide":false}}}}'
+claude -p "..." --plugin-dir ./mod --settings '{"pluginConfigs":{"binnacle":{"options":{"guide":false}}}}'
 ```
 
 ## Privacy, and what it adds to Claude
 
 - **It reads only your own session.** The mod listens to the events of the session it runs in: prompts, tool calls and their results, agents, tasks, the budget.
 - **Hooks only observe.** Every capture hook returns exactly what Claude Code produced. The mod does not change tool input, tool output or your prompts.
-- **It writes a journal on your machine.** Step bodies and a copy of the timeline go to `~/.claude/mission-control/<session-id>/`: `timeline.json`, a `steps/` folder, any `export-<stamp>.md` digests you exported and, for a resumed session, a `journal.json` link to the folder it continues. The newest 20 sessions are kept; older ones are pruned at session start, and a folder less than 24 hours old is never pruned. One row per session (for the budget ledger) is kept in the mod's own store. To delete the journal, remove the folder.
+- **It writes a journal on your machine.** Step bodies and a copy of the timeline go to `~/.claude/binnacle/<session-id>/`: `timeline.json`, a `steps/` folder, any `export-<stamp>.md` digests you exported and, for a resumed session, a `journal.json` link to the folder it continues. The newest 20 sessions are kept; older ones are pruned at session start, and a folder less than 24 hours old is never pruned. One row per session (for the budget ledger) is kept in the mod's own store. To delete the journal, remove the folder.
 - **It adds one tool and one system-prompt section.** That is all the mod adds to a conversation, and `guide: false` removes both. The pane then shows only what it can observe.
 - **It never picks a model, sets an effort, starts agents or sends a request to keep the cache warm.**
 
@@ -334,19 +335,19 @@ claude -p "..." --plugin-dir ./mod --settings '{"pluginConfigs":{"mission-contro
 
 <br>
 
-With `guide` on, the mod registers one tool, `mcp__mission-control__update` (fields `focus`, `next`, `tasks`, `note`, `artifact`), and adds this section to the main conversation's system prompt. The text is the same on every request, so the prompt cache holds.
+With `guide` on, the mod registers one tool, `mcp__binnacle__update` (fields `focus`, `next`, `tasks`, `note`, `artifact`), and adds this section to the main conversation's system prompt. The text is the same on every request, so the prompt cache holds.
 
 ```text
-# Mission Control
+# Binnacle
 The person follows this session in a side panel with a headline, a to-do list and notes. They glance at it instead of reading the transcript, so keep it true.
-- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__mission-control__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time. When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done. Do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.
-- Headline: with your first tool call(s) on a new request, call mcp__mission-control__update with `focus`: the goal of the whole request as a plain clause of at most 8 words ("Adding rate limiting to the upload route"). Send it again only if the goal itself changes; the to-do list shows the current step.
+- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__binnacle__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time. When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done. Do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.
+- Headline: with your first tool call(s) on a new request, call mcp__binnacle__update with `focus`: the goal of the whole request as a plain clause of at most 8 words ("Adding rate limiting to the upload route"). Send it again only if the goal itself changes; the to-do list shows the current step.
 - Add `note` when you learn something the person would want to find again: a decision, a root cause, a surprising fact. One line.
 - Add `artifact` when you produce a result or a link worth keeping (review findings, a report, a pull request).
 Send these alongside other tool calls where you can, and never send an update that changes nothing. Skip all of it for replies that need no tools. Do not mention the panel or these updates in your replies.
 ```
 
-The tool's description reads: "Keep the Mission Control panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful."
+The tool's description reads: "Keep the Binnacle panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful."
 
 </details>
 
@@ -388,7 +389,7 @@ node docs/readme/tools/make.mjs      # redraw the pictures on this page from the
 - **Hotkeys do not work in VS Code.** Every action is still a labelled button there.
 - **Live checks are pending.** The screens are covered by drawing tests against the engine, but several behaviours still wait for a check in a live session: how focus and hotkeys feel on each surface, notifications, and the look on themes other than the default dark and light.
 - **Not built:** restyling the transcript, model-written agent summaries, graph or waterfall views, cost analytics.
-- **The name may change.** "Mission Control" is the working name.
+- **The name may change.** "Binnacle" is the working name.
 
 ## Licence
 

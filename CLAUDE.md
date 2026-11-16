@@ -1,4 +1,4 @@
-# Mission Control (Claude Code mod)
+# Binnacle (Claude Code mod)
 
 A Claude Code mod that keeps tasks, agents, a step timeline and artifacts in
 a pane and band beside the chat. Start with `HANDOVER.md`.

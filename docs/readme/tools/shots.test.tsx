@@ -35,12 +35,12 @@ function world(on: On, t: Timeline, u: UiState = initialUi): void {
 type PO = { focused?: boolean; covered?: boolean; surface?: 'terminal' | 'desktop' | 'vscode' | 'mobile' }
 const PANE = (columns: number, rows: number, o: PO = {}) =>
   ({
-    plugin: 'mission-control', component: 'Pane', requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: o.focused ?? true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {}, ...(o.covered === true ? { isPromptCovered: true as const } : {}) },
+    plugin: 'binnacle', component: 'Pane', requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: o.focused ?? true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {}, ...(o.covered === true ? { isPromptCovered: true as const } : {}) },
   }) as const
 const BAND = (columns: number, extra: Record<string, unknown> = {}) =>
   ({
-    plugin: 'mission-control', component: 'AbovePrompt',
+    plugin: 'binnacle', component: 'AbovePrompt',
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: columns, scroll: { offset: 0, bodyRows: 10 }, view: {}, ...extra },
   }) as const
 const out = (name: string, tree: unknown): void => console.log('SHOT ' + name + ' ' + JSON.stringify({ tree, rows: screen(tree) }))
@@ -85,7 +85,7 @@ test('steps', async ($, on) => {
   const open = { ...stepsUi({ stepOpen: ids.failed }), tab: 'timeline', stepBody: { stepId: ids.failed, body: { input: {}, text: 'exit 1 · 2 of 14 tests failed\nexpected 429, received 200', cut: 0, isError: true } } } as UiState
   world(on, t, open)
   const marks = []
-  for (const id of ids.view) marks.push(await $.ui.mount({ plugin: 'mission-control', surface: 'terminal', component: 'ToolUse', requestId: id, props: { tool_use_id: id, tool: 'Edit', input: {}, isRunning: false, isErrored: false, isInterrupted: false, onScreen: { first: 0, last: 2, of: 3 } } } as never))
+  for (const id of ids.view) marks.push(await $.ui.mount({ plugin: 'binnacle', surface: 'terminal', component: 'ToolUse', requestId: id, props: { tool_use_id: id, tool: 'Edit', input: {}, isRunning: false, isErrored: false, isInterrupted: false, onScreen: { first: 0, last: 2, of: 3 } } } as never))
   await pane($, 'steps', 62, 46)
   for (const m of marks) await m.unmount()
 })

@@ -22,7 +22,7 @@ import { modelName, modelTotals, tokenText } from './budget'
 import { crewNode, openedAgent } from './crewnode'
 import { bar, clock, crewRow, elapsed, growLists, listSplit, wordFit, wrapWords } from './fit'
 import { openInEditor } from './editor'
-import { blank, footer, heightOf, more, page, richDeck, row, section } from './parts'
+import { blank, footer, heightOf, more, page, richDeck, row, tableHead } from './parts'
 import type { Action, DeckCell, FrameSpec, InstSpec, PageField, Run } from './parts'
 import { openPage } from './pagenav'
 import { Grid, SPRITE, drawSprite, stack } from './raster'
@@ -253,7 +253,7 @@ function agentsSection(ctx: ViewCtx, $: EngineInterface, ordered: AgentRow[], ro
   })
   return (
     <Box key="agents" flexDirection="column">
-      {section(ctx, $, 'AGENTS', 'tokens', 'time')}
+      {tableHead(ctx, $, 'AGENTS', 'tokens', 'time')}
       {rows}
       {hidden.length > 0 ? more(ctx, $, hidden.length, what) : null}
     </Box>
@@ -290,7 +290,7 @@ function runsSection(
   })
   return (
     <Box key="runs" flexDirection="column">
-      {section(ctx, $, 'RUNS', 'agents', 'time')}
+      {tableHead(ctx, $, 'RUNS', 'agents', 'time')}
       {rows}
       {runs.length > shown.length ? more(ctx, $, runs.length - shown.length) : null}
     </Box>

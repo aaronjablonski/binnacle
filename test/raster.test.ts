@@ -445,11 +445,15 @@ describe('pill and frame', () => {
 })
 
 describe('palette', () => {
-  test('six hues on both grounds, three neutrals per ground, all 0x00RRGGBB', () => {
-    expect(PALETTE.night.ember).toBe(0xe07b53)
-    expect(PALETTE.night.mute).toBe(0x5d6679)
-    expect(PALETTE.day.mute).toBe(0xa3a9b8)
-    expect(PALETTE.day.iris).toBe(0x6f82f2)
+  test('the cockpit palette on both grounds (cockpit spec "Palette"), crew hues from gen-crew.js, all 0x00RRGGBB', () => {
+    expect([PALETTE.night.iris, PALETTE.night.irisSoft, PALETTE.night.irisDeep]).toEqual([0x8f9eff, 0x5a659f, 0x2c3254])
+    expect([PALETTE.day.iris, PALETTE.day.irisSoft, PALETTE.day.irisDeep]).toEqual([0x5364e8, 0x9aa5ee, 0xdfe3fb])
+    expect([PALETTE.night.amber, PALETTE.night.red, PALETTE.night.mint]).toEqual([0xe3b04b, 0xef6b7e, 0x4fbf93])
+    expect([PALETTE.night.ink, PALETTE.night.dim, PALETTE.night.mute, PALETTE.night.rule, PALETTE.night.rest]).toEqual([0xd7dbe5, 0x8a92a6, 0x5b6478, 0x333a4c, 0x272c3a])
+    expect([PALETTE.day.ink, PALETTE.day.dim, PALETTE.day.mute, PALETTE.day.rule, PALETTE.day.rest]).toEqual([0x262a35, 0x687083, 0xa4aab9, 0xd3d7df, 0xe3e5ea])
+    // crew art only (owner ruling 1, R20)
+    expect([PALETTE.night.ember, PALETTE.night.teal, PALETTE.night.orchid]).toEqual([0xe07b53, 0x3fbdb4, 0xb48cf2])
+    expect([PALETTE.day.teal, PALETTE.day.orchid]).toEqual([0x2aa69d, 0xa078e6])
     for (const p of [PALETTE.night, PALETTE.day]) for (const v of Object.values(p)) expect(v >>> 24).toBe(0)
   })
 })

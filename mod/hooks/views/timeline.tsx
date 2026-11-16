@@ -12,7 +12,7 @@ import { deepSearch, FIND_KEY, focusFind, setQuery, showInChat, stepTarget } fro
 import { isOnScreen } from './onscreen'
 import { copyResult, quoteInPrompt, toggleKeep } from './detail'
 import { bodyOfOpen, openStep, openStepInline } from './openstep'
-import { blank, footer, heightOf, inst, opened, pill, row, section } from './parts'
+import { blank, footer, heightOf, inst, opened, pill, row, tableHead } from './parts'
 import type { Action, Detail, Hint, InstSpec, Run } from './parts'
 import { bars } from './raster'
 import type { ViewCtx } from './shell'
@@ -534,7 +534,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const ids = g.steps.map(s => s.id)
       const sectionAt = items.length
       add(`turn-${id}`, 1, () =>
-        section(ctx, $, label, 'agent', 'time', {
+        tableHead(ctx, $, label, 'agent', 'time', {
           key: `turn-${id}`,
           ...(isNewest ? {} : { onPress: () => toggleTurn($, id, ids) }),
         }),
@@ -564,7 +564,7 @@ export function timelineView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const earlier = older.filter(g => !isOpenGroup(g))
     if (earlier.length > 0) {
       gap()
-      add('sec-earlier', 1, () => section(ctx, $, 'EARLIER TURNS', find.active ? 'hits' : 'steps', 'at'))
+      add('sec-earlier', 1, () => tableHead(ctx, $, 'EARLIER TURNS', find.active ? 'hits' : 'steps', 'at'))
       const every = u.openTurns.includes(ALL_EARLIER)
       for (const g of every ? earlier : earlier.slice(0, earlierCap)) {
         const id = groupId(g)

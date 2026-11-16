@@ -6,7 +6,7 @@ import { updateUi } from '../state'
 import { agentOpened, agentRow } from './agentmeta'
 import { elapsed } from './fit'
 import { openStepInline } from './openstep'
-import { blank, section } from './parts'
+import { blank, tableHead } from './parts'
 import { waitStates } from './needs'
 import { COL, GRID, statusColor } from './style'
 import type { ViewCtx } from './shell'
@@ -143,7 +143,7 @@ export function runBoardView(ctx: ViewCtx, runId: string, $: EngineInterface): R
     <Box flexDirection="column">
       {back}
       {blank(ctx, $, 'gap-back')}
-      {section(ctx, $, b.run.name, 'tokens', 'time')}
+      {tableHead(ctx, $, b.run.name, 'tokens', 'time')}
       <Text key="stats" dimColor wrap="truncate-end">{`${' '.repeat(COL.glyph)}${stats}`}</Text>
       {b.agents.length === 0 ? <Text dimColor>{`${' '.repeat(COL.glyph)}No agents in this run yet.`}</Text> : null}
       {b.agents.map((a, i) => agentBlock(ctx, a, b.steps[a.id] ?? [], perBlock, i === b.agents.length - 1, i === 0, $, states))}

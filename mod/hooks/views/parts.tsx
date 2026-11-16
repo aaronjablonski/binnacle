@@ -1,14 +1,14 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { debug, errText } from '../state'
-import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapFull, wrapWords } from './fit'
+import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapFull, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
-import { lintel, lintelRoom, sill } from './raster'
-import type { Grid, Hue } from './raster'
+import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, lintel, lintelRoom, PALETTE, sill } from './raster'
+import type { Grid, Ground, Hue } from './raster'
 import type { ViewCtx } from './shell'
-import { C, cellsFor, COL, DECK, GRID, RAIL, tableCols } from './style'
-import type { Run } from './style'
+import { C, cellsFor, CK, COCKPIT, COL, DECK, edges, gaugeStyle, GRID, RAIL, tableCols, toneKey } from './style'
+import type { CritterArgs, Run, Tone4 } from './style'
 
 const MIN_SPLIT = 8
 
@@ -283,7 +283,7 @@ export function row(ctx: ViewCtx, $: EngineInterface, r: RowSpec): RenderElement
   )
 }
 
-/** Options of `section`. */
+/** Options of `tableHead`. */
 export type SectionOpts = {
   /** `wait`: the corner and the label in `warning` (NEEDS YOU). Default: the accent corner, a plain bold label. */
   tone?: 'wait'
@@ -293,15 +293,19 @@ export type SectionOpts = {
 }
 
 /**
+ * @deprecated Neo section head (`┌` and caps). The cockpit's section is
+ * `section(ctx, $, title, sum)`: title, hairline, sum. Kept for the Neo views
+ * until wave 2 replaces them.
+ *
  * A section label: `┌` at 0 in the accent (or warning), the label bold caps
  * at 2, dim lower-case heads at the metric (38) and time (50) columns of
  * `tableCols`; a head whose column the tier drops is left out. The label is
  * cut by word to end 2 before the first head.
  *
- * @example section(ctx, $, 'AGENTS', 'tokens', 'time')
- * @example section(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })
+ * @example tableHead(ctx, $, 'AGENTS', 'tokens', 'time')
+ * @example tableHead(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })
  */
-export function section(
+export function tableHead(
   ctx: ViewCtx,
   $: EngineInterface,
   label: string,
@@ -854,6 +858,8 @@ export function frameFit(width: number, f: FrameSpec): { pill?: string; right?: 
 }
 
 /**
+ * @deprecated Neo Rich. The cockpit's lintel is `frameTopInst` (no pill, no readout).
+ *
  * The lintel as an instrument: the Raster `lintel`, and as text `┏` with the
  * pill and the readout, both through `frameFit` so they draw the same pieces.
  */
@@ -896,7 +902,7 @@ export function lintelInst(key: string, width: number, tone: DeckOpts['tone'], f
   }
 }
 
-/** The sill as an instrument: the Raster `sill`, and as text a `┗` corner. */
+/** @deprecated Neo Rich. The cockpit's sill is `frameFootInst`. The sill as an instrument: the Raster `sill`, and as text a `┗` corner. */
 export function sillInst(key: string, width: number, tone: DeckOpts['tone'], clamp?: number): InstSpec {
   const hue = frameHue(tone)
   return {
@@ -1007,6 +1013,8 @@ export type HeroLine = { key?: string; runs: string | Run[]; onPress?: () => voi
 export type HeroSpec = { key: string; who: InstSpec; lines: HeroLine[]; right?: InstSpec }
 
 /**
+ * @deprecated Neo Rich. The cockpit's Now header is `header`.
+ *
  * The Now hero (spec "Screens: Now"): `who` (the lead's large character,
  * 9 x 4) at column 2, the lines from the gauge column (14), each a Text or a
  * plain Button cut by word to its room, and `right` (three rings, 23 x 4)
@@ -1226,7 +1234,7 @@ export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderEleme
   // The blocks.
   for (const b of p.blocks ?? []) {
     out.push(blank(ctx, $, `${p.key}-${b.key}-gap`))
-    out.push(section(ctx, $, b.label, b.heads?.metric, b.heads?.time, { key: `${p.key}-${b.key}-sec` }))
+    out.push(tableHead(ctx, $, b.label, b.heads?.metric, b.heads?.time, { key: `${p.key}-${b.key}-sec` }))
     if (b.text !== undefined) {
       wrapFull(b.text, cols - COL.name).forEach((t, i) => out.push(lineText(`${p.key}-${b.key}-t${i}`, COL.name, [{ text: t }])))
     }
@@ -1279,4 +1287,445 @@ export function heightOf(node: unknown): number {
   const kids = (Array.isArray(raw) ? raw.flat(Infinity) : [raw]).filter(k => k !== null && k !== undefined && typeof k !== 'boolean')
   if (props.flexDirection === 'column' || props.flexDirection === 'column-reverse') return kids.reduce((n: number, k) => n + heightOf(k), 0)
   return kids.reduce((n: number, k) => Math.max(n, heightOf(k)), 0)
+}
+
+// ---------- the cockpit (cockpit spec "Spacing and type", rulings R9, R22, R25, R33) ----------
+//
+// The parts every cockpit screen is built from. Each draws whole rows inside
+// the content columns (`edges`: 2 to 59 at 62): nothing but a frame Raster
+// enters the gutters, which stay for the `▍` marker and `◂`. No caps labels,
+// no `┌` corners. Four voices: bold ink (answers), ink (names), dim (labels,
+// times), the pill (state).
+
+/** The runs, padded with spaces to exactly `cols` wide (cut on a word when longer). */
+function padTo(runs: Run[], cols: number): Run[] {
+  const kept = (fitRuns(runs, cols) as Run[]).filter(r => r.text !== '')
+  const used = kept.reduce((n, r) => n + r.text.length, 0)
+  return used < cols ? [...kept, { text: ' '.repeat(cols - used) }] : kept
+}
+
+/** `left` cut to leave `right` (and two spaces) room, then `right` flush at the end of `cols`. */
+function spread(left: Run[], right: Run[], cols: number): Run[] {
+  const rw = right.reduce((n, r) => n + r.text.length, 0)
+  if (rw === 0) return padTo(left, cols)
+  if (rw + 2 > cols) return padTo(left, cols)
+  const l = (fitRuns(left, cols - rw - 2) as Run[]).filter(r => r.text !== '')
+  const lw = l.reduce((n, r) => n + r.text.length, 0)
+  return [...l, { text: ' '.repeat(cols - lw - rw) }, ...right]
+}
+
+const runsOf = (v: string | Run[] | Run | undefined, style: Omit<Run, 'text'> = {}): Run[] =>
+  v === undefined ? [] : typeof v === 'string' ? (v === '' ? [] : [{ text: v, ...style }]) : Array.isArray(v) ? v : [v]
+
+const width = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
+
+/** A section's title tone: `ask` amber (Needs you), `dim` (Watch), `fail` red (Failed); plain bold ink when absent. */
+export type SectionTone = 'ask' | 'dim' | 'fail'
+
+/** Options of `section`. */
+export type CockpitSectionOpts = {
+  tone?: SectionTone
+  /** The row's key (and with `onPress` the Button's): `sec-<title>` when absent. */
+  key?: string
+  /** The whole head is one plain Button (the title opens its tab). */
+  onPress?: () => void | Promise<void>
+  autoFocus?: boolean
+}
+
+/**
+ * A cockpit section head (cockpit spec "A section head is one row"): the bold
+ * sentence-case title at 2, a `─` hairline in `subtle`, the sum flush at the
+ * right edge (59 at 62), one space either side of the hairline. A string sum
+ * is dim; runs keep their style (`[{ text: '9', bold: true }, { text: ' of 14 done', dim: true }]`).
+ * No sum: the hairline runs to the edge. No caps, no `┌`. The title is cut by
+ * word only when the width cannot hold it beside the sum.
+ *
+ * @example section(ctx, $, 'To do', [{ text: '9', bold: true }, { text: ' of 14 done', dim: true }], { onPress: openTasks })
+ * @example section(ctx, $, 'Needs you', [{ text: '1', color: CK.ask, bold: true }, { text: ' permission', color: CK.ask }], { tone: 'ask' })
+ * @example section(ctx, $, 'Watch', 'no action needed', { tone: 'dim' })
+ */
+export function section(ctx: ViewCtx, $: EngineInterface, title: string, sum?: string | Run[], opts: CockpitSectionOpts = {}): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const w = Math.max(1, right - left + 1)
+  let sumRuns = runsOf(sum, { dim: true })
+  if (width(sumRuns) > w - 4) sumRuns = (fitRuns(sumRuns, Math.max(0, w - 4)) as Run[]).filter(r => r.text !== '')
+  const sw = width(sumRuns)
+  const titleStyle: Omit<Run, 'text'> =
+    opts.tone === 'ask' ? { bold: true, color: CK.ask } : opts.tone === 'fail' ? { bold: true, color: CK.fail } : opts.tone === 'dim' ? { bold: true, dim: true } : { bold: true }
+  const t = nameFit(title, Math.max(1, sw > 0 ? w - sw - 3 : w))
+  const hair = w - t.length - (sw > 0 ? sw + 2 : 1)
+  const runs: Run[] = [{ text: t, ...titleStyle }]
+  if (hair >= 1) runs.push({ text: ' ' }, { text: '─'.repeat(hair), color: C.subtle })
+  if (sw > 0) runs.push({ text: hair >= 1 ? ' ' : ' '.repeat(Math.max(1, w - t.length - sw)) }, ...sumRuns)
+  const key = opts.key ?? `sec-${title}`
+  const body = runs.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))
+  return (
+    <Box key={`row-${key}`} flexDirection="row">
+      <Text>{' '.repeat(left)}</Text>
+      {opts.onPress !== undefined ? (
+        <Button key={key} plain onPress={opts.onPress} autoFocus={opts.autoFocus === true ? true : undefined}>
+          {body}
+        </Button>
+      ) : (
+        <Text key={key} wrap="truncate-end">
+          {body}
+        </Text>
+      )}
+    </Box>
+  )
+}
+
+/** The cockpit lintel as an instrument: `frameTop` (clamp and hairline, no pill), as text `┏━━` and a `─` hairline. */
+export function frameTopInst(key: string, width: number, tone: Tone4 = 'iris', ground: Ground = 'night'): InstSpec {
+  return {
+    key,
+    columns: width,
+    rows: 1,
+    sig: `frameTop:${width}:${tone}:${ground}`,
+    frames: () => [frameTop(width, { hue: tone, pal: PALETTE[ground] })],
+    fallback: [[{ text: '┏━━'.slice(0, width), color: toneKey(tone) }, { text: '─'.repeat(Math.max(0, width - 3)), color: C.subtle }]],
+  }
+}
+
+/** The cockpit sill as an instrument: `frameFoot`, as text a `─` hairline and `━━┛`. */
+export function frameFootInst(key: string, width: number, tone: Tone4 = 'iris', ground: Ground = 'night'): InstSpec {
+  return {
+    key,
+    columns: width,
+    rows: 1,
+    sig: `frameFoot:${width}:${tone}:${ground}`,
+    frames: () => [frameFoot(width, { hue: tone, pal: PALETTE[ground] })],
+    fallback: [[{ text: '─'.repeat(Math.max(0, width - 3)), color: C.subtle }, { text: '━━┛'.slice(Math.max(0, 3 - width)), color: toneKey(tone) }]],
+  }
+}
+
+/** One header gauge: its percentage and the word under it ("context", "this week", "5 hours"). */
+export type Gauge = { pct: number; label: string }
+
+/** A gauge figure's text style: ink, bold from 70 %, red from 90 % (R9). */
+const figureStyle = (pct: number): Omit<Run, 'text'> => (pct >= 90 ? { color: CK.fail } : pct >= 70 ? { bold: true } : {})
+
+/**
+ * Up to two gauges as one instrument, `GAUGE_PAIR` (20 x 5: rings at 0 and
+ * 11). As text (R22): each figure centred in the middle row; the words go
+ * under it as Text either way.
+ */
+export function gaugesInst(key: string, gauges: readonly Gauge[], ground: Ground = 'night'): InstSpec {
+  const shown = gauges.slice(0, 2)
+  const mid: Run[] = []
+  shown.forEach((g, i) => {
+    const s = gaugeFigure(g.pct)
+    const lead = Math.floor((GAUGE_RING.columns - s.length) / 2)
+    const at = i * GAUGE_PAIR.pitch + lead
+    const used = width(mid)
+    mid.push({ text: ' '.repeat(Math.max(0, at - used)) }, { text: s, ...figureStyle(g.pct) })
+  })
+  const blank: Run[] = [{ text: ' '.repeat(GAUGE_PAIR.columns) }]
+  return {
+    key,
+    columns: GAUGE_PAIR.columns,
+    rows: GAUGE_PAIR.rows,
+    sig: `gauges:${ground}:${shown.map(g => Math.round(g.pct)).join(',')}`,
+    frames: () => [gaugePair(shown.map(g => g.pct), PALETTE[ground])],
+    fallback: [blank, blank, mid, blank, blank],
+  }
+}
+
+/** What `header` draws. */
+export type HeaderSpec = {
+  key: string
+  /** The frame's and the pill's tone: iris (working), amber (a dialog waits), mint (all done), red (stopped). */
+  tone?: Tone4
+  /** The state pill: ` WORKING `, ` WAITING FOR YOU `, ` ALL DONE `, ` IDLE `, ` STOPPED `. */
+  pill: string
+  /** Dim words after the pill: "41 min this turn". Runs keep their style (R7's bold quiet). */
+  meta?: string | Run[]
+  /** The lead's small critter at column 2 (`critterArgs('lead', state, …)`); none in the compact form. */
+  critter?: CritterArgs
+  /** The dim line above the headline: "Working on", "Paused on", "Finished". */
+  kicker: string
+  /** The headline: bold, wrapped at a word, 2 lines (3 in the compact form). */
+  title: string
+  /** The headline's first line becomes a plain Button. */
+  onTitle?: () => void | Promise<void>
+  /** The budget line under the critter: "620k of 1M used · cache warm 4:48". */
+  budget?: string | Run[]
+  onBudget?: () => void | Promise<void>
+  /** Up to two gauges at columns 40 and 51 (at 62 columns and up); narrower, they join the budget line as words. */
+  gauges?: Gauge[]
+  ground?: Ground
+}
+
+/** Under this many columns the header is compact: no critter, no gauges, no budget line, the headline on up to 3 lines (slim). */
+export const HEADER_COMPACT_UNDER = 40
+
+/**
+ * The cockpit header (cockpit spec "Header"; replaces `hero` and the deck rows):
+ *
+ *     row 0  the lintel (`frameTop`, the full width)
+ *     row 1  the pill at 2, the meta 2 after it, dim
+ *     row 2  (blank on the left; the gauges start)
+ *     row 3  the critter at 2 (5 x 3 and its badge column), the kicker at 9
+ *     row 4  the headline at 9, 29 wide, wrapped at a word
+ *     row 5  its second line
+ *     row 6  (blank on the left; the gauges end)
+ *     row 7  the budget line at 2; each gauge's word centred under it
+ *     row 8  the sill (`frameFoot`)
+ *
+ * Gauges are 9 x 5 at columns 40 and 51 and need 62 columns; narrower, the
+ * headline takes the width to the right edge and the gauges become words on
+ * the budget line where they fit whole ("context 62%"). Under 40 columns the
+ * compact form draws the lintel, the pill (the meta flush right), a blank,
+ * the kicker, the headline on up to 3 lines and the sill, all from column 1
+ * or 2 (`edges`). The caller adds the blank row after the sill.
+ *
+ * @example header(ctx, $, { key: 'now', pill: 'WORKING', meta: '41 min this turn', critter: critterArgs('lead', 'working', { ground }), kicker: 'Working on', title: focus, budget, gauges: [{ pct: 62, label: 'context' }, { pct: 34, label: 'this week' }] })
+ */
+export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cols = ctx.cols
+  const { left, right } = edges(cols)
+  const tone = spec.tone ?? 'iris'
+  const ground = spec.ground ?? 'night'
+  const content = right - left + 1
+  const pill: Run = { text: ` ${spec.pill} `, color: CK.inverse, bg: toneKey(tone), bold: true }
+  const meta = runsOf(spec.meta, { dim: true })
+  const pad = (n: number): Run => ({ text: ' '.repeat(Math.max(0, n)) })
+  const line = (k: string, runs: Run[]): RenderElement => (
+    <Text key={k} wrap="truncate-end">
+      {runs.map((r, i) => runText(r, ctx.e, $, `${k}-${i}`))}
+    </Text>
+  )
+  const top = inst(ctx, $, frameTopInst(`${spec.key}-lintel`, cols, tone, ground))
+  const foot = inst(ctx, $, frameFootInst(`${spec.key}-sill`, cols, tone, ground))
+
+  if (cols < HEADER_COMPACT_UNDER) {
+    const pillRow = meta.length > 0 && pill.text.length + 2 + width(meta) <= content ? spread([pill], meta, content) : padTo([pill], content)
+    const lines = wrapWords(spec.title, content, 3)
+    return (
+      <Box key={spec.key} flexDirection="column">
+        {top}
+        {line(`${spec.key}-pill`, [pad(left), ...pillRow])}
+        <Text key={`${spec.key}-gap`}> </Text>
+        {line(`${spec.key}-kicker`, [pad(left), { text: wordFit(spec.kicker, content), dim: true }])}
+        {lines.map((s, i) =>
+          i === 0 && spec.onTitle !== undefined ? (
+            <Box key={`${spec.key}-t${i}`} flexDirection="row">
+              <Text>{' '.repeat(left)}</Text>
+              <Button key={`${spec.key}-title`} plain onPress={spec.onTitle}>
+                <Text bold>{s}</Text>
+              </Button>
+            </Box>
+          ) : (
+            line(`${spec.key}-t${i}`, [pad(left), { text: s, bold: true }])
+          ),
+        )}
+        {foot}
+      </Box>
+    )
+  }
+
+  const gauges = (spec.gauges ?? []).slice(0, 2)
+  const withGauges = gauges.length > 0 && COCKPIT.gauge + GAUGE_PAIR.columns <= right + 1
+  const textCol = COCKPIT.text
+  const textRoom = withGauges ? COCKPIT.headline : right - textCol + 1
+  const titleLines = wrapWords(spec.title, textRoom, 2)
+  const titleEls: RenderElement[] = [0, 1].map(i => {
+    const s = titleLines[i] ?? ''
+    if (i === 0 && s !== '' && spec.onTitle !== undefined) {
+      return (
+        <Button key={`${spec.key}-title`} plain onPress={spec.onTitle}>
+          <Text bold>{s}</Text>
+        </Button>
+      )
+    }
+    return (
+      <Text key={`${spec.key}-title-${i}`} bold>
+        {s === '' ? ' ' : s}
+      </Text>
+    )
+  })
+  const critterEl =
+    spec.critter !== undefined ? inst(ctx, $, { key: `${spec.key}-who`, ...spec.critter }) : <Text key={`${spec.key}-who`}> </Text>
+  const blockWidth = withGauges ? COCKPIT.gauge : cols
+  const block = (
+    <Box key={`${spec.key}-block`} flexDirection="row">
+      <Box key={`${spec.key}-left`} flexDirection="column" width={blockWidth} flexShrink={0}>
+        <Text key={`${spec.key}-above`}> </Text>
+        <Box key={`${spec.key}-who-row`} flexDirection="row" paddingLeft={left}>
+          <Box key={`${spec.key}-who-box`} width={textCol - left} flexShrink={0}>
+            {critterEl}
+          </Box>
+          <Box key={`${spec.key}-text`} flexDirection="column" width={textRoom} flexShrink={0}>
+            <Text key={`${spec.key}-kicker`} dimColor>
+              {wordFit(spec.kicker, textRoom)}
+            </Text>
+            {titleEls}
+          </Box>
+        </Box>
+        <Text key={`${spec.key}-below`}> </Text>
+      </Box>
+      {withGauges ? inst(ctx, $, gaugesInst(`${spec.key}-gauges`, gauges, ground)) : null}
+    </Box>
+  )
+  // The budget line, and under each gauge its word (centred under its 9 cells).
+  let budget = runsOf(spec.budget)
+  const budgetRoom = withGauges ? COCKPIT.gauge - left - 2 : content
+  if (!withGauges && gauges.length > 0) {
+    for (const g of gauges) {
+      const words: Run[] = [{ text: budget.length > 0 ? ' · ' : '', dim: true }, { text: `${g.label} `, dim: true }, { text: gaugeFigure(g.pct), ...figureStyle(g.pct) }]
+      if (width(budget) + width(words) <= budgetRoom) budget = [...budget, ...words]
+    }
+  }
+  budget = (fitRuns(budget, budgetRoom) as Run[]).filter(r => r.text !== '')
+  const labels: Run[] = []
+  if (withGauges) {
+    gauges.forEach((g, i) => {
+      const word = wordFit(g.label, GAUGE_RING.columns)
+      const at = i * GAUGE_PAIR.pitch + Math.floor((GAUGE_RING.columns - word.length) / 2)
+      labels.push(pad(at - width(labels)), { text: word, ...gaugeStyle(g.pct) })
+    })
+  }
+  const budgetBody = budget.map((r, i) => runText(r, ctx.e, $, `${spec.key}-b${i}`))
+  const budgetRow = (
+    <Box key={`${spec.key}-budget-row`} flexDirection="row">
+      <Box key={`${spec.key}-budget-box`} width={withGauges ? COCKPIT.gauge : cols} paddingLeft={left} flexShrink={0}>
+        {budget.length === 0 ? (
+          <Text key={`${spec.key}-budget`}> </Text>
+        ) : spec.onBudget !== undefined ? (
+          <Button key={`${spec.key}-budget`} plain onPress={spec.onBudget}>
+            {budgetBody}
+          </Button>
+        ) : (
+          <Text key={`${spec.key}-budget`} wrap="truncate-end">
+            {budgetBody}
+          </Text>
+        )}
+      </Box>
+      {labels.length > 0 ? line(`${spec.key}-labels`, labels) : null}
+    </Box>
+  )
+  const metaRoom = content - pill.text.length - 2
+  const metaRuns = metaRoom > 0 ? (fitRuns(meta, metaRoom) as Run[]).filter(r => r.text !== '') : []
+  return (
+    <Box key={spec.key} flexDirection="column">
+      {top}
+      {line(`${spec.key}-pill`, [pad(left), pill, ...(metaRuns.length > 0 ? [pad(2), ...metaRuns] : [])])}
+      {block}
+      {budgetRow}
+      {foot}
+    </Box>
+  )
+}
+
+/** What `agentCard` draws. */
+export type AgentCardSpec = {
+  key: string
+  /** The small critter (`critterOf(agent, { ground, motion })`): columns 2 to 6, its badge at 7 (R25). */
+  critter: CritterArgs
+  /** The agent's type in friendly case (`typeName`): bold at 9. */
+  name: string
+  /** What it was asked to do, after the name. */
+  job?: string
+  /** Flush right at 59 on the first row: dim when a string ("2 min"; R27). Runs keep their style (the long runner bold, a waiter amber). */
+  time?: string | Run[]
+  /** The second row at 9: what it is doing (`doing(step)`), dim when a string. */
+  doing: string | Run[]
+  /** Flush right on the second row, dim: "31k tokens". */
+  tokens?: string
+  /** The first row becomes one plain Button. */
+  onPress?: () => void | Promise<void>
+  autoFocus?: boolean
+}
+
+/**
+ * An agent card (cockpit spec "An agent card is 3 rows"; R25): the critter
+ * 5 x 3 at column 2 with its badge column at 7 (always reserved), the name
+ * bold at 9 and the job after it, the time flush right at 59; under it what
+ * it is doing (dim), tokens flush right; the third row empty. The name and
+ * job are cut at a word to leave the time two columns.
+ *
+ * @example agentCard(ctx, $, { key: `card-${a.id}`, critter: critterOf(a, { ground, motion }), name: typeName(a.type), job: a.description, time: span(ctx.now - a.startedAt), doing: doing(running) })
+ */
+export function agentCard(ctx: ViewCtx, $: EngineInterface, c: AgentCardSpec): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const textCol = COCKPIT.text
+  const room = Math.max(1, right - textCol + 1)
+  const head: Run[] = [{ text: c.name, bold: true }, ...(c.job !== undefined && c.job !== '' ? [{ text: `  ${c.job}` }] : [])]
+  const first = spread(head, runsOf(c.time, { dim: true }), room)
+  const second = spread(runsOf(c.doing, { dim: true }), runsOf(c.tokens, { dim: true }), room)
+  const k = c.key
+  const firstBody = first.map((r, i) => runText(r, ctx.e, $, `${k}-a${i}`))
+  return (
+    <Box key={`card-${k}`} flexDirection="row">
+      <Box key={`${k}-who-box`} width={textCol} paddingLeft={left} flexShrink={0}>
+        {inst(ctx, $, { key: `${k}-who`, ...c.critter })}
+      </Box>
+      <Box key={`${k}-text`} flexDirection="column" width={room} flexShrink={0}>
+        {c.onPress !== undefined ? (
+          <Button key={k} plain onPress={c.onPress} autoFocus={c.autoFocus === true ? true : undefined}>
+            {firstBody}
+          </Button>
+        ) : (
+          <Text key={k} wrap="truncate-end">
+            {firstBody}
+          </Text>
+        )}
+        <Text key={`${k}-doing`} wrap="truncate-end">
+          {second.map((r, i) => runText(r, ctx.e, $, `${k}-d${i}`))}
+        </Text>
+        <Text key={`${k}-gap`}> </Text>
+      </Box>
+    </Box>
+  )
+}
+
+/**
+ * The all-clear line (cockpit spec principle 3): `✓` in `success` at 2, then
+ * " Nothing needs you" dim, then `extra` (" · 2 things to watch"), cut at a
+ * word. The caller adds the blank row after it.
+ */
+export function allClear(ctx: ViewCtx, $: EngineInterface, extra?: string | Run[]): RenderElement {
+  const { Text } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const runs = fitRuns([{ text: '✓', color: CK.ok }, { text: ' Nothing needs you', dim: true }, ...runsOf(extra, { dim: true })], right - left + 1) as Run[]
+  return (
+    <Text key="all-clear" wrap="truncate-end">
+      {' '.repeat(left)}
+      {runs.filter(r => r.text !== '').map((r, i) => runText(r, ctx.e, $, `all-clear-${i}`))}
+    </Text>
+  )
+}
+
+/** What `primaryButton` draws. */
+export type PrimarySpec = {
+  key: string
+  label: string
+  onPress: () => void | Promise<void>
+  hotkey?: string
+  autoFocus?: boolean
+}
+
+/** The columns a primary Button takes on the terminal: `[ label ]`. */
+export function primaryWidth(label: string): number {
+  return label.length + 4
+}
+
+/**
+ * The one filled button of a screen (R33): `Button variant="primary"`, drawn
+ * by the terminal as `[ label ]` in the accent and natively on a desktop. It
+ * stays pressable (a Button, never a Text with a background). Place it in a
+ * row Box after the gutter; it is `primaryWidth(label)` wide.
+ *
+ * @example primaryButton(ctx, $, { key: 'export', label: 'Export digest', hotkey: 'e', onPress: exportDigest })
+ */
+export function primaryButton(ctx: ViewCtx, $: EngineInterface, p: PrimarySpec): RenderElement {
+  const { Button } = $.ui.resolve(ctx.e)
+  return (
+    <Button key={p.key} variant="primary" {...(p.hotkey !== undefined ? { hotkey: p.hotkey } : {})} onPress={p.onPress} autoFocus={p.autoFocus === true ? true : undefined}>
+      {p.label}
+    </Button>
+  )
 }

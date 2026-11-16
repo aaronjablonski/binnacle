@@ -22,30 +22,39 @@ export const DEFAULT = 0x01000000
 /** Bytes per cell in a Raster's `cells`: three little-endian u32s. */
 export const CELL_BYTES = 12
 
-export type Hue = 'iris' | 'ember' | 'amber' | 'red' | 'mint' | 'orchid'
-export type Neutral = 'mute' | 'rest' | 'ink' | 'lamp' | 'badge' | 'ground'
+export type Hue = 'iris' | 'irisSoft' | 'irisDeep' | 'ember' | 'teal' | 'amber' | 'red' | 'mint' | 'orchid'
+export type Neutral = 'mute' | 'rest' | 'rule' | 'ink' | 'dim' | 'lamp' | 'badge' | 'ground'
 export type Palette = Record<Hue | Neutral, number>
 /** A colour: a palette key, or `0x00RRGGBB`. */
 export type Ink = keyof Palette | number
 
-const HUES: Record<Hue, number> = {
-  iris: 0x8a9bff,
-  ember: 0xe07b53,
-  amber: 0xe0a93f,
-  red: 0xee5f74,
-  mint: 0x43b888,
-  orchid: 0xb48cf2,
-}
-
 /**
- * Six hues serve both grounds; three neutrals change with the ground. A
- * Raster's background is always the terminal default, so `ground` is only
- * what tones are mixed toward.
+ * The cockpit palette for Rasters (cockpit spec "Palette"): one accent in
+ * three strengths (`iris`, `irisSoft`, `irisDeep`), three status hues, the
+ * neutrals of each ground. `ember`, `teal` and `orchid` are crew art only
+ * (owner ruling 1, R20): role hues inside a critter, never in text; ember
+ * means the lead. A Raster's background is always the terminal default, so
+ * `ground` is only what tones are mixed toward.
  */
 export const PALETTE: { night: Palette; day: Palette } = {
-  night: { ...HUES, mute: 0x5d6679, rest: 0x333b4d, ink: 0xc9cfdb, lamp: 0xffffff, badge: 0x16181d, ground: 0x16181d },
-  day: { ...HUES, iris: 0x6f82f2, mute: 0xa3a9b8, rest: 0xd6dae2, ink: 0x2b2f3a, lamp: 0xffffff, badge: 0x16181d, ground: 0xf6f5f1 },
+  night: {
+    iris: 0x8f9eff, irisSoft: 0x5a659f, irisDeep: 0x2c3254,
+    ember: 0xe07b53, teal: 0x3fbdb4, orchid: 0xb48cf2,
+    amber: 0xe3b04b, red: 0xef6b7e, mint: 0x4fbf93,
+    ink: 0xd7dbe5, dim: 0x8a92a6, mute: 0x5b6478, rule: 0x333a4c, rest: 0x272c3a,
+    lamp: 0xffffff, badge: 0x16181d, ground: 0x15171c,
+  },
+  day: {
+    iris: 0x5364e8, irisSoft: 0x9aa5ee, irisDeep: 0xdfe3fb,
+    ember: 0xe07b53, teal: 0x2aa69d, orchid: 0xa078e6,
+    amber: 0xb9790f, red: 0xcf3550, mint: 0x1e8f66,
+    ink: 0x262a35, dim: 0x687083, mute: 0xa4aab9, rule: 0xd3d7df, rest: 0xe3e5ea,
+    lamp: 0xffffff, badge: 0x16181d, ground: 0xf7f6f2,
+  },
 }
+
+/** The ground a Raster is mixed for: `style.ts` `groundOf` resolves the `ground` option. */
+export type Ground = 'night' | 'day'
 
 /** A meter's hue by how full it is: red from 90 %, amber from 70 %, else iris. */
 export function rate(pct: number): Hue {
@@ -377,12 +386,16 @@ export function decode(cells: string): Triple[] {
 
 export type Role = 'lead' | 'scout' | 'build' | 'check'
 export type State = 'queued' | 'working' | 'done' | 'waiting' | 'stalled' | 'failed'
+/** @deprecated Neo Rich sizes. The cockpit draws Critters (`critter`): `CritterSize` small and micro. */
 export type Size = 'L' | 'S'
 
 export const ROLES: readonly Role[] = ['lead', 'scout', 'build', 'check']
 export const STATES: readonly State[] = ['queued', 'working', 'done', 'waiting', 'stalled', 'failed']
 
 /**
+ * @deprecated Neo Rich sprites (large and small). The cockpit draws Critters:
+ * `critter`, `critterBox`, `CRITTER`. Kept until wave 2 replaces the callers.
+ *
  * A sprite's box: the body (8 x 4 cells large, 4 x 2 small) and one column
  * beside its top right corner for the badge. The box is the same in every
  * state, so a state change is a blit, never a resize.
@@ -450,7 +463,7 @@ export type SpriteOptions = {
   lamp?: 'on' | 'dim'
 }
 
-/** Draws a sprite into `g` with its body's top left at cell `x`, `row`; the badge goes at `x + body`. */
+/** @deprecated Neo Rich. Use `drawCritter`. Draws a sprite into `g` with its body's top left at cell `x`, `row`; the badge goes at `x + body`. */
 export function drawSprite(g: Grid, x: number, row: number, role: Role, state: State, size: Size, lamp: 'on' | 'dim' = 'on'): void {
   const pal = g.pal
   const shape = SHAPES[size][role]
@@ -486,7 +499,7 @@ export function drawSprite(g: Grid, x: number, row: number, role: Role, state: S
   if (k.badge !== undefined) g.glyph(x + SPRITE[size].body, row, k.badge, 'badge', k.hue)
 }
 
-/** One crew member in a box of its own: SPRITE[size] cells. */
+/** @deprecated Neo Rich. Use `critterBox`. One crew member in a box of its own: SPRITE[size] cells. */
 export function sprite(role: Role, state: State, size: Size, options: SpriteOptions = {}): Grid {
   const g = new Grid(SPRITE[size].columns, SPRITE[size].rows, options.pal)
   drawSprite(g, 0, 0, role, state, size, options.lamp)
@@ -573,7 +586,7 @@ export function bars(rows: number, vals: readonly number[], options: BarsOptions
 
 // ---------- the ring ----------
 
-/** A ring's box: 7 x 4 cells of Braille. */
+/** @deprecated Neo Rich: the cockpit's gauge is `GAUGE_RING` (9 x 5, no name inside). A ring's box: 7 x 4 cells of Braille. */
 export const RING = { columns: 7, rows: 4 } as const
 
 export type RingOptions = {
@@ -689,6 +702,8 @@ export function lintelRoom(width: number, o: { pill?: string; pillCol?: number; 
 }
 
 /**
+ * @deprecated Neo Rich (pill and readout on the line). The cockpit's lintel is `frameTop`.
+ *
  * The deck's top: a clamp top left (`█▀▀▀`), a hairline, the pill, a readout
  * at the right. A pill or readout without room (`lintelRoom`) is left out,
  * so no width can make a cell hold both.
@@ -720,7 +735,7 @@ export type SillOptions = FrameOptions & {
   sweep?: number
 }
 
-/** The deck's foot: a hairline (`▁`) ending in the mirrored clamp bottom right (`▄▄▄█`). */
+/** @deprecated Neo Rich. The cockpit's sill is `frameFoot`. The deck's foot: a hairline (`▁`) ending in the mirrored clamp bottom right (`▄▄▄█`). */
 export function sill(width: number, o: SillOptions = {}): Grid {
   const g = new Grid(width, 1, o.pal)
   const hue = o.hue ?? 'iris'
@@ -729,6 +744,318 @@ export function sill(width: number, o: SillOptions = {}): Grid {
     g.lv(i, 0, 1, o.sweep !== undefined && Math.abs(i - o.sweep) < 3 ? 'ink' : 'rest')
   }
   for (let i = Math.max(0, width - 1 - clamp); i < width - 1; i++) g.px(i, 1, hue)
+  g.full(width - 1, 0, hue)
+  return g
+}
+
+// ---------- the cockpit: Critters (crew spec family A) ----------
+//
+// Ported from the mock generator `gen-crew.js` (`FAM.A`, `shape`, `tone`,
+// `cellsOf`) for the two cockpit sizes: small, 3 rows x 5 columns (10 x 6
+// quadrant sub-pixels), and micro, 2 x 4 (8 x 4). The hero size is not built
+// (controller ruling: no large character). One grid per role and size; a
+// state only recolours it. The tones differ from the generator only where the
+// rulings sheet says so (R19): the done lamp is off (no mint), failed eyes
+// are shut (red is only the lamp and the badge), and the stalled badge is a
+// mute `z` on rule grey (no amber).
+
+/** A critter's size: `small` (cards, the header, map nodes) or `micro` (tethers, slim, the band). */
+export type CritterSize = 'small' | 'micro'
+
+/**
+ * A critter's body box in cells and sub-pixels. The state badge is one more
+ * column to the right of the top row (`critterBox`), reserved in every state
+ * so a state change is a blit, never a resize.
+ */
+export const CRITTER: Record<CritterSize, { columns: number; rows: number; w: number; h: number }> = {
+  small: { columns: 5, rows: 3, w: 10, h: 6 },
+  micro: { columns: 4, rows: 2, w: 8, h: 4 },
+}
+
+/** The crew art's own palette (`gen-crew.js` NIGHT and DAY), plus the cockpit's rule grey behind the stalled badge (R19). */
+export type CrewPalette = {
+  name: Ground
+  ember: number
+  teal: number
+  iris: number
+  orchid: number
+  amber: number
+  red: number
+  mint: number
+  mute: number
+  rest: number
+  ink: number
+  dim: number
+  eye: number
+  ground: number
+  line: number
+  rule: number
+  badge: number
+}
+
+const CREW_HUES = { ember: 0xe07b53, teal: 0x3fbdb4, iris: 0x8a9bff, orchid: 0xb48cf2, amber: 0xe0a93f, red: 0xee5f74, mint: 0x43b888 }
+
+/** Exactly `gen-crew.js` NIGHT and DAY: the hex every critter cell is mixed from. */
+export const CREW_PALETTE: Record<Ground, CrewPalette> = {
+  night: {
+    ...CREW_HUES, name: 'night',
+    mute: 0x5d6679, rest: 0x333b4d, ink: 0xc9cfdb, dim: 0x8b93a6, eye: 0x16181d, ground: 0x16181d, line: 0x3d4459,
+    rule: PALETTE.night.rule, badge: 0x16181d,
+  },
+  day: {
+    ...CREW_HUES, name: 'day', iris: 0x6f82f2, teal: 0x2aa69d, orchid: 0xa078e6,
+    mute: 0xa3a9b8, rest: 0xd6dae2, ink: 0x2b2f3a, dim: 0x6f7686, eye: 0x22252e, ground: 0xf6f5f1, line: 0xc3c7d0,
+    rule: PALETTE.day.rule, badge: 0x16181d,
+  },
+}
+
+/** A role's hue in the crew palette (owner ruling 1): lead ember, scout teal, build iris, check orchid. */
+export const ROLE_HUE: Record<Role, 'ember' | 'teal' | 'iris' | 'orchid'> = { lead: 'ember', scout: 'teal', build: 'iris', check: 'orchid' }
+
+/** Queued: the body is the role hue moved this far toward the ground (crew spec "States", R20). */
+export const QUEUED_TOWARD_GROUND = 0.62
+/** Stalled: the body moved this far toward the ground. */
+export const STALLED_TOWARD_GROUND = 0.42
+/** Failed: the body moved this far toward the ground. */
+export const FAILED_TOWARD_GROUND = 0.5
+/** Done: grey (`mute`) with this much of the role hue left in it. */
+export const DONE_HUE_TRACE = 0.12
+/** An unlit lamp: the body moved this far toward the ground. */
+export const LAMP_OFF_TOWARD_GROUND = 0.4
+/** Shut eyes: the body moved this far toward the eye colour. */
+export const EYES_SHUT_TOWARD_EYE = 0.38
+
+// '.' ground  '#' body  'e' eye  'o' lamp (the state)  'p' prop (a tint of the role hue)  'w' glass
+const FAM_A_BASE: Record<CritterSize, readonly string[]> = {
+  small: ['..........', '..........', '.########.', '##ee##ee##', '.###oo###.', '.#.#..#.#.'],
+  micro: ['........', '.######.', '##e##e##', '#.####.#'],
+}
+
+const FAM_A_ROLES: Record<Role, Record<CritterSize, Record<number, string>>> = {
+  lead: { small: { 0: '.p..pp..p.', 1: '.pppppppp.' }, micro: { 0: '.p.pp.p.', 1: '.pppppp.' } },
+  scout: { small: { 0: '......p..p', 1: '.......pp.', 3: '##ww##ww##' }, micro: { 0: '.....#.#', 2: '##w##w##' } },
+  build: { small: { 0: '...pppp...', 1: 'pppppppppp' }, micro: { 0: '..pppp..', 1: 'pppppppp' } },
+  check: { small: { 0: '.........p', 1: '........p.', 2: '.#####ww#.', 3: '##ee##ww##' }, micro: { 0: '.......#', 2: '##e#ww##' } },
+}
+
+/** A role's grid at a size: the family's base with the role's prop rows laid over it (`gen-crew.js` `shape`). */
+export function critterShape(role: Role, size: CritterSize): string[] {
+  const rows = FAM_A_BASE[size].slice()
+  const over = FAM_A_ROLES[role][size]
+  for (const k of Object.keys(over)) rows[Number(k)] = over[Number(k)]!
+  return rows
+}
+
+const WHITE = 0xffffff
+const PROP_SHADE_DAY = 0x20222a
+
+/**
+ * The colour of one mark for a role in a state on a ground (`gen-crew.js`
+ * `tone`, with R19's changes). `frame` 2 is the working blink: eyes shut and
+ * the lamp tinted. Undefined is the ground (a quadrant left empty).
+ */
+export function critterTone(mark: string, role: Role, state: State, pal: CrewPalette, frame: 1 | 2 = 1): number | undefined {
+  const hue = pal[ROLE_HUE[role]]
+  const night = pal.name === 'night'
+  const body =
+    state === 'queued'
+      ? mix(hue, pal.ground, QUEUED_TOWARD_GROUND)
+      : state === 'stalled'
+        ? mix(hue, pal.ground, STALLED_TOWARD_GROUND)
+        : state === 'failed'
+          ? mix(hue, pal.ground, FAILED_TOWARD_GROUND)
+          : state === 'done'
+            ? mix(pal.mute, hue, DONE_HUE_TRACE)
+            : hue
+  const live = state === 'working' || state === 'waiting'
+  const shut = mix(body, pal.eye, EYES_SHUT_TOWARD_EYE)
+  const off = mix(body, pal.ground, LAMP_OFF_TOWARD_GROUND)
+  const lamp = state === 'working' ? WHITE : state === 'waiting' ? pal.amber : state === 'failed' ? pal.red : off
+  switch (mark) {
+    case '#':
+      return body
+    case 'p':
+      return night ? mix(body, WHITE, 0.45) : mix(body, PROP_SHADE_DAY, 0.32)
+    case 'w':
+      return live ? (night ? mix(hue, WHITE, 0.85) : mix(hue, WHITE, 0.62)) : mix(body, WHITE, 0.4)
+    case 'e':
+      // R19: no red inside a sprite but the failed lamp and badge, so failed eyes are shut.
+      return live && frame !== 2 ? pal.eye : shut
+    case 'o':
+      return frame === 2 && state === 'working' ? mix(hue, WHITE, 0.5) : lamp
+    default:
+      return undefined
+  }
+}
+
+/** The badge a state wears in the cell right of the top row (R19): `?` on amber, `z` mute on rule grey, `!` on red. */
+export const CRITTER_BADGE: Partial<Record<State, { ch: string; fg: 'badge' | 'mute'; bg: 'amber' | 'rule' | 'red' }>> = {
+  waiting: { ch: '?', fg: 'badge', bg: 'amber' },
+  stalled: { ch: 'z', fg: 'mute', bg: 'rule' },
+  failed: { ch: '!', fg: 'badge', bg: 'red' },
+}
+
+/** Options of the critter draws. */
+export type CritterOptions = {
+  /** The ground the tones are mixed for; night when absent. */
+  ground?: Ground
+  /** 2 is the working blink (eyes shut, lamp tinted). */
+  frame?: 1 | 2
+}
+
+/** Draws a critter's body with its top left at cell `x`, `row`. The badge is not drawn (`drawCritterBadge`). */
+export function drawCritter(g: Grid, x: number, row: number, role: Role, state: State, size: CritterSize, o: CritterOptions = {}): void {
+  const pal = CREW_PALETTE[o.ground ?? 'night']
+  const rows = critterShape(role, size)
+  rows.forEach((line, py) => {
+    ;[...line].forEach((mark, px) => {
+      const c = critterTone(mark, role, state, pal, o.frame ?? 1)
+      if (c !== undefined) g.sp(x * 2 + px, row * 2 + py, c)
+    })
+  })
+}
+
+/** Draws a state's badge (if it has one) into the cell at `x`, `row`. */
+export function drawCritterBadge(g: Grid, x: number, row: number, state: State, ground: Ground = 'night'): void {
+  const b = CRITTER_BADGE[state]
+  if (b === undefined) return
+  const pal = CREW_PALETTE[ground]
+  g.glyph(x, row, b.ch, pal[b.fg], pal[b.bg])
+}
+
+/** A critter's body alone: exactly 5 x 3 cells (small) or 4 x 2 (micro). */
+export function critter(role: Role, state: State, size: CritterSize, o: CritterOptions = {}): Grid {
+  const box = CRITTER[size]
+  const g = new Grid(box.columns, box.rows, PALETTE[o.ground ?? 'night'])
+  drawCritter(g, 0, 0, role, state, size, o)
+  return g
+}
+
+/** A critter in its box: the body and the badge column (6 x 3 small, 5 x 2 micro); the badge drawn when the state has one. */
+export function critterBox(role: Role, state: State, size: CritterSize, o: CritterOptions = {}): Grid {
+  const box = CRITTER[size]
+  const g = new Grid(box.columns + 1, box.rows, PALETTE[o.ground ?? 'night'])
+  drawCritter(g, 0, 0, role, state, size, o)
+  drawCritterBadge(g, box.columns, 0, state, o.ground ?? 'night')
+  return g
+}
+
+/** How many paint beats one blink cycle lasts: the 1 s clock shuts the eyes for one beat in four (R24). */
+export const BLINK_BEATS = 4
+
+/**
+ * A critter's frames for the paint clock: a working critter with `motion`
+ * blinks once every `BLINK_BEATS` beats (frame 2 on one of them), shifted by
+ * `phase` so agents blink apart; every other state, or motion off, is one
+ * still frame. Never pass motion for the band or at idle (R24).
+ */
+export function critterFrames(role: Role, state: State, size: CritterSize, o: { ground?: Ground; motion?: boolean; phase?: number } = {}): Grid[] {
+  const ground = o.ground ?? 'night'
+  if (state !== 'working' || o.motion !== true) return [critterBox(role, state, size, { ground })]
+  const open = critterBox(role, state, size, { ground })
+  const shut = critterBox(role, state, size, { ground, frame: 2 })
+  const at = (((Math.trunc(o.phase ?? 0)) % BLINK_BEATS) + BLINK_BEATS) % BLINK_BEATS
+  return Array.from({ length: BLINK_BEATS }, (_, i) => (i === at ? shut : open))
+}
+
+// ---------- the cockpit: the gauge ring ----------
+
+/** A gauge's box (cockpit spec "Spacing and type"): 9 x 5 cells of Braille, the figure in the middle row. */
+export const GAUGE_RING = { columns: 9, rows: 5 } as const
+
+/** A gauge's hue (R9: amber is the dialog colour only): iris, ink from 70 %, red from 90 %. */
+export function gaugeHue(pct: number): 'iris' | 'ink' | 'red' {
+  if (pct >= 90) return 'red'
+  if (pct >= 70) return 'ink'
+  return 'iris'
+}
+
+// The gauge's dots by cell, worked out once (`gen-cockpit.js` `ring`): 18 x 20 dots, two thick.
+const GAUGE_CELLS: RingDot[][] = (() => {
+  const cells = new Map<string, RingDot[]>()
+  for (let dy = 0; dy < 20; dy++) {
+    for (let dx = 0; dx < 18; dx++) {
+      const vx = dx - 8.5
+      const vy = dy - 9.5
+      const d = Math.hypot(vx, vy)
+      if (d < 6.7 || d > 8.95) continue
+      const turn = (Math.atan2(vx, -vy) / (2 * Math.PI) + 1) % 1
+      const key = `${dx >> 1},${dy >> 2}`
+      const list = cells.get(key) ?? []
+      list.push([dx, dy, turn])
+      cells.set(key, list)
+    }
+  }
+  return [...cells.values()]
+})()
+
+/** A gauge's figure: `62%`, `100%`. */
+export function gaugeFigure(pct: number): string {
+  return `${Math.round(Math.max(0, Number.isFinite(pct) ? pct : 0))}%`
+}
+
+/**
+ * Draws a gauge lit clockwise from the top, the figure centred in its middle
+ * row (no name inside: the word goes under it as Text). A cell where lit
+ * meets unlit takes the colour of most of its dots; any non-zero value
+ * lights at least one cell. The figure is ink, or the gauge's hue from 70 %.
+ */
+export function drawGaugeRing(g: Grid, x: number, row: number, pct: number, o: { hue?: Ink } = {}): void {
+  const p = Number.isFinite(pct) ? Math.max(0, pct) : 0
+  const k = o.hue ?? gaugeHue(p)
+  const paint = GAUGE_CELLS.map(dots => ({ dots, lit: p >= 100 || dots.filter(d => d[2] < p / 100).length * 2 > dots.length }))
+  if (p > 0 && !paint.some(c => c.lit)) {
+    const first = Math.min(...paint.map(c => Math.min(...c.dots.map(d => d[2]))))
+    const cell = paint.find(c => Math.min(...c.dots.map(d => d[2])) === first)
+    if (cell !== undefined) cell.lit = true
+  }
+  for (const { dots, lit } of paint) for (const [dx, dy] of dots) g.dot(x * 2 + dx, row * 4 + dy, lit ? k : 'rest')
+  const s = gaugeFigure(p)
+  g.word(x + Math.floor((GAUGE_RING.columns - s.length) / 2), row + 2, s, p >= 70 ? k : 'ink')
+}
+
+/** One gauge in a box of its own. */
+export function gaugeRing(pct: number, o: { hue?: Ink; pal?: Palette } = {}): Grid {
+  const g = new Grid(GAUGE_RING.columns, GAUGE_RING.rows, o.pal)
+  drawGaugeRing(g, 0, 0, pct, o.hue !== undefined ? { hue: o.hue } : {})
+  return g
+}
+
+/** The header's two gauges: 9 x 5 each, 2 columns apart (columns 40 and 51 at 62), 20 x 5 in all. */
+export const GAUGE_PAIR = { columns: 2 * GAUGE_RING.columns + 2, rows: GAUGE_RING.rows, pitch: GAUGE_RING.columns + 2 } as const
+
+/** Up to two gauges side by side in a `GAUGE_PAIR` box. */
+export function gaugePair(pcts: readonly number[], pal?: Palette): Grid {
+  const g = new Grid(GAUGE_PAIR.columns, GAUGE_PAIR.rows, pal)
+  pcts.slice(0, 2).forEach((p, i) => drawGaugeRing(g, i * GAUGE_PAIR.pitch, 0, p))
+  return g
+}
+
+// ---------- the cockpit: lintel and sill ----------
+
+/** The frame's hues: iris (working), amber (a dialog waits), mint (all done), red (stopped by an error). */
+export type FrameHue = 'iris' | 'amber' | 'mint' | 'red'
+
+/**
+ * The header's top (cockpit spec: "lintel without pill or readout"): a clamp
+ * top left (`█▀▀`: the corner and two upper halves) in `hue`, then a
+ * rule-grey hairline (`▔`) to the right edge.
+ */
+export function frameTop(width: number, o: { hue?: FrameHue; pal?: Palette } = {}): Grid {
+  const g = new Grid(width, 1, o.pal)
+  const hue = o.hue ?? 'iris'
+  g.full(0, 0, hue)
+  for (let i = 1; i < Math.min(3, width); i++) g.px(i, 0, hue)
+  for (let i = 3; i < width; i++) g.ht(i, 0, 'rule')
+  return g
+}
+
+/** The header's foot: a rule-grey hairline (`▁`), then the mirrored clamp bottom right (`▄▄█`). */
+export function frameFoot(width: number, o: { hue?: FrameHue; pal?: Palette } = {}): Grid {
+  const g = new Grid(width, 1, o.pal)
+  const hue = o.hue ?? 'iris'
+  for (let i = 0; i < width - 3; i++) g.lv(i, 0, 1, 'rule')
+  for (let i = Math.max(0, width - 3); i < width - 1; i++) g.px(i, 1, hue)
   g.full(width - 1, 0, hue)
   return g
 }

@@ -15,7 +15,7 @@ import type { ConfigValue, EngineInterface, PluginOptions, RenderElement } from 
 import { debug, errText } from '../state'
 import { nameFit, wordFit } from './fit'
 import { closePage, openPage } from './pagenav'
-import { richDeck, runText, section } from './parts'
+import { richDeck, runText, tableHead } from './parts'
 import type { InstSpec } from './parts'
 import { drawBars, drawBeads, drawSprite, drawStack, Grid } from './raster'
 import type { Hue } from './raster'
@@ -425,11 +425,11 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
     }
     if (rows.length === 0) continue
     out.push(<Text key={`opt-gap-${name}`}>{' '}</Text>)
-    out.push(<Box key={`opt-sec-${name}`}>{section(ctx, $, name, 'value', 'applies')}</Box>)
+    out.push(<Box key={`opt-sec-${name}`}>{tableHead(ctx, $, name, 'value', 'applies')}</Box>)
     out.push(...rows)
   }
   out.push(<Text key="opt-gap-never">{' '}</Text>)
-  out.push(<Box key="opt-sec-never">{section(ctx, $, 'NEVER')}</Box>)
+  out.push(<Box key="opt-sec-never">{tableHead(ctx, $, 'NEVER')}</Box>)
   NEVER.forEach((line, i) => {
     out.push(
       <Text key={`opt-never-${i}`} dimColor>

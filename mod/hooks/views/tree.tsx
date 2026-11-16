@@ -9,7 +9,7 @@ import type { Jump } from './agentmeta'
 import { tokenText } from './budget'
 import { crewNode, factsOf, openedAgent } from './crewnode'
 import { elapsed, placed, wordFit, wrapWords } from './fit'
-import { inst, runText, section } from './parts'
+import { inst, runText, tableHead } from './parts'
 import type { Flag, Run } from './parts'
 import type { ViewCtx } from './shell'
 import type { PodState } from './style'
@@ -392,7 +392,7 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, sta
     return {
       el: (
         <Box key="tree" flexDirection="column">
-          {section(ctx, $, 'MAP', 'tokens', 'time')}
+          {tableHead(ctx, $, 'MAP', 'tokens', 'time')}
           {rows}
           {note !== ''
             ? wrapWords(note, Math.max(1, cols - GRID.margin), 4).map((l, i) => (

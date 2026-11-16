@@ -6,7 +6,7 @@ import type { UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { meter, pillRun, pips, spark } from './fit'
-import { barCell, blank, deck, fitHints, footer, heightOf, more, opened, pill, readout, row, section, sparkCell, stackCell } from './parts'
+import { barCell, blank, deck, fitHints, footer, heightOf, more, opened, pill, readout, row, tableHead, sparkCell, stackCell } from './parts'
 import type { DeckRow } from './parts'
 import type { ReadoutCell } from './parts'
 import { colOf, screen } from './screen.testkit'
@@ -137,8 +137,8 @@ test('row: one Button keyed by the row, the gutter a sibling Text of width 2; no
 test('section: accent corner at 0, bold label at 2, dim heads at 38 and 50; NEEDS YOU in warning', async ($, on) => {
   draws(on, (ctx, $) => (
     <>
-      {section(ctx, $, 'AGENTS', 'tokens', 'time')}
-      {section(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })}
+      {tableHead(ctx, $, 'AGENTS', 'tokens', 'time')}
+      {tableHead(ctx, $, 'NEEDS YOU', 'why', 'waiting', { tone: 'wait' })}
     </>
   ))
   for (const surface of SURFACES) {
@@ -158,7 +158,7 @@ test('section: accent corner at 0, bold label at 2, dim heads at 38 and 50; NEED
 })
 
 test('section: the time head moves to the last cell at 40 and the heads go at 34', async ($, on) => {
-  draws(on, (ctx, $) => section(ctx, $, 'AGENTS', 'tokens', 'time'))
+  draws(on, (ctx, $) => tableHead(ctx, $, 'AGENTS', 'tokens', 'time'))
   const [at40] = await rows($, 'terminal', 40)
   expect(at40).not.toContain('tokens')
   expect(colOf(at40, 'time')).toBe(26)
@@ -579,7 +579,7 @@ test('heightOf: the rows a built deck, a section and a blank take, as the screen
         { key: 'r1', label: 'ONE', cells: [{ col: DECK.gauge, runs: [{ text: 'a' }] }] },
         { key: 'r2', label: 'TWO', cells: [{ col: DECK.gauge, runs: [{ text: 'b' }] }] },
       ]),
-      section(ctx, $, 'LIST', 'tokens', 'time'),
+      tableHead(ctx, $, 'LIST', 'tokens', 'time'),
       blank(ctx, $, 'gap'),
       row(ctx, $, { key: 'x', glyph: '▸', name: 'a row' }),
     ]

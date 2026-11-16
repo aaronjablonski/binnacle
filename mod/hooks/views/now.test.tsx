@@ -5,6 +5,7 @@ import type { On } from 'claude-code'
 import type { Step, Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
 import { agent, asked, busy, finished, idle, longList, NOW, step, watching } from './now.fixtures.testkit'
+import { warmWords } from './fit'
 import { dealRows } from './overview'
 import { backTo, keepLog, LOGS, screen } from './screen.testkit'
 
@@ -296,15 +297,45 @@ test('R7: after 2 min with no activity the header reads "· quiet n min", dim; b
   await ui.unmount()
 })
 
-test('R29: the cache countdown shows at idle only: "cache stays warm m:ss"', async ($, on) => {
+// BEHAVIOUR CHANGE (task C3b, item 4): was "cache stays warm m:ss" (2:51, jumping 10 s at a time); the countdown is whole minutes now.
+test('R29: the cache countdown shows at idle only, in whole minutes: "cache stays warm about 2 min"', async ($, on) => {
   const stored = world(on, idle())
   let ui = await mount($)
-  expect((await rowsOf(ui))[10]).toContain('cache stays warm 2:51')
+  const line = (await rowsOf(ui))[10]!
+  expect(line).toContain('cache stays warm about 2 min')
+  expect(line).not.toMatch(/\d:\d\d/)
   await ui.unmount()
   stored.set('timeline', busy())
   ui = await mount($)
   expect((await rowsOf(ui)).join('\n')).not.toContain('cache')
   await ui.unmount()
+})
+
+test('the warm words are about N min while at least a minute is left, and "under 1 min" near the end', async ($, on) => {
+  // 12 s after the last reply of a 5 min cache: 4 min 48 s left.
+  const stored = world(on, { ...idle(), cache: { at: NOW - 12_000 } })
+  let ui = await mount($)
+  expect((await rowsOf(ui))[10]).toContain('cache stays warm about 4 min')
+  await ui.unmount()
+  // 250 s after it: 50 s left.
+  stored.set('timeline', { ...idle(), cache: { at: NOW - 250_000 } })
+  ui = await mount($)
+  const near = (await rowsOf(ui))[10]!
+  expect(near).toContain('cache stays warm under 1 min')
+  expect(near).not.toMatch(/\d:\d\d/)
+  await ui.unmount()
+})
+
+test('warmWords: whole minutes rounded down, "under 1 min" in the last minute, never m:ss', () => {
+  expect(warmWords(288_000)).toBe('about 4 min')
+  expect(warmWords(171_000)).toBe('about 2 min')
+  expect(warmWords(60_000)).toBe('about 1 min')
+  expect(warmWords(59_999)).toBe('under 1 min')
+  expect(warmWords(1000)).toBe('under 1 min')
+  expect(warmWords(0)).toBe('under 1 min')
+  expect(warmWords(-5000)).toBe('under 1 min')
+  expect(warmWords(3_600_000)).toBe('about 60 min')
+  for (const ms of [0, 1000, 59_000, 61_000, 171_000, 299_000, 3_599_000]) expect(warmWords(ms)).not.toMatch(/\d:\d\d/)
 })
 
 // ---------- presses ----------

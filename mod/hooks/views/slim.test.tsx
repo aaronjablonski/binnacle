@@ -263,7 +263,9 @@ test('pressing BUDGET opens the budget view with b: back, and back returns', asy
   await ui.press({ key: 'slim-go-budget' })
   const rows = await rowsOf(ui)
   expect(rows[0]).toContain('b: back')
-  expect(rows.some(r => colOf(r, 'resets in 1h00') === 8 || colOf(r, 'resets in 1h00') === 26)).toBe(true)
+  // BEHAVIOUR CHANGE (task C3b): was the reset words at 8 or 26; the cockpit's narrow budget is a word, a figure and a full-width bar per window, then the Windows rows.
+  expect(rows.some(r => r.includes('5 hours') && r.includes('%'))).toBe(true)
+  expect(rows.some(r => /^ *━{10,}$/.test(r))).toBe(true)
   for (const r of rows) expect(r.length).toBeLessThanOrEqual(24)
   await ui.press({ key: 'budget-back' })
   expect((await rowsOf(ui)).some(r => r.startsWith(' To do'))).toBe(true)

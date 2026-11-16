@@ -173,27 +173,28 @@ async function budgetOf($: Engine, on: On, t: Timeline, cols = 62, showCost = fa
 
 test('pace is silent early: a window that has not moved 2 points over 5 minutes has no trend row and no full-in', async ($, on) => {
   const { ui, rows } = await budgetOf($, on, busy({ samples: SAMPLES([18, 18]) }))
-  expect(await rasters(ui)).not.toContain('rate-5h')
-  expect(rows.join('\n')).not.toMatch(/full \d/)
+  expect(rows.join('\n')).not.toMatch(/per 10 min|full in/)
   await ui.unmount()
 })
 
-test('pace speaks once a window moved: the trend, per 10 minutes and when it fills, amber when it fills before the reset', async ($, on) => {
+// LOOK TEST (rewritten for the cockpit, task C3b): the Windows rows say the rate and when it fills in words ("+5.9 per 10 min", "full in 37 min"), bold (never amber) when it fills before the reset.
+test('pace speaks once a window moved: per 10 minutes and when it fills in words, bold when it fills before the reset, how long before it resets', async ($, on) => {
   const t = busy({
     budget: { ...BUDGET, windows: [{ name: 'five_hour', pct: 78, resetsAt: NOW + 4_000_000 }, { name: 'seven_day', pct: 22, resetsAt: NOW + 86_400_000 }] },
     samples: SAMPLES([50, 56, 62, 68, 72, 78]),
   })
   const { ui, rows } = await budgetOf($, on, t)
-  expect(await rasters(ui)).toContain('rate-5h')
-  expect(rows.some(r => /full \d+m/.test(r))).toBe(true)
-  expect(rows.some(r => /short \d+m/.test(r))).toBe(true)
-  expect(rows.some(r => r.includes('+'))).toBe(true)
-  const amber = (await ui.findAll({ type: 'Text' })).find(f => /^full \d+m$/.test(f.text ?? ''))
-  expect(amber?.props).toMatchObject({ color: 'warning' })
+  expect(rows.join('\n')).toMatch(/\+\d+\.\d per 10 min/)
+  expect(rows.join('\n')).toMatch(/full in \d+ min/)
+  expect(rows.join('\n')).toMatch(/\d+ min before it resets/)
+  const hot = (await ui.findAll({ type: 'Text' })).find(f => /^full in \d+ min$/.test(f.text ?? ''))
+  expect(hot?.props).toMatchObject({ bold: true })
+  expect((hot?.props as { color?: string }).color).toBeUndefined()
   await ui.unmount()
 })
 
-test('the budget view: windows as beads, OUTPUT, CACHE with the warm countdown, then MODELS and AGENTS shares', async ($, on) => {
+// LOOK TEST (rewritten for the cockpit, task C3b): rings in place of beads; Windows, Cache (whole-minute warm words), Models and Agents sections.
+test('the budget view: rings, the output rate, Cache with the warm words, then Models and Agents shares', async ($, on) => {
   const t = busy({
     cache: { at: NOW - 60_000 },
     agents: {
@@ -203,12 +204,14 @@ test('the budget view: windows as beads, OUTPUT, CACHE with the warm countdown, 
   })
   const { ui, rows } = await budgetOf($, on, t)
   const got = await rasters(ui)
-  for (const k of ['win-ctx', 'win-5h', 'win-7d', 'cache', 'budget-lintel']) expect(got).toContain(k)
+  for (const k of ['budget-rings', 'budget-lintel', 'budget-sill']) expect(got).toContain(k)
+  for (const gone of ['win-ctx', 'win-5h', 'win-7d', 'cache']) expect(got).not.toContain(gone)
   expect(rows.some(r => r.includes('% read'))).toBe(true)
-  expect(rows.some(r => /warm ~\d:\d\d/.test(r))).toBe(true)
+  expect(rows.some(r => r.trim() === 'stays warm about 4 min')).toBe(true)
+  expect(rows.filter(r => r.includes('warm')).join('\n')).not.toMatch(/\d:\d\d/)
   expect(rows.some(r => r.includes('going cold re-sends'))).toBe(true)
-  expect(rows.some(r => r.startsWith('┌ MODELS'))).toBe(true)
-  expect(rows.some(r => r.startsWith('┌ AGENTS'))).toBe(true)
+  expect(rows.some(r => r.startsWith('  Models'))).toBe(true)
+  expect(rows.some(r => r.startsWith('  Agents'))).toBe(true)
   expect(rows.some(r => r.includes('/min'))).toBe(true)
   await ui.unmount()
 })
@@ -223,7 +226,8 @@ test('cost is hidden without the option, and shown with showCost: the session an
 test('cost shows with showCost on', { options: { showCost: true } }, async ($, on) => {
   const t = busy({ budget: { ...BUDGET, costUsd: 4.12 }, turnCost: { turnId: 't1', from: 3.74, to: 4.12 } })
   const on_ = await budgetOf($, on, t, 62, true)
-  expect(on_.rows.some(r => r.includes('COST') && r.includes('$4.12 session') && r.includes('$0.38 turn'))).toBe(true)
+  expect(on_.rows.some(r => r.includes('$4.12 session') && r.includes('$0.38 turn'))).toBe(true)
+  expect(on_.rows.some(r => r.startsWith('  Cost'))).toBe(true)
   await on_.ui.unmount()
 })
 

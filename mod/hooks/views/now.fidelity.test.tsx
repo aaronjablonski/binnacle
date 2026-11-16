@@ -109,11 +109,6 @@ const put = (row: string, col: number, text: string): string => {
 }
 
 // Deviations every pane board shares.
-const TABS = 'shell tab bar as built (not C3): the track runs on under the closed tabs, and `0: options` sits on the blank row (a Button takes a digit, not `,`)'
-const tabs = (rows: string[]): void => {
-  rows[1] = '  ━━━━━━──────────────────────────────────────────────────────'
-  rows[2] = put('', 52, '0: options')
-}
 /** R25: a critter box is 6 wide (the badge column at 7 is always reserved), so the mock's 5-wide box takes one more ¤ column. */
 const R25 = 'R25: the critter box holds its badge column (col 7 small, col 5 micro slim)'
 const badgeCol = (from: number, to: number, col: number) => (rows: string[]): void => {
@@ -137,7 +132,6 @@ test('fidelity: CockpitNow (busy) at 62 columns matches the mock but for the lis
   world(on, busy())
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitNow')
-    .patch(TABS, tabs)
     .patch('R29: no cache countdown while working', b0 => void (b0[10] = b0[10]!.replace(' · cache warm 4:48', '                  ')))
     .patch('R14: one done row above the current task', dropRow(18))
     .patch('R14 + height rule: the row the second done row gave back shows the last open task instead of "+ 1 more to do"', rows => void (rows[23] = '  ○ Open the pull request'))
@@ -159,7 +153,6 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
   world(on, asked())
   const got = await drawn($, 62, 46, true)
   const b = new Board('CockpitNowNeedsYou')
-    .patch(TABS, tabs)
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
   b.patch('R5: the asker is a subagent and Explorer still runs, so the task is not paused: "Working on"', b.sub(6, 'Paused on', 'Working on'))
   b.patch('R23 and real data: the asker is general-purpose: General', b.sub(14, 'Builder asks to run a command', 'General asks to run a command'))
@@ -182,7 +175,6 @@ test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the liste
   world(on, watching())
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitNowWatch')
-    .patch(TABS, tabs)
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
   b.patch('R6 and R27: the long run reads "Explorer has run 1 h 4 min (limit 60)" (no median for its type here)', b.sub(16, 'Explorer has run 64 min, past the usual 60', 'Explorer has run 1 h 4 min (limit 60)'))
   b.patch('height rule: spare rows go to To do (up to 7), so the two open tasks show in place of "+ 2 more to do"', rows => {
@@ -206,9 +198,8 @@ test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed
   world(on, idle())
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitNowIdle')
-    .patch(TABS, tabs)
     .patch(R25, badgeCol(6, 8, 7))
-  b.patch('R29: "cache stays warm 2:51"; "used" goes to fit the line beside the gauges', b.sub(10, '644k of 1M used · cache warm 2:51 ', '644k of 1M · cache stays warm 2:51'))
+  b.patch('R29 and the whole-minute words: "cache stays warm about 2 min"; "used" and " of 1M" go to fit the line beside the gauges', b.sub(10, '644k of 1M used · cache warm 2:51  ', '644k · cache stays warm about 2 min'))
   b.patch('real data: no retry is recorded, so the agents fact has no detail', b.sub(23, '     1 was retried after a failure', ''))
   b.patch('footer: `e` is armed here, so it is a hotkeyed Button and the engine draws its colon', b.sub(45, 'e export handoff', 'e: export handoff'))
   // On a mismatch the received value is both boards side by side.

@@ -10,22 +10,19 @@
 // `<title>` tooltips where the Svg is interactive. It takes no presses:
 // everything pressable stays a Button outside it.
 //
-// Pure: strings from the Timeline, no claude-code import, so vitest loads it.
+// Pure: strings from the Timeline and a `DeckHead`, no claude-code import (and
+// none of the views that have one), so vitest loads it. The header's words
+// come from the pane's own functions in `svgview.tsx` (`deckHead`), handed in.
 
 import type { AgentRow, Timeline, UiState } from '../../types'
 import { taskMeter } from '../model/meter'
-import { headerState, needs, watch } from '../model/alerts'
+import { needs, watch } from '../model/alerts'
 import { summary } from '../model/select'
-import { todoBlock } from '../model/todo'
 import { agentsWords, bandModel, bandWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
-import { budgetWords, nowGauges } from './budget'
 import { wordFit } from './fit'
-import { headline } from './lay'
-import { headWords } from './overview'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
 import type { Ground, Hue, Palette } from './raster'
-import type { ViewCtx } from './shell'
 import { CK, crewRole, palette, podStateOf } from './style'
 import type { PodState, Role, Run } from './style'
 
@@ -42,6 +39,24 @@ export type CrewFig = { role: Role; state: PodState; title: string }
 
 /** One column of the plan strip: a task's tokens, and whether it is the one in progress. */
 export type PlanFig = { tokens: number; current: boolean; title: string }
+
+/**
+ * The header's words, as the pane's header has them: `headWords`' pill, tone,
+ * meta, kicker and lead state, `headline`'s goal, `budgetWords`' line and
+ * `nowGauges`. Built by `deckHead` (svgview.tsx) and handed in, so this
+ * module stays free of the views that import the engine.
+ */
+export type DeckHead = {
+  pill: string
+  /** The pill's tone: iris, amber, mint or red; `mute` for the grey IDLE pill. */
+  tone: Hue | 'mute'
+  meta: Run[]
+  kicker: string
+  lead: PodState
+  goal: { text: string; isIdle: boolean }
+  budget: Run[]
+  gauges: { pct: number; label: string }[]
+}
 
 /** What the deck shows, read once from the Timeline. */
 export type DeckModel = {
@@ -108,33 +123,25 @@ function crewRank(a: AgentRow): number {
 }
 
 /**
- * The deck's model: what Now's Svg draws and its alt says. The pill, its meta
- * and the kicker are the terminal header's (`headWords`: WAITING FOR YOU while
- * a dialog needs the person, WORKING with the turn's time and the quiet time,
- * STOPPED with its reason, ALL DONE, IDLE); the goal is `headline` (R14); the
- * gauges are `nowGauges`; the budget line `budgetWords`. Watch rows colour
- * nothing (R9). `covered` is the pane's `isPromptCovered`: with it an auto-mode
- * ask is a need at once (C-1), as the terminal header reads it.
+ * The deck's model: what Now's Svg draws and its alt says. The header's words
+ * are `head`'s (the terminal header's: WAITING FOR YOU while a dialog needs
+ * the person, WORKING with the turn's time and the quiet time, STOPPED with
+ * its reason, ALL DONE, IDLE); the crew and the plan strip are read here.
+ * Watch rows colour nothing (R9). `covered` is the pane's `isPromptCovered`:
+ * with it an auto-mode ask is a need at once (C-1), as the terminal reads it.
  */
-export function deckModel(t: Timeline, u: UiState, now: number, covered = false): DeckModel {
+export function deckModel(t: Timeline, u: UiState, now: number, head: DeckHead, covered = false): DeckModel {
   const s = summary(t)
   const view = needs(t, now, { covered })
-  const hs = headerState(t, now, view)
-  const todo = todoBlock(t, view.items.map(n => n.agent))
-  const words = headWords({ t, u, now, cols: 62 } as unknown as ViewCtx, view, hs, todo)
   const flags: Flags = {
     asking: new Set(view.items.map(n => n.agent)),
     stalled: new Set(watch(t, now, u.dismissed).filter(w => w.kind === 'stalled' || w.kind === 'quiet').map(w => w.agent)),
   }
   const subs = Object.values(t.agents).filter(a => a.id !== 'main')
-  const pill: DeckModel['pill'] = { word: words.pill, hue: words.pillColor !== undefined ? 'mute' : (words.tone as Hue) }
 
   // The lead's row stays running for the whole session: its critter follows the header.
   const main = t.agents.main
-  const lead: CrewFig = main !== undefined ? crewFig(main, flags, words.lead) : { role: 'lead', state: words.lead, title: 'the lead' }
-
-  const head = headline(t)
-  const rings: RingFig[] = nowGauges(t).map(g => ({ name: g.label, pct: clampPct(g.pct) }))
+  const lead: CrewFig = main !== undefined ? crewFig(main, flags, head.lead) : { role: 'lead', state: head.lead, title: 'the lead' }
 
   const ranked = [...subs].sort((x, y) => crewRank(x) - crewRank(y) || y.startedAt - x.startedAt)
   const crew = ranked.slice(0, MAX_CREW).map(x => crewFig(x, flags))
@@ -147,14 +154,14 @@ export function deckModel(t: Timeline, u: UiState, now: number, covered = false)
   }))
 
   return {
-    pill,
-    meta: words.meta,
-    kicker: words.kicker,
+    pill: { word: head.pill, hue: head.tone },
+    meta: head.meta,
+    kicker: head.kicker,
     lead,
-    focus: oneLine(head.text),
-    isIdle: head.isIdle,
-    budget: budgetWords(t, now, { idle: hs.state !== 'working' && hs.state !== 'waiting' }),
-    rings,
+    focus: oneLine(head.goal.text),
+    isIdle: head.goal.isIdle,
+    budget: head.budget,
+    rings: head.gauges.map(g => ({ name: g.label, pct: clampPct(g.pct) })),
     crew,
     more: Math.max(0, ranked.length - crew.length),
     live: s.running.length,
@@ -381,9 +388,9 @@ function fitPieces(pieces: Piece[], px: number, size: number): Piece[] {
  * no Next, no Steps trace and no Cache row (the cockpit removed them, R26).
  * Drawn on `g`, the ground the pane draws on (day on a light theme).
  */
-export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, g: Ground = 'night', covered = false): string {
+export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, head: DeckHead, g: Ground = 'night', covered = false): string {
   ground = g
-  const m = deckModel(t, u, now, covered)
+  const m = deckModel(t, u, now, head, covered)
   const W = deckWidth(cols)
   const L = 22
   const C = 84
@@ -480,7 +487,7 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
   ground = g
   const m = model ?? bandModel(t, u, now)
   const W = bandWidth(cols)
-  const dm = (): DeckModel => deckModel(t, u, now)
+  const dm = (): { pill: DeckModel['pill']; focus: string } => ({ pill: { word: m.form === 'asked' ? 'NEEDS YOU' : m.form === 'stopped' ? 'STOPPED' : 'WORKING', hue: m.form === 'asked' ? 'amber' : m.form === 'stopped' ? 'red' : 'iris' }, focus: m.focus })
   const right = W - 16
   if (m.form === 'idle' && m.rest !== undefined) {
     const H = 34
@@ -551,8 +558,8 @@ const ringsSaid = (m: DeckModel): string => m.rings.map(r => `${r.name} ${r.pct}
 const metaSaid = (m: DeckModel): string => m.meta.map(r => r.text).join('').trim()
 
 /** Now's header in words, for a reader that cannot see the Svg: the pill and its meta, the kicker and the goal, the budget line, the gauges, the agents and the to-dos. */
-export function nowDeckAlt(t: Timeline, u: UiState, now: number, covered = false): string {
-  const m = deckModel(t, u, now, covered)
+export function nowDeckAlt(t: Timeline, u: UiState, now: number, head: DeckHead, covered = false): string {
+  const m = deckModel(t, u, now, head, covered)
   const meta = metaSaid(m)
   const parts = [`Now: ${m.pill.word}${meta !== '' ? `, ${meta}` : ''}. ${m.kicker}: ${m.focus}.`]
   const budget = m.budget.map(r => r.text).join('').trim()

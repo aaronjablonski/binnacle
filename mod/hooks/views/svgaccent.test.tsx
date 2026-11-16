@@ -5,6 +5,7 @@ import { initialUi } from '../state'
 import { ACCENT_HUES, PALETTE } from './raster'
 import { setAccent } from './style'
 import { bandSvg, nowDeckSvg } from './svg'
+import { deckHead } from './svgview'
 import type { Timeline } from '../../types'
 
 // FX4: the desktop Svg's structural accent follows the Accent option; state and role colours stay.
@@ -22,7 +23,7 @@ const t: Timeline = {
 }
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`
-const docs = (): string[] => [nowDeckSvg(t, initialUi, NOW, 62), bandSvg(t, initialUi, NOW, 62)]
+const docs = (): string[] => [nowDeckSvg(t, initialUi, NOW, 62, deckHead({ t, u: initialUi, now: NOW })), bandSvg(t, initialUi, NOW, 62)]
 
 
 test('the default accent draws the night iris in the Svg', () => {

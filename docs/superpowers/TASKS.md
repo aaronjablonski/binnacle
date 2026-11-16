@@ -1,6 +1,6 @@
 # Task list
 
-Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger is `.superpowers/sdd/2026-11-15-mission-control-mod/progress.md`.
+Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger is `.superpowers/sdd/2026-11-15-mission-control-mod/progress.md`.
 
 ## Done
 
@@ -36,10 +36,10 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [x] R1a raster engine + paint clock · D1 distilled data
 - [x] R1b style/fit/parts/editor/shell routing
 - [x] R2 Now/needs/budget/slim/strip · R3 Agents + crew map · R4 Tasks + Steps pages · R5 Artifacts + band · R6 Options + desktop Svg
-- [ ] R7 delights + Accent
+- [x] R7 delights + Accent (done in the cockpit build as C7)
 - [x] Opus review + fix round
 - [ ] Aaron's live check
-- [ ] Next: calm cockpit restyle + chosen crew family + NEEDS YOU/WATCH split + task-list guide (awaiting Aaron's picks)
+- [x] Superseded by the cockpit + Critters build below
 
 ## (superseded by Neo Rich) distilled features (`plans/2026-11-15-mission-control-distilled.md`)
 
@@ -50,11 +50,20 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 - [ ] D5: quiet delights (clean-run sweep, round-number toasts) and Accent option
 - [ ] Opus review of D1–D5
 
+## Done: cockpit + Critters build (`plans/2026-11-16-mission-control-cockpit-critters.md`, rulings sheet beside it)
+
+- [x] C1–C7: foundation, alert model + guide, Now, Agents + crew map, Tasks/Steps/Artifacts, band + desktop Svg, delights + Accent
+- [x] Reviews: Opus C1–C2, Opus C3–C6, Fable rounds 1–3, Opus whole branch; fix rounds FX1–FX4, FW-A/B, R3-A/B, re-checks
+- [x] Round gauges at the terminal's cell aspect (Windows Terminal, VS Code)
+- [ ] Owner live check (list in the ledger and the morning summary)
+- [ ] Owner review of the rulings sheet's mock deviations
+
 ## Release prep
 
 - [ ] Choose a new name (Mission Control is taken by several Claude Code mods) and rename plugin, pane id, tool, `/mc`, docs
 - [x] README rewritten with images from the real views (`node docs/readme/tools/make.mjs`)
 - [ ] Licence, author, icon (512–2048 px PNG); GitHub remote for badges
-- [ ] Remove personal names from tracked docs (`HANDOVER.md`)
+- [x] Remove personal names from tracked docs (`HANDOVER.md`)
 - [ ] Triage deferred minor findings (listed in the ledger)
-- [ ] Final adversarial whole-branch review (Opus), fixes, PR
+- [x] Whole-branch review (Opus) and final DX review (Fable round 3), fixes
+- [ ] PR (after the rename and the live check)

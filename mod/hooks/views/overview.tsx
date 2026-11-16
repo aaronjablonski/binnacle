@@ -22,7 +22,7 @@ import { drawCritter, Grid } from './raster'
 import type { ViewCtx } from './shell'
 import { TAB_ROWS } from './shell'
 import { deckSvg } from './svgview'
-import { C, CK, COCKPIT, critterArgs, critterOf, crewRole, edges, typeName } from './style'
+import { accentName, C, CK, COCKPIT, critterArgs, critterOf, crewRole, edges, palette, typeName } from './style'
 import type { PodState, Tone4 } from './style'
 import { stripNow } from './stripband'
 import { watchBlock, watchHeight, watchRows } from './watch'
@@ -364,9 +364,9 @@ export function restingSpec(t: Timeline, ground: 'night' | 'day'): InstSpec {
     key: 'rest',
     columns,
     rows: 2,
-    sig: `rest:${ground}:${roles.join(',')}`,
+    sig: `rest:${ground}:${accentName()}:${roles.join(',')}`,
     frames: () => {
-      const g = new Grid(columns, 2)
+      const g = new Grid(columns, 2, palette(ground))
       roles.forEach((r, i) => drawCritter(g, i * 5, 0, r, 'done', 'micro', { ground }))
       return [g]
     },

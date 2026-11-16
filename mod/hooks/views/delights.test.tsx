@@ -7,7 +7,7 @@ import { initialUi } from '../state'
 import { SWEEP_FRAMES, SWEEP_STEP_MS, SWEEP_WIDTH, resetSweep, sweepCells } from './delights'
 import { asked, busy, idle, NOW, step, tasksOf } from './now.fixtures.testkit'
 import { resetPaint } from './paint'
-import { ACCENT_HUES, decode, PALETTE } from './raster'
+import { ACCENT_HUES, decode, DOT_BITS, PALETTE } from './raster'
 import { screen } from './screen.testkit'
 
 // R36 (the delights) and R35 (the accent). The sweep and the toasts run from
@@ -18,13 +18,13 @@ const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 type Stored = Map<string, unknown>
 type World = { stored: Stored; clock: MockClock; toasts: string[] }
 
-function world(on: On, t: Timeline, u: UiState): World {
+function world(on: On, t: Timeline, u: UiState, env: Record<string, string> = {}): World {
   resetPaint()
   resetSweep()
   const stored: Stored = new Map<string, unknown>([['timeline', t], ['ui', u]])
   const clock = mock.clock(on, { now: NOW })
   const toasts: string[] = []
-  mock.env(on, {})
+  mock.env(on, env)
   on('ui.log', () => ({ value: undefined }))
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
@@ -103,12 +103,23 @@ test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it
   const w = world(on, clean(), OPEN)
   await start($)
   const ui = await $.ui.mount(PANE(62) as never)
-  expect(await lit(ui, w.clock, 3000)).toEqual(STEPS)
+  // The mock clock runs the sweep's clock.after chain exactly (FX4): sample once per step, in the middle of each frame, not every 100 ms.
+  const seen: (number | undefined)[] = []
+  await w.clock.advance(1000 + SWEEP_STEP_MS / 2)
+  for (let i = 0; i < SWEEP_FRAMES; i++) {
+    if (i > 0) await w.clock.advance(SWEEP_STEP_MS)
+    await ui.redraw()
+    seen.push(litFrom(screen(await ui.drawn())))
+  }
+  expect(seen).toEqual(STEPS)
   expect(SWEEP_FRAMES).toBe(5)
   expect(SWEPT(w)).toBe(true)
   // It ended: nothing sweeps on later ticks (a new pass would show for 800 ms, longer than the 400 ms step), and the rule is plain.
-  expect(await lit(ui, w.clock, 20_000, 400)).toEqual([])
-  expect(litFrom(screen(await ui.drawn()))).toBeUndefined()
+  for (const ms of [SWEEP_STEP_MS, 4000, 16_000]) {
+    await w.clock.advance(ms)
+    await ui.redraw()
+    expect(litFrom(screen(await ui.drawn()))).toBeUndefined()
+  }
   await ui.unmount()
 })
 
@@ -412,4 +423,41 @@ test('with the rich look the sweep redraws the lintel Raster at the same size on
   }
   expect(SWEPT(w)).toBe(true)
   await ui.unmount()
+})
+
+// ---------- the gauge ring is round (FX4) ----------
+
+/** Width / height in pixels of the dots of the first gauge (cells 0 to 8) of the drawn header, for a cell `a` times taller than wide. */
+async function gaugeRatio($: Engine, on: On, env: Record<string, string>, a: number): Promise<number> {
+  world(on, busy(), OPEN, env)
+  await start($)
+  const ui = await $.ui.mount(PANE(62) as never)
+  const r = await ui.find({ type: 'Raster', key: 'now-gauges' })
+  await ui.unmount()
+  expect(r).toBeDefined()
+  const { columns, cells } = r!.props as { columns: number; cells: string }
+  const dots: [number, number][] = []
+  decode(cells).forEach(([cp], i) => {
+    const cx = i % columns
+    if (cx > 8 || cp < 0x2800 || cp > 0x28ff) return
+    for (let c = 0; c < 2; c++) for (let q = 0; q < 4; q++) if ((cp - 0x2800) & DOT_BITS[c]![q]!) dots.push([cx * 2 + c, Math.floor(i / columns) * 4 + q])
+  })
+  const xs = dots.map(d => d[0])
+  const ys = dots.map(d => d[1])
+  return ((Math.max(...xs) - Math.min(...xs) + 1) * 0.5) / ((Math.max(...ys) - Math.min(...ys) + 1) * 0.25 * a)
+}
+
+test('FX4: in Windows Terminal (WT_SESSION) the header gauge is round within 5 % at aspect 2.35', async ($, on) => {
+  const r = await gaugeRatio($, on, { WT_SESSION: 'x' }, 2.35)
+  expect(Math.abs(r - 1)).toBeLessThan(0.05)
+})
+
+test('FX4: in VS Code (TERM_PROGRAM=vscode) the header gauge is round within 5 % at aspect 2.4', async ($, on) => {
+  const r = await gaugeRatio($, on, { TERM_PROGRAM: 'vscode' }, 2.4)
+  expect(Math.abs(r - 1)).toBeLessThan(0.05)
+})
+
+test('FX4: with no terminal named the header gauge is round within 5 % at aspect 2.2', async ($, on) => {
+  const r = await gaugeRatio($, on, {}, 2.2)
+  expect(Math.abs(r - 1)).toBeLessThan(0.05)
 })

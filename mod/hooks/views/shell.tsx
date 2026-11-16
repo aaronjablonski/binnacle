@@ -23,6 +23,7 @@ import { taskPage, tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
 import { landing, stopsOf, withStart } from './ring'
 import type { Stops } from './ring'
+import { aspectFromEnv, setCellAspect } from './raster'
 
 export const PANE = 'mission-control'
 
@@ -618,6 +619,13 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
     } catch (err) {
       debug($, `autoOpen failed: ${errText(err)}`)
     }
+  }
+  // The terminal's cell aspect, for the gauge ring's round dots (FX4): read once here, never in render.
+  try {
+    const [WT_SESSION, TERM_PROGRAM, TERM] = await Promise.all([$.env.get('WT_SESSION'), $.env.get('TERM_PROGRAM'), $.env.get('TERM')])
+    setCellAspect(aspectFromEnv({ WT_SESSION, TERM_PROGRAM, TERM }))
+  } catch (err) {
+    debug($, `env read failed: ${errText(err)}`)
   }
   // A restored or reloaded session starts with the flag false until the engine says the pane is up.
   await syncPaneOpen($)

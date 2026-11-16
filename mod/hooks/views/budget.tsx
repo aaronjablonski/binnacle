@@ -713,7 +713,7 @@ const WEEKDAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 const weekdayOf = (day: string): string => WEEKDAY[new Date(`${day}T12:00:00`).getDay()] ?? ''
 
 /** The week's seven days as a Raster of stacked day columns (4 wide, pitch 6): the heaviest model `orchid` under the rest `iris`; an empty day is a rest tick. */
-export function weekSpec(days: LedgerDay[]): { spec: InstSpec; primary?: string; second: boolean } {
+export function weekSpec(days: LedgerDay[], ground: Ground = 'night'): { spec: InstSpec; primary?: string; second: boolean } {
   const totals = new Map<string, number>()
   for (const d of days) for (const [m, n] of Object.entries(d.tokens)) totals.set(m, (totals.get(m) ?? 0) + n)
   const primary = [...totals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
@@ -723,9 +723,9 @@ export function weekSpec(days: LedgerDay[]): { spec: InstSpec; primary?: string;
     key: 'week',
     columns,
     rows: 3,
-    sig: `week:${days.map(d => `${d.day}:${primary !== undefined ? (d.tokens[primary] ?? 0) : 0}:${d.total}`).join(',')}`,
+    sig: `week:${ground}:${accentName()}:${days.map(d => `${d.day}:${primary !== undefined ? (d.tokens[primary] ?? 0) : 0}:${d.total}`).join(',')}`,
     frames: () => {
-      const g = new Grid(columns, 3)
+      const g = new Grid(columns, 3, palette(ground))
       days.forEach((d, i) => {
         const a = Math.round((((primary !== undefined ? d.tokens[primary] : 0) ?? 0) / max) * 24)
         const b = Math.round((d.total / max) * 24)
@@ -784,7 +784,7 @@ function weekBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const { left } = edges(ctx.cols)
   const sum: Run[] = [{ text: tokenText(total), bold: true }, { text: ` tokens · ${sessions} ${sessions === 1 ? 'session' : 'sessions'}`, dim: true }]
   const out: RenderElement[] = [blank(ctx, $, 'budget-gap-3'), section(ctx, $, 'This week', sum, { key: 'sec-this-week' })]
-  const { spec, primary, second } = weekSpec(days)
+  const { spec, primary, second } = weekSpec(days, ctx.ground ?? 'night')
   const useCost = ctx.showCost === true && days.some(d => d.usd !== undefined)
   const chartAt = left + 12
   if (chartAt + spec.columns <= ctx.cols - 3 && ctx.cols >= 62) {

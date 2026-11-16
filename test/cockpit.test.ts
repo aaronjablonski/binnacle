@@ -255,6 +255,8 @@ describe('style: ground, theme, columns, roles', () => {
     expect(crewRole('a1', 'whatever')).toBe('build')
   })
 
+  // R3-B M8: meaning added, nothing weakened. A role word that fits the cell goes on the glyph's row when there is no badge ("● lead");
+  // with a badge the reserved column (R25) and the word under the glyph are as before.
   test('a critter instrument: 6 x 3 small, 5 x 2 micro, the text form the same size (R22)', () => {
     const s = critterArgs('build', 'waiting', { size: 'small' })
     expect([s.columns, s.rows]).toEqual([6, 3])
@@ -265,6 +267,8 @@ describe('style: ground, theme, columns, roles', () => {
     const m = critterArgs('scout', 'failed', { size: 'micro' })
     expect([m.columns, m.rows]).toEqual([5, 2])
     expect(m.fallback.map(textOf)).toEqual(['×   !', 'scout'])
+    expect(critterArgs('lead', 'working', { size: 'small' }).fallback.map(textOf)).toEqual(['● lead', '      ', '      '])
+    expect(critterArgs('lead', 'working', { size: 'small', roleWord: false }).fallback.map(textOf)).toEqual(['●     ', '      ', '      '])
     expect(critterGlyph('failed').badge).toEqual({ text: '!', color: 'error', bold: true })
     const f = s.frames()
     expect([f[0]!.columns, f[0]!.rows]).toEqual([6, 3])

@@ -139,11 +139,10 @@ test('fidelity: CockpitAgents (list) at 62 columns matches the mock but for the 
     rows[26] = retime(rows[26]!, '7m 44s', '7 min')
     rows[27] = retime(rows[27]!, '1m 52s', '1 min')
   })
-  b.patch('M6: the List / Map toggle row is in the row under the tabs, as on the crew map, so the list has none under its header (the mock puts it there on this board only)', rows => {
+  b.patch('M6: the List / Map toggle row is in the row under the tabs, as on the crew map, so the list has none under its header (the mock puts it there on this board only); R3-B M4: a blank row follows it, as on the crew map, so the lintel is on row 5 in both', rows => {
     const toggles = rows[10]!
     rows.splice(10, 2)
-    rows.splice(3, 0, toggles)
-    rows.splice(rows.length - 1, 0, '')
+    rows.splice(3, 0, toggles, '')
   })
   compare('CockpitAgents', b, got, 62)
 })
@@ -211,7 +210,7 @@ function relay(row: string, kind: Kind): string {
   return out
 }
 
-const TOGGLES = '  l: List    t: Map    r: Working only'
+const TOGGLES = '   l: List    t: Map   r: Working only'
 
 /** Where the rows that differ between the folded and the unfolded mock sit. */
 type Layout = { doneFirst: number; doneLast: number; children: number[]; next: number }
@@ -220,7 +219,7 @@ type Layout = { doneFirst: number; doneLast: number; children: number[]; next: n
 function relaid(rows: string[], L: Layout): Board {
   const b = new Board(rows)
   const n = rows.length
-  b.patch('R26: the tab bar is the shell\'s; the toggle row is the cockpit\'s (the open one bold between spaces, "Working only")', r => void (r[3] = TOGGLES))
+  b.patch('R26: the tab bar is the shell\'s; the toggle row is the cockpit\'s (the open one bold between spaces, "Working only"; R3-B M4: the three labels stay at columns 3, 14 and 23 whichever mode is open)', r => void (r[3] = TOGGLES))
   b.patch('R26: the lintel is the cockpit\'s (a ¤ row without a pill or a readout)', r => void (r[5] = '¤'.repeat(62)))
   b.patch('R26: "Crew map" and the column heads are dim sentence case, State at 36, Tokens ending at 49, Time ending at 59', r => {
     r[6] = put(put(put('  Crew map', STATE_AT, 'State'), TOKENS_END - 5, 'Tokens'), TIME_END - 3, 'Time')
@@ -252,9 +251,9 @@ function relaid(rows: string[], L: Layout): Board {
     out.push(...r.slice(L.next + 3))
     return out
   })
-  b.patch('R26: "Total" is sentence case; the total is the sum of the rows (832k; the mock\'s 812k is not)', r => {
+  b.patch('R26: "Total" is sentence case; the total is the sum of the rows (832k; the mock\'s 812k is not); R3-B M1: it counts every task of the fixture (9, tasks 5 to 13), where the mock 8 leaves one out', r => {
     const at = r.findIndex(x => x.includes('TOTAL'))
-    r[at] = r[at]!.replace('TOTAL', 'Total').replace('812k', '832k')
+    r[at] = r[at]!.replace('TOTAL', 'Total').replace('812k', '832k').replace('8 tasks', '9 tasks')
   })
   b.patch('R26/R28 amended: the crew mock draws engine colons (`d: unfold done`, `r: running only`); the footer is plain hints in one notation, and r reads "working only"', r => {
     r[r.length - 1] = '  ↵ open   d unfold done   r working only   esc prompt'

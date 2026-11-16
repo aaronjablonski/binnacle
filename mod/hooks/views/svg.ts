@@ -16,6 +16,7 @@
 
 import type { AgentRow, Timeline, UiState } from '../../types'
 import { needs, watch } from '../model/alerts'
+import type { NeedsOptions } from '../model/alerts'
 import { summary } from '../model/select'
 import { agentsWords, bandModel, bandWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
@@ -48,7 +49,7 @@ export type DeckHead = {
   meta: Run[]
   kicker: string
   lead: PodState
-  goal: { text: string; isIdle: boolean }
+  goal: { text: string; isIdle: boolean; isPast?: true }
   budget: Run[]
   gauges: { pct: number; label: string }[]
 }
@@ -114,9 +115,10 @@ function crewFig(a: AgentRow, found: Flags, state?: PodState): CrewFig {
  * Watch rows colour nothing (R9). `covered` is the pane's `isPromptCovered`:
  * with it an auto-mode ask is a need at once (C-1), as the terminal reads it.
  */
-export function deckModel(t: Timeline, u: UiState, now: number, head: DeckHead, covered = false): DeckModel {
+export function deckModel(t: Timeline, u: UiState, now: number, head: DeckHead, covered: boolean | NeedsOptions = false): DeckModel {
   const s = summary(t)
-  const view = needs(t, now, { covered })
+  // R3-B I1: the pane's own read of the needs (`paneNeedsOptions`), so the header agrees with the body after the first minute; a bare boolean is `isPromptCovered`.
+  const view = needs(t, now, typeof covered === 'boolean' ? { covered } : covered)
   const flags: Flags = {
     asking: new Set(view.items.map(n => n.agent)),
     stalled: new Set(watch(t, now, u.dismissed).filter(w => w.kind === 'stalled' || w.kind === 'quiet').map(w => w.agent)),
@@ -136,7 +138,8 @@ export function deckModel(t: Timeline, u: UiState, now: number, head: DeckHead, 
     kicker: head.kicker,
     lead,
     focus: oneLine(head.goal.text),
-    isIdle: head.goal.isIdle,
+    // R3-B I3: between requests the last request's goal stands, dim like the idle words.
+    isIdle: head.goal.isIdle || head.goal.isPast === true,
     budget: head.budget,
     rings: head.gauges.map(g => ({ name: g.label, pct: clampPct(g.pct) })),
     agents: { working: running.length - waiting, waiting, failed: subs.filter(x => x.status === 'error').length },
@@ -340,7 +343,7 @@ function fitPieces(pieces: Piece[], px: number, size: number): Piece[] {
  * counter, no Next, no Steps trace and no Cache row (the cockpit removed them, R26).
  * Drawn on `g`, the ground the pane draws on (day on a light theme).
  */
-export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, head: DeckHead, g: Ground = 'night', covered = false): string {
+export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, head: DeckHead, g: Ground = 'night', covered: boolean | NeedsOptions = false): string {
   ground = g
   const m = deckModel(t, u, now, head, covered)
   const W = deckWidth(cols)
@@ -484,7 +487,7 @@ const ringsSaid = (m: DeckModel): string => m.rings.map(r => `${r.name} ${r.pct}
 const metaSaid = (m: DeckModel): string => m.meta.map(r => r.text).join('').trim()
 
 /** Now's header in words, for a reader that cannot see the Svg: the pill and its meta, the kicker and the goal, the budget line, the gauges, the agents and the to-dos. */
-export function nowDeckAlt(t: Timeline, u: UiState, now: number, head: DeckHead, covered = false): string {
+export function nowDeckAlt(t: Timeline, u: UiState, now: number, head: DeckHead, covered: boolean | NeedsOptions = false): string {
   const m = deckModel(t, u, now, head, covered)
   const meta = metaSaid(m)
   const parts = [`Now: ${m.pill.word}${meta !== '' ? `, ${meta}` : ''}. ${m.kicker}: ${m.focus}.`]

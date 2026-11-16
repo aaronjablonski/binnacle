@@ -5,7 +5,7 @@ import type { Watch } from '../model/alerts'
 import { updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
 import { showInChat } from './find'
-import { shortPaths, wrapWords } from './fit'
+import { shortPaths, span, wrapWords } from './fit'
 import { needsLimits } from './needs'
 import { openStepInline } from './openstep'
 import { runText, section, viewAgent } from './parts'
@@ -49,9 +49,11 @@ export function watchSentence(w: Watch): string {
   const cmd = shortPaths((w.command ?? '').replace(/\s+/g, ' ').trim())
   // M5: a subagent's row names it, as the model's sentences do; the lead's keeps the mock's words (CockpitNowWatch).
   const who = w.agent !== 'main' ? `${w.who}: ` : ''
+  // R3-B M5: a sentence's minutes read as the card reads them ("64 min" is "1 h 4 min", R27).
+  const words = (s: string): string => s.replace(/\b(\d+) min\b/g, (m, n: string) => (Number(n) >= 60 ? span(Number(n) * 60_000) : m))
   if (w.kind === 'repeat' && cmd !== '') return `${who}“${cmd}” failed ${w.count ?? 2} times in a row`
   if (w.kind === 'loop' && cmd !== '') return `${who}“${cmd}” ran ${w.count ?? 3} times this turn`
-  return w.sentence
+  return words(w.sentence)
 }
 
 /** Dismisses a watch row: its key (with its count) goes to `ui.dismissed`. Press handlers only. */
@@ -60,18 +62,47 @@ export function dismissWatch($: EngineInterface, w: Watch): Promise<void> {
 }
 
 /** A row's press: its step opened in place, else the agent's page, else the Steps tab. */
-function openWatch($: EngineInterface, w: Watch, key: string): Promise<void> {
+export function openWatch($: EngineInterface, w: Watch, key: string): Promise<void> {
   if (w.stepId !== undefined) return openStepInline($, w.stepId)
   if (w.agent !== 'main') return openAgentPage($, w.agent, key)
   return updateUi($, u => ({ ...u, tab: 'timeline', filter: { kind: 'all' } }))
 }
 
-/** The rows `watchBlock` takes for `rows` with `cap` listed: the head, each row (two when its sentence wraps), the keys under the first, `+ n more`. */
+/** The most rows a Watch sentence wraps to before it is cut (R3-B I5: wrap before any cut). */
+const SENTENCE_ROWS = 4
+
+/** The hotkeys under the first Watch row: `v` for a subagent, `g` for a step or the spawning call, `x`. */
+function keyHints(ctx: Pick<ViewCtx, 't'>, w: Watch): { hotkey: string; label: string; key: string }[] {
+  const hints: { hotkey: string; label: string; key: string }[] = []
+  if (w.agent !== 'main') hints.push({ hotkey: 'v', label: 'transcript', key: `watch-view-${w.key}` })
+  if ((w.stepId ?? (w.agent !== 'main' ? ctx.t.agents[w.agent]?.spawnStep : undefined)) !== undefined) hints.push({ hotkey: 'g', label: 'chat', key: `watch-chat-${w.key}` })
+  hints.push({ hotkey: 'x', label: 'dismiss', key: `watch-dismiss-${w.key}` })
+  return hints
+}
+
+/** The hints packed into rows from `WATCH_TEXT` to the right edge, three cells apart; a hint dropped from the row it will not fit goes on the next (R3-B I5: `x: dismiss` is never silently lost). */
+function keyRows<T extends { hotkey: string; label: string }>(ctx: ViewCtx, hints: T[]): T[][] {
+  const edge = edges(ctx.cols).right + 1
+  const rows: T[][] = []
+  let used = WATCH_TEXT
+  for (const k of hints) {
+    const width = (rows.length > 0 && used > WATCH_TEXT ? 3 : 0) + k.hotkey.length + 2 + k.label.length
+    if (rows.length === 0 || (used + width > edge && used > WATCH_TEXT)) {
+      rows.push([])
+      used = WATCH_TEXT
+    }
+    rows[rows.length - 1]!.push(k)
+    used += (used > WATCH_TEXT ? 3 : 0) + k.hotkey.length + 2 + k.label.length
+  }
+  return rows
+}
+
+/** The rows `watchBlock` takes for `rows` with `cap` listed: the head, each row (more when its sentence wraps), the keys under the first, `+ n more`. */
 export function watchHeight(ctx: ViewCtx, rows: Watch[], cap: number, keys = true): number {
   if (rows.length === 0) return 0
   const shown = rows.slice(0, cap)
   const room = textRoom(ctx)
-  return 1 + shown.reduce((n, w) => n + Math.min(2, wrapWords(watchSentence(w), room, 2).length), 0) + (keys ? 1 : 0) + (rows.length > shown.length ? 1 : 0)
+  return 1 + shown.reduce((n, w) => n + wrapWords(watchSentence(w), room, SENTENCE_ROWS).length, 0) + (keys ? keyRows(ctx, keyHints(ctx, shown[0]!)).length : 0) + (rows.length > shown.length ? 1 : 0)
 }
 
 const textRoom = (ctx: ViewCtx): number => Math.max(1, edges(ctx.cols).right - WATCH_TEXT + 1)
@@ -95,7 +126,7 @@ export function watchBlock(ctx: ViewCtx, $: EngineInterface, rows: Watch[], cap:
   const shown = rows.slice(0, cap)
   shown.forEach((w, i) => {
     const kind = WATCH_KIND[w.kind]
-    const lines = wrapWords(watchSentence(w), room, 2)
+    const lines = wrapWords(watchSentence(w), room, SENTENCE_ROWS)
     const key = `watch-${w.key}`
     const head: Run[] = [
       { text: `${kind.glyph} `, dim: true },
@@ -110,42 +141,33 @@ export function watchBlock(ctx: ViewCtx, $: EngineInterface, rows: Watch[], cap:
         </Button>
       </Box>,
     )
-    if (lines[1] !== undefined) {
+    lines.slice(1).forEach((line, j) =>
       out.push(
-        <Text key={`${key}-more`} dimColor wrap="truncate-end">
-          {`${' '.repeat(WATCH_TEXT)}${lines[1]}`}
+        <Text key={`${key}-more-${j}`} dimColor wrap="truncate-end">
+          {`${' '.repeat(WATCH_TEXT)}${line}`}
         </Text>,
-      )
-    }
+      ),
+    )
     if (i !== 0 || o.keys === false) return
-    const keys: { hotkey: string; label: string; key: string; run: () => void | Promise<void> }[] = []
-    if (w.agent !== 'main') {
-      const id = w.agent
-      keys.push({ hotkey: 'v', label: 'transcript', key: `watch-view-${w.key}`, run: () => viewAgent($, id) })
+    const run = (h: { hotkey: string }): (() => void | Promise<void>) => {
+      if (h.hotkey === 'v') return () => viewAgent($, w.agent)
+      if (h.hotkey === 'g') {
+        // g: the step's own row in the chat, or for an agent the call that spawned it.
+        const chatId = w.stepId ?? (w.agent !== 'main' ? ctx.t.agents[w.agent]?.spawnStep : undefined)
+        return () => (chatId !== undefined ? showInChat($, chatId) : undefined)
+      }
+      return () => dismissWatch($, w)
     }
-    // g: the step's own row in the chat, or for an agent the call that spawned it.
-    const chatId = w.stepId ?? (w.agent !== 'main' ? ctx.t.agents[w.agent]?.spawnStep : undefined)
-    if (chatId !== undefined) {
-      const id = chatId
-      keys.push({ hotkey: 'g', label: 'chat', key: `watch-chat-${w.key}`, run: () => showInChat($, id) })
-    }
-    keys.push({ hotkey: 'x', label: 'dismiss', key: `watch-dismiss-${w.key}`, run: () => dismissWatch($, w) })
-    const kept: typeof keys = []
-    let used = WATCH_TEXT
-    for (const k of keys) {
-      const width = (kept.length > 0 ? 3 : 0) + k.hotkey.length + 2 + k.label.length
-      if (used + width > edges(ctx.cols).right + 1) break
-      kept.push(k)
-      used += width
-    }
-    out.push(
-      <Box key={`${key}-keys`} flexDirection="row" paddingLeft={WATCH_TEXT} columnGap={3}>
-        {kept.map(k => (
-          <Button key={k.key} hotkey={k.hotkey} plain dimColor onPress={k.run}>
-            {k.label}
-          </Button>
-        ))}
-      </Box>,
+    keyRows(ctx, keyHints(ctx, w)).forEach((row, r) =>
+      out.push(
+        <Box key={r === 0 ? `${key}-keys` : `${key}-keys-${r}`} flexDirection="row" paddingLeft={WATCH_TEXT} columnGap={3}>
+          {row.map(k => (
+            <Button key={k.key} hotkey={k.hotkey} plain dimColor onPress={run(k)}>
+              {k.label}
+            </Button>
+          ))}
+        </Box>,
+      ),
     )
   })
   if (rows.length > shown.length) {

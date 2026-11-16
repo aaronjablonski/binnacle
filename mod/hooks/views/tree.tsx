@@ -4,7 +4,7 @@ import type { AgentRow, TaskItem, Timeline } from '../../types'
 import { agentTree, runningOnlyTree } from '../model/select'
 import type { TreeNode } from '../model/select'
 import { debug, errText, updateUi } from '../state'
-import { EMPTY, RUN_GLYPH, agentCols, cellTime, failReason, isOpen, openAgentPage, runningStep, timeCell, tokensCell, tokensOf, toggleOpen } from './agentmeta'
+import { EMPTY, RUN_GLYPH, agentCols, cellTime, timeRoom, failReason, isOpen, openAgentPage, runningStep, timeCell, tokensCell, tokensOf, toggleOpen } from './agentmeta'
 import { modelName, tokenText } from './budget'
 import { hueHex, lineOf, nodeOf, pipRuns, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
@@ -130,7 +130,7 @@ const tokensSum = (agents: AgentRow[]): string => {
 /** A group's time: from its first start to now while anything runs, else to the last end. */
 function timeOf(ctx: ViewCtx, g: MapGroup): string {
   if (g.agents.length === 0 || !Number.isFinite(g.start)) return ''
-  return cellTime((g.drawn.some(a => a.status === 'running') ? ctx.now : g.end) - g.start)
+  return cellTime((g.drawn.some(a => a.status === 'running') ? ctx.now : g.end) - g.start, timeRoom(ctx.cols))
 }
 
 /** The cells on a row's right: a state word from the state column, tokens ending at the tokens column, time ending at the time column. */
@@ -139,9 +139,13 @@ function rightSegs(ctx: ViewCtx, o: { state?: Run; pips?: Run[]; tokens?: string
   const style: Omit<Run, 'text'> = o.ink === true ? {} : { dim: true }
   const out: Seg[] = []
   if (c.state !== undefined && o.state !== undefined) {
-    out.push({ ...o.state, col: c.state })
+    // R3-B M1: a state word wider than the room before the tokens ("40 working") moves left, one column clear of them, never into them.
+    const tokenStart = c.tokens !== undefined && o.tokens !== undefined && o.tokens !== '' ? c.tokens - o.tokens.length + 1 : undefined
+    const wide = o.state.text.length
+    const stateCol = tokenStart !== undefined && c.state + wide >= tokenStart ? Math.max(1, tokenStart - 1 - wide) : c.state
+    out.push({ ...o.state, col: stateCol })
     if (o.pips !== undefined && o.pips.length > 0) {
-      let col = c.state - 1 - o.pips.reduce((n, p) => n + p.text.length, 0)
+      let col = stateCol - 1 - o.pips.reduce((n, p) => n + p.text.length, 0)
       for (const p of o.pips) {
         out.push({ ...p, col })
         col += p.text.length
@@ -264,7 +268,7 @@ function chipRow(k: Ctx, $: EngineInterface, g: MapGroup, last: boolean, innerTr
   const ground = ctx.ground ?? 'night'
   const start = g.folded.reduce((m, a) => Math.min(m, a.startedAt), Infinity)
   const end = g.folded.reduce((m, a) => Math.max(m, a.endedAt ?? a.startedAt), 0)
-  const nums = rightSegs(ctx, { state: stateRun('done'), pips: pipRuns(g.folded, ground), tokens: tokensSum(g.folded), time: cellTime(end - start) })
+  const nums = rightSegs(ctx, { state: stateRun('done'), pips: pipRuns(g.folded, ground), tokens: tokensSum(g.folded), time: cellTime(end - start, timeRoom(ctx.cols)) })
   const body: Seg[] = [{ col: AGENT_CRITTER, text: `+ ${g.folded.length} done`, dim: true }, ...nums]
   return lineOf(ctx, $, {
     key,
@@ -368,7 +372,9 @@ function spacer(ctx: ViewCtx, $: EngineInterface, key: string): RenderElement {
 /** What the map says it counts: agents (without the lead), tasks that have agents, finished agents. */
 export function mapTotals(t: Timeline, groups: MapGroup[]): { agents: number; tasks: number; done: number } {
   const subs = Object.values(t.agents).filter(a => a.id !== 'main')
-  return { agents: subs.length, tasks: groups.filter(g => g.kind === 'task' && g.agents.length > 0).length, done: subs.filter(a => a.status === 'done').length }
+  // R3-B M1: the total counts every task, not only the ones an agent worked on.
+  void groups
+  return { agents: subs.length, tasks: t.tasks.length, done: subs.filter(a => a.status === 'done').length }
 }
 
 /**
@@ -434,7 +440,7 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, sta
     const everyone = Object.values(t.agents)
     const mainAgent = t.agents.main
     const since = mainAgent !== undefined ? (t.steps.filter(s => s.agent === 'main').reduce((m, s) => Math.min(m, s.startedAt), Infinity)) : Infinity
-    const sums = rightSegs(ctx, { state: { text: `${tot.done} done`, dim: true }, tokens: tokensSum(everyone), time: Number.isFinite(since) ? cellTime(ctx.now - since) : '', ink: true })
+    const sums = rightSegs(ctx, { state: { text: `${tot.done} done`, dim: true }, tokens: tokensSum(everyone), time: Number.isFinite(since) ? cellTime(ctx.now - since, timeRoom(ctx.cols)) : '', ink: true })
     const totals: Seg[] = [
       { col: left, text: 'Total', dim: true },
       { col: TASK_NAME, text: wordFit(`${tot.agents} agents · ${tot.tasks} tasks`, Math.max(0, firstCol(sums, c.right + 2) - 2 - TASK_NAME + 1)), dim: true },

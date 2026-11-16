@@ -142,8 +142,11 @@ function listHeader(ctx: ViewCtx, $: EngineInterface, subs: AgentRow[]): RenderE
       out.push(lineOf(ctx, $, { key: 'agents-models', body: [label, ...bar, ...legend(models, 0)] }))
       second = legend(models, 1)
     } else {
+      // R3-B I5: the shares wrap by word under the label's column before any is cut.
       const words = models.slice(0, 3).map(m => `${cap(m.model)} ${m.pct}%`).join(' · ')
-      out.push(lineOf(ctx, $, { key: 'agents-models', body: [label, { col: 12, text: wordFit(words, Math.max(1, right - 11)) }] }))
+      const lines = wrapWords(words, Math.max(1, right - 11), 3)
+      out.push(lineOf(ctx, $, { key: 'agents-models', body: [label, { col: 12, text: lines[0] ?? '' }] }))
+      lines.slice(1).forEach((l, i) => out.push(lineOf(ctx, $, { key: `agents-models-${i + 1}`, body: [{ col: 12, text: l }] })))
     }
   }
   if (reported) {
@@ -155,27 +158,30 @@ function listHeader(ctx: ViewCtx, $: EngineInterface, subs: AgentRow[]): RenderE
 }
 
 /**
- * `l: List  t: Map  r: Working only` from column 2: the open one bold with a
- * space either side, the rest dim, three columns apart. Under 38 columns the
- * last is `r: Run`.
+ * `l: List  t: Map  r: Working only` from column 2: the open one bold, the rest
+ * dim, every cell a space either side so no label moves when another mode is
+ * open (R3-B M4: the List and the Map keep one row and one column). Under 38
+ * columns the cells lose their spaces and the last is `r: Working`, whole.
  */
 function toggles(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { u } = ctx
   const tight = ctx.cols < NARROW
-  const item = (key: string, hotkey: string, label: string, on: boolean, press: () => void): RenderElement => (
-    <Box key={`cell-${key}`} flexDirection="row" width={hotkey.length + 2 + label.length + (on ? 2 : 0)}>
-      <Text key={`${key}-pad`}>{on ? ' ' : ''}</Text>
+  const pad = tight ? 0 : 1
+  // The cells have fixed widths (the mock's columns 3, 14 and 23 for the three labels), so no label moves with the mode.
+  const item = (key: string, hotkey: string, label: string, on: boolean, press: () => void, width?: number): RenderElement => (
+    <Box key={`cell-${key}`} flexDirection="row" width={width ?? hotkey.length + 2 + label.length + 2 * pad}>
+      <Text key={`${key}-pad`}>{' '.repeat(pad)}</Text>
       <Button key={key} hotkey={hotkey} plain dimColor={!on} onPress={press}>
         {on ? <Text bold>{label}</Text> : label}
       </Button>
     </Box>
   )
   return (
-    <Box key="toggles" flexDirection="row" paddingLeft={edges(ctx.cols).left} columnGap={3}>
-      {item('mode-list', 'l', 'List', u.agentsMode === 'list', () => void updateUi($, cur => ({ ...cur, agentsMode: 'list' })))}
-      {item('mode-tree', 't', 'Map', u.agentsMode === 'tree', () => void updateUi($, cur => ({ ...cur, agentsMode: 'tree' })))}
-      {item('mode-running', 'r', tight ? 'Run' : 'Working only', u.runningOnly, () => void updateUi($, cur => ({ ...cur, runningOnly: !cur.runningOnly })))}
+    <Box key="toggles" flexDirection="row" paddingLeft={edges(ctx.cols).left} columnGap={tight ? 3 : 0}>
+      {item('mode-list', 'l', 'List', u.agentsMode === 'list', () => void updateUi($, cur => ({ ...cur, agentsMode: 'list' })), tight ? undefined : 11)}
+      {item('mode-tree', 't', 'Map', u.agentsMode === 'tree', () => void updateUi($, cur => ({ ...cur, agentsMode: 'tree' })), tight ? undefined : 9)}
+      {item('mode-running', 'r', tight ? 'Working' : 'Working only', u.runningOnly, () => void updateUi($, cur => ({ ...cur, runningOnly: !cur.runningOnly })))}
     </Box>
   )
 }
@@ -323,7 +329,10 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       hints = [
         { key: '↵', label: 'open' },
         ...(map.unfoldable || hasOpen(u.folded) ? [{ hotkey: 'd', label: hasOpen(u.folded) ? 'fold done' : 'unfold done', id: 'hint-unfold', onPress: () => void updateUi($, cur => toggleAllOpen(cur)) }] : []),
-        ...(targets.length > 0 ? [...nextPrev(true), { key: 'esc', label: 'prompt' }, { key: 'r', label: 'working only' }] : [{ key: 'r', label: 'working only' }, { key: 'esc', label: 'prompt' }]),
+        // R3-B M1: one order whatever the flags: open, unfold, next flag, working only, prompt.
+        ...nextPrev(true),
+        { key: 'r', label: 'working only' },
+        { key: 'esc', label: 'prompt' },
       ]
     } else if (subs.length === 0 && !hasRuns) {
       out.push(modes, blank(ctx, $, 'gap-toggles'), emptyNote(ctx, $))
@@ -331,9 +340,9 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       const list = listBody(ctx, $, ids, states, since)
       targets = list.targets
       // F M6: the toggles sit in the row under the tabs on the list as on the map, so pressing `t` moves nothing but the lists.
-      out.push(modes)
+      // R3-B M4: the blank under the toggles is on the list as on the map, so the lintel sits on row 5 in both.
+      out.push(modes, blank(ctx, $, 'gap-toggles'))
       if (subs.length > 0) out.push(...listHeader(ctx, $, subs), blank(ctx, $, 'gap-readout'))
-      else out.push(blank(ctx, $, 'gap-toggles'))
       out.push(list.el)
       hints = [{ key: '↵', label: 'open agent' }, ...(list.failed > 0 ? [{ key: 'v', label: 'transcript' }] : []), ...nextPrev(false), { key: 'esc', label: 'prompt' }]
     }

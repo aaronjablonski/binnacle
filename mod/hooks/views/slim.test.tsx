@@ -231,7 +231,8 @@ test('pressing a label opens that tab in slim form with b: back on its first row
     const rows = await rowsOf(open)
     expect(rows[0]).toContain('b: back')
     expect(rows.some(r => r === ' Agents')).toBe(true)
-    expect(rows.some(r => colOf(r, 'find every caller of stepRow') === 4 || colOf(r, 'find every caller') === 4)).toBe(true)
+    // R3-B I6: meaning changed. A slim agent row said only the job ("find every caller…"); it now says the agent's name first ("Explorer find every…") so the row tells who and what.
+    expect(rows.some(r => colOf(r, 'Explorer find') === 4)).toBe(true)
     for (const r of rows) expect(r.length).toBeLessThanOrEqual(24)
     expect(await open.find({ key: 'tab-overview' })).toBe(undefined)
     await open.press({ key: 'slim-back' })

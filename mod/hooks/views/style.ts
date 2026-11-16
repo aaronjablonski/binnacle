@@ -631,7 +631,8 @@ const TYPE_NAMES: Record<string, string> = {
  * and only its first letter capitalised ("code-reviewer" is "Code reviewer").
  */
 export function typeName(agentType: string): string {
-  const t = agentType.trim()
+  // R3-B M6: a plugin's prefix is dropped ("superpowers:code-reviewer" is "Code reviewer").
+  const t = (agentType.includes(':') ? agentType.slice(agentType.lastIndexOf(':') + 1) : agentType).trim()
   const known = TYPE_NAMES[t.toLowerCase()]
   if (known !== undefined) return known
   const words = t
@@ -719,10 +720,14 @@ export function critterArgs(role: Role, state: PodState, o: Omit<CritterOpts, 's
   const motion = o.motion === true && state === 'working'
   const phase = o.phase ?? 0
   const { glyph, badge } = critterGlyph(state)
-  const first: Run[] = [glyph, { text: ' '.repeat(columns - 1 - (badge !== undefined ? 1 : 0)) }]
-  if (badge !== undefined) first.push(badge)
-  // R43: the role word only where no name stands beside the critter; a blank row otherwise.
-  const fallback: Run[][] = [first, [{ text: (o.roleWord === false ? '' : ROLE_WORD[role]).padEnd(columns), dim: true }]]
+  // R3-B M8 (R22): the state glyph, then the role word on the same row when the cell has room for it and the badge column is
+  // free ("● lead"); with a badge (R25: its column is reserved) or a word too wide, the word is under it. R43: no role word where a name stands beside the critter.
+  const word = o.roleWord === false ? '' : ROLE_WORD[role]
+  const beside = word !== '' && badge === undefined && 2 + word.length <= columns
+  const first: Run[] = beside
+    ? [glyph, { text: ` ${word}`.padEnd(columns - 1), dim: true }]
+    : [glyph, { text: ' '.repeat(columns - 1 - (badge !== undefined ? 1 : 0)) }, ...(badge !== undefined ? [badge] : [])]
+  const fallback: Run[][] = [first, [{ text: (beside ? '' : word).padEnd(columns), dim: true }]]
   for (let i = 2; i < box.rows; i++) fallback.push([{ text: ' '.repeat(columns) }])
   return {
     role,

@@ -4,12 +4,12 @@ import type { AgentRow, TaskItem, Timeline } from '../../types'
 import { oneLine } from '../model/label'
 import { median, taskMeter } from '../model/meter'
 import type { TaskMeterRow } from '../model/meter'
-import { NO_LIST_TEXT, todoBlock } from '../model/todo'
+import { EFFORT_LATER_TEXT, effortCountedLater, NO_LIST_TEXT, todoBlock } from '../model/todo'
 import { debug, errText, updateUi } from '../state'
 import { openAgentPage, runningStep } from './agentmeta'
 import { lineOf, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
-import { clauseFit, clock, doing, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
+import { clauseFit, clock, doing, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull, wrapWords } from './fit'
 import { doingView, waitStates } from './needs'
 import { openPage } from './pagenav'
 import { blank, frameFootInst, frameTopInst, inst, page, runText, section } from './parts'
@@ -151,8 +151,9 @@ function effortInst(rows: TaskMeterRow[], width: number, ground: Ground): InstSp
 function taskRow(
   ctx: ViewCtx,
   $: EngineInterface,
-  r: { key: string; glyph: Run; name: Run[]; mid?: Run; time?: Run | Run[]; mark?: string; onPress: () => void | Promise<void> },
+  r: { key: string; glyph: Run; name: Run[]; mid?: Run; time?: Run | Run[]; mark?: string; wrap?: boolean; onPress: () => void | Promise<void> },
 ): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
   const mid = midEnd(ctx.cols)
   const { right } = edges(ctx.cols)
   // M7: the columns on the right that this row leaves empty go to the name; a lone name is cut at a clause, never on "the".
@@ -161,6 +162,28 @@ function taskRow(
   const timeW = (timeRuns ?? []).reduce((n, x) => n + x.text.length, 0)
   const limit = midShown ? nameLimit(ctx.cols) : timeRuns !== undefined ? Math.max(nameLimit(ctx.cols), right - timeW - 1) : right + 1
   const room = Math.max(1, limit - COL.name)
+  // R3-B I5: the current task wraps to a second row, as Now's does, before its words are cut; the time rides the last row when it fits.
+  const whole = r.name.reduce((n, x) => n + x.text.length, 0)
+  if (r.wrap === true && r.name.length === 1 && whole > room) {
+    const full = Math.max(1, right + 1 - COL.name)
+    const lines = wrapWords(r.name[0]!.text, full, 2)
+    const lastW = (lines[lines.length - 1] ?? '').length
+    const rowOf = (text: string, i: number, last: boolean): RenderElement => {
+      const body: Seg[] = [...(i === 0 ? [{ col: 2, ...r.glyph }] : []), { ...r.name[0]!, text, col: COL.name }]
+      if (last && timeRuns !== undefined && COL.name + lastW + 2 + timeW <= right + 1) body.push(...flushRight(timeRuns, right))
+      return lineOf(ctx, $, {
+        key: i === 0 ? r.key : `${r.key}-${i}`,
+        ...(r.mark !== undefined ? { pre: [{ col: 0, text: '▍', color: r.mark }] } : {}),
+        body,
+        ...(i === 0 ? { onPress: r.onPress } : {}),
+      })
+    }
+    return (
+      <Box key={`wrap-${r.key}`} flexDirection="column">
+        {lines.map((l, i) => rowOf(l, i, i === lines.length - 1))}
+      </Box>
+    )
+  }
   const name = (r.name.length === 1 ? [{ ...r.name[0]!, text: clauseFit(r.name[0]!.text, room) }] : (fitRuns(r.name, room) as Run[])).filter(x => x.text !== '')
   const body: Seg[] = [{ col: 2, ...r.glyph }]
   let col: number = COL.name
@@ -297,6 +320,10 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
               body: [{ col: left, text: 'Heaviest: ', dim: true }, { col: left + 10, text: label }, { col: left + 10 + label.length, text: tail, dim: true }],
             }),
           )
+        } else if (effortCountedLater(t)) {
+          // R3-B M14: the tokens of the running turn arrive when it ends; say so once, dim, wrapped by word under the chart.
+          const said = room < 12 || cols < 50 ? `Effort so far: ${EFFORT_LATER_TEXT}` : EFFORT_LATER_TEXT
+          wrapWords(said, Math.max(1, right - left + 1), 2).forEach((l, i) => out.push(noteRow(ctx, $, `tasks-effort-later-${i}`, l)))
         } else if (room < 12 || cols < 50) {
           out.push(noteRow(ctx, $, 'tasks-effort-none', 'Effort so far: no tokens yet'))
         }
@@ -310,7 +337,8 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
 
       if (emptyList) {
         out.push(section(ctx, $, 'To do', undefined, { key: 'sec-todo' }))
-        out.push(noteRow(ctx, $, 'todo-none', NO_LIST_TEXT))
+        // R3-B M7: before any request the words say so, not that a list is missing.
+        out.push(noteRow(ctx, $, 'todo-none', t.turns.some(x => x.agent === 'main') ? NO_LIST_TEXT : 'Nothing yet. Ask Claude for something.'))
         if (earlier.length > 0) gap()
       }
 
@@ -328,6 +356,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
               ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
               time: { text: span(now - x.updatedAt), color: CK.accent },
               mark: CK.accent,
+              wrap: true,
               onPress: toPage(key),
             }),
           )

@@ -180,7 +180,7 @@ test('F M10: the idle strip wraps "the last was …" to a second row before it c
 test('F M10: at 140 columns when asked, the asking agent is among the cards and the cut is named by a "+ n more working" line', async ($, on) => {
   const t = asked()
   world(on, { ...t, agents: { ...t.agents, x1: { ...t.agents.e1!, id: 'x1', description: 'a third one', startedAt: NOW - 30_000 }, x2: { ...t.agents.e1!, id: 'x2', description: 'a fourth one', startedAt: NOW - 20_000 } } })
-  const rows = await pane($, 140, 24)
+  const rows = await pane($, 140, 28)
   const text = rows.join('\n')
   expect(text).toContain('waiting for your answer'.slice(0, 0) + 'Waiting for your answer')
   expect(text).toMatch(/\+ \d+ more working/)

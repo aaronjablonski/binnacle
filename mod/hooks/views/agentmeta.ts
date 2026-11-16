@@ -43,33 +43,36 @@ export function tokensOf(a: AgentRow): number | undefined {
   return (a.tokensIn ?? 0) + (a.tokensOut ?? 0)
 }
 
-/** The metric: `41k`; `…` while it runs with no usage yet; `–` when it never reported. */
+/** The metric: `41k`; `–` while it has reported no usage (R3-B M1: never a lone `…`). */
 export function tokensCell(a: AgentRow): string {
   const n = tokensOf(a)
-  if (n !== undefined) return tokenText(n)
-  return a.status === 'running' ? '…' : '–'
+  return n !== undefined ? tokenText(n) : '–'
 }
 
 /**
  * A duration for a table's time cell (R27's words), at most 9 wide so it
  * never meets the tokens column at 49: `14 min`, `1 h 5 min`; where hours
  * and minutes do not fit (`1 h 48 min`) the minutes alone, `108 min` (M3:
- * R27's words, never `1h 48m`).
+ * R27's words, never `1h 48m`). R3-B M5: `room` is wider than 9 where no tokens column
+ * stands beside the time (under 46 columns), and then `1 h 48 min` is kept whole.
  */
-export function cellTime(ms: number): string {
+export function cellTime(ms: number, room = 9): string {
   const s = span(ms)
-  if (s.length <= 9) return s
+  if (s.length <= room) return s
   return `${Math.floor(Math.max(0, ms) / 60_000)} min`
 }
+
+/** The room a time cell has at `cols` columns: 9 beside the tokens column, the whole of R27's longest form (10) without it. */
+export const timeRoom = (cols: number): number => (agentCols(cols).tokens === undefined ? 12 : 9)
 
 /** The time: how long it ran (main: since its first step; '' before it has one). */
 export function timeCell(ctx: ViewCtx, a: AgentRow): string {
   if (a.id === 'main') {
     const since = mainSince(ctx)
-    return since === undefined ? '' : cellTime(ctx.now - since)
+    return since === undefined ? '' : cellTime(ctx.now - since, timeRoom(ctx.cols))
   }
   const end = a.status === 'running' ? ctx.now : (a.endedAt ?? ctx.now)
-  return cellTime(end - a.startedAt)
+  return cellTime(end - a.startedAt, timeRoom(ctx.cols))
 }
 
 /**

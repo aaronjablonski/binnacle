@@ -120,7 +120,7 @@ test('the card lists every option with its value and when it applies, and a Neve
   }
   expect(rowOf('Notify').slice(38)).toMatch(/^waits\s+now$/)
   expect(rowOf('Show cost').slice(38)).toMatch(/^off\s+now$/)
-  expect(rowOf('Agent time limit').slice(38, 41)).toBe('60m')
+  expect(rowOf('Agent time limit').slice(38, 44)).toBe('60 min')
   expect(rowOf('Open at start').slice(50)).toBe('next start')
   expect(rowOf('Accent').slice(50)).toBe('now')
   const never = rows.findIndex(r => r.trimStart().startsWith('Never '))
@@ -195,9 +195,19 @@ test('a number shows − and +, and writes the stepped value', async ($, on) => 
   await ui.unmount()
 })
 
+// R3-B M10: meaning changed. `b` is now armed by the footer's hidden Button (`arm-opt-back`, drawn as `b back` in the pane's last row) while the pane holds the keys; it used to press the page's own `opt-back` Button. Unfocused, the plain `opt-back` stays for a click (second test).
 test('b closes the card', async ($, on) => {
   const { stored } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  await ui.press({ key: 'arm-opt-back' })
+  expect((stored.get('ui') as UiState).page).toBe(undefined)
+  await ui.unmount()
+})
+
+test('unfocused, the card keeps a plain back to click', async ($, on) => {
+  const { stored } = world(on, OPTIONS_UI)
+  const unfocused = PANE(80)
+  const ui = await $.ui.mount({ ...unfocused, props: { ...unfocused.props, isFocused: false }, surface: 'terminal' })
   await ui.press({ key: 'opt-back' })
   expect((stored.get('ui') as UiState).page).toBe(undefined)
   await ui.unmount()

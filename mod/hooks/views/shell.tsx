@@ -86,6 +86,8 @@ export type ViewCtx = {
   isFocused?: boolean; bodyRows?: number
   look?: Look; site?: string
   ground?: Ground; motion?: boolean; accent?: string; isPromptCovered?: boolean
+  /** A dry draw (the hidden one that finds a tab's first row): no instrument is tracked, no burst starts or stops, nothing is recorded. */
+  dry?: boolean
 }
 
 /** The rows the tab bar takes above a tab's body: the tabs, their track and the blank under them. */
@@ -337,7 +339,7 @@ export function armKeys($: EngineInterface, e: RenderInput, arms: { id: string; 
 type Drawn = {
   t: Timeline; u: UiState; cols: number; now: number; showCost: boolean
   isFocused: boolean; bodyRows: number; look: Look; site: string
-  ground: Ground; motion: boolean; accent: string; isPromptCovered: boolean
+  ground: Ground; motion: boolean; accent: string; isPromptCovered: boolean; dry?: boolean
 }
 
 /**
@@ -382,7 +384,7 @@ async function switchTab($: EngineInterface, tab: Tab, showCost: boolean): Promi
   let key: string | undefined
   try {
     // Drawn only to find the first row, never shown: no one-shot move starts here (motion sketches).
-    const rest = { ...(await drawnOf($, e, { ...(ring.options ?? {}), showCost })), look: ring.look ?? 'text', motion: false }
+    const rest = { ...(await drawnOf($, e, { ...(ring.options ?? {}), showCost })), look: ring.look ?? 'text', motion: false, dry: true }
     if (tier(rest.cols) === 'slim') return
     key = stopsOf(withStart(body($, e, rest), isTabKey), isTabKey).start
     if (key === undefined) return

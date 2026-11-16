@@ -105,6 +105,13 @@ export function track(requestId: string, key: string, sig: string, frames: () =>
   return { columns: entry.columns, rows: entry.rows, cells: entry.shown }
 }
 
+/** A dry draw of an instrument (B-M2): its first frame as `track` would mount it, with nothing recorded (no entry, no tag, no burst, no `shown`). */
+export function peek(frames: () => Grid[]): Painted {
+  const first = frames()[0]
+  if (first === undefined) throw new Error('instrument has no frames')
+  return { columns: first.columns, rows: first.rows, cells: encode(first) }
+}
+
 /** The key's entry for this draw, its frames encoded again when `sig` changed. A running burst stops when the sig changes. */
 function tracked(site: Site, key: string, sig: string, frames: () => Grid[]): Entry {
   let entry = site.entries.get(key)

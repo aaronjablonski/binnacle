@@ -18,7 +18,7 @@ import type { BandModel } from './bandmodel'
 import { buckets, elapsed, shortPaths, wordFit } from './fit'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
 import type { Hue, Palette } from './raster'
-import { crewRole, podStateOf } from './style'
+import { crewRole, palette, podStateOf } from './style'
 import type { PodState, Role } from './style'
 
 /** The longest `source` an Svg element takes (`SvgProps.source`). */
@@ -208,7 +208,8 @@ function clampPct(n: number): number {
 
 // ---------- drawing ----------
 
-const P: Palette = PALETTE.night
+/** The night palette under the Accent option: the structural accent follows it (FX4); state and role colours do not. */
+const P = (): Palette => palette('night')
 const FONT = `font-family="system-ui,-apple-system,'Segoe UI',sans-serif"`
 
 /** Text for a document: no control characters, the five XML characters escaped. */
@@ -223,7 +224,7 @@ export function esc(s: string): string {
 }
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`
-const ink = (k: keyof Palette): string => hex(P[k])
+const ink = (k: keyof Palette): string => hex(P()[k])
 const DIM = ink('dim')
 const num = (v: number): string => String(Math.round(v * 10) / 10)
 
@@ -303,8 +304,8 @@ function character(x: number, y: number, c: CrewFig, u: number): string {
       if (cell.ch !== undefined && cell.ch !== ' ') {
         const cx = x + (col * 2 + 1) * u
         const cy = y + (row * 4 + 1.5) * u
-        o += `<circle cx="${num(cx)}" cy="${num(cy)}" r="${r}" fill="${hex(cell.bg ?? P.mute)}"></circle>`
-        o += `<text x="${num(cx)}" y="${num(cy + 3.5)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${hex(cell.fg ?? P.badge)}" ${FONT}>${esc(cell.ch)}</text>`
+        o += `<circle cx="${num(cx)}" cy="${num(cy)}" r="${r}" fill="${hex(cell.bg ?? PALETTE.night.mute)}"></circle>`
+        o += `<text x="${num(cx)}" y="${num(cy + 3.5)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${hex(cell.fg ?? PALETTE.night.badge)}" ${FONT}>${esc(cell.ch)}</text>`
       }
     }
   }

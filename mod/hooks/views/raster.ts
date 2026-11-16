@@ -627,13 +627,16 @@ export type RingOptions = {
 
 type RingDot = [dx: number, dy: number, turn: number]
 
-// The ring's dots by cell, worked out once: a 14-dot circle two dots thick.
-const RING_CELLS: RingDot[][] = (() => {
+// The ring's dots by cell for an aspect, worked out once each: a 14-dot circle two dots thick, round in pixel space.
+const RING_TABLES = new Map<number, RingDot[][]>()
+function ringCells(a: number): RingDot[][] {
+  const hit = RING_TABLES.get(a)
+  if (hit !== undefined) return hit
   const cells = new Map<string, RingDot[]>()
   for (let dy = 0; dy < 16; dy++) {
     for (let dx = 0; dx < 14; dx++) {
       const vx = dx - 6.5
-      const vy = dy - 7.5
+      const vy = (dy - 7.5) * (a / 2)
       const d = Math.hypot(vx, vy)
       if (d < 4.7 || d > 6.95) continue
       const turn = (Math.atan2(vx, -vy) / (2 * Math.PI) + 1) % 1
@@ -643,8 +646,10 @@ const RING_CELLS: RingDot[][] = (() => {
       cells.set(key, list)
     }
   }
-  return [...cells.values()]
-})()
+  const table = [...cells.values()]
+  RING_TABLES.set(a, table)
+  return table
+}
 
 /**
  * Draws a ring lit clockwise from the top, with its name and figure in the
@@ -654,7 +659,7 @@ const RING_CELLS: RingDot[][] = (() => {
 export function drawRing(g: Grid, x: number, row: number, name: string, pct: number, options: RingOptions = {}): void {
   if ([...name].length > 3) throw new Error(`a ring's name is at most 3 letters, not ${name}`)
   const k = options.hue ?? rate(pct)
-  const paint = RING_CELLS.map(dots => {
+  const paint = ringCells(cellAspect).map(dots => {
     const lit = pct >= 100 || dots.filter(p => p[2] < pct / 100).length * 2 > dots.length
     return { dots, lit }
   })
@@ -999,13 +1004,65 @@ export function gaugeHue(pct: number): 'iris' | 'ink' | 'red' {
   return 'iris'
 }
 
-// The gauge's dots by cell, worked out once (`gen-cockpit.js` `ring`): 18 x 20 dots, two thick.
-const GAUGE_CELLS: RingDot[][] = (() => {
+/** The aspect the mocks and the fidelity tests draw at: a cell twice as tall as wide, so a Braille dot is square. */
+export const MOCK_ASPECT = 2
+
+let cellAspect = 2.2
+const GAUGE_TABLES = new Map<number, RingDot[][]>()
+
+/** The cell height / width the gauge ring is drawn for. Called from a start path or a test; never from render. */
+export function setCellAspect(a: number): void {
+  cellAspect = Number.isFinite(a) && a >= 1.5 && a <= 3 ? a : 2.2
+}
+
+/** The aspect now in force. */
+export function getCellAspect(): number {
+  return cellAspect
+}
+
+/**
+ * The cell aspect a terminal is known to have, from its environment (FX4):
+ * Windows Terminal 2.35, VS Code 2.4, the Mac and GPU terminals 2.1, else 2.2.
+ */
+export function aspectFromEnv(env: { WT_SESSION?: string; TERM_PROGRAM?: string; TERM?: string }): number {
+  if (env.WT_SESSION !== undefined && env.WT_SESSION !== '') return 2.35
+  const tp = env.TERM_PROGRAM
+  if (tp === 'vscode') return 2.4
+  if (tp === 'iTerm.app' || tp === 'Apple_Terminal' || tp === 'WezTerm' || tp === 'ghostty' || env.TERM === 'xterm-kitty') return 2.1
+  return 2.2
+}
+
+/**
+ * The gauge's dots by cell for aspect `a`, worked out once each
+ * (`gen-cockpit.js` `ring` at a = 2): an 18 x 20 dot field, two thick, a true
+ * circle in pixel space. A dot is half a cell wide and a quarter of one tall,
+ * so a vertical step is a / 2 horizontal ones.
+ */
+export function gaugeCells(a: number): RingDot[][] {
+  const hit = GAUGE_TABLES.get(a)
+  if (hit !== undefined) return hit
+  // The ring's height is a whole number of dots, so the centre row may sit half a dot off
+  // the middle (9 or 10 for 9.5) where that makes the pixel box rounder; at a = 2 it never does.
+  let best: { table: RingDot[][]; miss: number } | undefined
+  for (const cy of [9.5, 9, 10]) {
+    const built = gaugeTable(a, cy)
+    if (best === undefined || built.miss < best.miss - 1e-9) best = built
+  }
+  GAUGE_TABLES.set(a, best!.table)
+  return best!.table
+}
+
+function gaugeTable(a: number, cy: number): { table: RingDot[][]; miss: number } {
   const cells = new Map<string, RingDot[]>()
+  const k = a / 2
+  let lo = 20
+  let hi = -1
+  let left = 18
+  let right = -1
   for (let dy = 0; dy < 20; dy++) {
     for (let dx = 0; dx < 18; dx++) {
       const vx = dx - 8.5
-      const vy = dy - 9.5
+      const vy = (dy - cy) * k
       const d = Math.hypot(vx, vy)
       if (d < 6.7 || d > 8.95) continue
       const turn = (Math.atan2(vx, -vy) / (2 * Math.PI) + 1) % 1
@@ -1013,10 +1070,16 @@ const GAUGE_CELLS: RingDot[][] = (() => {
       const list = cells.get(key) ?? []
       list.push([dx, dy, turn])
       cells.set(key, list)
+      lo = Math.min(lo, dy)
+      hi = Math.max(hi, dy)
+      left = Math.min(left, dx)
+      right = Math.max(right, dx)
     }
   }
-  return [...cells.values()]
-})()
+  // Width over height in pixels: a dot is half a cell wide and a quarter of one tall, a cell `a` times taller than wide.
+  const ratio = ((right - left + 1) * 0.5) / ((hi - lo + 1) * 0.25 * a)
+  return { table: [...cells.values()], miss: Math.abs(ratio - 1) }
+}
 
 /** A gauge's figure: `62%`, `100%`. */
 export function gaugeFigure(pct: number): string {
@@ -1032,7 +1095,7 @@ export function gaugeFigure(pct: number): string {
 export function drawGaugeRing(g: Grid, x: number, row: number, pct: number, o: { hue?: Ink } = {}): void {
   const p = Number.isFinite(pct) ? Math.max(0, pct) : 0
   const k = o.hue ?? gaugeHue(p)
-  const paint = GAUGE_CELLS.map(dots => ({ dots, lit: p >= 100 || dots.filter(d => d[2] < p / 100).length * 2 > dots.length }))
+  const paint = gaugeCells(cellAspect).map(dots => ({ dots, lit: p >= 100 || dots.filter(d => d[2] < p / 100).length * 2 > dots.length }))
   if (p > 0 && !paint.some(c => c.lit)) {
     const first = Math.min(...paint.map(c => Math.min(...c.dots.map(d => d[2]))))
     const cell = paint.find(c => Math.min(...c.dots.map(d => d[2])) === first)

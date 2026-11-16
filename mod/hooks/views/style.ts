@@ -652,7 +652,7 @@ export function typeName(agentType: string): string {
 }
 
 /** The role word a critter's text form writes (R22): the hat it wears. */
-export const ROLE_WORD: Record<CritterRole, string> = { lead: 'lead', scout: 'scout', build: 'build', check: 'check', general: 'general' }
+export const ROLE_WORD: Record<CritterRole, string> = { lead: 'lead', scout: 'scout', build: 'build', check: 'check', general: 'agent' }
 
 /**
  * A critter's state glyph and badge as text (R22: one state glyph in the

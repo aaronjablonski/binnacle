@@ -101,13 +101,13 @@ The owner picked the "Mini mascot" direction from the critter redesign mocks. It
 - R20 amended: the crew palette gains `sky` (night 0x6fb6f2, day 0x2f8fd8), "Raster only, crew art", for the new general role. Queued mixes 60 % toward the ground. Stalled and failed mix 55 % toward `mute`, not toward the ground. Done is `mix(mute, hue, 0.12)`. Roles: lead ember with a crown, builder iris with a hard hat, explorer (`scout`) teal with an antenna and a raised arm, reviewer (`check`) orchid with glasses, general sky and plain.
 - R23 changed: general-purpose and unknown agent types draw the plain general mascot, not the builder hat. A type whose name says it builds (build, implement, develop, engineer) and a planning agent still draw the hard hat; the lead stays `main` only (R43).
 - The stalled `z` badge is `dim` on `rule` (it was `mute` on `rule`).
-- R22 is unchanged: the text form is as before, with the role word `general` for the new role.
+- R22 is unchanged: the text form is as before, with the role word `agent` for the new role (`general` is 7 letters and does not fit the 5-column micro box).
 
 ## Amendment 2026-11-16: Motion 1–10 (owner pick, 2026-11-16)
 
 The owner approved motion sketches 1 to 10. Sketches 11 (a warm light at rest) and 12 (a look around at rest) were declined and are not built.
 
-- R24 holds: the blink stays the only loop; the band's critter never moves; nothing moves at idle. Every move below plays once and ends, as a bounded chain of `$.clock.after` (no second standing clock), so the 1 s clock still stops when nothing is live.
+- R24 holds: the blink stays the only loop; the band's critter never moves; nothing loops at idle, and the only moves at rest are the gauge fill on opening and the finish sweep. Every move below plays once and ends, as a bounded chain of `$.clock.after` (no second standing clock), so the 1 s clock still stops when nothing is live.
 - New one-shot moves, body and eyes only, drawn on the mascot's own rows (each pose keeps two colours to a cell; the crown, the hard hat, the antenna and the glasses stay drawn):
   - 1: a to-do lands: the done segment flashes, settles, and the next lights in two steps (3 × 160 ms, blits). In the band the new count is in the accent for one 1 s beat (one redraw ends it).
   - 2: an agent starts: squash, then hop (2 × 120 ms). The same move wakes the lead on a new prompt after rest.

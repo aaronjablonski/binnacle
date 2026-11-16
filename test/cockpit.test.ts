@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest'
 
 import { clauseFit, countdown, doing, growCaps, pctBar, ruleBar, span, todoBar, TOOL_NAMES, toolName, toolRoom, warmWords, wrapWords } from '../mod/hooks/views/fit'
-import { CK, COCKPIT, critterArgs, critterGlyph, critterOf, crewRole, edges, gaugeStyle, groundOf, isTextTheme, motionOn, themeOf, typeName } from '../mod/hooks/views/style'
+import { CRITTER_ROLES } from '../mod/hooks/views/raster'
+import { CK, COCKPIT, ROLE_WORD, critterArgs, critterGlyph, critterOf, crewRole, edges, gaugeStyle, groundOf, isTextTheme, motionOn, themeOf, typeName } from '../mod/hooks/views/style'
 import type { Run } from '../mod/hooks/views/style'
 
 const textOf = (runs: Run[]) => runs.map(r => r.text).join('')
@@ -271,6 +272,17 @@ describe('style: ground, theme, columns, roles', () => {
     expect(m.fallback.map(textOf)).toEqual(['×   !', 'scout'])
     expect(critterArgs('lead', 'working', { size: 'small' }).fallback.map(textOf)).toEqual(['● lead', '      ', '      '])
     expect(critterArgs('lead', 'working', { size: 'small', roleWord: false }).fallback.map(textOf)).toEqual(['●     ', '      ', '      '])
+    // A-M1: every role, size and state draws its fallback rows at exactly `columns` wide, and the role word is whole in it.
+    for (const role of CRITTER_ROLES) {
+      for (const size of ['small', 'micro'] as const) {
+        for (const state of ['queued', 'working', 'waiting', 'stalled', 'done', 'failed'] as const) {
+          const c = critterArgs(role, state, { size })
+          expect(c.fallback).toHaveLength(c.rows)
+          for (const row of c.fallback) expect(textOf(row)).toHaveLength(c.columns)
+          expect(c.fallback.map(textOf).join(' ')).toContain(ROLE_WORD[role])
+        }
+      }
+    }
     expect(critterGlyph('failed').badge).toEqual({ text: '!', color: 'error', bold: true })
     const f = s.frames()
     expect([f[0]!.columns, f[0]!.rows]).toEqual([6, 3])

@@ -161,7 +161,7 @@ function oneRow(m: BandModel, cols: number): Run[] {
   }
 
   if (m.form === 'stopped') {
-    const head: Run[] = [{ text: '✖ ', color: CK.fail, bold: true }, { text: 'Stopped', color: CK.fail, bold: true }]
+    const head: Run[] = [{ text: '× ', color: CK.fail, bold: true }, { text: 'Stopped', color: CK.fail, bold: true }]
     const reason = (room: number): Run[] => {
       const cut = wordFit(m.focus, room)
       return cut === '' ? [] : [{ text: cut, color: CK.fail }]

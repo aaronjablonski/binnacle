@@ -42,17 +42,6 @@ export function barSplit(done: number, total: number, columns: number): { filled
   return { filled, rest: columns - filled }
 }
 
-/**
- * A left text and a dim right text for one row of `columns`; `stacked` when the right text gets a row of its own.
- * @deprecated HUD v1. v2 rows put the metric and time on grid columns: `row` in parts.tsx.
- */
-export function splitRow(left: string, right: string, columns: number, minLeft = 8): { left: string; right: string; stacked: boolean } {
-  if (right === '') return { left: fit(left, columns), right: '', stacked: false }
-  const room = columns - right.length - 1
-  if (room < minLeft) return { left: fit(left, columns), right: fit(right, columns), stacked: true }
-  return { left: fit(left, room), right, stacked: false }
-}
-
 /** The time of day as 'hh:mm', or 'hh:mm:ss' with `seconds`; the machine's own clock. */
 export function clock(ms: number, seconds = false): string {
   const d = new Date(ms)

@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, TaskItem, Timeline } from '../../types'
-import { agentTree, hasProblemIn, runningOnlyTree } from '../model/select'
+import { agentTree, runningOnlyTree } from '../model/select'
 import type { TreeNode } from '../model/select'
 import { debug, errText, updateUi } from '../state'
 import { EMPTY, RUN_GLYPH, agentCols, cellTime, failReason, isOpen, openAgentPage, runningStep, timeCell, tokensCell, tokensOf, toggleOpen } from './agentmeta'
@@ -456,6 +456,3 @@ export function treeView(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, sta
     return { el: <Text dimColor>{wordFit(`Agents map: ${errText(err)}`, cols)}</Text>, targets: [], unfoldable: false }
   }
 }
-
-/** Whether a node or anything under it has a problem (kept for the model's helper). */
-export const problemIn = hasProblemIn

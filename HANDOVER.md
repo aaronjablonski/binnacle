@@ -1,4 +1,4 @@
-# Handover: Mission Control mod
+# Handover: Binnacle mod
 
 A Claude Code mod that keeps tasks, agents, a step timeline and artifacts in
 a pane and band beside the chat. The mod is built and lives in `mod/`. This
@@ -7,7 +7,7 @@ note says what it is, how it is put together and where to read more.
 ## What it is
 
 The trigger: in the plain CLI, long file dumps bury the intermediate steps
-and scrolling back to find them is slow. Mission Control draws a pane next to
+and scrolling back to find them is slow. Binnacle draws a pane next to
 the transcript and a band above the prompt, and keeps a record of the
 session that can be reopened after it scrolls away. The transcript itself is
 left alone.
@@ -26,7 +26,7 @@ the specs where they differ are in
 read them before changing words, colours or the alert rules.
 
 - **Tabs:** Now, Tasks, Agents, Steps, Artifacts (keys `1` to `5`), plus an
-  Options page (`0`, `/mc options`).
+  Options page (`0`, `/binnacle options`).
 - **Now** is the header (a pill, the time this turn and any quiet time, the
   request's goal, the budget line and two gauges), then Needs you, Watch, To
   do, This turn, Agents, and Notes and decisions. It holds no step log.
@@ -57,14 +57,14 @@ read them before changing words, colours or the alert rules.
   (day on a light theme), with an alt that says the same words. VS Code and
   mobile take the text form.
 - **Widths:** the pane draws the inline strip from 96 columns, the full tabs
-  at 62 and the slim pane under 32. `/mc strip`
+  at 62 and the slim pane under 32. `/binnacle strip`
   moves the strip into the band.
 - **Options:** `guide`, `autoOpen`, `look` (`auto`, `rich`, `text`),
   `ground` (`auto`, `night`, `day`), `motion` (`on`, `off`), `accent`
   (`iris`, `sky`, `slate`), `notify`, `watchNotify`, `showCost`, `editor`,
   `doneSound`, `agentLimitMin` (60) and `turnLimitMin` (120).
-- **Commands:** `/mc`, `/mc 1` to `/mc 5`, `/mc keep <note>`, `/mc export`,
-  `/mc close`, `/mc slim`, `/mc strip`, `/mc options`.
+- **Commands:** `/binnacle`, `/binnacle 1` to `/binnacle 5`, `/binnacle keep <note>`, `/binnacle export`,
+  `/binnacle close`, `/binnacle slim`, `/binnacle strip`, `/binnacle options`.
 
 ## Where things are
 

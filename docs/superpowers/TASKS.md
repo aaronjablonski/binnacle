@@ -60,7 +60,7 @@ Updated 2026-11-16. Plans live in `docs/superpowers/plans/`; the working ledger 
 
 ## Release prep
 
-- [ ] Choose a new name (Mission Control is taken by several Claude Code mods) and rename plugin, pane id, tool, `/mc`, docs
+- [x] Rename: Binnacle is the working name (it may change again). Plugin `binnacle`, marketplace `binnacle-local`, pane id, tool `mcp__binnacle__update`, journal `~/.claude/binnacle/`, `/binnacle` with `/mc` kept as a second registration; the band's dim hint still reads `/mc` (short, keeps the mock widths). Earlier plans, specs and rulings keep the old name as history.
 - [x] README rewritten with images from the real views (`node docs/readme/tools/make.mjs`)
 - [ ] Licence, author, icon (512–2048 px PNG); GitHub remote for badges
 - [x] Remove personal names from tracked docs (`HANDOVER.md`)

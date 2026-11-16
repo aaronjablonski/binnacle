@@ -7,7 +7,7 @@ import { apply, debug, errText, leaveDetail, updateUi } from '../state'
 import { STEP_GLYPH } from './agentmeta'
 import { openInEditor } from './editor'
 import { showInChat } from './find'
-import { clock, elapsed, packParts, shortPaths, wordFit } from './fit'
+import { clock, elapsed, packParts, shortPaths, span, wordFit } from './fit'
 import { bodyOfOpen, openStep } from './openstep'
 import { pageOf } from './pagenav'
 import { glyphLine, page, sectionHeader } from './parts'
@@ -366,7 +366,7 @@ export function stepPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
       { label: 'Tool', value: [{ text: s.tool, bold: true }] },
       { label: 'Agent', value: who },
       { label: 'Status', value: [{ text: word, ...(status !== undefined ? { color: status } : {}) }] },
-      { label: 'Time', value: `${clock(s.startedAt, true)} · ${elapsed(s.startedAt, end)}` },
+      { label: 'Time', value: `${clock(s.startedAt, true)} · ${span(end - s.startedAt, { steps: true })}` },
       ...(s.pin !== undefined ? [{ label: 'Kept', value: s.pin === '' ? '★' : `★ ${s.pin}` }] : []),
     ],
     blocks,

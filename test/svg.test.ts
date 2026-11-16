@@ -75,9 +75,10 @@ test('the model reads the timeline and the header words: pill, goal, rings, coun
   expect(m.focus).toBe('Wiring the limiter into the middleware chain')
   expect(m.rings.map(r => [r.name, r.pct])).toEqual([['context', 9], ['5 hours', 78], ['this week', 22]])
   expect([m.tasks.done, m.tasks.total]).toEqual([2, 4])
-  expect([m.live, m.failed]).toEqual([2, 1])
-  expect(m.crew.length).toBe(4)
-  expect(m.crew[0]!.state).toBe('working')
+  expect([m.agents.working, m.agents.waiting, m.agents.failed]).toEqual([2, 0, 1])
+  // I4: the header holds no crew line-up and no plan strip; the pane's sections carry both.
+  for (const k of ['crew', 'more', 'live', 'failed']) expect(k in m).toBe(false)
+  expect('plan' in m.tasks).toBe(false)
   // The cockpit header holds no step line, turn counter, Next, trace or cache.
   for (const k of ['step', 'right', 'next', 'cache', 'steps']) expect(k in m).toBe(false)
 })
@@ -86,16 +87,19 @@ test('the deck Svg shows the model\'s values as text and titles', () => {
   const s = nowDeckSvg(busy(), u, NOW, 62, head())
   expect(s.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true)
   expect(s.endsWith('</svg>')).toBe(true)
-  for (const want of ['WORKING', 'Wiring the limiter', 'Working on', '10 min this turn', '2/4', '1 failed']) {
+  for (const want of ['WORKING', 'Wiring the limiter', 'Working on', '10 min this turn']) {
     expect(s).toContain(want)
   }
+  // I4: no Agents row, no To do row, no plan strip, no failed badge, no hairline between a header and a second block.
+  for (const gone of ['>Agents<', '>To do<', '2/4', '1 failed', 'stroke-dasharray="1 5"']) expect(s).not.toContain(gone)
+  expect(s).toContain('height="132"')
   // R26 / review I-4: the cockpit removed Next, "n live", the Steps trace with its error count and the Cache row.
   for (const gone of ['>Next<', 'Run the upload tests on staging', ' live', ' errors', '% read', '>Steps<', '>Cache<', 'Edit rateLimit.ts', '▸', 'turn ']) {
     expect(s).not.toContain(gone)
   }
   expect(s).toContain('<title>context: 9% used</title>')
   expect(s).toContain('<title>5 hours: 78% used</title>')
-  // No animation, no glow, no gradient (R32), and the cockpit palette: the ground, the accent, no ember in the plan strip.
+  // No animation, no glow, no gradient (R32), and the cockpit palette: the ground, the accent, no ember.
   expect(s).not.toContain('<animate')
   expect(s).not.toContain('filter=')
   expect(s).not.toContain('linearGradient')
@@ -127,11 +131,12 @@ test('the band Svg asks in amber with the asker as its critter, and an idle sess
   expect(bandSvg({ ...busy(), turns: [{ id: 't1', agent: 'main', prompt: 'x', startedAt: NOW - 600_000, endedAt: NOW - 1000, failed: true }], agents: { ...empty.agents }, steps: [] }, u, NOW, 120)).toContain('Stopped')
 })
 
-test('Watch never turns anything amber: a stalled agent is a z on its critter', () => {
+// R3-B I4: meaning changed. It read the stalled agent's `z` from the deck's crew line-up, which the header no longer draws; the alert model still marks the agent, and the header must stay free of amber for it.
+test('Watch never turns anything amber: a stalled agent adds no amber to the header Svg', () => {
   const t = busy()
   t.agents = { ...t.agents, a1: { ...agent('a1', 'running', 'Explore'), startedAt: NOW - 90 * 60_000, lastStepAt: NOW - 20 * 60_000 } }
-  const m = deckModel(t, u, NOW, head())
-  expect(m.crew.find(c => c.title.startsWith('agent a1'))?.state).toBe('stalled')
+  const s = nowDeckSvg(t, u, NOW, 62, head())
+  expect(s).not.toContain('fill="#e3b04b"')
 })
 
 test('an idle session draws a quiet deck with no rings it has no figure for', () => {
@@ -184,7 +189,9 @@ test('the alts say the deck and the band in words', () => {
   expect(a).toContain('Wiring the limiter into the middleware chain')
   expect(a).toContain('2 of 4 tasks done')
   expect(a).toContain('context 9%, 5 hours 78%')
-  expect(a).toContain('2 agents working, 1 failed')
+  // M15: the pane's own words, "2 working · 1 failed", and no keyboard hints on a clicked surface.
+  expect(a).toContain('2 working · 1 failed')
+  expect(a).not.toMatch(/agents working|esc |press /)
   expect(a).not.toMatch(/live|Next:|steps, d+ errors|Cache|Running|turn d/)
   expect(bandAlt(busy(), u, NOW)).toContain('Working on Wiring the limiter into the middleware chain')
   expect(bandAlt(busy(), u, NOW)).toContain('2 of 4 done')

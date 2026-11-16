@@ -122,7 +122,7 @@ test('the band is a second Svg on the desktop app, none on the terminal or in VS
 
 test('the deck\'s figures are the model\'s', async () => {
   const m = deckModel(busy, initialUi, NOW, deckHead({ t: busy, u: initialUi, now: NOW }))
-  expect([m.pill.word, m.tasks.done, m.tasks.total, m.live]).toEqual(['WORKING', 1, 2, 1])
+  expect([m.pill.word, m.tasks.done, m.tasks.total, m.agents.working + m.agents.waiting]).toEqual(['WORKING', 1, 2, 1])
   // The model has no step count now (the header holds no log); the rings carry the pane's words, not CTX and 5H.
   expect(m.rings.map(r => `${r.name} ${r.pct}`)).toEqual(['context 12', '5 hours 40'])
 })

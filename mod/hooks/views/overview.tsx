@@ -117,14 +117,8 @@ export const HEADER_ROWS = 9
  */
 export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs: HeaderState, todo: TodoBlock, o: { key?: string; press?: Press; short?: boolean; svg?: boolean; compact?: boolean } = {}): RenderElement {
   const press = o.press ?? asIs
-  const svg = o.press === undefined && o.svg !== false
-    ? deckSvg(ctx, $, [
-        { key: 'deck-crew', label: 'Agents', onPress: () => openTab($, 'agents') },
-        { key: 'deck-tasks', label: 'To do', onPress: () => openTab($, 'tasks') },
-        { key: 'deck-steps', label: 'Steps', onPress: () => openTab($, 'timeline') },
-        { key: 'deck-budget', label: 'Budget', onPress: () => setBudgetOpen($, true) },
-      ])
-    : null
+  // I4: the Svg ends at the header; no button row repeats the tab bar and the sections below.
+  const svg = o.press === undefined && o.svg !== false ? deckSvg(ctx, $) : null
   if (svg !== null) return svg
   const w = headWords(ctx, view, hs, todo)
   const ground = ctx.ground ?? 'night'

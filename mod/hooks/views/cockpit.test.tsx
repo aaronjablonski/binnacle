@@ -32,10 +32,10 @@ function draws(on: On, build: (ctx: ViewCtx, $: EngineInterface) => RenderElemen
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
     requestId: 'cockpit-test',
-    props: { title: 'Mission Control', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 46 }, view: {} },
+    props: { title: 'Binnacle', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 46 }, view: {} },
   }) as const
 
 async function rows($: Engine, columns = 62, surface: (typeof SURFACES)[number] = 'desktop'): Promise<string[]> {

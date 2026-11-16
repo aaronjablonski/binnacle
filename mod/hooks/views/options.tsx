@@ -2,10 +2,10 @@
 // of the manifest's userConfig as a row with its value and when it applies,
 // changed in the pane. Opened as a page (`ui.page = { kind: 'options' }`)
 // by the tab bar's `0` (a Button hotkey takes only a digit or a lowercase
-// letter, so the mock's `,` cannot be bound) or `/mc options`.
+// letter, so the mock's `,` cannot be bound) or `/binnacle options`.
 //
 // A press is the only thing that writes: `$.config.set` on the row's key, as
-// `$.config.list` names it (`mission-control.<field>`, or the `@inline` form a
+// `$.config.list` names it (`binnacle.<field>`, or the `@inline` form a
 // --plugin-dir load may use). A change reloads the mod with the new options
 // (the type file's `Register`), so a value drawn here is the module's own;
 // until that reload lands, the value just written is drawn.
@@ -25,7 +25,7 @@ import type { Run } from './style'
 /** The hotkey that opens and closes Options (the tab bar's Button). */
 export const OPTIONS_HOTKEY = '0'
 
-const PLUGIN = 'mission-control'
+const PLUGIN = 'binnacle'
 
 type Section = 'Look' | 'Signals' | 'Budget' | 'Start' | 'More'
 type Kind = 'boolean' | 'choice' | 'number' | 'text'

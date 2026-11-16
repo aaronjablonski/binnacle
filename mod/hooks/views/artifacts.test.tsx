@@ -47,11 +47,11 @@ const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).store
 
 const PANE = (columns: number, isFocused = false, bodyRows = 40) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused,
       bodyColumns: columns,
       placement: 'dock',

@@ -38,11 +38,11 @@ function world(on: On, t: Timeline, u: UiState = initialUi): Stored {
 
 const PANE = (columns: number, bodyRows = 60, isFocused = false) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused,
       bodyColumns: columns,
       placement: 'dock',

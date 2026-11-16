@@ -126,8 +126,8 @@ describe('tool names in narrow columns (R31)', () => {
   test('an MCP tool takes its last part, cut at a word; a cell other rows fill is never empty', () => {
     expect(toolName('mcp__github__get_issue', 5)).toBe('get')
     expect(toolName('mcp__x__list', 5)).toBe('list')
-    expect(toolName('mcp__mission-control__update', 6)).toBe('update')
-    for (const t of ['mcp__mission-control__update', 'StructuredOutput', 'SomethingUnheardOf', 'mcp__a__b', 'X']) {
+    expect(toolName('mcp__binnacle__update', 6)).toBe('update')
+    for (const t of ['mcp__binnacle__update', 'StructuredOutput', 'SomethingUnheardOf', 'mcp__a__b', 'X']) {
       for (const room of [1, 3, 5, 8]) {
         const got = toolName(t, room)
         expect(got.length).toBeGreaterThan(0)

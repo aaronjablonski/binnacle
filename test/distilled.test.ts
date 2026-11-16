@@ -403,7 +403,7 @@ describe('session cost', () => {
 })
 
 describe('lastExport', () => {
-  it('records when and where /mc export wrote', () => {
+  it('records when and where /binnacle export wrote', () => {
     const t = fold([{ kind: 'export', at: T0, path: 'C:/x/export.md' }])
     expect(t.lastExport).toEqual({ at: T0, path: 'C:/x/export.md' })
   })

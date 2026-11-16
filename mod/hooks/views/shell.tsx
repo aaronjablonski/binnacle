@@ -26,7 +26,7 @@ import { landing, stopsOf, withStart } from './ring'
 import type { Stops } from './ring'
 import { aspectFromEnv, setCellAspect } from './raster'
 
-export const PANE = 'mission-control'
+export const PANE = 'binnacle'
 
 /**
  * The five tabs and their label per width (R42, back at its original threshold,
@@ -121,7 +121,7 @@ const COLUMNS_SLIM = 28
  * added or left out.
  */
 function paneArgs(isFocused: boolean, slim: boolean): PaneOpenArgs {
-  const args: PaneOpenArgs = { id: PANE, title: 'Mission Control', columns: slim ? COLUMNS_SLIM : COLUMNS_DOCK, rows: ROWS_INLINE }
+  const args: PaneOpenArgs = { id: PANE, title: 'Binnacle', columns: slim ? COLUMNS_SLIM : COLUMNS_DOCK, rows: ROWS_INLINE }
   if (isFocused) args.focus = true
   return args
 }
@@ -155,7 +155,7 @@ export async function syncPaneOpen($: EngineInterface): Promise<void> {
 export function registerShell(on: On, options: PluginOptions): void {
   configureEditor(options.editor)
   configureOptions(options)
-  // Observes every close of the pane (the person's own, /mc close, a press): the
+  // Observes every close of the pane (the person's own, /binnacle close, a press): the
   // flag follows what the hooks beneath settled, and the paint clock drops the
   // pane's Rasters. The one ui.close hook of the module; it answers exactly
   // what next(e) answered.
@@ -168,7 +168,7 @@ export function registerShell(on: On, options: PluginOptions): void {
 
   // Every move of the pane's ring. A person's move onto a tab is sent to the
   // content instead (ring.ts `landing`): the arrows and Tab walk the active
-  // tab's rows, and the tabs are reached by their hotkeys, a click and /mc 1-5.
+  // tab's rows, and the tabs are reached by their hotkeys, a click and /binnacle 1-5.
   // It answers what next(e) resolved to, for the move as sent.
   on('ui.focus', { requestId: PANE }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
@@ -217,7 +217,7 @@ export function registerShell(on: On, options: PluginOptions): void {
       return out
     } catch (err) {
       debug($, `pane failed: ${errText(err)}`)
-      return <Text dimColor>{`Mission Control: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
+      return <Text dimColor>{`Binnacle: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
     }
   })
 }
@@ -451,7 +451,7 @@ function pageBody($: EngineInterface, e: RenderInput, rest: Drawn, kind: PageKin
   }
 }
 
-/** The tab a `/mc` digit names: 1 to 5. */
+/** The tab a `/binnacle` digit names: 1 to 5. */
 function tabFor(word: string): { tab: Tab; label: string } | undefined {
   return TABS.find(x => word === x.hotkey)
 }
@@ -477,7 +477,7 @@ async function isStrip($: EngineInterface): Promise<boolean> {
 }
 
 /**
- * Turns the strip off and opens the pane the way `/mc` does, at the slim
+ * Turns the strip off and opens the pane the way `/binnacle` does, at the slim
  * width while `ui.slim`. Throws what the open throws.
  */
 async function openPane($: EngineInterface): Promise<{ isPlaced: boolean }> {
@@ -501,9 +501,9 @@ export async function leaveStrip($: EngineInterface): Promise<void> {
 }
 
 /**
- * The commands, and nothing else: `/mc`, `/mc 1-5`, `/mc keep <note>`,
- * `/mc export`, `/mc close`, `/mc slim`, `/mc strip`, `/mc options`. `/mc`, `/mc 1-5` and
- * `/mc slim` open the pane and so turn the strip off; `/mc strip` closes it:
+ * The commands, and nothing else: `/binnacle`, `/binnacle 1-5`, `/binnacle keep <note>`,
+ * `/binnacle export`, `/binnacle close`, `/binnacle slim`, `/binnacle strip`, `/binnacle options`. `/binnacle`, `/binnacle 1-5` and
+ * `/binnacle slim` open the pane and so turn the strip off; `/binnacle strip` closes it:
  * whichever ran last wins.
  */
 export async function runMc($: EngineInterface, args: string): Promise<{ text: string }> {
@@ -512,21 +512,21 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
     try {
       await seedBudget($, { skipIfFresh: true })
       const opened = await openPane($)
-      if (!opened.isPlaced) return { text: 'Mission Control is open and waits for a wider terminal.' }
-      return { text: 'Mission Control opened.' }
+      if (!opened.isPlaced) return { text: 'Binnacle is open and waits for a wider terminal.' }
+      return { text: 'Binnacle opened.' }
     } catch (err) {
       debug($, `open failed: ${errText(err)}`)
-      return { text: `Could not open Mission Control: ${errText(err)}` }
+      return { text: `Could not open Binnacle: ${errText(err)}` }
     }
   }
   if (word === 'close') {
     try {
       await $.ui.close({ id: PANE })
       await setPaneOpen($, false)
-      return { text: 'Mission Control closed.' }
+      return { text: 'Binnacle closed.' }
     } catch (err) {
       debug($, `close failed: ${errText(err)}`)
-      return { text: `Could not close Mission Control: ${errText(err)}` }
+      return { text: `Could not close Binnacle: ${errText(err)}` }
     }
   }
   if (word === 'export') return exportDigest($)
@@ -536,11 +536,11 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       await seedBudget($, { skipIfFresh: true })
       await updateUi($, cur => ({ ...leavePage(leaveDetail(cur)), tab: target.tab }))
       const opened = await openPane($)
-      if (!opened.isPlaced) return { text: `Mission Control: ${target.label}. It waits for a wider terminal.` }
-      return { text: `Mission Control: ${target.label}.` }
+      if (!opened.isPlaced) return { text: `Binnacle: ${target.label}. It waits for a wider terminal.` }
+      return { text: `Binnacle: ${target.label}.` }
     } catch (err) {
       debug($, `tab failed: ${errText(err)}`)
-      return { text: `Could not open Mission Control: ${errText(err)}` }
+      return { text: `Could not open Binnacle: ${errText(err)}` }
     }
   }
   if (word === 'keep') {
@@ -560,25 +560,25 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
       await updateUi($, cur => ({ ...cur, slim: fromStrip ? true : !cur.slim }))
       const slim = await isSlim($)
       const opened = await openPane($)
-      const said = slim ? `Mission Control: slim, ${COLUMNS_SLIM} columns.` : `Mission Control: full width, ${COLUMNS_DOCK} columns.`
+      const said = slim ? `Binnacle: slim, ${COLUMNS_SLIM} columns.` : `Binnacle: full width, ${COLUMNS_DOCK} columns.`
       if (!opened.isPlaced) return { text: `${said} It waits for a wider terminal.` }
       return { text: said }
     } catch (err) {
       debug($, `slim failed: ${errText(err)}`)
-      return { text: `Could not resize Mission Control: ${errText(err)}` }
+      return { text: `Could not resize Binnacle: ${errText(err)}` }
     }
   }
   if (word === 'strip') {
     try {
       if (await isStrip($)) {
         const opened = await openPane($)
-        if (!opened.isPlaced) return { text: 'Mission Control is open and waits for a wider terminal.' }
-        return { text: 'Mission Control opened.' }
+        if (!opened.isPlaced) return { text: 'Binnacle is open and waits for a wider terminal.' }
+        return { text: 'Binnacle opened.' }
       }
       await updateUi($, cur => ({ ...cur, strip: true }))
       await $.ui.close({ id: PANE })
       await setPaneOpen($, false)
-      return { text: 'Mission Control: strip, above the prompt.' }
+      return { text: 'Binnacle: strip, above the prompt.' }
     } catch (err) {
       debug($, `strip failed: ${errText(err)}`)
       return { text: `Could not switch the strip: ${errText(err)}` }
@@ -588,14 +588,14 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
     try {
       await updateUi($, cur => ({ ...cur, page: { kind: 'options', id: '' } }))
       const opened = await openPane($)
-      if (!opened.isPlaced) return { text: 'Mission Control: options. It waits for a wider terminal.' }
-      return { text: 'Mission Control: options.' }
+      if (!opened.isPlaced) return { text: 'Binnacle: options. It waits for a wider terminal.' }
+      return { text: 'Binnacle: options.' }
     } catch (err) {
       debug($, `options failed: ${errText(err)}`)
       return { text: `Could not open the options: ${errText(err)}` }
     }
   }
-  return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim, strip or options.' }
+  return { text: 'Unknown. Try /binnacle, /binnacle 1-5, keep <note>, export, close, slim, strip or options.' }
 }
 
 /** How long after its last event the session still counts as live: the toasts, notifications and sweep the tick raises are fresh for 15 s at most. */

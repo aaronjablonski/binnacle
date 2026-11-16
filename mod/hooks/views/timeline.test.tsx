@@ -87,11 +87,11 @@ const TL_UI: UiState = {
 
 const PANE = (columns: number, bodyRows = 40) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: false,
       bodyColumns: columns,
       placement: 'dock',
@@ -230,7 +230,7 @@ function pinned(): Timeline {
 
 const FIND_KEY = 'timeline-find'
 const bodyFile = (id: string, text: string): [string, string] => [
-  `${HOME}/.claude/mission-control/sess-1/steps/${id}.json`,
+  `${HOME}/.claude/binnacle/sess-1/steps/${id}.json`,
   JSON.stringify({ input: { file_path: 'a.ts' }, text, cut: 0, isError: false }),
 ]
 
@@ -262,7 +262,7 @@ test('Enter runs a deep search over stored bodies and marks hits "in result"', a
   ])
   const stored = world(on, twoTurns(), { ...TL_UI, openTurns: ['t1'], query: '429' }, files)
   const ui = await mount($, 'terminal')
-  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: '429', surface: 'terminal' })
+  await $.ui.input({ plugin: 'binnacle', key: FIND_KEY, text: '429', surface: 'terminal' })
   expect((stored.get('ui') as UiState).hits).toEqual(['s4'])
   await ui.unmount()
   for (const surface of SURFACES) {
@@ -276,7 +276,7 @@ test('Enter runs a deep search over stored bodies and marks hits "in result"', a
 test('typing again clears the deep-search hits', async ($, on) => {
   const stored = world(on, twoTurns(), { ...TL_UI, query: '429', hits: ['s4'] })
   const ui = await mount($, 'terminal')
-  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: '4290', kind: 'change', surface: 'terminal' })
+  await $.ui.input({ plugin: 'binnacle', key: FIND_KEY, text: '4290', kind: 'change', surface: 'terminal' })
   const u = stored.get('ui') as UiState
   expect(u.query).toBe('4290')
   expect(u.hits).toBeUndefined()
@@ -289,7 +289,7 @@ test('deep search reads newest first and at most 200 bodies', async ($, on) => {
   const files = new Map(steps.map(s => bodyFile(s.id, s.id === 'd249' || s.id === 'd10' ? 'needle' : 'hay')))
   const stored = world(on, { ...empty, turns: [turn('t1', 'big', NOW - 60_000)], steps }, { ...TL_UI, query: 'needle' }, files)
   const ui = await mount($, 'terminal')
-  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'needle', surface: 'terminal' })
+  await $.ui.input({ plugin: 'binnacle', key: FIND_KEY, text: 'needle', surface: 'terminal' })
   const bodies = reads.filter(r => r.includes('/steps/'))
   expect(bodies.length).toBe(200)
   expect(bodies[0]?.endsWith('/d249.json')).toBe(true)
@@ -306,7 +306,7 @@ test('deep search stops at 8 seconds', async ($, on) => {
   readCostMs = 1000
   try {
     const ui = await mount($, 'terminal')
-    await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'needle', surface: 'terminal' })
+    await $.ui.input({ plugin: 'binnacle', key: FIND_KEY, text: 'needle', surface: 'terminal' })
     const bodies = reads.filter(r => r.includes('/steps/'))
     expect(bodies.length).toBe(8)
     expect((stored.get('ui') as UiState).hits?.length).toBe(8)
@@ -319,7 +319,7 @@ test('deep search stops at 8 seconds', async ($, on) => {
 test('a blank query clears the hits and runs no deep search', async ($, on) => {
   const stored = world(on, twoTurns(), { ...TL_UI, query: '', hits: ['s4'] })
   const ui = await mount($, 'terminal')
-  await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: '  ', surface: 'terminal' })
+  await $.ui.input({ plugin: 'binnacle', key: FIND_KEY, text: '  ', surface: 'terminal' })
   expect(reads.filter(r => r.includes('/steps/')).length).toBe(0)
   expect((stored.get('ui') as UiState).hits).toBeUndefined()
   await ui.unmount()
@@ -342,7 +342,7 @@ test('narrow find results keep every line within 32', async ($, on) => {
 // ---- HUD v2 Steps screen ---------------------------------------------------
 
 const fileFor = (id: string, text: string, extra: Record<string, unknown> = {}): [string, string] => [
-  `${HOME}/.claude/mission-control/sess-1/steps/${id}.json`,
+  `${HOME}/.claude/binnacle/sess-1/steps/${id}.json`,
   JSON.stringify({ input: { command: 'npm test' }, text, cut: 0, isError: false, ...extra }),
 ]
 
@@ -585,7 +585,7 @@ const toolRow = (id: string, tool: string, onScreen: SeenOn) => ({
 
 async function mountRow($: Engine, surface: (typeof SURFACES)[number], id: string, onScreen: SeenOn) {
   return $.ui.mount({
-    plugin: 'mission-control', surface, component: 'ToolUse', requestId: id,
+    plugin: 'binnacle', surface, component: 'ToolUse', requestId: id,
     props: toolRow(id, 'Edit', onScreen),
   } as never)
 }
@@ -595,9 +595,9 @@ test('with guide: false nothing is added to the conversation and the gutter mark
   const registered: string[] = []
   on('tool.register', (_, e) => {
     registered.push(e.name)
-    return { value: { tool: `mcp__mission-control__${e.name}` } }
+    return { value: { tool: `mcp__binnacle__${e.name}` } }
   })
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   const sections = [{ id: 'lean_body', text: 'body', scope: 'shared' }] as const
   on('prompt.compose', () => ({ sections }))
@@ -605,7 +605,7 @@ test('with guide: false nothing is added to the conversation and the gutter mark
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: false })
   const composed = await $.prompt.compose({
     model: 'claude-haiku-5-5', promptModel: 'claude-haiku-5-5', surfaces: [],
-    tools: ['mcp__mission-control__update'], outputStyle: null, traits: ['lean', 'print'],
+    tools: ['mcp__binnacle__update'], outputStyle: null, traits: ['lean', 'print'],
   })
   expect(registered).toEqual([])
   expect(composed.sections).toEqual(sections)
@@ -843,7 +843,7 @@ test('the Timeline has a find Input bound to ui.query; typing filters live; the 
     put(stored, twoTurns(), { ...TL_UI, openTurns: ['t1'] })
     const ui = await mount($, surface)
     expect(await ui.find({ key: FIND_KEY })).toBeDefined()
-    await $.ui.input({ plugin: 'mission-control', key: FIND_KEY, text: 'rateLimit', kind: 'change', surface })
+    await $.ui.input({ plugin: 'binnacle', key: FIND_KEY, text: 'rateLimit', kind: 'change', surface })
     expect((stored.get('ui') as UiState).query).toBe('rateLimit')
     await ui.unmount()
     const filtered = await mount($, surface)

@@ -53,11 +53,11 @@ function world(on: On, u: UiState = initialUi, answer: Answer = v => ({ value: v
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: true,
       bodyColumns: columns,
       placement: 'dock',
@@ -103,10 +103,10 @@ test('0 is armed at every tab width and drawn nowhere: no tab row and no blank r
   }
 })
 
-test('/mc options opens the pane on the Options page', async ($, on) => {
+test('/binnacle options opens the pane on the Options page', async ($, on) => {
   const { stored } = world(on)
-  const got = await $.command.run({ command: 'mc', args: 'options' } as never)
-  expect((got as { text?: string }).text).toBe('Mission Control: options.')
+  const got = await $.command.run({ command: 'binnacle', args: 'options' } as never)
+  expect((got as { text?: string }).text).toBe('Binnacle: options.')
   expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: '' })
 })
 
@@ -150,7 +150,7 @@ test('drawing the card writes nothing; Enter on a switch writes it once, on the 
   expect(sets.length).toBe(0)
 
   await ui.press({ key: 'opt-showCost' })
-  expect(sets).toEqual([{ key: 'mission-control.showCost', value: true }])
+  expect(sets).toEqual([{ key: 'binnacle.showCost', value: true }])
   expect(toasts.join('|')).toContain('Show cost: on')
   const rows = screen(await ui.drawn())
   expect((rows.find(r => r.trimStart().startsWith('Show cost')) ?? '').slice(38, 40)).toBe('on')
@@ -180,7 +180,7 @@ test('a choice opens to its values with hotkeys; a value is written on its press
     expect((await opened.find({ type: 'Button', key: `opt-pick-notify-${v}` }))?.props).toMatchObject({ hotkey: k })
   }
   await opened.press({ key: 'opt-pick-notify-all' })
-  expect(sets).toEqual([{ key: 'mission-control.notify', value: 'all' }])
+  expect(sets).toEqual([{ key: 'binnacle.notify', value: 'all' }])
   await opened.unmount()
 })
 
@@ -253,7 +253,7 @@ test('the Look row is a choice of auto, rich and text, auto by default; text is 
   const opened = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   for (const pick of ['auto', 'rich', 'text']) expect(await opened.find({ type: 'Button', key: `opt-pick-look-${pick}` })).not.toBe(undefined)
   await opened.press({ key: 'opt-pick-look-text' })
-  expect(sets).toEqual([{ key: 'mission-control.look', value: 'text' }])
+  expect(sets).toEqual([{ key: 'binnacle.look', value: 'text' }])
   await opened.unmount()
   // Applied now: the next draw, without a reload, has no Raster.
   stored.set('ui', initialUi)

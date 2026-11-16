@@ -604,7 +604,7 @@ export async function budgetTick($: EngineInterface): Promise<void> {
   }
 }
 
-/** A budget newer than this is left alone when `/mc` asks for a first reading. */
+/** A budget newer than this is left alone when `/binnacle` asks for a first reading. */
 const SEED_FRESH_MS = 60_000
 
 /** The toast markers a budget has already reached: what budgetTick would raise for it. */
@@ -620,7 +620,7 @@ function reachedMarks(b: Budget): string[] {
 /**
  * A first reading of the budget from `$.session.usage()`, which has the
  * figures a `session.measure` input has, so `budgetOf` reads both. It is
- * taken at session start and when `/mc` opens the pane, because nothing else
+ * taken at session start and when `/binnacle` opens the pane, because nothing else
  * records a budget until Claude next replies. With `onlyIfOlderThanMs` set
  * an existing budget newer than that is kept and nothing is read.
  *

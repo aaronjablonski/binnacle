@@ -125,7 +125,7 @@ export async function paintTick($: EngineInterface): Promise<number> {
           })
           .catch((err: unknown) => {
             if (site.entries.get(key) === e) site.entries.delete(key)
-            $.ui.log(`mission-control: blit ${key} failed: ${String(err)}`, { to: 'debug' })
+            $.ui.log(`binnacle: blit ${key} failed: ${String(err)}`, { to: 'debug' })
             return false
           }),
       )
@@ -187,7 +187,7 @@ export async function repaint($: EngineInterface, requestId: string, key: string
     const got = await $.ui.blit({ requestId, key, cells, columns: e.columns, rows: e.rows })
     if (got.deny === undefined) return 'blit'
   } catch (err) {
-    $.ui.log(`mission-control: repaint ${key} failed: ${String(err)}`, { to: 'debug' })
+    $.ui.log(`binnacle: repaint ${key} failed: ${String(err)}`, { to: 'debug' })
   }
   if (site.entries.get(key) === e) site.entries.delete(key)
   return 'absent'

@@ -25,7 +25,7 @@ export const RUN_GLYPH = '≡'
 export const EMPTY = 'No agents yet. Subagents and workflow agents appear here while they run.'
 
 /** The pane's own id: the target of a `$.ui.focus`. */
-const PANE_ID = 'mission-control'
+const PANE_ID = 'binnacle'
 
 /** When main began: its first step, since the `main` row itself carries no start. */
 export function mainSince({ t }: ViewCtx): number | undefined {

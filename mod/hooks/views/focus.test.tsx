@@ -13,7 +13,7 @@ import { stops } from './screen.testkit'
 
 const NOW = 1_000_000
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
-const PANE_ID = 'mission-control'
+const PANE_ID = 'binnacle'
 // The tab bar's Buttons: the five tabs and Options (`0`), all reached by hotkey rather than by the ring.
 const TAB_KEYS = ['tab-overview', 'tab-tasks', 'tab-agents', 'tab-timeline', 'tab-artifacts', 'tab-options']
 
@@ -87,7 +87,7 @@ const PANE = (columns: number) =>
     plugin: PANE_ID,
     component: 'Pane',
     requestId: PANE_ID,
-    props: { title: 'Mission Control', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} },
+    props: { title: 'Binnacle', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} },
   }) as const
 
 const TABS = ['overview', 'tasks', 'agents', 'timeline', 'artifacts'] as const

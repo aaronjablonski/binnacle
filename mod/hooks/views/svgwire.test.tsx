@@ -33,13 +33,13 @@ function world(on: On): void {
 }
 
 const PANE = {
-  plugin: 'mission-control',
+  plugin: 'binnacle',
   component: 'Pane',
-  requestId: 'mission-control',
-  props: { title: 'Mission Control', isFocused: false, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  requestId: 'binnacle',
+  props: { title: 'Binnacle', isFocused: false, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 const BAND = {
-  plugin: 'mission-control',
+  plugin: 'binnacle',
   component: 'AbovePrompt',
   props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const

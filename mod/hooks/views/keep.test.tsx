@@ -6,7 +6,7 @@ import type { Step, Timeline, TurnRow, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { colOf, screen } from './screen.testkit'
 
-// `/mc keep <note>` and the Keep verb (was Pin): the command's answers, the
+// `/binnacle keep <note>` and the Keep verb (was Pin): the command's answers, the
 // mark on the Steps list and the Kept chip. Moved here from overview.test.tsx
 // (the command tests) and timeline.test.tsx.
 
@@ -89,11 +89,11 @@ function twoTurns(): Timeline {
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: false,
       bodyColumns: columns,
       placement: 'dock',
@@ -106,9 +106,9 @@ async function mount($: Engine, surface: (typeof SURFACES)[number], columns = 62
   return $.ui.mount({ ...PANE(columns), surface })
 }
 
-test('/mc keep note keeps the newest main step; it shows ★ and the Kept chip', async ($, on) => {
+test('/binnacle keep note keeps the newest main step; it shows ★ and the Kept chip', async ($, on) => {
   const stored = world(on, twoTurns(), UI)
-  const got = await $.command.run({ command: 'mc', args: 'keep the limiter itself' } as never)
+  const got = await $.command.run({ command: 'binnacle', args: 'keep the limiter itself' } as never)
   expect(got.text).toBe('Kept: Bash npm test')
   const t = stored.get('timeline') as Timeline
   expect(t.steps.find(s => s.id === 's4')?.pin).toBe('the limiter itself')
@@ -123,21 +123,21 @@ test('/mc keep note keeps the newest main step; it shows ★ and the Kept chip',
   }
 })
 
-test('/mc keep with no note keeps with an empty note, and skips a subagent step', async ($, on) => {
+test('/binnacle keep with no note keeps with an empty note, and skips a subagent step', async ($, on) => {
   const t = twoTurns()
   t.agents.a1 = { id: 'a1', parent: 'main', type: 'Explore', description: 'x', status: 'done', startedAt: NOW - 60_000, doing: '', stepCount: 1 }
   t.steps.push(step('s5', 5, 'Grep later', 'done', { turnId: 't2', agent: 'a1', tool: 'Grep' }))
   const stored = world(on, t, UI)
-  const got = await $.command.run({ command: 'mc', args: 'keep' } as never)
+  const got = await $.command.run({ command: 'binnacle', args: 'keep' } as never)
   expect(got.text).toBe('Kept: Bash npm test')
   const after = stored.get('timeline') as Timeline
   expect(after.steps.find(s => s.id === 's4')?.pin).toBe('')
   expect(after.steps.find(s => s.id === 's5')?.pin).toBeUndefined()
 })
 
-test('/mc keep with no steps says Nothing to keep yet.', async ($, on) => {
+test('/binnacle keep with no steps says Nothing to keep yet.', async ($, on) => {
   world(on, empty, UI)
-  const got = await $.command.run({ command: 'mc', args: 'keep' } as never)
+  const got = await $.command.run({ command: 'binnacle', args: 'keep' } as never)
   expect(got.text).toBe('Nothing to keep yet.')
 })
 
@@ -145,7 +145,7 @@ test('a kept step that failed keeps its × (the failure outranks the mark) and s
   const t = twoTurns()
   t.steps = t.steps.map(s => (s.id === 's4' ? { ...s, status: 'error' as const } : s))
   world(on, t, UI)
-  await $.command.run({ command: 'mc', args: 'keep' } as never)
+  await $.command.run({ command: 'binnacle', args: 'keep' } as never)
   const ui = await mount($, 'terminal')
   const rows = screen(await ui.drawn()).slice(3)
   expect(colOf(rows.find(r => r.includes('npm test')), '×')).toBe(2)

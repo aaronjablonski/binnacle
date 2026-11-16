@@ -52,11 +52,11 @@ function reset(stored: Stored, t: Timeline): void {
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: false,
       bodyColumns: columns,
       placement: 'dock',
@@ -151,7 +151,7 @@ test('the tab names are whole from 54 columns, whole short words from 43 and ico
 })
 
 
-test('/mc opens the pane with focus', async ($, on) => {
+test('/binnacle opens the pane with focus', async ($, on) => {
   seed(on, empty)
   const opened: Record<string, unknown>[] = []
   on('ui.open', (_, e) => {
@@ -159,14 +159,14 @@ test('/mc opens the pane with focus', async ($, on) => {
     return { value: { isPlaced: true as const } }
   })
 
-  const got = await $.command.run({ command: 'mc', args: '' } as never)
+  const got = await $.command.run({ command: 'binnacle', args: '' } as never)
 
-  expect(got.text).toBe('Mission Control opened.')
+  expect(got.text).toBe('Binnacle opened.')
   expect(opened.length).toBe(1)
-  expect(opened[0]).toMatchObject({ id: 'mission-control', title: 'Mission Control', focus: true, columns: 62, rows: 14 })
+  expect(opened[0]).toMatchObject({ id: 'binnacle', title: 'Binnacle', focus: true, columns: 62, rows: 14 })
 })
 
-test('/mc close closes the pane', async ($, on) => {
+test('/binnacle close closes the pane', async ($, on) => {
   seed(on, empty)
   const closed: unknown[] = []
   on('ui.close', (_, e) => {
@@ -174,10 +174,10 @@ test('/mc close closes the pane', async ($, on) => {
     return { value: undefined }
   })
 
-  const got = await $.command.run({ command: 'mc', args: 'close' } as never)
+  const got = await $.command.run({ command: 'binnacle', args: 'close' } as never)
 
   expect(closed.length).toBe(1)
-  expect(closed[0]).toMatchObject({ id: 'mission-control' })
+  expect(closed[0]).toMatchObject({ id: 'binnacle' })
   expect(typeof got.text).toBe('string')
 })
 
@@ -198,7 +198,7 @@ function sessionWorld(on: On, t: Timeline): {
   })
   on('command.register', (_, e) => {
     registered.push(e as unknown as Record<string, unknown>)
-    return { value: { command: 'mc' } }
+    return { value: { command: 'binnacle' } }
   })
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -213,17 +213,27 @@ test('session.start with autoOpen opens the pane without focus; not being placed
   await start($)
 
   expect(opened.length).toBe(1)
-  expect(opened[0]).toMatchObject({ id: 'mission-control', title: 'Mission Control', columns: 62, rows: 14 })
+  expect(opened[0]).toMatchObject({ id: 'binnacle', title: 'Binnacle', columns: 62, rows: 14 })
   expect('focus' in (opened[0] ?? {})).toBe(false)
 })
 
-test('session.start without autoOpen opens nothing, and registers /mc as immediate', async ($, on) => {
+test('session.start without autoOpen opens nothing, and registers /binnacle as immediate', async ($, on) => {
   const { opened, registered } = sessionWorld(on, empty)
 
   await start($)
 
   expect(opened.length).toBe(0)
-  expect(registered[0]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
+  expect(registered[0]).toMatchObject({ name: 'binnacle', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
+})
+
+test('/mc is registered as a second command with the same hint, and runs the same thing as /binnacle', async ($, on) => {
+  const { registered, opened } = sessionWorld(on, empty)
+  await start($)
+  expect(registered[1]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
+
+  const got = await $.command.run({ command: 'mc', args: '' } as never)
+  expect(got.text).toBe('Binnacle is open and waits for a wider terminal.')
+  expect(opened.length).toBe(1)
 })
 
 // M10 (order changed, meaning kept): the clock stops once nothing is live and only a capture hook's write starts it

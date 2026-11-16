@@ -54,14 +54,14 @@ const T: Timeline = {
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {}, ...(cover ? { isPromptCovered: true as const } : {}) },
+    requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {}, ...(cover ? { isPromptCovered: true as const } : {}) },
   }) as const
 const BAND = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'AbovePrompt',
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: columns, scroll: { offset: 0, bodyRows: 10 }, view: {} },
   }) as const

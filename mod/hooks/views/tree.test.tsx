@@ -46,10 +46,10 @@ const MAP_UI: UiState = {
 
 const PANE = (columns: number, focused: boolean, bodyRows: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: focused, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
+    requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: focused, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
   }) as const
 
 async function mount($: Engine, surface: (typeof SURFACES)[number] = 'terminal', columns = 62, focused = false, bodyRows = 60) {

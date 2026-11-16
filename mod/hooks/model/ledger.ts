@@ -7,7 +7,7 @@ import { MAX_LEDGER, MAX_LEDGER_MODELS, MAX_LEDGER_SESSION, MAX_MODEL } from './
 // the store; these build, bound and read the rows.
 
 /** The `$.store` key the ledger lives under. */
-export const LEDGER_KEY = 'mission-control:ledger'
+export const LEDGER_KEY = 'binnacle:ledger'
 /** The stored value's version: anything else stored under the key reads as an empty ledger. */
 const VERSION = 1
 

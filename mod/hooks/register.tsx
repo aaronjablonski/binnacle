@@ -21,15 +21,19 @@ export const register: Register = (on, options) => {
   // a helper called from here (validate refuses a second unmatched hook).
   // Each step has its own try, so one failing cannot skip the next (M2).
   on('session.start', async ($, e, next) => {
-    try {
-      await $.command.register({
-        name: 'mc',
-        description: 'Open Mission Control',
-        argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]',
-        immediate: true,
-      })
-    } catch (err) {
-      debug($, `command.register failed: ${errText(err)}`)
+    // `/binnacle` is the command; `/mc` is a second registration of the same
+    // run (CommandSpec has no alias field), kept short for the fingers.
+    for (const name of ['binnacle', 'mc']) {
+      try {
+        await $.command.register({
+          name,
+          description: name === 'mc' ? 'Short for /binnacle' : 'Open Binnacle',
+          argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]',
+          immediate: true,
+        })
+      } catch (err) {
+        debug($, `command.register ${name} failed: ${errText(err)}`)
+      }
     }
     try {
       await restore($, await $.session.id())
@@ -87,7 +91,9 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  on('command.run', { command: 'mc' }, async ($, e) => {
-    return runMc($, e.args)
-  })
+  for (const command of ['binnacle', 'mc']) {
+    on('command.run', { command }, async ($, e) => {
+      return runMc($, e.args)
+    })
+  }
 }

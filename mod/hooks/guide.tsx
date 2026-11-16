@@ -14,11 +14,11 @@ import { observeRow } from './views/onscreen'
 const TOOL_NAME = 'update'
 const FIELD_MAX = MAX_LINE
 const NOTED = { result: 'Noted.' }
-const SECTION_ID = 'mission-control:guide'
-const ROW_PREFIX = '◆ Mission Control updated: '
+const SECTION_ID = 'binnacle:guide'
+const ROW_PREFIX = '◆ Binnacle updated: '
 
 export const DESCRIPTION =
-  'Keep the Mission Control panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful.'
+  'Keep the Binnacle panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful.'
 
 export const UPDATE_SCHEMA = {
   type: 'object',
@@ -61,10 +61,10 @@ export const UPDATE_SCHEMA = {
 // second; round 1 section 4's rules on threshold, grain, one task in progress
 // and closing stand, as do its headline, note and artifact bullets.
 export const GUIDE_TEXT = [
-  '# Mission Control',
+  '# Binnacle',
   'The person follows this session in a side panel with a headline, a to-do list and notes. They glance at it instead of reading the transcript, so keep it true.',
-  '- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__mission-control__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time. When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done. Do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.',
-  '- Headline: with your first tool call(s) on a new request, call mcp__mission-control__update with `focus`: the goal of the whole request as a plain clause of at most 8 words ("Adding rate limiting to the upload route"). Send it again only if the goal itself changes; the to-do list shows the current step.',
+  '- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__binnacle__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time. When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done. Do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.',
+  '- Headline: with your first tool call(s) on a new request, call mcp__binnacle__update with `focus`: the goal of the whole request as a plain clause of at most 8 words ("Adding rate limiting to the upload route"). Send it again only if the goal itself changes; the to-do list shows the current step.',
   '- Add `note` when you learn something the person would want to find again: a decision, a root cause, a surprising fact. One line.',
   '- Add `artifact` when you produce a result or a link worth keeping (review findings, a report, a pull request).',
   'Send these alongside other tool calls where you can, and never send an update that changes nothing. Skip all of it for replies that need no tools. Do not mention the panel or these updates in your replies.',
@@ -105,7 +105,7 @@ export function rowText(input: unknown, columns: number): string {
 export function registerGuide(on: On, options: PluginOptions): void {
   const on_ = isOn(options)
 
-  on('tool.call', { tool: 'mcp__mission-control__update' }, async ($, e, next) => {
+  on('tool.call', { tool: 'mcp__binnacle__update' }, async ($, e, next) => {
     if (!on_ || e.tool !== UPDATE_TOOL) return next(e)
     const at = await $.clock.now().catch(() => 0)
     await apply($, { kind: 'update', at, agent: e.agentId ?? 'main', update: updateOf(e as unknown as Record<string, unknown>) })

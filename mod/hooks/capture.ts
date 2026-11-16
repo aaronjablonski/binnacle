@@ -13,7 +13,7 @@ import { wakeClock } from './views/shell'
 // reports to the debug log, so nothing it does can break the chain.
 
 /** The guide's tool (Task 4 answers it); not recorded as a step. */
-export const UPDATE_TOOL = 'mcp__mission-control__update'
+export const UPDATE_TOOL = 'mcp__binnacle__update'
 const PROMPT_MAX = 200
 const RESERVED = new Set(['tool', 'tool_use_id', 'agentId', 'consent', 'requestMeta'])
 

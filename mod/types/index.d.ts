@@ -1,4 +1,4 @@
-// Mission Control's state contract: the values it keeps in $.state, and the
+// Binnacle's state contract: the values it keeps in $.state, and the
 // model types its hooks and views share. Self-contained on purpose: no import
 // or reference, types only.
 
@@ -63,7 +63,7 @@ export type TurnCost = { turnId: string; from: number; to?: number }
 export type InputAsk = { id: string; agent: AgentKey; server: string; message: string; at: number }   // id ≤ 64, server ≤ 64, message ≤ 200
 /** Why the newest failed main turn stopped, for the header's STOPPED line. */
 export type TurnFailure = { turnId: string; reason: string }   // reason ≤ 120
-/** What `/mc export` wrote last. */
+/** What `/binnacle export` wrote last. */
 export type LastExport = { at: number; path: string }  // path ≤ 1000
 export type Timeline = {
   seq: number; turns: TurnRow[]; steps: Step[]
@@ -134,15 +134,15 @@ export type UiState = {
   taskOpen?: string                                    // the active task opened in place on the Tasks tab (its `<owner>:<id>`)
   doneAll?: boolean                                    // the Tasks tab lists every done task, not the newest 3
   artifactOpen?: string                                // the artifact row opened in place (its id); absent, the newest is open; "" closes it
-  slim: boolean                                        // `/mc slim` asked for the 28-column pane; the layout itself reads only bodyColumns
-  paneOpen?: boolean                                   // the pane is open (set by /mc open, 1-5, slim and close, and by ui.close for the person's own close); the band is compact while true. Optional so a value an earlier version stored, and test fixtures, still type; readUi always answers a boolean
-  strip?: boolean                                      // `/mc strip` asked for the strip in the band in place of the pane; set false by /mc, /mc 1-5, /mc slim and a press in the strip. Optional as paneOpen is: readUi always answers a boolean
-  page?: { kind: PageKind; id: string; from?: string } // the detail page that replaces the open tab's list (id ≤ 200; a task's is `<owner>:<id>`); `from` is the key of the row it was opened from (≤ 200), which `b` focuses again; cleared by b, a tab switch and /mc 1-5. Optional: a value stored before it existed reads as no page
+  slim: boolean                                        // `/binnacle slim` asked for the 28-column pane; the layout itself reads only bodyColumns
+  paneOpen?: boolean                                   // the pane is open (set by /binnacle open, 1-5, slim and close, and by ui.close for the person's own close); the band is compact while true. Optional so a value an earlier version stored, and test fixtures, still type; readUi always answers a boolean
+  strip?: boolean                                      // `/binnacle strip` asked for the strip in the band in place of the pane; set false by /binnacle, /binnacle 1-5, /binnacle slim and a press in the strip. Optional as paneOpen is: readUi always answers a boolean
+  page?: { kind: PageKind; id: string; from?: string } // the detail page that replaces the open tab's list (id ≤ 200; a task's is `<owner>:<id>`); `from` is the key of the row it was opened from (≤ 200), which `b` focuses again; cleared by b, a tab switch and /binnacle 1-5. Optional: a value stored before it existed reads as no page
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'mission-control': {
+    'binnacle': {
       timeline: Shaped<Timeline>
       ui: Shaped<UiState>
     }

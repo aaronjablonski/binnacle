@@ -8,7 +8,7 @@ import { boundUi } from './model/usage'
 
 // Change a tag when the value's fields change: a reload then declines what
 // the earlier code stored instead of misreading it.
-export const timeline = atom({ plugin: 'mission-control', key: 'timeline' } as const, empty, {
+export const timeline = atom({ plugin: 'binnacle', key: 'timeline' } as const, empty, {
   shape: 'timeline-4',
 })
 
@@ -17,7 +17,7 @@ export const initialUi: UiState = {
   dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false, paneOpen: false, strip: false,
 }
 
-export const ui = atom({ plugin: 'mission-control', key: 'ui' } as const, initialUi, { shape: 'ui-4' })
+export const ui = atom({ plugin: 'binnacle', key: 'ui' } as const, initialUi, { shape: 'ui-4' })
 
 /** Folds one event into the timeline. Never throws: a failure goes to the debug log. */
 export async function apply($: EngineInterface, ev: Ev): Promise<void> {
@@ -81,7 +81,7 @@ export async function adopt($: EngineInterface, snap: Timeline): Promise<void> {
 // /clear resets `$.state`, so the journal folder of the timeline it ended is
 // handed across here. `$.store` is shared by every session of the mod.
 
-const CLEAR_MARK = 'mission-control:cleared'
+const CLEAR_MARK = 'binnacle:cleared'
 
 /** Where the timeline a /clear ended was journalled, and when (ms). */
 export type ClearMark = { journal: string; at: number }
@@ -159,7 +159,7 @@ export function errText(err: unknown): string {
 /** One line to the debug log; never throws. */
 export function debug($: EngineInterface, msg: string): void {
   try {
-    $.ui.log(`mission-control: ${msg}`, { to: 'debug' })
+    $.ui.log(`binnacle: ${msg}`, { to: 'debug' })
   } catch {
     // nowhere left to report it
   }

@@ -91,9 +91,9 @@ describe('StructuredOutput result', () => {
   it("sets a workflow agent's result to its input on one line, cut to MAX_RESULT", () => {
     const t = fold([
       agent('w1', { runId: 'r1', agentIndex: 1, type: 'workflow-subagent' }),
-      start('so', 'StructuredOutput', { name: 'mission-control', source: 'C:\\r\\package.json', notes: 'line one\n  line two' }, 'w1'),
+      start('so', 'StructuredOutput', { name: 'binnacle', source: 'C:\\r\\package.json', notes: 'line one\n  line two' }, 'w1'),
     ])
-    expect(t.agents.w1!.result).toBe('name: mission-control · source: C:\\r\\package.json · notes: line one line two')
+    expect(t.agents.w1!.result).toBe('name: binnacle · source: C:\\r\\package.json · notes: line one line two')
     const big = fold([start('so2', 'StructuredOutput', { verdict: 'x'.repeat(1000), findings: [{ a: 1 }] }, 'w1')], t)
     expect(big.agents.w1!.result!.length).toBe(MAX_RESULT)
     expect(big.agents.w1!.result!.startsWith('verdict: xxx')).toBe(true)

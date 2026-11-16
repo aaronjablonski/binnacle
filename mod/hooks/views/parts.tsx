@@ -666,7 +666,7 @@ export function inst(ctx: ViewCtx, $: EngineInterface, s: InstSpec): RenderEleme
   const table = $.ui.resolve(ctx.e)
   if (ctx.look === 'rich' && 'Raster' in table) {
     const { Box, Raster } = table
-    const p = track(ctx.site ?? 'mission-control', s.key, s.sig, s.frames)
+    const p = track(ctx.site ?? 'binnacle', s.key, s.sig, s.frames)
     if (p.columns !== s.columns || p.rows !== s.rows) {
       throw new Error(`instrument ${s.key} draws ${p.columns}x${p.rows}, not ${s.columns}x${s.rows}`)
     }

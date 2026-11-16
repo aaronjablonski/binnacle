@@ -5,7 +5,7 @@ import {
   adopt, debug, dropClearMark, errText, hasTimeline, markClear, readTimeline, stampJournal, takeClearMark,
 } from './state'
 
-// The journal on disk: <home>/.claude/mission-control/<id>/ holds
+// The journal on disk: <home>/.claude/binnacle/<id>/ holds
 // timeline.json (the last snapshot) and steps/<step-id>.json (each step's
 // input and result text). `$.fs` does not expand `~`, so the root is built
 // from the home variable; with none set, journalling is skipped.
@@ -50,7 +50,7 @@ const CMD_SAFE_PATH = /^[A-Za-z]:[\\/][A-Za-z0-9 _.\-\\/]+$/
 export async function journalRoot($: EngineInterface): Promise<string | undefined> {
   const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
   if (home === undefined || home === '') return undefined
-  return `${home.replace(/[\\/]+$/, '')}/.claude/mission-control`
+  return `${home.replace(/[\\/]+$/, '')}/.claude/binnacle`
 }
 
 const safe = (name: string): string => name.replace(/[^A-Za-z0-9_-]/g, '_')

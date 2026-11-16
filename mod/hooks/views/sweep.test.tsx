@@ -77,7 +77,7 @@ export const BUSY: Timeline = {
   ],
   artifacts: [
     artifact('r1', 'result', 'Lintel sweep across every width', { summary: 'No refusal between twenty-two and sixty-two columns', stepId: 's5' }),
-    artifact('p1', 'page', 'Mission Control review findings', { ref: 'https://claude.ai/artifact/abc', count: 3 }),
+    artifact('p1', 'page', 'Binnacle review findings', { ref: 'https://claude.ai/artifact/abc', count: 3 }),
     artifact('d1', 'document', 'docs/superpowers/specs/2026-11-15-mission-control-rich-design.md', { ref: 'docs/superpowers/specs/2026-11-15-mission-control-rich-design.md' }),
   ],
   changed: ['mod/hooks/views/parts.tsx', 'mod/hooks/views/raster.ts', 'test/raster.test.ts'],
@@ -143,7 +143,7 @@ export function sweeps(on: On, t: Timeline = BUSY, u: UiState = initialUi): type
 
 export const PANE = (columns: number, bodyRows = 40) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
     requestId: 'sweep',
     surface: 'terminal',

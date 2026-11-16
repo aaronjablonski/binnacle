@@ -108,11 +108,11 @@ test('the deck Svg shows the model\'s values as text and titles', () => {
   expect(s.length).toBeLessThan(SVG_MAX)
 })
 
-// LOOK TEST (rewritten for the cockpit, C6): the band Svg is the band's two rows (goal and gauges, bar and words); the pill, the crew row, NEXT, the rings and `/mc` are gone (`/mc` is the Button beside the Svg).
+// LOOK TEST (rewritten for the cockpit, C6): the band Svg is the band's two rows (goal and gauges, bar and words); the pill, the crew row, NEXT, the rings and `/binnacle` are gone (`/binnacle` is the Button beside the Svg).
 test('the band Svg carries the goal, the gauges, the bar and its words, and the one critter', () => {
   const s = bandSvg(busy(), u, NOW, 120)
   for (const want of ['Working on', 'Wiring the limiter', 'context ', 'week ', '2</tspan>', ' of 4 done', '2 agents working', 'nothing needs you', '<title>2 of 4 done</title>', '<title>the lead</title>']) expect(s).toContain(want)
-  expect(s).not.toContain('/mc')
+  expect(s).not.toContain('/binnacle')
   expect(s).not.toContain('<animate')
   expect(s.length).toBeLessThan(SVG_MAX)
 })

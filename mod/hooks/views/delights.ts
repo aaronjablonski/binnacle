@@ -73,7 +73,7 @@ export function sweepCells(frameNo: number | undefined, width: number): [number,
 }
 
 /** The pane's own site: the band draws under another and never sweeps. */
-const PANE_SITE = 'mission-control'
+const PANE_SITE = 'binnacle'
 
 /**
  * Whether a draw lights the sweep: the pane (not the band), the `motion`

@@ -77,7 +77,7 @@ read them before changing words, colours or the alert rules.
 | The guide (the one system-prompt section and the update tool) | `mod/hooks/guide.tsx` |
 | Design and plans | `docs/superpowers/specs/`, `docs/superpowers/plans/`, `docs/superpowers/TASKS.md` |
 | Mocks | `docs/mocks/*.dc.html` and `canvas.json` |
-| README images | `docs/readme/`, drawn by `node docs/readme/gen.js` (they predate the cockpit; regenerate before a release) |
+| README images | `docs/readme/`, drawn from the real views by `node docs/readme/tools/make.mjs` (rerun after view changes) |
 | Working rules | `CLAUDE.md`; local-only rules in `CLAUDE.local.md` (git-ignored) |
 
 ## What is known about the mods API
@@ -140,6 +140,5 @@ own files), but these ideas carried over:
 
 ## Open items
 
-- The README images need regenerating for the cockpit.
 - Not built: restyling the transcript, model-written agent summaries, graph
   or waterfall views, cost analytics.

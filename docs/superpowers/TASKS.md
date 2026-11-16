@@ -53,7 +53,7 @@ Updated 2026-11-15. Plans live in `docs/superpowers/plans/`; the working ledger 
 ## Release prep
 
 - [ ] Choose a new name (Mission Control is taken by several Claude Code mods) and rename plugin, pane id, tool, `/mc`, docs
-- [ ] Merge `README.draft.md` into `README.md`; regenerate renderings for Neo (`node docs/readme/gen.js`)
+- [x] README rewritten with images from the real views (`node docs/readme/tools/make.mjs`)
 - [ ] Licence, author, icon (512–2048 px PNG); GitHub remote for badges
 - [ ] Remove personal names from tracked docs (`HANDOVER.md`)
 - [ ] Triage deferred minor findings (listed in the ledger)

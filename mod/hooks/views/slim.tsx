@@ -5,10 +5,11 @@ import type { Need } from '../model/alerts'
 import { oneLine } from '../model/label'
 import { leaveDetail, updateUi } from '../state'
 import { budgetView, isBudgetOpen, setBudgetOpen, slimGauges } from './budget'
-import { doing, pctBar, todoBar, wordFit, wrapWords } from './fit'
+import { doing, listSplit, nameFit, pctBar, span, todoBar, wordFit, wrapWords } from './fit'
 import { argOf } from './lay'
 import { askerCritter, needsSlot, openNeed, promptRuns } from './needs'
-import { cardAgents, nowHeader, nowState, noteItems } from './overview'
+import { cardAgents, noRequest, nowHeader, nowState, noteItems } from './overview'
+import { openWatch, watchSentence } from './watch'
 import { footerRow } from './tabkit'
 import type { NowState } from './overview'
 import { blank, heightOf, inst, more, row, runText } from './parts'
@@ -140,12 +141,43 @@ function needsBlock(ctx: ViewCtx, $: EngineInterface, st: NowState): Block {
   return out
 }
 
+/**
+ * Watch in slim (R3-B I6): one dim line with the count and the top item, which opens it ("◔ 2 to watch", then the top
+ * row's sentence wrapped under it). With nothing to watch but a quiet turn, "◌ quiet 30 min", as the header says at 62.
+ */
+function watchSlim(ctx: ViewCtx, $: EngineInterface, st: NowState): Block {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { left, right } = edges(ctx.cols)
+  const top = st.watch[0]
+  if (top === undefined) {
+    if (st.hs.state !== 'working' || st.hs.quiet === 'none' || st.hs.quietMs === undefined) return []
+    return [<Text key="slim-quiet" dimColor wrap="truncate-end">{`${' '.repeat(left)}◌ quiet ${span(st.hs.quietMs)}`}</Text>]
+  }
+  const head = `${st.watch.length} to watch`
+  const lines = wrapWords(watchSentence(top), Math.max(1, right - (left + 2) + 1), 3)
+  return [
+    <Box key="slim-watch-head" flexDirection="row">
+      <Text>{' '.repeat(left)}</Text>
+      <Button key="slim-watch" plain dimColor onPress={() => openWatch($, top, 'slim-watch')}>
+        {`◔ ${head}`}
+      </Button>
+    </Box>,
+    ...lines.map((l, i) => (
+      <Text key={`slim-watch-${i}`} dimColor wrap="truncate-end">
+        {`${' '.repeat(left + 2)}${l}`}
+      </Text>
+    )),
+  ]
+}
+
 /** To do in slim: the title and "9 of 14", the bar, a blank, the current task and the next (wrapped to two lines each), `+ n more`. */
 function todoBlock(ctx: ViewCtx, $: EngineInterface, st: NowState, full: boolean): Block {
   const { Text } = $.ui.resolve(ctx.e)
   const todo = st.todo
   const { left, right } = edges(ctx.cols)
   const press = (): Promise<void> => openTab($, 'tasks')
+  // R3-B M7: before any request there is no list to say is missing.
+  if (todo.empty && noRequest(ctx.t)) return []
   if (todo.empty) return [title(ctx, $, 'To do', [], 'slim-go-tasks', press), <Text key="slim-todo-none" dimColor>{`${' '.repeat(left)}${wordFit('No to-do list', right - left + 1)}`}</Text>]
   const sum: Run[] = [{ text: String(todo.done), bold: true }, { text: ` of ${todo.total}`, dim: true }]
   const out: Block = [
@@ -274,13 +306,14 @@ function notesBlock(ctx: ViewCtx, $: EngineInterface): Block {
   ]
 }
 
-/** The stack at a drop level: 0 all; 1 without Notes; 2 also without Budget; 3 one agent; 4 no agents; 5 To do without its tasks. */
+/** The stack at a drop level: 0 all; 1 without Notes; 2 also without Budget; 3 also without Watch; 4 one agent; 5 no agents; 6 To do without its tasks. */
 function stackAt(ctx: ViewCtx, $: EngineInterface, st: NowState, level: number): Block {
   const blocks: Block[] = [
     [nowHeader(ctx, $, st.view, st.hs, st.todo, { short: true, svg: false })],
     needsBlock(ctx, $, st),
-    todoBlock(ctx, $, st, level < 5),
-    level < 4 ? agentsBlock(ctx, $, st, level < 3 ? 2 : 1) : [],
+    level < 3 ? watchSlim(ctx, $, st) : [],
+    todoBlock(ctx, $, st, level < 6),
+    level < 5 ? agentsBlock(ctx, $, st, level < 4 ? 2 : 1) : [],
     level < 2 ? budgetBlock(ctx, $) : [],
     level < 1 ? notesBlock(ctx, $) : [],
   ]
@@ -310,6 +343,7 @@ function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Button, Text } = $.ui.resolve(ctx.e)
   const { t, u } = ctx
   const { left } = edges(ctx.cols)
+  const st = nowState(ctx)
   type Item = { key: string; glyph: string; color?: string; text: string; dim?: boolean }
   const items: Item[] = []
   if (u.tab === 'tasks') {
@@ -322,7 +356,10 @@ function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const rank = { running: 0, error: 1, done: 2 }
     for (const a of Object.values(t.agents).filter(x => x.id !== 'main').sort((x, y) => rank[x.status] - rank[y.status] || y.startedAt - x.startedAt)) {
       const color = statusColor(a.status)
-      items.push({ key: `agent-${a.id}`, glyph: a.status === 'running' ? '▸' : a.status === 'error' ? '✖' : '✓', ...(color !== undefined ? { color } : {}), text: a.description || a.type })
+      // R3-B I6: the agent's name and its state (the glyph, and the word for the ones that need you or failed), then its job.
+      const asking = st.view.items.some(n => n.agent === a.id)
+      const word = asking ? ' (waiting)' : a.status === 'error' ? ' (failed)' : ''
+      items.push({ key: `agent-${a.id}`, glyph: asking ? '?' : a.status === 'running' ? '▸' : a.status === 'error' ? '✖' : '✓', ...(asking ? { color: CK.ask } : color !== undefined ? { color } : {}), text: `${typeName(a.type)}${word} ${a.description}`.trim() })
     }
   } else if (u.tab === 'timeline') {
     for (const s of [...t.steps].sort((a, b) => b.seq - a.seq)) {
@@ -334,9 +371,13 @@ function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
       items.push({ key: `artifact-${a.id}`, glyph: a.kind === 'link' ? '⎇' : '↗', text: a.title })
     }
   }
-  const room = ctx.cols - 4
-  const usable = items.filter(i => (oneLine(i.text).split(' ')[0] ?? '').length <= room)
-  const shown = usable.slice(0, 8)
+  // R3-B I6 (R37): the list grows with the pane's rows; an item whose first word is wider than the pane is cut at a part (or a lone `…`), never left out of the list or the count.
+  const room = Math.max(1, ctx.cols - 5)
+  const usable = items
+  const bar = slimFooter(ctx, $)
+  const free = (ctx.bodyRows ?? 46) - 2 - (bar !== null ? 2 : 0)
+  const { shown: take } = listSplit(usable.length, Math.max(1, free))
+  const shown = usable.slice(0, take)
   const els: RenderElement[] = [
     <Box key="slim-back-row" flexDirection="row" paddingLeft={left} columnGap={3}>
       <Button key="slim-back" hotkey="b" plain onPress={() => openTab($, 'overview')}>
@@ -346,11 +387,10 @@ function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
     <Text key="slim-tab-title" bold>
       {`${' '.repeat(left)}${TAB_TITLE[u.tab]}`}
     </Text>,
-    ...shown.map(i => row(ctx, $, { key: i.key, glyph: i.glyph, ...(i.color !== undefined ? { glyphColor: i.color } : {}), name: oneLine(i.text), ...(i.dim === true ? { dim: true } : {}) })),
+    ...shown.map(i => row(ctx, $, { key: i.key, glyph: i.glyph, ...(i.color !== undefined ? { glyphColor: i.color } : {}), name: nameFit(oneLine(i.text), room), ...(i.dim === true ? { dim: true } : {}) })),
   ]
   if (usable.length > shown.length) els.push(more(ctx, $, usable.length - shown.length))
   if (shown.length === 0) els.push(<Text key="slim-empty" dimColor>{`${' '.repeat(left + 1)}Nothing yet.`}</Text>)
-  const bar = slimFooter(ctx, $)
   return <Box flexDirection="column">{[...els, ...(bar !== null ? [blank(ctx, $, 'slim-tab-gap'), bar] : [])]}</Box>
 }
 
@@ -358,7 +398,7 @@ function tabList(ctx: ViewCtx, $: EngineInterface): RenderElement {
  * The pane under 32 columns (cockpit spec "CockpitSlim"): the shell calls it
  * whenever `ctx.cols < 32`, whatever the tab. On Now it is the stack above,
  * with the footer on the last row; when the stack is taller than
- * `bodyRows`, whole parts go from the bottom (Notes, Budget, one agent, the
+ * `bodyRows`, whole parts go from the bottom (Notes, Budget, Watch, one agent, the
  * agents, To do's tasks), so Needs you and To do stay longest (R34).
  */
 export function slimView(ctx: ViewCtx, $: EngineInterface): RenderElement {
@@ -372,7 +412,7 @@ export function slimView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   // While a dialog is up, Notes give their rows to it (the slim ask board draws none).
   let level = st.view.items.length > 0 ? 1 : 0
   let built = stackAt(ctx, $, st, level)
-  while (rowsOf(built) + spare > rows && level < 5) {
+  while (rowsOf(built) + spare > rows && level < 6) {
     level += 1
     built = stackAt(ctx, $, st, level)
   }

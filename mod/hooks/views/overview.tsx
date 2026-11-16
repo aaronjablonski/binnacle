@@ -9,7 +9,7 @@ import { todoBlock } from '../model/todo'
 import type { TodoBlock } from '../model/todo'
 import { leaveDetail, updateUi } from '../state'
 import { budgetView, budgetWords, exportLedger, isBudgetOpen, nowGauges, setBudgetOpen } from './budget'
-import { doing, fitRuns, span, todoBar, wordFit, wrapWords } from './fit'
+import { doing, fitRuns, sinceWords, span, todoBar, wordFit, wrapWords } from './fit'
 import { argOf, headline } from './lay'
 import { exportDigest } from './handoff'
 import { moveNeed, needsSlot, needsSlotHeight, needsView, spreadRuns } from './needs'
@@ -60,6 +60,12 @@ function turnEnd(t: Timeline): number | undefined {
   return undefined
 }
 
+/** R3-B M7: no request has been made yet (no turn of the lead), so there is no list to say is missing. */
+export const noRequest = (t: Timeline): boolean => !t.turns.some(x => x.agent === 'main')
+
+/** R3-B M7: something a digest can hold (a request, a task, an artifact or a note); else the export hint stays off the footer. */
+export const hasExport = (t: Timeline): boolean => !noRequest(t) || t.tasks.length > 0 || t.artifacts.length > 0 || t.notes.length > 0
+
 /** Whether the header state is one of rest: the request ended, nothing runs. */
 export const isRest = (hs: HeaderState): boolean => hs.state !== 'working' && hs.state !== 'waiting'
 
@@ -71,9 +77,9 @@ export type HeadWords = { tone: Tone4; pill: string; pillColor?: string; meta: R
 export function headWords(ctx: ViewCtx, view: NeedsView, hs: HeaderState, todo: TodoBlock): HeadWords {
   const { t, now } = ctx
   const ended = turnEnd(t)
-  const ago: Run[] = ended !== undefined ? [{ text: `finished ${span(now - ended)} ago`, dim: true }] : []
+  const ago: Run[] = ended !== undefined ? [{ text: sinceWords('finished', now - ended), dim: true }] : []
   // F M12a: a request that ended with tasks open stopped; it did not finish.
-  const stoppedAgo: Run[] = ended !== undefined ? [{ text: `stopped ${span(now - ended)} ago`, dim: true }] : []
+  const stoppedAgo: Run[] = ended !== undefined ? [{ text: sinceWords('stopped', now - ended), dim: true }] : []
   switch (hs.state) {
     case 'working': {
       const meta: Run[] = hs.turnMs !== undefined ? [{ text: `${span(hs.turnMs)} this turn`, dim: true }] : []
@@ -136,6 +142,7 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
     critter: critterArgs('lead', w.lead, { ground, motion: ctx.motion === true }),
     kicker: w.kicker,
     title: headline(ctx.t).text,
+    ...(headline(ctx.t).isPast === true ? { dimTitle: true } : {}),
     onTitle: press(() => openTab($, 'tasks')),
     ...(budget.length > 0 ? { budget, onBudget: press(() => setBudgetOpen($, true)) } : {}),
     gauges: nowGauges(ctx.t),
@@ -203,6 +210,8 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
   const { left, right } = edges(ctx.cols)
   const content = Math.max(1, right - left + 1)
   const openTasks = press(() => openTab($, 'tasks'))
+  // R3-B M7: before any request there is nothing to say is missing: no To do block at all.
+  if (todo.empty && noRequest(ctx.t)) return []
   if (todo.empty) {
     return [
       section(ctx, $, 'To do', undefined, { key: 'sec-todo', onPress: openTasks }),
@@ -235,10 +244,13 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
       </Text>,
     )
     if (!together && tail !== '') {
-      out.push(
-        <Text key="todo-all-last" dimColor wrap="truncate-end">
-          {`${' '.repeat(left + 2)}${wordFit(tail, Math.max(1, content - 2))}`}
-        </Text>,
+      // R3-B I5: the last task wraps by word under the count, up to three rows, before anything is cut.
+      wrapWords(tail, Math.max(1, content - 2), 3).forEach((line, i) =>
+        out.push(
+          <Text key={`todo-all-last-${i}`} dimColor wrap="truncate-end">
+            {`${' '.repeat(left + 2)}${line}`}
+          </Text>,
+        ),
       )
     }
     return out
@@ -294,8 +306,11 @@ export function todoSection(ctx: ViewCtx, $: EngineInterface, todo: TodoBlock, n
         : [[{ text: 'now', color: CK.accent }, { text: ` · ${span(ctx.now - p.current.updatedAt)}`, dim: true }], [{ text: 'now', color: CK.accent }]]
     out.push(row(p.current, [{ text: '▸ ', color: tint }, { text: oneLine(p.current.subject), bold: true }], notes, tint, true))
   }
-  p.open.forEach((x, i) => {
-    out.push(row(x, [{ text: '○ ', color: CK.rule }, { text: oneLine(x.subject) }], i === 0 ? [[{ text: 'next', dim: true }]] : [[]]))
+  const firstOpen = p.open.find(o => o.status !== 'in_progress')
+  p.open.forEach(x => {
+    // R3-B M2: every task in progress draws `▸`; only the open ones draw `○`.
+    const going = x.status === 'in_progress'
+    out.push(row(x, [going ? { text: '▸ ', color: CK.accent } : { text: '○ ', color: CK.rule }, { text: oneLine(x.subject) }], x === firstOpen ? [[{ text: 'next', dim: true }]] : [[]]))
   })
   if (p.more > 0) {
     out.push(
@@ -406,18 +421,36 @@ export function agentsSection(
     }
     const spec = restingSpec(t, ground)
     const textAt = Math.max(left + spec.columns + 3, 24)
+    const words = ['Everyone is resting.', 'A new prompt wakes them.']
+    // R3-B I5: both sentences beside the crew when they fit whole; else under it, wrapped by word, never cut.
+    if (ctx.cols - 2 - textAt + 1 < 24) {
+      const room = Math.max(1, ctx.cols - 2 - left)
+      return [
+        head,
+        <Box key="agents-rest" flexDirection="row">
+          <Text>{' '.repeat(left)}</Text>
+          {inst(ctx, $, spec)}
+        </Box>,
+        ...words.flatMap((w, i) =>
+          wrapWords(w, room, 3).map((line, j) => (
+            <Text key={`agents-rest-${i}-${j}`} dimColor wrap="truncate-end">
+              {' '.repeat(left) + line}
+            </Text>
+          )),
+        ),
+      ]
+    }
     return [
       head,
       <Box key="agents-rest" flexDirection="row">
         <Text>{' '.repeat(left)}</Text>
         {inst(ctx, $, spec)}
         <Box key="agents-rest-words" flexDirection="column" paddingLeft={textAt - left - spec.columns}>
-          <Text key="agents-rest-0" dimColor wrap="truncate-end">
-            {wordFit('Everyone is resting.', Math.max(1, ctx.cols - 2 - textAt))}
-          </Text>
-          <Text key="agents-rest-1" dimColor wrap="truncate-end">
-            {wordFit('A new prompt wakes them.', Math.max(1, ctx.cols - 2 - textAt))}
-          </Text>
+          {words.map((w, i) => (
+            <Text key={`agents-rest-${i}`} dimColor wrap="truncate-end">
+              {w}
+            </Text>
+          ))}
         </Box>
       </Box>,
     ]
@@ -549,6 +582,8 @@ export function turnSection(ctx: ViewCtx, $: EngineInterface, o: { press?: Press
     const head = `${f.n} ${f.words}`
     const at = Math.max(FACT_DETAIL, left + head.length + 2)
     const room = right - at + 1
+    // R3-B I5: a detail that does not fit beside its count goes on its own row under it, wrapped by word.
+    const beside = f.detail !== '' && f.detail.length <= room
     out.push(
       <Box key={`row-${f.key}`} flexDirection="row">
         <Text>{' '.repeat(left)}</Text>
@@ -556,9 +591,18 @@ export function turnSection(ctx: ViewCtx, $: EngineInterface, o: { press?: Press
           <Text bold>{String(f.n)}</Text>
           <Text dimColor>{` ${f.words}`}</Text>
         </Button>
-        {f.detail !== '' && room > 3 ? <Text key={`${f.key}-detail`} wrap="truncate-end">{`${' '.repeat(at - left - head.length)}${wordFit(f.detail, room)}`}</Text> : null}
+        {beside ? <Text key={`${f.key}-detail`} wrap="truncate-end">{`${' '.repeat(at - left - head.length)}${f.detail}`}</Text> : null}
       </Box>,
     )
+    if (f.detail !== '' && !beside) {
+      wrapWords(f.detail, Math.max(1, right - left - 1), 2).forEach((line, i) =>
+        out.push(
+          <Text key={`${f.key}-detail-${i}`} dimColor wrap="truncate-end">
+            {`${' '.repeat(left + 2)}${line}`}
+          </Text>,
+        ),
+      )
+    }
   }
   return out
 }
@@ -616,7 +660,7 @@ import type { FootHint } from './tabkit'
 export type { FootHint }
 
 /** Now's footer for its state: a need, a Watch row, rest, or busy (the mocks' footers). */
-function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: HeaderState, cols: number, compact = false): FootHint[] {
+function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: HeaderState, cols: number, compact = false, exportable = true): FootHint[] {
   // Under 40 columns, or under 30 rows (F M13), the compact header has no budget line: `b` opens the budget view from here.
   if (cols < 40 || compact) return [{ hotkey: 'b', label: 'budget', id: 'hint-budget', onPress: () => setBudgetOpen($, true) }, { key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
   if (view.items.length > 0) {
@@ -628,6 +672,7 @@ function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: Heade
     ]
   }
   if (watch.length > 0) return [{ key: '↵', label: 'open' }, ...(watch[0]!.agent !== 'main' ? [{ key: 'v', label: 'transcript' }] : []), { key: 'x', label: 'dismiss' }]
+  if (isRest(hs) && !exportable) return [{ key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
   if (isRest(hs)) return [{ key: '↵', label: 'open' }, { hotkey: 'e', label: 'export digest', id: 'hint-export', onPress: async () => { await exportDigest($) } }, { key: 'esc', label: 'prompt' }]
   return [{ key: '↵', label: 'open' }, { key: '0', label: 'options' }, { key: 'esc', label: 'prompt' }]
 }
@@ -693,7 +738,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
   // F M13: under 30 rows the header is the compact one (no critter block or gauges), so To do and an agent stay in view.
   const compact = (ctx.bodyRows ?? 46) < 30
-  const bar = footerSlot(ctx, $, nowHints($, view, watch, hs, ctx.cols, compact))
+  const bar = footerSlot(ctx, $, nowHints($, view, watch, hs, ctx.cols, compact, hasExport(ctx.t)))
   const footRows = bar !== null ? 2 : 0
 
   const headEl = nowHeader(ctx, $, view, hs, todo, compact ? { compact: true } : {})
@@ -708,7 +753,7 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     headH + 1 +
     needsSlotHeight(view, 3, { cols: ctx.cols, now: ctx.now }) + 1 +
     (watch.length > 0 ? watchHeight(ctx, watch, WATCH_CAP) + 1 : 0) +
-    (todo.empty ? 1 : 3) + todoWrapRows(todo, ctx.cols) + 1 +
+    (todo.empty ? (noRequest(ctx.t) ? 0 : 1) : 3) + todoWrapRows(todo, ctx.cols) + (todo.empty && noRequest(ctx.t) ? 0 : 1) +
     (turn.length > 0 ? turn.length + 1 : 0) +
     agentsHeight(ctx.t, rest, ag.floor) - 3 * ag.floor + 1 +
     (nn > 0 ? 1 : 0)

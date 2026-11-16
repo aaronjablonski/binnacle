@@ -588,8 +588,12 @@ test('a task owned by an agent is listed flat with the agent type ending at 49',
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "empty state text" ("No tasks yet. They appear when Claude writes a task list."): R12, the To do head and one dim row.
+/** A request has been made (R3-B M7): "no list" is only a thing to say after one. */
+const ASKED_TURN: Timeline['turns'][number] = { id: 't1', agent: 'main', prompt: 'do it', startedAt: NOW - 400_000 }
+
+// R3-B M7: the seeded session now has made a request (before one, the words are "Nothing yet", see the test after this); the assertions are unchanged.
 test('no list: the To do head and one dim row, "No to-do list for this request" (R12)', async ($, on) => {
-  seed(on, empty, TASKS_UI)
+  seed(on, { ...empty, turns: [ASKED_TURN] }, TASKS_UI)
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const rows = await drawnRows(ui)
@@ -603,9 +607,18 @@ test('no list: the To do head and one dim row, "No to-do list for this request" 
   expect(found.some(f => f.text?.includes('No to-do list for this request') && (f.props as { dimColor?: boolean }).dimColor === true)).toBe(true)
 })
 
+test('M7: before any request the Tasks tab says "Nothing yet" and never that a list is missing', async ($, on) => {
+  seed(on, empty, TASKS_UI)
+  const ui = await mount($, 'terminal')
+  const text = (await drawnRows(ui)).join(' ')
+  expect(text).toContain('Nothing yet. Ask Claude for something.')
+  expect(text).not.toContain('No to-do list')
+  await ui.unmount()
+})
+
 test('a finished list folds away when a new request starts: Earlier holds it, the To do head says there is no list (R12)', async ($, on) => {
   const old = [1, 2, 3, 4].map(n => task(`d${n}`, `Old task ${n}`, 'completed', { updatedAt: NOW - 600_000 - n * 1000 }))
-  seed(on, { ...empty, tasks: old, listFrom: NOW - 300_000 }, TASKS_UI)
+  seed(on, { ...empty, turns: [ASKED_TURN], tasks: old, listFrom: NOW - 300_000 }, TASKS_UI)
   for (const surface of SURFACES) {
     // MEANING CHANGED (R37, FX3): in a roomy pane (this suite's default, 40 rows) Earlier now shows all four (the pane has the rows); a short pane keeps the cap of 3 and `+ 1 more`.
     const tall = await mount($, surface)

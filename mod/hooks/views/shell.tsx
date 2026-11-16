@@ -29,10 +29,12 @@ import { aspectFromEnv, setCellAspect } from './raster'
 export const PANE = 'mission-control'
 
 /**
- * The five tabs and their label per width (R42): `label` (the full names) from
- * 54 columns, `short` (whole short words) from 43, `icon` from 32. Under 32
- * (slim) no tab is drawn. A tab is drawn `n: label`, so five full names take 53
- * columns with two spaces between, and five short words take 42 with one.
+ * The five tabs and their label per width (R42, back at its original threshold,
+ * R3-B M16): `label` (the full names) from 54 columns, `short` (whole short words)
+ * from 38, `icon` from 32. Under 32 (slim) no tab is drawn. A tab is drawn
+ * `n: label`, so five full names take 53 columns with two spaces between and
+ * five short words 42 with one; from 38 to 42 the short words are `n:label`
+ * (the colon with no space, hotkeys armed apart), which take 36 with one space.
  */
 export const TABS: { tab: Tab; label: string; short: string; icon: string; hotkey: string }[] = [
   { tab: 'overview', label: 'Now', short: 'Now', icon: '◆', hotkey: '1' },
@@ -43,15 +45,16 @@ export const TABS: { tab: Tab; label: string; short: string; icon: string; hotke
 ]
 
 /** How the tab bar is laid out at `cols`: which label each tab shows and the width of one tab's cell (the gap included). */
-export type TabPlan = { form: 'label' | 'short' | 'icon'; cell: (i: number) => number }
+export type TabPlan = { form: 'label' | 'short' | 'icon'; /** The short words as `n:label`, 38 to 42 columns. */ compact: boolean; cell: (i: number) => number }
 
-/** The mocks' 12-wide cells from 62 columns; from 54 the full names with two spaces between; from 47 the short words with two, from 43 with one; icons below. */
+/** The mocks' 12-wide cells from 62 columns; from 54 the full names with two spaces between; from 47 the short words with two, from 43 with one, from 38 as `n:label` with one; icons below. */
 export function tabPlan(cols: number): TabPlan {
-  const form = cols >= 54 ? 'label' : cols >= 43 ? 'short' : 'icon'
-  if (cols >= 62) return { form, cell: () => 12 }
-  if (form === 'icon') return { form, cell: () => 5 }
+  const form = cols >= 54 ? 'label' : cols >= 38 ? 'short' : 'icon'
+  const compact = form === 'short' && cols < 43
+  if (cols >= 62) return { form, compact, cell: () => 12 }
+  if (form === 'icon') return { form, compact, cell: () => 5 }
   const gap = cols >= 47 || form === 'label' ? 2 : 1
-  return { form, cell: i => TABS[i]!.hotkey.length + 2 + labelOf(TABS[i]!, form).length + gap }
+  return { form, compact, cell: i => TABS[i]!.hotkey.length + (compact ? 1 : 2) + labelOf(TABS[i]!, form).length + gap }
 }
 
 /** A tab's label in a form. */
@@ -237,13 +240,13 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement 
       <Box key="tabs" flexDirection="row">
         <Text>{' '.repeat(GRID.margin)}</Text>
         {TABS.map((x, i) => {
-          const label = labelOf(x, plan.form)
+          const label = plan.compact ? `${x.hotkey}:${labelOf(x, plan.form)}` : labelOf(x, plan.form)
           const isOpen = x.tab === u.tab
           return (
             <Box key={`tabcell-${x.tab}`} width={plan.cell(i)}>
               <Button
                 key={`tab-${x.tab}`}
-                hotkey={x.hotkey}
+                {...(plan.compact ? {} : { hotkey: x.hotkey })}
                 plain
                 dimColor={isOpen ? undefined : true}
                 onPress={() => switchTab($, x.tab, showCost)}
@@ -259,12 +262,13 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement 
             </Box>
           )
         })}
+        {plan.compact ? armKeys($, e, TABS.map(x => ({ id: `tab-${x.tab}`, hotkey: x.hotkey, onPress: () => switchTab($, x.tab, showCost) }))) : null}
         {optionsArm($, e, u, cols)}
       </Box>
       <Text key="track" wrap="truncate-end">
         {' '.repeat(GRID.margin)}
         {TABS.map((x, i) => {
-          const span = x.hotkey.length + 2 + labelOf(x, plan.form).length
+          const span = x.hotkey.length + (plan.compact ? 1 : 2) + labelOf(x, plan.form).length
           const isOpen = x.tab === u.tab
           const last = i === TABS.length - 1
           return (

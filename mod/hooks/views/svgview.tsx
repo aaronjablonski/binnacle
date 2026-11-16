@@ -6,6 +6,7 @@ import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import type { Timeline, UiState } from '../../types'
 import { headerState, needs } from '../model/alerts'
+import { paneNeedsOptions } from './needs'
 import { todoBlock } from '../model/todo'
 import type { BandModel } from './bandmodel'
 import { budgetWords, nowGauges } from './budget'
@@ -36,9 +37,9 @@ export function lookFor(table: object, surface: string, options: LookOptions = {
  *
  * @example nowDeckSvg(t, u, now, cols, deckHead(ctx), ground, covered)
  */
-export function deckHead(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'>): DeckHead {
+export function deckHead(ctx: Pick<ViewCtx, 't' | 'u' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): DeckHead {
   const { t, now } = ctx
-  const view = needs(t, now, { covered: ctx.isPromptCovered === true })
+  const view = needs(t, now, paneNeedsOptions(ctx))
   const hs = headerState(t, now, view)
   const todo = todoBlock(t, view.items.map(n => n.agent))
   const w = headWords({ ...ctx, cols: 62 } as unknown as ViewCtx, view, hs, todo)
@@ -87,7 +88,7 @@ export function deckSvg(ctx: ViewCtx, $: EngineInterface, presses: SvgPress[] = 
   const head = deckHead(ctx)
   return (
     <Box key="now-svg" flexDirection="column">
-      <Svg source={nowDeckSvg(ctx.t, ctx.u, ctx.now, ctx.cols, head, ctx.ground ?? 'night', ctx.isPromptCovered === true)} alt={nowDeckAlt(ctx.t, ctx.u, ctx.now, head, ctx.isPromptCovered === true)} isInteractive />
+      <Svg source={nowDeckSvg(ctx.t, ctx.u, ctx.now, ctx.cols, head, ctx.ground ?? 'night', paneNeedsOptions(ctx))} alt={nowDeckAlt(ctx.t, ctx.u, ctx.now, head, paneNeedsOptions(ctx))} isInteractive />
       {pressRow($, ctx.e, 'now-svg-presses', presses)}
     </Box>
   )

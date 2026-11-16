@@ -9,6 +9,7 @@ import type { NowState } from './overview'
 import { footerRow } from './tabkit'
 import type { ViewCtx } from './shell'
 import { TAB_ROWS } from './shell'
+import { watchBlock } from './watch'
 import type { Press } from './watch'
 
 // The inline strip (R34; unmocked): Now's header on the left, To do and
@@ -49,24 +50,39 @@ function upTo(els: RenderElement[], rows: number): RenderElement[] {
   return out
 }
 
-/** The left column: the header, a blank and the needs slot. */
+/** Whether the ask takes the right column's first rows (R3-B I7): a need is up, so its sentence, command and chip must not sit under the header's gauges below the strip's fold. */
+const asks = (st: NowState): boolean => st.view.items.length > 0
+
+/** The needs slot as the strip draws it: one need whole (`cap: 1`), the Watch count on its all-clear line. */
+function needsRows(ctx: ViewCtx, $: EngineInterface, st: NowState, press?: Press): RenderElement[] {
+  return needsSlot(ctx, $, st.view, { watchCount: st.watch.length, cap: 1, ...(press !== undefined ? { press } : {}) })
+}
+
+/** The left column: the header, and (when nothing asks) a blank and the all-clear line. An ask is the right column's first block. */
 function leftColumn(ctx: ViewCtx, $: EngineInterface, st: NowState, press?: Press): RenderElement[] {
-  return [
-    nowHeader(ctx, $, st.view, st.hs, st.todo, press !== undefined ? { press } : {}),
-    blank(ctx, $, 'strip-left-gap'),
-    ...needsSlot(ctx, $, st.view, { watchCount: st.watch.length, cap: 1, ...(press !== undefined ? { press } : {}) }),
-  ]
+  const head = nowHeader(ctx, $, st.view, st.hs, st.todo, press !== undefined ? { press } : {})
+  return asks(st) ? [head] : [head, blank(ctx, $, 'strip-left-gap'), ...needsRows(ctx, $, st, press)]
 }
 
 /** The right column in `rows`: To do (floor 3 rows of list, up to 7) and Agents (one card, up to 3), dealt by the height rule. */
 function rightColumn(ctx: ViewCtx, $: EngineInterface, st: NowState, rows: number, press?: Press): RenderElement[] {
   const rest = isRest(st.hs)
+  const o = press !== undefined ? { press } : {}
+  // R3-B I7: the ask (its sentence, command and chip) comes first, then a blank, then To do and Agents in what is left.
+  // With nothing asking, the top Watch row stands there instead (R3-B I7: the count alone said "2 things to watch" and never what).
+  const ask = asks(st)
+    ? [...needsRows(ctx, $, st, press), blank(ctx, $, 'strip-ask-gap')]
+    : st.watch.length > 0
+      ? [...watchBlock(ctx, $, st.watch, 1, { keys: false, ...o }), blank(ctx, $, 'strip-watch-gap')]
+      : []
+  const askH = ask.reduce((n, el) => n + heightOf(el), 0)
+  const all = rows
+  rows = Math.max(0, rows - askH)
   const tw = todoWants(st.todo)
   const cards = cardAgents(ctx.t).length
   const ag = rest || cards === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(3, cards) }
   const fixed = (st.todo.empty ? 1 : 3) + 1 + (ag.floor > 0 ? 1 : 0)
   const deal = dealRows(rows - fixed - tw.floor - 3 * ag.floor, tw, ag, { floor: 0, want: 0 })
-  const o = press !== undefined ? { press } : {}
   const todo = todoSection(ctx, $, st.todo, deal.todo, { ...o, ended: isRest(st.hs) })
   const todoH = todo.reduce((n, el) => n + heightOf(el), 0)
   // F M10: fewer cards rather than a cut: the "+ n more working" line is always drawn when a card is left out.
@@ -76,7 +92,7 @@ function rightColumn(ctx: ViewCtx, $: EngineInterface, st: NowState, rows: numbe
     cardsShown--
     agents = agentsSection(ctx, $, cardsShown, { view: st.view, watch: st.watch, rest, ...o })
   }
-  return upTo([...todo, ...(agents.length > 0 ? [blank(ctx, $, 'strip-right-gap'), ...agents] : [])], rows)
+  return upTo([...ask, ...todo, ...(agents.length > 0 ? [blank(ctx, $, 'strip-right-gap'), ...agents] : [])], all)
 }
 
 /** The two columns side by side: the left at 62, the right taking the rest. */
@@ -148,7 +164,7 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
     const leftCtx = { ...ctx, cols: STRIP_LEFT }
     const left = upTo(leftColumn(leftCtx, $, st, press), body)
     const leftH = left.reduce((n, el) => n + heightOf(el), 0)
-    const right = rightColumn({ ...ctx, cols: ctx.cols - STRIP_LEFT }, $, st, leftH, press)
+    const right = rightColumn({ ...ctx, cols: ctx.cols - STRIP_LEFT }, $, st, asks(st) ? body : leftH, press)
     return (
       <Box flexDirection="column">
         {columns(ctx, $, left, right)}

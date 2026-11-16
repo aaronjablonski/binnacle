@@ -9,6 +9,7 @@ import { asked, busy, idle, NOW, step, tasksOf } from './now.fixtures.testkit'
 import { resetPaint } from './paint'
 import { ACCENT_HUES, decode, DOT_BITS, PALETTE } from './raster'
 import { screen } from './screen.testkit'
+import { configureOptions } from './options'
 
 // R36 (the delights) and R35 (the accent). The sweep and the toasts run from
 // the clock's tick; a draw only reads the sweep's frame. The hooks run in
@@ -283,7 +284,8 @@ test('a lone agent finish keeps its own words', async ($, on) => {
   expect(w.toasts.filter(x => x.includes('finished'))).toEqual(['Explorer finished: Grep upload'])
 })
 
-test('a finish while another agent still runs waits a moment for the rest, then toasts once', async ($, on) => {
+// R3-B (M13): meaning changed. A finish while another agent still runs now waits up to 30 s for the rest (it waited 2 s, then 5 s here), so the clock goes past 30 s before the one toast.
+test('a finish while another agent still runs waits up to 30 s for the rest, then toasts once', async ($, on) => {
   const t = idle()
   const run = { ...t.agents.e1!, id: 'r1', status: 'running' as const }
   delete (run as { endedAt?: number }).endedAt
@@ -292,7 +294,7 @@ test('a finish while another agent still runs waits a moment for the rest, then 
   await start($)
   await w.clock.advance(1000)
   expect(w.toasts.filter(x => x.includes('finished'))).toEqual([])
-  await w.clock.advance(4000)
+  await w.clock.advance(30_000)
   expect(w.toasts.filter(x => x.includes('finished')).length).toBe(1)
 })
 
@@ -314,21 +316,23 @@ function colours(n: unknown, out: string[] = []): string[] {
   return out
 }
 
-async function drawnColours($: Engine, on: On, t: Timeline): Promise<string[]> {
-  world(on, t, OPEN)
-  await start($)
+/** The colours of one drawing of the pane; the world must already be set and started. */
+async function drawnColoursNow($: Engine): Promise<string[]> {
   const ui = await $.ui.mount(PANE(62) as never)
   const got = colours(await ui.drawn())
   await ui.unmount()
   return got
 }
 
-// The default drawing, kept for the two accent tests after it (they run in this order).
-const baseline: { colours?: string[] } = {}
+async function drawnColours($: Engine, on: On, t: Timeline): Promise<string[]> {
+  world(on, t, OPEN)
+  await start($)
+  return drawnColoursNow($)
+}
 
+// R3-B M12: each accent test draws its own default (iris) drawing first, in the same test, so none depends on another having run.
 test('the accent defaults to iris, which is the theme key suggestion', async ($, on) => {
   const got = await drawnColours($, on, asked())
-  baseline.colours = got
   expect(got).toContain('suggestion')
   expect(got).not.toContain('ide')
   expect(got).not.toContain('promptBorder')
@@ -336,8 +340,14 @@ test('the accent defaults to iris, which is the theme key suggestion', async ($,
 
 for (const [name, key] of [['sky', 'ide'], ['slate', 'promptBorder']] as const) {
   test(`accent ${name} draws the structural colour in ${key} and changes nothing else`, { options: { accent: name } }, async ($, on) => {
-    const got = await drawnColours($, on, asked())
-    const base = baseline.colours ?? []
+    world(on, asked(), OPEN)
+    await start($)
+    configureOptions({ accent: 'iris' })
+    resetPaint()
+    const base = await drawnColoursNow($)
+    configureOptions({ accent: name })
+    resetPaint()
+    const got = await drawnColoursNow($)
     expect(base.length).toBeGreaterThan(10)
     expect(got).toContain(key)
     expect(got).not.toContain('suggestion')
@@ -355,9 +365,7 @@ test('an unknown accent is iris', { options: { accent: 'chartreuse' } }, async (
 // ---------- the accent in the rich look (R35, FX3 item 7) ----------
 
 /** Every Raster of the rich pane: its key and the colours of its cells (foreground and background, as hex numbers). */
-async function drawnRasters($: Engine, on: On, t: Timeline): Promise<Map<string, { cells: string; colours: Set<number> }>> {
-  world(on, t, OPEN)
-  await start($)
+async function drawnRastersNow($: Engine): Promise<Map<string, { cells: string; colours: Set<number> }>> {
   const ui = await $.ui.mount(PANE(62) as never)
   const out = new Map<string, { cells: string; colours: Set<number> }>()
   for (const r of await ui.findAll({ type: 'Raster' })) {
@@ -374,6 +382,13 @@ async function drawnRasters($: Engine, on: On, t: Timeline): Promise<Map<string,
 }
 
 const rasterBase: { drawn?: Map<string, { cells: string; colours: Set<number> }> } = {}
+
+async function drawnRasters($: Engine, on: On, t: Timeline): Promise<Map<string, { cells: string; colours: Set<number> }>> {
+  world(on, t, OPEN)
+  await start($)
+  return drawnRastersNow($)
+}
+
 /** The Rasters that hold a critter (`now-who`, `agent-<id>-who`, the rest row); the others are structural. */
 const isCritter = (key: string): boolean => /-who$|^rest$|^tether/.test(key)
 
@@ -390,16 +405,17 @@ test('rich: the default accent draws the palette iris in the structural Rasters'
 
 for (const name of ['sky', 'slate'] as const) {
   test(`rich: accent ${name} draws no iris hex in the lintel, sill and gauges, and the critter cells are unchanged`, { options: { accent: name } }, async ($, on) => {
+    // The default drawing is the previous test's (a draw reads the accent from the register options, so one engine cannot draw both); a run of this test alone reads none and fails loudly, naming it.
     const base = rasterBase.drawn
-    expect(base).toBeDefined()
+    if (base === undefined) throw new Error('needs the default-accent drawing from "rich: the default accent draws the palette iris in the structural Rasters", which runs before it')
     const drawn = await drawnRasters($, on, busy())
-    expect([...drawn.keys()]).toEqual([...base!.keys()])
+    expect([...drawn.keys()]).toEqual([...base.keys()])
     const iris = [PALETTE.night.iris, PALETTE.night.irisSoft, PALETTE.night.irisDeep]
     let sawAccent = false
     for (const [key, v] of drawn) {
       if (isCritter(key)) {
         // role hues inside a critter never change: the same cells, byte for byte
-        expect([key, v.cells]).toEqual([key, base!.get(key)!.cells])
+        expect([key, v.cells]).toEqual([key, base.get(key)!.cells])
         continue
       }
       for (const c of iris) expect([key, v.colours.has(c)]).toEqual([key, false])
@@ -410,7 +426,7 @@ for (const name of ['sky', 'slate'] as const) {
     const lintel = [...drawn].find(([k]) => /lintel/.test(k))
     expect(lintel).toBeDefined()
     expect(lintel![1].colours.has(ACCENT_HUES[name].night.iris)).toBe(true)
-    expect(lintel![1].cells).not.toBe(base!.get(lintel![0])!.cells)
+    expect(lintel![1].cells).not.toBe(base.get(lintel![0])!.cells)
   })
 }
 

@@ -1224,6 +1224,8 @@ export type HeaderSpec = {
   kicker: string
   /** The headline: bold, wrapped at a word, 2 lines (3 in the compact form). */
   title: string
+  /** R3-B I3: the headline is the last request's goal, between requests: dim, not bold. */
+  dimTitle?: boolean
   /** The headline's first line becomes a plain Button. */
   onTitle?: () => void | Promise<void>
   /** The budget line under the critter: "620k of 1M used · cache warm 4:48". */
@@ -1293,11 +1295,11 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
             <Box key={`${spec.key}-t${i}`} flexDirection="row">
               <Text>{' '.repeat(left)}</Text>
               <Button key={`${spec.key}-title`} plain onPress={spec.onTitle}>
-                <Text bold>{s}</Text>
+                {spec.dimTitle === true ? <Text dimColor>{s}</Text> : <Text bold>{s}</Text>}
               </Button>
             </Box>
           ) : (
-            line(`${spec.key}-t${i}`, [pad(left), { text: s, bold: true }])
+            line(`${spec.key}-t${i}`, [pad(left), spec.dimTitle === true ? { text: s, dim: true } : { text: s, bold: true }])
           ),
         )}
         {foot}
@@ -1317,12 +1319,12 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
     if (i === 0 && s !== '' && spec.onTitle !== undefined) {
       return (
         <Button key={`${spec.key}-title`} plain onPress={spec.onTitle}>
-          <Text bold>{s}</Text>
+          {spec.dimTitle === true ? <Text dimColor>{s}</Text> : <Text bold>{s}</Text>}
         </Button>
       )
     }
     return (
-      <Text key={`${spec.key}-title-${i}`} bold>
+      <Text key={`${spec.key}-title-${i}`} {...(spec.dimTitle === true ? { dimColor: true } : { bold: true })}>
         {s === '' ? ' ' : s}
       </Text>
     )
@@ -1489,7 +1491,15 @@ export function agentCard(ctx: ViewCtx, $: EngineInterface, c: AgentCardSpec): R
 export function allClear(ctx: ViewCtx, $: EngineInterface, extra?: string | Run[]): RenderElement {
   const { Text } = $.ui.resolve(ctx.e)
   const { left, right } = edges(ctx.cols)
-  const runs = fitRuns([{ text: '✓', color: CK.ok }, { text: ' Nothing needs you', dim: true }, ...runsOf(extra, { dim: true })], right - left + 1) as Run[]
+  const room = right - left + 1
+  const head: Run[] = [{ text: '✓', color: CK.ok }, { text: ' Nothing needs you', dim: true }]
+  // R3-B I5: a Watch count that does not fit whole shortens to "2 to watch", then goes, before any word is cut.
+  const said = typeof extra === 'string' ? extra : undefined
+  const count = said !== undefined ? /^ · (\d+) things? to watch$/.exec(said)?.[1] : undefined
+  const forms: (string | Run[] | undefined)[] = count !== undefined ? [extra, ` · ${count} to watch`, undefined] : [extra]
+  const widthOf = (x: string | Run[] | undefined): number => head.reduce((n, r) => n + r.text.length, 0) + runsOf(x, { dim: true }).reduce((n, r) => n + r.text.length, 0)
+  const pick = count !== undefined ? (forms.find(f => widthOf(f) <= room) ?? undefined) : extra
+  const runs = fitRuns([...head, ...runsOf(pick, { dim: true })], room) as Run[]
   return (
     <Text key="all-clear" wrap="truncate-end">
       {' '.repeat(left)}

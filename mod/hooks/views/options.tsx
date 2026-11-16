@@ -15,8 +15,10 @@ import type { ConfigValue, EngineInterface, PluginOptions, RenderElement } from 
 import { debug, errText } from '../state'
 import { nameFit, wordFit } from './fit'
 import { closePage, openPage } from './pagenav'
-import { frameFootInst, frameTopInst, inst, runText, section } from './parts'
+import { frameFootInst, frameTopInst, heightOf, inst, runText, section } from './parts'
+import { TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
+import { footerSlot } from './tabkit'
 import { C, critterArgs, edges, GRID, setAccent } from './style'
 import type { Run } from './style'
 
@@ -56,11 +58,11 @@ const FIELDS: readonly Field[] = [
   { field: 'doneSound', label: 'Done sound', section: 'Signals', applies: 'now', kind: 'boolean' },
   {
     field: 'agentLimitMin', label: 'Agent time limit', section: 'Signals', applies: 'now',
-    kind: 'number', step: 5, max: 600, unit: 'm', offAtZero: true,
+    kind: 'number', step: 5, max: 600, unit: ' min', offAtZero: true,
   },
   {
     field: 'turnLimitMin', label: 'Turn time limit', section: 'Signals', applies: 'now',
-    kind: 'number', step: 5, max: 600, unit: 'm', offAtZero: true,
+    kind: 'number', step: 5, max: 600, unit: ' min', offAtZero: true,
   },
   { field: 'showCost', label: 'Show cost', section: 'Budget', applies: 'now', kind: 'boolean' },
   { field: 'autoOpen', label: 'Open at start', section: 'Start', applies: 'next start', kind: 'boolean' },
@@ -131,7 +133,7 @@ export function fieldsShown(): Field[] {
   return out
 }
 
-/** A value as the card says it: on/off, `20m`, `off` for a zero that turns it off. */
+/** A value as the card says it: on/off, `20 min`, `off` for a zero that turns it off. */
 export function shownValue(f: Field, v: ConfigValue | undefined): string {
   if (v === undefined) return '—'
   if (typeof v === 'boolean') return v ? 'on' : 'off'
@@ -435,15 +437,26 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
       </Text>,
     )
   })
-  out.push(<Text key="opt-gap-keys">{' '}</Text>)
-  out.push(
-    <Box key="opt-keys" flexDirection="row">
-      <Text dimColor>{`${' '.repeat(left)}↵ change   `}</Text>
-      <Button key="opt-back" hotkey="b" plain dimColor onPress={() => closePage($)}>
-        back
-      </Button>
-    </Box>,
-  )
+  // R3-B M10: the keys are the pane's footer, on its last row, in the footers' notation (`b back`, no colon), like every tab's.
+  // Unfocused the hints are not drawn (the keys are not the pane's), but the page keeps a plain `back` to click.
+  const foot =
+    ctx.isFocused === true ? (
+      footerSlot(ctx, $, [
+        { key: '↵', label: 'change' },
+        { hotkey: 'b', label: 'back', id: 'opt-back', onPress: () => closePage($) },
+      ])
+    ) : (
+      <Box key="opt-keys" flexDirection="row">
+        <Text>{' '.repeat(left)}</Text>
+        <Button key="opt-back" plain dimColor onPress={() => closePage($)}>
+          back
+        </Button>
+      </Box>
+    )
+  const used = out.reduce((n, el) => n + heightOf(el), 0)
+  const pad = Math.max(1, (ctx.bodyRows ?? 46) - TAB_ROWS - 1 - used)
+  for (let i = 0; i < pad; i++) out.push(<Text key={`opt-pad-${i}`}>{' '}</Text>)
+  out.push(foot)
   return (
     <Box key="options" flexDirection="column">
       {out}

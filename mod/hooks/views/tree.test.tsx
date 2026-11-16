@@ -226,7 +226,8 @@ test('rule 5: the total row closes the map: Total, the agents and tasks counted,
   const all = await rows(ui)
   const total = all.filter(r => r.startsWith('  Total'))
   expect(total).toHaveLength(1)
-  expect(total[0]).toContain('35 agents · 8 tasks')
+  // R3-B M1: meaning changed. The total counts every task of the fixture (9, tasks 5 to 13); it counted the 8 an agent worked on.
+  expect(total[0]).toContain('35 agents · 9 tasks')
   expect(all.indexOf(total[0]!)).toBeGreaterThan(idxWith(all, '5 Read the middleware'))
   await ui.unmount()
 })

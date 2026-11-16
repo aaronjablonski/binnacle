@@ -328,8 +328,8 @@ test('LOOK: the header counts, the model share and the tokens, from the agents t
   seed(on, MIXED, AGENTS_UI)
   const ui = await mount($, 'terminal')
   const all = await rows(ui)
-  // F M6: the toggle row is the row under the tabs (row 3), so the lintel is row 4 and the header row 5.
-  expect(all[5]).toBe('  1 agent working                      1 finished · 1 failed')
+  // F M6: the toggle row is the row under the tabs (row 3). R3-B M4 (meaning changed): a blank row follows it on the list as on the map, so the lintel is row 5 and the header row 6 (they were 4 and 5).
+  expect(all[6]).toBe('  1 agent working                      1 finished · 1 failed')
   const models = rowWith(all, 'Models')
   expect(colOf(models, '━')).toBe(12)
   expect(models).toContain('■ Sonnet 59%')
@@ -337,7 +337,7 @@ test('LOOK: the header counts, the model share and the tokens, from the agents t
   expect(tokens).toContain('across 3 agents')
   expect(colOf(tokens, '259k')).toBe(12)
   // the lintel and the sill frame it, and the toggle row is above the lintel
-  expect(all[4]).toMatch(/^┏━━─+$/)
+  expect(all[5]).toMatch(/^┏━━─+$/)
   expect(all[idxWith(all, 'Tokens') + 1]).toMatch(/^─+━━┛$/)
   await ui.unmount()
 })
@@ -362,10 +362,11 @@ test('LOOK: the toggle row is l: List, t: Map and r: Working only; the open one 
   }
 })
 
-test('LOOK: at 32 columns the toggle row is l: List  t: Map  r: Run and fits', TEXT, async ($, on) => {
+// R3-B I5/M4: meaning changed. At 32 columns the last toggle read `r: Run`, which says nothing; it is `r: Working`, whole, and the three labels stay at columns 2, 12 and 20 whichever mode is open (no padding that shifts them).
+test('LOOK: at 32 columns the toggle row is l: List  t: Map  r: Working, whole, and fits', TEXT, async ($, on) => {
   seed(on, MIXED, AGENTS_UI)
   const ui = await mount($, 'terminal', 32)
-  expect(rowWith(await rows(ui), 'l: List')).toBe('   l: List    t: Map   r: Run')
+  expect(rowWith(await rows(ui), 'l: List')).toBe('  l: List   t: Map   r: Working')
   await ui.unmount()
 })
 

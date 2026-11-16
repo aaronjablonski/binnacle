@@ -272,7 +272,7 @@ const TAB_TIERS: [number, number[], string[]][] = [
   [47, [8, 10, 9, 10, 8], SHORT],
   [46, [7, 9, 8, 9, 8], SHORT],
   [43, [7, 9, 8, 9, 8], SHORT],
-  [42, [5, 5, 5, 5, 5], ICONS],
+  [37, [5, 5, 5, 5, 5], ICONS],
   [34, [5, 5, 5, 5, 5], ICONS],
   [32, [5, 5, 5, 5, 5], ICONS],
 ]
@@ -306,6 +306,26 @@ for (const [cols, cells, labels] of TAB_TIERS) {
       expect(agents?.props).toMatchObject({ hotkey: '3', plain: true })
       expect((await ui.find({ type: 'Text', text: new RegExp(`^${labels[2]}$`) }))?.props).toMatchObject({ color: 'suggestion', bold: true })
       expect((await ui.find({ type: 'Button', key: 'tab-tasks' }))?.props).toMatchObject({ dimColor: true })
+      await ui.unmount()
+    }
+  })
+}
+
+// R3-B M16: R42 goes back to its original threshold. From 38 to 42 columns the whole short words stay, drawn `n:label` (the colon with no
+// space; the hotkeys are armed apart), 36 cells with one space between; icons only under 38. Replaces the 42-column icon tier above.
+for (const cols of [42, 40, 38]) {
+  test(`at ${cols} columns the tabs are the short words as n:label, one space apart, from column 2, with their hotkeys armed`, async ($, on) => {
+    world(on, empty, { ...initialUi, tab: 'agents' })
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE(cols), surface })
+      const rows = screen(await ui.drawn())
+      const [tabs, track, gap] = rows
+      expect(tabs).toBe('  1:Now 2:Tasks 3:Crew 4:Steps 5:Files')
+      expect(track).toBe('  ─────' + ' ' + '───────' + ' ' + '━━━━━━' + ' ' + '───────' + ' ' + '───────')
+      expect((tabs ?? '').length <= cols).toBe(true)
+      expect(gap).toBe('')
+      for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts']) expect(await ui.find({ type: 'Button', key: `tab-${tab}` })).not.toBe(undefined)
+      expect(await ui.find({ type: 'Button', key: 'arm-tab-tasks' })).toMatchObject({ props: { hotkey: '2' } })
       await ui.unmount()
     }
   })

@@ -130,7 +130,8 @@ test('header at 62: lintel, pill row, critter at 2, kicker and headline at 9 (29
   expect(rs[2]).toBe('')
   expect(colOf(rs[3], '●')).toBe(2)
   expect(colOf(rs[3], 'Working on')).toBe(9)
-  expect(colOf(rs[4], 'lead')).toBe(2)
+  // R3-B M8: meaning changed. The text form reads `● lead` on one row (R22: the glyph, then the role word) where it was `●` over `lead`; the critter box is as before.
+  expect(colOf(rs[3], 'lead')).toBe(4)
   expect(colOf(rs[4], 'Wiring the limiter into the')).toBe(9)
   expect(colOf(rs[5], 'middleware chain')).toBe(9)
   for (const i of [4, 5]) expect(rs[i]!.slice(9, 40).trimEnd().length).toBeLessThanOrEqual(29)

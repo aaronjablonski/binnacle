@@ -213,6 +213,22 @@ export function partCut(token: string, room: number): string {
 }
 
 /**
+ * R3-B M2: after the last whole word that fits (it ends at index `keep` of `joined`), the next word, when it is a long
+ * unbroken one (over half the line and too wide for what is left), gives its head up to a part end (`_`, `/`, `.`, `-`).
+ * The new end of the kept text, or `keep` itself when nothing of it fits.
+ */
+function extendByPart(joined: string, keep: number, cols: number): number {
+  const rest = joined.slice(keep)
+  const lead = rest.length - rest.trimStart().length
+  if (lead === 0) return keep
+  const word = rest.trimStart().split(' ')[0] ?? ''
+  const room = cols - 1 - keep - lead
+  if (word.length * 2 <= cols || word.length <= room) return keep
+  const head = partCut(word, room)
+  return head === '' ? keep : keep + lead + head.length
+}
+
+/**
  * `text` on one line (whitespace collapsed) cut to at most `cols` at a word
  * boundary, ending with `…` when cut (binding rule 1: cuts land on words).
  * When even the first word does not fit, it is cut where one of its parts
@@ -231,6 +247,7 @@ export function wordFit(text: string, cols: number): string {
     out = next
   }
   if (out === '') out = partCut(t.split(' ')[0] ?? '', cols - 1)
+  else out = t.slice(0, extendByPart(t, out.length, cols))
   return out === '' ? '' : `${out}…`
 }
 
@@ -367,6 +384,7 @@ export function fitRuns<T extends { text: string }>(runs: T[], cols: number): (T
     keep = head === '' ? 0 : lead + head.length
   }
   if (keep === 0) return []
+  else keep = extendByPart(joined, keep, cols)
   const cut = `${joined.slice(0, keep)}…`
   const out: (T | { text: string })[] = []
   let used = 0
@@ -1143,6 +1161,20 @@ export function span(ms: number, o: { steps?: boolean } = {}): string {
   if (m < 60) return `${m} min`
   const h = Math.floor(m / 60)
   return m % 60 === 0 ? `${h} h` : `${h} h ${m % 60} min`
+}
+
+/**
+ * How long ago, in words (R3-B M5): `verb` and the span while it is under a day ("finished 2 min ago"), "finished
+ * yesterday" for the day before, "finished 3 days ago" after that. A session resumed days later never reads "26 h 14 min".
+ *
+ * @example sinceWords('finished', 2 * 60_000) // 'finished 2 min ago'
+ * @example sinceWords('finished', 26 * 3_600_000) // 'finished yesterday'
+ */
+export function sinceWords(verb: string, ms: number): string {
+  const day = 86_400_000
+  if (ms < day) return `${verb} ${span(ms)} ago`
+  const days = Math.floor(ms / day)
+  return days === 1 ? `${verb} yesterday` : `${verb} ${days} days ago`
 }
 
 /** A countdown as `m:ss` (R27: only a countdown reads this way): `4:48`. */

@@ -154,6 +154,7 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
   const got = await drawn($, 62, 46, true)
   const b = new Board('CockpitNowNeedsYou')
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
+  b.patch('R3-B M8: the header critter text form reads "● lead" on one row, so its box reaches the badge column (col 7), which the mock leaves to the badge', badgeCol(6, 8, 7))
   b.patch('R5: the asker is a subagent and Explorer still runs, so the task is not paused: "Working on"', b.sub(6, 'Paused on', 'Working on'))
   b.patch('R23 and real data: the asker is general-purpose: General', b.sub(14, 'Builder asks to run a command', 'General asks to run a command'))
   b.patch('R3 and R39: no call hands the keys to the prompt, so the amber chip reads " esc  back to the prompt " (plain Text; Enter opens the step) where the mock draws the button " ↵ go to prompt "; its dim words are "then allow or deny"', rows => void (rows[16] = '▍ ¤¤¤¤¤   esc  back to the prompt   then allow or deny'))
@@ -177,7 +178,8 @@ test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the liste
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitNowWatch')
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
-  b.patch('R6 and F M2: the long run reads "Explorer has run 64 min (limit 60)" (no median for its type here)', b.sub(16, 'Explorer has run 64 min, past the usual 60', 'Explorer has run 64 min (limit 60)'))
+  b.patch('R3-B M8: the header critter text form reads "● lead" on one row, so its box reaches the badge column (col 7), which the mock leaves to the badge', badgeCol(6, 8, 7))
+  b.patch('R6 and F M2: the long run reads "Explorer has run 64 min (limit 60)" (no median for its type here); R3-B M5: the minutes read as the card reads them, 1 h 4 min (R27)', b.sub(16, 'Explorer has run 64 min, past the usual 60', 'Explorer has run 1 h 4 min (limit 60)'))
   b.patch('height rule: spare rows go to To do (up to 7), so the two open tasks show in place of "+ 2 more to do"', rows => {
     rows[27] = '  ○ Update the changelog'
     return addRow(28, '  ○ Open the pull request')(rows)

@@ -6,24 +6,42 @@ beside the chat. The transcript itself stays as it is. It needs Claude Code
 
 ## What it shows
 
-A pane next to the transcript with five tabs, and a one-line band above the
-prompt. The pane draws on a character grid: the tab bar, the readouts and the
-table columns line up from column 2, with a metric at column 38 and a time at
-column 50 when the pane is 62 columns wide.
+A pane next to the transcript with five tabs, and a band above the prompt.
+The pane draws on a character grid: the tab bar, the readouts and the table
+columns line up from column 2, with a metric at column 38 and a time at
+column 50 when the pane is 62 columns wide. Crew members are small pictures
+(Critters) drawn from the same cells; the `look` option can turn them off.
 
 | Tab | Shows |
 | --- | --- |
-| Now | What Claude is on and what is next. NEEDS YOU first when anything waits on you, then readouts (tasks, agents, steps, context, the 5-hour or 7-day limit), the live agents, the latest step and newest error, kept steps and notes. |
-| Tasks | Readouts for done, active, queued and elapsed on one scale. ACTIVE (one task, which opens to the agents working on it), QUEUED (up to 5) and DONE (the newest 3). |
-| Agents | Main and every subagent or workflow agent, as a list or a tree, with tokens and time, and the workflow runs. |
-| Steps | Every step of the session, filterable and searchable. A step opens in place; a second press opens the full step with its input, result and any code change. |
-| Artifacts | Pages Claude published, documents it wrote, results it reported and links, newest first, with the newest opened. Then FILES CHANGED and HANDOFF. |
+| Now | The header first: a pill (WORKING, WAITING FOR YOU, STOPPED, ALL DONE or IDLE) with the time this turn and any quiet time, the request's goal, the context figure and two gauges. Under it Needs you (a dialog is waiting on you) and Watch (worth a glance, asks nothing), then To do, This turn once the request has ended, Agents, and Notes and decisions. Now holds no log of steps. |
+| Tasks | How many tasks are done, the pace, Effort so far, then Doing now (with its agents), Up next and Done, and Earlier for the lists of earlier requests. |
+| Agents | Main and every subagent or workflow agent, as a list of cards or as a map, with tokens and time, the failures with their reasons, and the workflow runs. |
+| Steps | Every step of the session, filterable (All, Kept, Errors, In view) and searchable. A step opens in place; a second press opens its page with the input, result and any code change. |
+| Artifacts | Pages Claude published, documents it wrote, results it reported and links, newest first, with the newest opened. Then Files changed, Kept, and Handoff with the export button. |
 
-The band shows `▍ done/total`, the focus, the live agents, the errors, the
-context and the 5-hour or 7-day limit, with `/mc` at the right edge. When
-something waits on you, `▲ n need you` leads it. When every task is done it is
-one dim row. A narrow band drops the budget first, then the words `live` and
-`error`, then `/mc`, and only then cuts the focus at a word.
+**Needs you** lists only what blocks the session on a dialog: a permission, a
+question, a plan to approve or an MCP input request. It has no dismiss key; it
+clears when the dialog is answered. **Watch** lists a step that has run much
+longer than usual, an agent that has gone quiet, a long run, a repeated
+failure and a loop. Watch is never amber and never takes the keyboard; `x`
+dismisses a row.
+
+Amber is used for a dialog and nothing else. The gauges turn bold at 70 % and
+red at 90 %. A turn that failed ends in the STOPPED pill with its reason in
+red; a request that ends with tasks open reads IDLE, not ALL DONE.
+
+The band is one row above the prompt: a small picture of the lead (or of the
+agent that is asking), the request's goal, the context and week figures, and
+`/mc` at the right edge. While a dialog is up it leads with "Needs you" and
+the ask in amber; after a failed turn it leads with "Stopped". A second row
+holds the to-do bar and its words when the band is wide enough. When every
+task is done it is one dim row. A narrow band drops the gauges first and only
+then cuts the goal at a word.
+
+On the desktop app the Now header and the band are drawn as Svg pictures in
+the pane's words and colours (day or night to match the theme), with the same
+text as their alt. Elsewhere they draw as character cells.
 
 ## Commands
 
@@ -38,6 +56,7 @@ All of these work in the middle of a turn. These are the only commands.
 | `/mc close` | Closes the pane. |
 | `/mc slim` | Switches between the slim pane (28 columns) and the full one (62). |
 | `/mc strip` | Closes the pane and draws the strip in the band above the prompt; run again, it restores the band and reopens the pane. |
+| `/mc options` | Opens the Options page. |
 
 ## Keys
 
@@ -45,25 +64,32 @@ All of these work in the middle of a turn. These are the only commands.
   `abovePrompt:focus` action in `~/.claude/keybindings.json`.
 - With the pane focused: Tab moves between rows, Enter opens a row, Esc
   returns to the prompt, and Ctrl+X X closes the pane.
-- Hotkeys, while the pane is focused:
+- Hotkeys, while the pane is focused. A key acts on the thing in view: the
+  opened step, agent or artifact, or the row a footer hint names. The footer
+  shows only the hints that apply, and only while the pane is focused.
 
 | Key | Does |
 | --- | --- |
+| `0` | Open the Options page. |
 | `1` to `5` | Switch tabs. |
-| `n` / `p` | Next or previous error, search hit or problem. |
+| `↵` | Open the row; again for the full page. |
+| `b` | Back from a page or from the budget view; on Now, open the budget view. |
+| `n` / `p` | Next or previous ask, flagged agent, error or search hit. |
 | `f` | Find in the steps. |
 | `g` | Show the opened step, agent or artifact in the chat. |
 | `k` | Keep the opened step (or unkeep it). |
-| `c` | Copy the opened step as Markdown, or copy an artifact's link. |
-| `q` | Quote the full step. |
-| `l` / `t` / `r` | Agents: list, tree, running only. |
-| `s` / `v` | An opened agent's steps, or its transcript. |
-| `d` | Tasks: all done tasks. |
-| `e` | Export the digest. |
-| `o` | An opened artifact: open the step that wrote it. |
-| `x` | Dismiss a NEEDS YOU item. |
+| `c` | Copy the opened step as Markdown, an artifact's link, or a file's path. |
+| `q` | Quote the full step into the prompt. |
+| `l` / `t` | Agents: list, map. |
+| `r` | Agents: working only. |
+| `d` | Tasks: all done tasks. Agents: unfold or fold the finished ones. |
+| `v` | An agent's transcript, from a Watch row or a failed agent. |
+| `o` | An opened artifact: the step that wrote it. An opened file or step: open it in the editor. |
+| `e` | Export the digest (Artifacts, and Now at rest). In the budget view: export the ledger as CSV. |
+| `x` | Dismiss the first Watch row. In the Options page: set an option off. |
 
-- The footer shows at most 3 hints and only while the pane is focused.
+- On Artifacts the keys `o`, `c` and `g` belong to the one opened artifact or,
+  once a file is selected, to that file; never to both at once.
 - Hotkeys work in the terminal and the desktop app, not in VS Code. Every
   button has a label that works without its key.
 
@@ -71,48 +97,41 @@ All of these work in the middle of a turn. These are the only commands.
 
 Keep marks a step you do not want to lose. Press `k` on an opened step, or
 run `/mc keep <note>` for the newest step of the main conversation. The step
-shows a `★`, appears under the Kept filter on the Steps tab and in KEPT on
-Now, is never trimmed from the timeline, and goes into the export with its stored
-input and result (up to 20,000 characters each). Press `k` again to unkeep
-it.
+shows a `★`, appears under the Kept chip on the Steps tab, in Kept on
+Artifacts and in Notes and decisions on Now, is never trimmed from the
+timeline, and goes into the export with its stored input and result (up to
+20,000 characters each). Press `k` again to unkeep it.
 
 ## Slim mode
 
 Under 32 columns the pane is slim: no tab bar, one stacked summary. From top
-to bottom it shows the focus, NEEDS YOU, tasks, agents, budget and the latest
-step and kept step. Each label opens that tab's list; `/mc 1` to `/mc 5` still
-work. `/mc slim` asks for a 28-column pane and, run again, restores 62. A pane
-you resize yourself keeps the width you give it, and the layout follows it.
+to bottom it shows the compact header, Needs you, To do, Agents, Budget and
+Notes. Each title opens that tab's list; `/mc 1` to `/mc 5` still work.
+When rows run short, whole parts go from the bottom: Needs you is kept
+longest, then To do. `/mc slim` asks for a 28-column pane and, run again,
+restores 62. A pane you resize yourself keeps the width you give it, and the
+layout follows it. On the desktop app the widget placement is always slim.
 
 ## Strip mode
 
-`/mc strip` closes the pane and draws the strip in the band above the prompt
-instead, with the band's one-row summary under it. The strip uses the whole
-width, in compartments side by side, each with its own heading:
+From 96 columns the pane draws Now as a strip: the header at its full 62
+columns on the left, To do and Agents on the right.
 
-| Band width | Compartments |
-| --- | --- |
-| under 96 | NOW (focus, next, crew, tasks, steps, budget), with AGENTS and LATEST stacked under it (14 rows) |
-| 96 to 139 | NOW, then AGENTS and LATEST together |
-| 140 to 179 | NOW, AGENTS, LATEST |
-| 180 and up | NOW, NEEDS YOU (or TASKS when nothing waits), AGENTS, LATEST, BUDGET with the reset times |
-
-NOW keeps 50 columns and the lists share the rest, so names and arguments get
-the room there is. Text is cut only at a word, with `…`. Where the width runs
-out, compartments drop from the right. The band may take at most half the
-terminal's height, the prompt's rows included, so in a short terminal the
-lists are cut first, then the deck from the bottom; the summary row always
-stays.
+`/mc strip` closes the pane and draws the same strip in the band above the
+prompt instead, with the band's compact line under it. The band may take at
+most half the terminal's height, the prompt's rows included; in a short
+terminal the lists are cut first, then the deck from the bottom, and the
+compact line always stays. Text is cut only at a word, with `…`.
 
 Each strip row opens what it names, as it does in the pane: pressing it (a
 click, or Ctrl+X Tab to focus the band and then Enter) turns the strip off and
 opens the pane there. The strip has no hotkeys, because a bare digit typed in
 an empty prompt can press a band button.
 
-`/mc`, `/mc 1` to `/mc 5` and `/mc slim` open the pane and so turn the strip
-off. `/mc strip` and `/mc slim` do not fight: whichever ran last wins, and
-`/mc slim` run from the strip always gives the slim pane. `/mc close` leaves
-the strip as it is. A `/clear` turns it off.
+`/mc`, `/mc 1` to `/mc 5`, `/mc slim` and `/mc options` open the pane and so
+turn the strip off. `/mc strip` and `/mc slim` do not fight: whichever ran
+last wins, and `/mc slim` run from the strip always gives the slim pane.
+`/mc close` leaves the strip as it is. A `/clear` turns it off.
 
 ## Options
 
@@ -123,12 +142,20 @@ from the config menu:
 | --- | --- | --- |
 | `guide` | `true` | Give Claude the update tool and one system-prompt section so it keeps the panel current. |
 | `autoOpen` | `false` | Open the pane when a session starts. In a narrow terminal the pane waits for more room. |
-| `look` | `auto` | How the pane and band are drawn: `auto` (rich, except text on an ANSI or daltonized theme or where the terminal cannot draw pictures), `rich` (pictures where the terminal can draw them) or `text` (letters and box lines only). Choose `text` if the terminal draws the pictures badly, or for a screen reader. Applies at once; the Options card (`0`) switches it too. |
-| `notify` | `waits` | Raise a native notification when Claude has waited on you for 20 seconds (`waits`), also when a turn over 60 seconds finishes (`done`), also when a turn fails (`all`), or never (`off`). |
+| `look` | `auto` | How the pane and band are drawn: `auto` (rich, except text on an ANSI or daltonized theme or where the terminal cannot draw pictures), `rich` (pictures where the terminal can draw them) or `text` (letters and box lines only). Choose `text` if the terminal draws the pictures badly, or for a screen reader. Applies at once; the Options page (`0`) switches it too. |
+| `ground` | `auto` | The background the crew pictures and the desktop Svg are drawn for: `auto` (day on a light theme, night on the rest), `night` or `day`. |
+| `motion` | `on` | Let the crew blink now and then and play the short sweep when a request finishes cleanly, or keep everything still (`off`). |
+| `accent` | `iris` | The colour of headings, the marker and the filled button: `iris` (violet-blue), `sky` (light blue) or `slate` (grey-blue). |
+| `notify` | `waits` | Native notifications: `waits`, `done` (also when a turn over 60 seconds finishes), `all` (also when a turn fails) or `off`. Claude Code itself notifies for permission dialogs; this option covers the rest of what is waiting on you. <!-- TODO: notify wording, to match the alert model once it is settled --> |
+| `watchNotify` | `false` | Also notify, once, when something has stood under Watch for 10 minutes. Off by default: Watch asks nothing of you. |
 | `showCost` | `false` | Show the session's dollar cost in the budget view. |
-| `doneSound` | `false` | Also play a short sound when the done notification is raised (macOS only; Windows and Linux terminals play nothing). |
-| `agentLimitMin` | `20` | Flag a subagent still working after this many minutes, once, as a long run in NEEDS YOU. It only reports. `0` turns it off. |
-| `turnLimitMin` | `60` | Flag a main turn still running after this many minutes, once, as a long run. `0` turns it off. |
+| `editor` | `code` | The editor `o` opens a file in, run as `<editor> -r -g <path>:<line>`. When it cannot run, the path is copied. |
+| `doneSound` | `false` | Also play a short sound when the done notification is raised (macOS only). |
+| `agentLimitMin` | `60` | Show a subagent still working after this many minutes, once, as a long run under Watch. It only reports. `0` turns it off. |
+| `turnLimitMin` | `120` | Show a main turn still running after this many minutes, once, as a long run under Watch. `0` turns it off. |
+
+The Options page (`0`, or `/mc options`) changes the look options at once and
+shows a preview of the crew.
 
 For a one-off headless run, pass them with `--settings`:
 

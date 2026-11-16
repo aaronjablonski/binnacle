@@ -1,7 +1,10 @@
 // The desktop app's forms of the Now deck and the band (cockpit spec, R32):
 // one Svg each, drawn from the same model as the terminal's deck and band. The
-// cockpit palette (raster.ts `PALETTE.night`: one iris accent, amber only for
-// a dialog, red for a stop), Critters at small size from the same cell data as
+// Now deck's header says what the pane's header says (`headWords`: the pill,
+// its meta, the kicker, the goal, the budget line and two gauges). The
+// cockpit palette of the ground the pane draws on (raster.ts `PALETTE`: night,
+// or day on a light theme; one accent, amber only for a dialog, red for a
+// stop), Critters at small size from the same cell data as
 // the Rasters (raster.ts `critterBox`), gauge rings that go ink at 70 % and
 // red at 90 % (R9), sentence-case labels, and no animation, glow or gradient.
 // `<title>` tooltips where the Svg is interactive. It takes no presses:
@@ -10,24 +13,29 @@
 // Pure: strings from the Timeline, no claude-code import, so vitest loads it.
 
 import type { AgentRow, Timeline, UiState } from '../../types'
-import { cacheLine, pace, taskMeter, turnClock } from '../model/meter'
+import { taskMeter } from '../model/meter'
 import { headerState, needs, watch } from '../model/alerts'
 import { summary } from '../model/select'
+import { todoBlock } from '../model/todo'
 import { agentsWords, bandModel, bandWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
-import { buckets, elapsed, shortPaths, wordFit } from './fit'
+import { budgetWords, nowGauges } from './budget'
+import { wordFit } from './fit'
+import { headline } from './lay'
+import { headWords } from './overview'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
-import type { Hue, Palette } from './raster'
-import { crewRole, palette, podStateOf } from './style'
-import type { PodState, Role } from './style'
+import type { Ground, Hue, Palette } from './raster'
+import type { ViewCtx } from './shell'
+import { CK, crewRole, palette, podStateOf } from './style'
+import type { PodState, Role, Run } from './style'
 
 /** The longest `source` an Svg element takes (`SvgProps.source`). */
 export const SVG_MAX = 131072
 
 // ---------- the model ----------
 
-/** A ring: its short name (`CTX`, `5H`), its figure, and the pace line under it when the window fills before it resets. */
-export type RingFig = { name: string; pct: number; sub?: string }
+/** A gauge ring: its word (`context`, `5 hours`, `this week`) and its figure. */
+export type RingFig = { name: string; pct: number }
 
 /** One crew member as a character, with the words its tooltip says. */
 export type CrewFig = { role: Role; state: PodState; title: string }
@@ -35,23 +43,24 @@ export type CrewFig = { role: Role; state: PodState; title: string }
 /** One column of the plan strip: a task's tokens, and whether it is the one in progress. */
 export type PlanFig = { tokens: number; current: boolean; title: string }
 
-/** What the deck and the band show, read once from the Timeline. */
+/** What the deck shows, read once from the Timeline. */
 export type DeckModel = {
   pill: { word: string; hue: Hue | 'mute' }
-  right?: string
+  /** The header's meta runs (R7, R8): the time this turn, the quiet time, the wait, the stop reason. */
+  meta: Run[]
+  kicker: string
   lead: CrewFig
+  /** The request's goal (R14), the same words as the terminal header's. */
   focus: string
   isIdle: boolean
-  step?: { label: string; age: string }
+  /** The budget line (R29, R40) the header draws under the goal. */
+  budget: Run[]
   rings: RingFig[]
-  next?: string
   crew: CrewFig[]
   more: number
   live: number
   failed: number
   tasks: { done: number; total: number; plan: PlanFig[] }
-  steps: { count: number; errors: number; trace: number[]; errorAt: number[] }
-  cache?: { readPct: number; read: number; write: number; fresh: number; warm?: string }
 }
 
 const MAX_CREW = 6
@@ -61,15 +70,6 @@ const MAX_TEXT = 300
 /** One line of plain text, at most MAX_TEXT characters. */
 function oneLine(s: string): string {
   return s.replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT)
-}
-
-/** A window's short name for its ring: `5H`, `7D`, else its first three letters. */
-export function ringName(name: string): string {
-  const n = name.toLowerCase()
-  if (/five|5.?h/.test(n)) return '5H'
-  if (/seven|7.?d|week/.test(n)) return '7D'
-  const short = name.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase()
-  return short === '' ? 'WIN' : short
 }
 
 /** Who is asking and who is stalled or quiet, from the alert model. */
@@ -108,54 +108,36 @@ function crewRank(a: AgentRow): number {
 }
 
 /**
- * The deck's model: what both Svgs draw and their alts say. The pill is
- * WAITING (amber) while a dialog needs the person (the alert model's `needs`
- * with no `isPromptCovered`, so R2's 20 s delay in auto mode stands, as
- * `problems()`'s default has it), WORKING (iris) while a turn, agent or step
- * runs, STOPPED (red) after a failed turn (R8), ALL DONE when every task is
- * done, else IDLE. Watch rows colour nothing (R9).
+ * The deck's model: what Now's Svg draws and its alt says. The pill, its meta
+ * and the kicker are the terminal header's (`headWords`: WAITING FOR YOU while
+ * a dialog needs the person, WORKING with the turn's time and the quiet time,
+ * STOPPED with its reason, ALL DONE, IDLE); the goal is `headline` (R14); the
+ * gauges are `nowGauges`; the budget line `budgetWords`. Watch rows colour
+ * nothing (R9). `covered` is the pane's `isPromptCovered`: with it an auto-mode
+ * ask is a need at once (C-1), as the terminal header reads it.
  */
-export function deckModel(t: Timeline, u: UiState, now: number): DeckModel {
+export function deckModel(t: Timeline, u: UiState, now: number, covered = false): DeckModel {
   const s = summary(t)
-  const view = needs(t, now)
+  const view = needs(t, now, { covered })
   const hs = headerState(t, now, view)
+  const todo = todoBlock(t, view.items.map(n => n.agent))
+  const words = headWords({ t, u, now, cols: 62 } as unknown as ViewCtx, view, hs, todo)
   const flags: Flags = {
     asking: new Set(view.items.map(n => n.agent)),
     stalled: new Set(watch(t, now, u.dismissed).filter(w => w.kind === 'stalled' || w.kind === 'quiet').map(w => w.agent)),
   }
   const subs = Object.values(t.agents).filter(a => a.id !== 'main')
-  const running = s.running.length > 0 || t.steps.some(x => x.status === 'running') || t.turns.some(x => x.endedAt === undefined)
-  let pill: DeckModel['pill'] = { word: 'IDLE', hue: 'mute' }
-  if (view.items.length > 0) pill = { word: 'WAITING', hue: 'amber' }
-  else if (hs.state === 'stopped') pill = { word: 'STOPPED', hue: 'red' }
-  else if (running) pill = { word: 'WORKING', hue: 'iris' }
-  else if (hs.state === 'all-done') pill = { word: 'ALL DONE', hue: 'mint' }
+  const pill: DeckModel['pill'] = { word: words.pill, hue: words.pillColor !== undefined ? 'mute' : (words.tone as Hue) }
 
-  // The lead's row stays running for the whole session: its critter follows the pill instead.
+  // The lead's row stays running for the whole session: its critter follows the header.
   const main = t.agents.main
-  const leadAsks = flags.asking.has('main')
-  const leadState: PodState = pill.word === 'WAITING' ? (leadAsks ? 'waiting' : 'working') : pill.word === 'WORKING' ? 'working' : pill.word === 'STOPPED' ? 'failed' : 'done'
-  const lead: CrewFig =
-    main !== undefined ? crewFig(main, flags, leadState) : { role: 'lead', state: leadState, title: 'the lead' }
+  const lead: CrewFig = main !== undefined ? crewFig(main, flags, words.lead) : { role: 'lead', state: words.lead, title: 'the lead' }
 
-  const bySeq = [...t.steps].sort((a, b) => b.seq - a.seq)
-  const runningStep = bySeq.find(x => x.status === 'running')
-  let focus = s.focus !== undefined ? oneLine(s.focus) : ''
-  const isIdle = focus === '' && bySeq.length === 0
-  if (focus === '') focus = bySeq[0] !== undefined ? oneLine(shortPaths(bySeq[0].label)) : 'Idle. Nothing running yet.'
+  const head = headline(t)
+  const rings: RingFig[] = nowGauges(t).map(g => ({ name: g.label, pct: clampPct(g.pct) }))
 
-  const rings: RingFig[] = []
-  if (t.budget?.contextPct !== undefined) rings.push({ name: 'CTX', pct: clampPct(t.budget.contextPct) })
-  const paced = pace(t, now).windows
-  for (const w of (t.budget?.windows ?? []).slice(0, 2)) {
-    const ring: RingFig = { name: ringName(w.name), pct: clampPct(w.pct) }
-    const p = paced.find(x => x.name === w.name)
-    if (p?.beforeReset === true) ring.sub = `▲ ${elapsed(0, p.fullIn)}`
-    rings.push(ring)
-  }
-
-  const ranked = [...subs].sort((a, b) => crewRank(a) - crewRank(b) || b.startedAt - a.startedAt)
-  const crew = ranked.slice(0, MAX_CREW).map(a => crewFig(a, flags))
+  const ranked = [...subs].sort((x, y) => crewRank(x) - crewRank(y) || y.startedAt - x.startedAt)
+  const crew = ranked.slice(0, MAX_CREW).map(x => crewFig(x, flags))
 
   const meter = taskMeter(t)
   const plan = meter.rows.slice(0, MAX_PLAN).map(r => ({
@@ -164,42 +146,21 @@ export function deckModel(t: Timeline, u: UiState, now: number): DeckModel {
     title: `${wordFit(oneLine(r.task.subject), 80)}: ${r.tokens > 0 ? `${tokens(r.tokens)} tokens` : r.task.status}`,
   }))
 
-  const first = t.steps.reduce((m, x) => Math.min(m, x.startedAt), now)
-  const trace = buckets(t.steps.map(x => x.startedAt), first, now, 22)
-  const errs = buckets(t.steps.filter(x => x.status === 'error').map(x => x.startedAt), first, now, 22)
-  const errorAt = errs.flatMap((n, i) => (n > 0 ? [i] : []))
-
-  const model: DeckModel = {
+  return {
     pill,
+    meta: words.meta,
+    kicker: words.kicker,
     lead,
-    focus,
-    isIdle,
+    focus: oneLine(head.text),
+    isIdle: head.isIdle,
+    budget: budgetWords(t, now, { idle: hs.state !== 'working' && hs.state !== 'waiting' }),
     rings,
     crew,
     more: Math.max(0, ranked.length - crew.length),
     live: s.running.length,
-    failed: subs.filter(a => a.status === 'error').length,
+    failed: subs.filter(x => x.status === 'error').length,
     tasks: { done: s.done, total: s.total, plan },
-    steps: { count: s.steps, errors: s.errors, trace, errorAt },
   }
-  const clockNow = turnClock(t, now)
-  if (clockNow !== undefined) {
-    const n = t.turns.filter(x => x.agent === 'main').length
-    model.right = `turn ${n} · ${elapsed(0, clockNow.ms)}`
-  }
-  if (runningStep !== undefined) {
-    model.step = { label: oneLine(shortPaths(runningStep.label)), age: elapsed(runningStep.startedAt, now) }
-  }
-  if (s.next !== undefined && s.next.trim() !== '') model.next = oneLine(s.next)
-  const c = cacheLine(t)
-  if (c.total > 0) {
-    model.cache = { readPct: Math.round(c.readShare * 100), read: c.read, write: c.write, fresh: c.fresh }
-    if (c.warmUntil !== undefined && c.warmUntil > now) {
-      const left = Math.floor((c.warmUntil - now) / 1000)
-      model.cache.warm = `stays warm ${Math.max(1, Math.floor(left / 60))} min`
-    }
-  }
-  return model
 }
 
 function clampPct(n: number): number {
@@ -208,8 +169,14 @@ function clampPct(n: number): number {
 
 // ---------- drawing ----------
 
-/** The night palette under the Accent option: the structural accent follows it (FX4); state and role colours do not. */
-const P = (): Palette => palette('night')
+/**
+ * The ground this document draws on, set by `nowDeckSvg` and `bandSvg` at the
+ * top of a draw (a document is built in one synchronous call, so nothing
+ * interleaves). The palette of that ground under the Accent option: the
+ * structural accent follows it (FX4); state and role colours do not.
+ */
+let ground: Ground = 'night'
+const P = (): Palette => palette(ground)
 const FONT = `font-family="system-ui,-apple-system,'Segoe UI',sans-serif"`
 
 /** Text for a document: no control characters, the five XML characters escaped. */
@@ -225,7 +192,7 @@ export function esc(s: string): string {
 
 const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`
 const ink = (k: keyof Palette): string => hex(P()[k])
-const DIM = ink('dim')
+const DIM = (): string => ink('dim')
 const num = (v: number): string => String(Math.round(v * 10) / 10)
 
 /** About how many characters of a proportional font at `size` fit in `px`. */
@@ -269,7 +236,7 @@ function text(x: number, y: number, s: string, o: TextOpts = {}): string {
 
 /** A section's name: dim, sentence case, no capitals or tracking (the cockpit has no caps). */
 const label = (x: number, y: number, s: string): string =>
-  `<text x="${num(x)}" y="${num(y)}" font-size="11" fill="${DIM}" ${FONT}>${esc(s)}</text>`
+  `<text x="${num(x)}" y="${num(y)}" font-size="11" fill="${DIM()}" ${FONT}>${esc(s)}</text>`
 
 /** The one style: a hover dims a tooltip target a little. Nothing animates. */
 const DEFS = '<style>.h:hover{opacity:0.8}</style>'
@@ -281,7 +248,7 @@ const DEFS = '<style>.h:hover{opacity:0.8}</style>'
  * lit lamp is a white rect like any other.
  */
 function character(x: number, y: number, c: CrewFig, u: number): string {
-  const g = critterBox(c.role, c.state, 'small')
+  const g = critterBox(c.role, c.state, 'small', { ground })
   const r = num(Math.max(5, u * 1.3))
   let o = `<g><title>${esc(c.title)}</title>`
   for (let row = 0; row < g.rows; row++) {
@@ -304,30 +271,25 @@ function character(x: number, y: number, c: CrewFig, u: number): string {
       if (cell.ch !== undefined && cell.ch !== ' ') {
         const cx = x + (col * 2 + 1) * u
         const cy = y + (row * 4 + 1.5) * u
-        o += `<circle cx="${num(cx)}" cy="${num(cy)}" r="${r}" fill="${hex(cell.bg ?? PALETTE.night.mute)}"></circle>`
-        o += `<text x="${num(cx)}" y="${num(cy + 3.5)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${hex(cell.fg ?? PALETTE.night.badge)}" ${FONT}>${esc(cell.ch)}</text>`
+        o += `<circle cx="${num(cx)}" cy="${num(cy)}" r="${r}" fill="${hex(cell.bg ?? PALETTE[ground].mute)}"></circle>`
+        o += `<text x="${num(cx)}" y="${num(cy + 3.5)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${hex(cell.fg ?? PALETTE[ground].badge)}" ${FONT}>${esc(cell.ch)}</text>`
       }
     }
   }
   return `${o}</g>`
 }
 
-/** What a ring's name reads under it: the cockpit's words (the model keeps `CTX`, `5H`, `7D` for titles and the alt). */
-const RING_WORDS: Record<string, string> = { CTX: 'context', '5H': '5 hours', '7D': 'this week' }
-
 function ring(cx: number, cy: number, r: number, f: RingFig): string {
   const c = 2 * Math.PI * r
   // R9: iris below 70 %, ink from 70, red from 90; amber is the dialog colour only.
   const hue = ink(gaugeHue(f.pct))
-  const name = f.sub !== undefined ? f.sub : (RING_WORDS[f.name] ?? f.name.toLowerCase())
-  const nameFill = f.sub !== undefined ? ink('ink') : DIM
   return (
     `<g class="h"><title>${esc(f.name)}: ${f.pct}% used</title>` +
     `<circle cx="${num(cx)}" cy="${num(cy)}" r="${r}" fill="none" stroke="${ink('rest')}" stroke-width="5"></circle>` +
     `<circle cx="${num(cx)}" cy="${num(cy)}" r="${r}" fill="none" stroke="${hue}" stroke-width="5" stroke-linecap="round" ` +
     `stroke-dasharray="${num((c * f.pct) / 100)} ${num(c)}" transform="rotate(-90 ${num(cx)} ${num(cy)})"></circle>` +
     text(cx, cy + 4.5, `${f.pct}%`, { size: 12.5, bold: true, fill: f.pct >= 90 ? hue : ink('ink'), anchor: 'middle' }) +
-    `<text x="${num(cx)}" y="${num(cy + r + 17)}" text-anchor="middle" font-size="10" fill="${nameFill}" ${FONT}>${esc(name)}</text></g>`
+    `<text x="${num(cx)}" y="${num(cy + r + 17)}" text-anchor="middle" font-size="10" fill="${DIM()}" ${FONT}>${esc(f.name)}</text></g>`
   )
 }
 
@@ -377,23 +339,51 @@ function open(w: number, h: number): string {
 }
 
 /** A document past the limit (it should never be: every text is cut) is replaced by the pill and the focus alone. */
-function bounded(source: string, w: number, m: DeckModel): string {
+function bounded(source: string, w: number, fallback: () => { pill: DeckModel['pill']; focus: string }): string {
   if (source.length < SVG_MAX) return source
+  const m = fallback()
   return `${open(w, 60)}${pill(16, 14, m.pill.word, m.pill.hue)}${text(110, 28, cutTo(m.focus, w - 130, 14), { size: 14, bold: true })}</svg>`
 }
 
 /** The deck's width in px for a pane of `cols` columns. */
 const deckWidth = (cols: number): number => Math.max(340, Math.min(640, Math.round(cols * 7.3)))
 
+/** Runs as the pieces of a styled line: a dim run dim, a bold one bold, the stop colour red. */
+function runPieces(runs: Run[]): Piece[] {
+  return runs.map(r => ({ t: r.text, bold: r.bold === true, fill: r.color === CK.fail ? ink('red') : r.dim === true ? DIM() : ink('ink') }))
+}
+
+/** `pieces` kept to `px` at `size`: the run that overflows is cut with `…`, the rest dropped. */
+function fitPieces(pieces: Piece[], px: number, size: number): Piece[] {
+  let room = charsIn(px, size)
+  const out: Piece[] = []
+  for (const p of pieces) {
+    if (p.t.length <= room) {
+      out.push(p)
+      room -= p.t.length
+    } else {
+      const cut = room > 1 ? `${p.t.slice(0, room - 1).trimEnd()}…` : ''
+      if (cut !== '') out.push({ ...p, t: cut })
+      break
+    }
+  }
+  return out
+}
+
 /**
- * Now's deck as one Svg (R32): the frame and pill, the lead's critter, the
- * focus over two lines, the running step, up to three gauge rings; then
+ * Now's deck as one Svg (R32), the cockpit header drawn in the pane's words:
+ * the pill with its meta beside it (WAITING FOR YOU and the wait; WORKING with
+ * this turn's time and the quiet time; STOPPED and its reason), the lead's
+ * critter, the kicker over the goal on two lines, the budget line, and the
+ * two gauge rings (context, and the hotter of the 5 hours and the week); then
  * Agents (critters, and a count of the failed) and To do (the plan strip),
- * each only when it has something to show. No Next, no "n live", no Steps
- * trace with its error count and no Cache row (the cockpit removed them, R26).
+ * each only when it has something to show. No running step, no turn counter,
+ * no Next, no Steps trace and no Cache row (the cockpit removed them, R26).
+ * Drawn on `g`, the ground the pane draws on (day on a light theme).
  */
-export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): string {
-  const m = deckModel(t, u, now)
+export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number, g: Ground = 'night', covered = false): string {
+  ground = g
+  const m = deckModel(t, u, now, covered)
   const W = deckWidth(cols)
   const L = 22
   const C = 84
@@ -411,7 +401,7 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): 
       o += character(C + i * 42, y - 18, c, 3.2)
     })
     const more = m.more + m.crew.length - shown.length
-    if (more > 0) o += text(C + shown.length * 42, y, `+${more}`, { fill: DIM })
+    if (more > 0) o += text(C + shown.length * 42, y, `+${more}`, { fill: DIM() })
     if (m.failed > 0) o += badgePill(V, y - 8, `${m.failed} failed`, 'red')
     rows.push(o)
     y += 48
@@ -427,25 +417,23 @@ export function nowDeckSvg(t: Timeline, u: UiState, now: number, cols: number): 
   const H = rows.length > 0 ? y - 14 : 150
   let s = open(W, H) + accents(W, H, m.pill.hue)
   s += pill(C, 14, m.pill.word, m.pill.hue)
-  if (m.right !== undefined) s += text(W - 16, 28, m.right, { size: 11, fill: DIM, anchor: 'end' })
+  const pillW = m.pill.word.length * 7.4 + 18
+  const metaX = C + pillW + 10
+  s += tspans(metaX, 28, fitPieces(runPieces(m.meta), W - 16 - metaX, 11), { size: 11 })
   s += character(16, 46, m.lead, 4.6)
+  s += text(C, 52, cutTo(m.kicker, heroRight - C, 11), { size: 11, fill: DIM() })
   const focus = wrapTo(m.focus, heroRight - C, 15, 2)
   focus.forEach((line, i) => {
-    s += text(C, 68 + i * 20, line, { size: 15, bold: !m.isIdle, fill: m.isIdle ? DIM : ink('ink') })
+    s += text(C, 72 + i * 20, line, { size: 15, bold: !m.isIdle, fill: m.isIdle ? DIM() : ink('ink') })
   })
-  if (m.step !== undefined) {
-    const room = heroRight - C - 40
-    const said = esc(cutTo(m.step.label, room, 12))
-    s += `<text x="${C}" y="114" font-size="12" ${FONT}>`
-    s += `<tspan fill="${ink('iris')}">▸</tspan><tspan fill="${ink('ink')}"> ${said}</tspan><tspan fill="${DIM}">   ${esc(m.step.age)}</tspan></text>`
-  }
+  s += tspans(C, 116, fitPieces(runPieces(m.budget), heroRight - C, 12), { size: 12 })
   m.rings.forEach((r, i) => {
     s += ring(W - 36 - 52 * (m.rings.length - 1 - i), 78, 19, r)
   })
   if (rows.length > 0) s += `<path d="M 16 136 H ${num(W - 16)}" stroke="${ink('rest')}" stroke-width="1" stroke-dasharray="1 5"></path>`
   s += rows.join('')
   s += '</svg>'
-  return bounded(s, W, m)
+  return bounded(s, W, () => m)
 }
 
 /** The band's width in px for `cols` columns of the band. */
@@ -488,15 +476,16 @@ const figurePiece = (pct: number): Piece => ({ t: `${pct}%`, bold: pct >= 70, fi
  * to-do bar and its words. At idle one dim line. `/mc` is the Button beside
  * the Svg, not drawn in it. \`model\` is the band's own when it has read one.
  */
-export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, model?: BandModel): string {
+export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, model?: BandModel, g: Ground = 'night'): string {
+  ground = g
   const m = model ?? bandModel(t, u, now)
   const W = bandWidth(cols)
-  const dm = deckModel(t, u, now)
+  const dm = (): DeckModel => deckModel(t, u, now)
   const right = W - 16
   if (m.form === 'idle' && m.rest !== undefined) {
     const H = 34
-    const head: Piece[] = [...(m.rest.tick ? [{ t: '✓ ', fill: ink('mint') }] : []), { t: m.rest.head, fill: DIM }]
-    const facts = m.rest.facts.map(f => ({ t: `   ·   ${f}`, fill: DIM }))
+    const head: Piece[] = [...(m.rest.tick ? [{ t: '✓ ', fill: ink('mint') }] : []), { t: m.rest.head, fill: DIM() }]
+    const facts = m.rest.facts.map(f => ({ t: `   ·   ${f}`, fill: DIM() }))
     const pieces = [...head, ...facts]
     const total = pieces.map(p => p.t).join('')
     const fit = total.length <= charsIn(W - 32, 12.5) ? pieces : head
@@ -522,10 +511,10 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
     s += tspans(right, 24, [{ t: answer, fill: ink('amber') }], { anchor: 'end' })
   } else {
     const stopped = m.form === 'stopped'
-    const head: Piece = stopped ? { t: 'Stopped', fill: ink('red'), bold: true } : { t: m.kicker, fill: DIM }
+    const head: Piece = stopped ? { t: 'Stopped', fill: ink('red'), bold: true } : { t: m.kicker, fill: DIM() }
     const gauges: Piece[] = []
-    if (m.context !== undefined) gauges.push({ t: 'context ', fill: DIM }, figurePiece(m.context))
-    if (m.week !== undefined) gauges.push({ t: `${gauges.length > 0 ? '    ' : ''}week `, fill: DIM }, figurePiece(m.week))
+    if (m.context !== undefined) gauges.push({ t: 'context ', fill: DIM() }, figurePiece(m.context))
+    if (m.week !== undefined) gauges.push({ t: `${gauges.length > 0 ? '    ' : ''}week `, fill: DIM() }, figurePiece(m.week))
     const gaugeW = gauges.reduce((n, p) => n + p.t.length, 0) * 12.5 * 0.52
     const room = W - X - 16 - (gauges.length > 0 ? gaugeW + 24 : 0) - (head.t.length + 3) * 12.5 * 0.52
     const goal = cutTo(m.focus, room, 14)
@@ -537,16 +526,16 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
   const hasBar = m.total > 0
   if (hasBar) s += todoSegments(X, 38, bar, m.total, m.done, m.current)
   const wx = hasBar ? X + bar + 14 : X
-  const sep = { t: '   ·   ', fill: DIM }
+  const sep = { t: '   ·   ', fill: DIM() }
   const words: Piece[] = []
-  if (hasBar) words.push({ t: String(m.done), bold: true }, { t: ` of ${m.total} done`, fill: DIM })
+  if (hasBar) words.push({ t: String(m.done), bold: true }, { t: ` of ${m.total} done`, fill: DIM() })
   if (m.form === 'asked') {
     if (words.length > 0) words.push(sep)
-    if (m.working > 0) words.push({ t: `${m.working} ${m.working === 1 ? 'agent' : 'agents'} working, `, fill: DIM })
+    if (m.working > 0) words.push({ t: `${m.working} ${m.working === 1 ? 'agent' : 'agents'} working, `, fill: DIM() })
     words.push({ t: `${m.waiting} waiting`, fill: ink('amber') })
   } else if (m.form === 'working') {
-    if (m.working > 0) words.push(...(words.length > 0 ? [sep] : []), { t: agentsWords(m), fill: DIM })
-    words.push(...(words.length > 0 ? [sep] : []), { t: needsPiece(m), fill: DIM })
+    if (m.working > 0) words.push(...(words.length > 0 ? [sep] : []), { t: agentsWords(m), fill: DIM() })
+    words.push(...(words.length > 0 ? [sep] : []), { t: needsPiece(m), fill: DIM() })
   }
   s += tspans(wx, 43, words, { size: 12.5 })
   return bounded(`${s}</svg>`, W, dm)
@@ -556,15 +545,18 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
 
 const MAX_ALT = 600
 
-function ringsSaid(m: DeckModel): string {
-  return m.rings.map(r => `${r.name} ${r.pct}%`).join(', ')
-}
+const ringsSaid = (m: DeckModel): string => m.rings.map(r => `${r.name} ${r.pct}%`).join(', ')
 
-/** Now's deck in words, for a reader that cannot see the Svg. */
-export function nowDeckAlt(t: Timeline, u: UiState, now: number): string {
-  const m = deckModel(t, u, now)
-  const parts = [`Now: ${m.pill.word}. ${m.focus}.`]
-  if (m.step !== undefined) parts.push(`Running: ${m.step.label}, ${m.step.age}.`)
+/** The header's meta as the pane reads it ("2 min this turn · quiet 3 min"). */
+const metaSaid = (m: DeckModel): string => m.meta.map(r => r.text).join('').trim()
+
+/** Now's header in words, for a reader that cannot see the Svg: the pill and its meta, the kicker and the goal, the budget line, the gauges, the agents and the to-dos. */
+export function nowDeckAlt(t: Timeline, u: UiState, now: number, covered = false): string {
+  const m = deckModel(t, u, now, covered)
+  const meta = metaSaid(m)
+  const parts = [`Now: ${m.pill.word}${meta !== '' ? `, ${meta}` : ''}. ${m.kicker}: ${m.focus}.`]
+  const budget = m.budget.map(r => r.text).join('').trim()
+  if (budget !== '') parts.push(`${budget}.`)
   if (m.rings.length > 0) parts.push(`${ringsSaid(m)}.`)
   if (m.crew.length > 0) parts.push(`${m.live} agents working, ${m.failed} failed.`)
   if (m.tasks.total > 0) parts.push(`${m.tasks.done} of ${m.tasks.total} tasks done.`)

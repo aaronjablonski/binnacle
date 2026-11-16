@@ -775,3 +775,27 @@ test('the lintel never gets a readout that meets the pill: the Handoff header an
     stored.set('ui', ART_UI)
   }
 })
+
+// M14: the hotkeys o, c and g are on one opened item at a time, so none is ever given to two Buttons.
+test('hotkeys never collide: an opened artifact and a selected file never show their keys together', async ($, on) => {
+  seed(on, tl([art('document', 'a.md', { ref: 'a.md', stepId: 's1' })], { steps: [step('s1', 1, 'Write a.md')], changed: ['src/up.ts'] }), ART_UI)
+  const ui = await mount($, 'terminal', 62, true)
+  const hotkeys = async (): Promise<string[]> =>
+    (await ui.findAll({ type: 'Button' })).map(b => (b.props as { hotkey?: string }).hotkey).filter((k): k is string => k !== undefined)
+  const dupes = (keys: string[]): string[] => keys.filter((k, i) => keys.indexOf(k) !== i)
+  // The newest artifact opens by itself: its o, c and g are the only ones.
+  await ui.drawn()
+  expect(await hotkeys()).toEqual(expect.arrayContaining(['o', 'c', 'g']))
+  expect(dupes(await hotkeys())).toEqual([])
+  expect(await ui.find({ type: 'Button', key: 'act-o-file-0' })).toBe(undefined)
+  // Selecting a file closes the artifact: now the file's o and c are the only ones, and no g.
+  await ui.press({ key: 'file-0' })
+  await ui.redraw()
+  expect(await ui.find({ type: 'Button', key: 'act-o-document:a.md' })).toBe(undefined)
+  expect(await ui.find({ type: 'Button', key: 'act-o-file-0' })).toBeDefined()
+  expect(dupes(await hotkeys())).toEqual([])
+  expect(await hotkeys()).not.toContain('g')
+  // Opening the artifact again takes the keys back.
+  await ui.press({ key: 'art-document:a.md' })
+  await ui.unmount()
+})

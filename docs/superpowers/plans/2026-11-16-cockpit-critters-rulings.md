@@ -88,3 +88,6 @@ R7 quiet, R8 STOPPED header, R9 gauges bold or red instead of amber, R12 empty a
 - R43: only `main` is the lead (wears the crown). The text form drops the role word where the name stands beside it.
 - R37: lists grow with the pane height (`scroll.bodyRows`) on Tasks, Steps and Artifacts. This is the owner's earlier binding rule 2, and it overrides the mocks' `+ n more` at 46 rows. Now keeps its height rule.
 - R38: the Options page takes the cockpit look like the other pages.
+- R42 amended (re-check, 2026-11-16): five short words need 43 columns, so icons show under 43, not under 38. Mock deviation for the owner.
+- R37 clarified: growth fills every free row at every height, including the mocks' 46 rows; "+ n more" only when the list is longer than the rows left.
+- Pace estimate rounds to the nearest minute (nearest 5 min past 10 min), never down; where the mock's words differ, real data wins.

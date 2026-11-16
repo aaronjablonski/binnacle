@@ -4,6 +4,7 @@
 //   node docs/readme/tools/make.mjs            draw everything
 //   node docs/readme/tools/make.mjs --reuse    skip the capture, redraw from the last one
 //   node docs/readme/tools/make.mjs hero band  draw only the images whose name starts with these
+//   node docs/readme/tools/make.mjs --mod=DIR  draw another copy of the mod (a checkout of a commit, say)
 //
 // 1. Capture: copies mod/ to a scratch folder, adds shots.test.tsx and runs `claude plugin test` there.
 //    Each shot mounts a real view with the tests' fixtures and prints the drawn tree (mod/ is never touched).
@@ -27,6 +28,7 @@ const TMP = path.join(os.tmpdir(), 'mc-readme-shots')
 const args = process.argv.slice(2)
 const REUSE = args.includes('--reuse')
 const ONLY = args.filter(a => !a.startsWith('--'))
+const MOD = path.resolve(args.find(a => a.startsWith('--mod='))?.slice(6) ?? path.join(ROOT, 'mod'))
 
 // ---------- 1. capture ----------
 function capture() {
@@ -35,7 +37,7 @@ function capture() {
   fs.rmSync(TMP, { recursive: true, force: true })
   fs.mkdirSync(TMP, { recursive: true })
   const mod = path.join(TMP, 'mod')
-  fs.cpSync(path.join(ROOT, 'mod'), mod, { recursive: true, filter: src => !/\.test\.tsx?$/.test(src) })
+  fs.cpSync(MOD, mod, { recursive: true, filter: src => !/\.test\.tsx?$/.test(src) })
   fs.copyFileSync(path.join(HERE, 'shots.test.tsx'), path.join(mod, 'hooks', 'views', 'zz_shots.test.tsx'))
   const run = spawnSync('claude', ['plugin', 'test', mod], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, shell: process.platform === 'win32' })
   const text = (run.stdout ?? '') + (run.stderr ?? '')

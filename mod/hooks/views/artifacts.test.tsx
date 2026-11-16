@@ -483,12 +483,20 @@ test('the newest artifact is open by default: Link and Made by at 4 and 14, then
   }
 })
 
-// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned Files changed to 3 at any height; the mock's 3 and `+ n more` are the floor at 46 rows and under, and the list grows with the pane beyond them.
-test('Files changed shows the newest 3 and a more line up to 46 rows, and grows with the pane beyond (R37)', async ($, on) => {
+/** The blank rows between the last row of content and the footer row (the last non-blank row). */
+function slackAboveFooter(rows: string[]): number {
+  const foot = rows.reduce((last, r, i) => (r.trim() !== '' ? i : last), -1)
+  let c = foot - 1
+  while (c >= 0 && rows[c]!.trim() === '') c--
+  return foot - c - 1
+}
+
+// MEANING CHANGED (R37, FX3): Files changed keeps the newest 3 and `+ n more` only where the pane has no free rows (24); at 46 and beyond it grows into every free row (the more line never sits over blank rows).
+test('Files changed shows the newest 3 and a more line where the pane has no free rows, and fills every free row from 46 up (R37)', async ($, on) => {
   const changed = ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts', 'j.ts', 'k.ts', 'l.ts']
   seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed }), ART_UI)
   for (const surface of SURFACES) {
-    for (const bodyRows of [24, 46]) {
+    for (const bodyRows of [24]) {
       const ui = await mount($, surface, 62, false, bodyRows)
       const rows = await drawnRows(ui)
       await ui.unmount()
@@ -498,7 +506,14 @@ test('Files changed shows the newest 3 and a more line up to 46 rows, and grows 
       expect(list.filter(r => r.slice(2, 3) === '·').map(r => r.slice(4, 30).trimEnd())).toEqual(['l.ts', 'k.ts', 'j.ts'])
       expect(list.find(r => r.startsWith('    + '))).toBe('    + 9 more')
     }
-    // 60 rows is 14 beyond the mock's 46: all twelve files fit, and the more line goes.
+    // 46 rows: the free rows are dealt at once (the mock's 3 and `+ n more` over blank rows is gone); more rows than 3, and a more line only with nothing free under it.
+    const mock = await mount($, surface, 62, true, 46)
+    const mockRows = await drawnRows(mock)
+    await mock.unmount()
+    const fromMock = mockRows.findIndex(r => r.startsWith('  Files changed'))
+    expect(mockRows.slice(fromMock + 1).filter(r => r.slice(2, 3) === '·').length).toBeGreaterThan(3)
+    if (mockRows.some(r => r.startsWith('    + '))) expect(slackAboveFooter(mockRows)).toBe(1)
+    // 60 rows: all twelve files fit, and the more line goes.
     const tall = await mount($, surface, 62, false, 60)
     const tallRows = await drawnRows(tall)
     await tall.unmount()
@@ -591,7 +606,13 @@ test('Kept with no kept steps is absent, and so is the word kept in the digest l
 test('Kept with several kept steps counts them and shows the newest 3', async ($, on) => {
   const many = [1, 2, 3, 4, 5].map(n => ({ ...step(`s${n}`, n, `Write f${n}.md`), pin: n % 2 === 0 ? 'note ' + n : '', startedAt: NOW - n * 60_000 }))
   seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps: many }), ART_UI)
-  const ui = await mount($, 'terminal')
+  // MEANING CHANGED (R37, FX3): a roomy pane (this suite's default 40 rows) lists all five; only a pane with no free rows keeps the newest 3 and `+ 2 more`.
+  const roomy = await mount($, 'terminal')
+  const roomyRows = await drawnRows(roomy)
+  expect(roomyRows.filter(r => r.startsWith('  ★')).length).toBe(5)
+  expect(roomyRows.some(r => r.startsWith('    + '))).toBe(false)
+  await roomy.unmount()
+  const ui = await mount($, 'terminal', 62, false, 24)
   const rows = await drawnRows(ui)
   expect(rowWith(rows, 'Kept ─')).toContain('5  ·  from')
   expect(rows.filter(r => r.startsWith('  ★')).length).toBe(3)
@@ -633,25 +654,31 @@ test('a long path is cut from the left in the Link line and fits 32 columns', as
   }
 })
 
-// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned Artifacts to 6 at any height; 6 and `+ n more` are the floor at 46 rows and under, and the list grows with the pane beyond them.
-test('Artifacts shows 6 rows and a more line up to 46 rows, and grows with the pane beyond (R37)', async ($, on) => {
-  const many = Array.from({ length: 24 }, (_, i) => art('link', `L${i + 1}`, { ref: `r${i + 1}`, updatedAt: NOW - (i + 1) * 1000 }))
+// MEANING CHANGED (R37, FX3): Artifacts keeps 6 and `+ n more` only where the pane has no free rows (10); at 46 and beyond it grows into every free row, and the more line never sits over blank rows.
+test('Artifacts shows 6 rows and a more line where the pane has no free rows, and fills every free row from 46 up (R37)', async ($, on) => {
+  const many = Array.from({ length: 60 }, (_, i) => art('link', `L${i + 1}`, { ref: `r${i + 1}`, updatedAt: NOW - (i + 1) * 1000 }))
   seed(on, tl(many), { ...ART_UI, artifactOpen: '' })
-  for (const bodyRows of [10, 24, 46]) {
+  for (const bodyRows of [10]) {
     const ui = await mount($, 'terminal', 62, false, bodyRows)
     expect((await artButtons(ui)).length).toBe(6)
-    expect((await drawnRows(ui)).some(r => r === '    + 18 more')).toBe(true)
+    expect((await drawnRows(ui)).some(r => r === '    + 54 more')).toBe(true)
     await ui.unmount()
   }
-  // 60 rows: 14 rows beyond the mock's 46 go to the list (more rows than 6, a shorter more line); 80 rows show every artifact.
-  const mid = await mount($, 'terminal', 62, false, 60)
-  const shown = (await artButtons(mid)).length
-  expect(shown).toBeGreaterThan(6)
-  expect(shown).toBeLessThan(24)
-  expect((await drawnRows(mid)).some(r => r === `    + ${24 - shown} more`)).toBe(true)
-  await mid.unmount()
-  const tall = await mount($, 'terminal', 62, false, 80)
-  expect((await artButtons(tall)).length).toBe(24)
+  // 46 and 60 rows: every free row goes to the list (more rows than 6, a shorter more line); the more line only with nothing free under it; 120 rows show every artifact.
+  let last = 6
+  for (const h of [46, 60]) {
+    const mid = await mount($, 'terminal', 62, true, h)
+    const shown = (await artButtons(mid)).length
+    const midRows = await drawnRows(mid)
+    expect(shown).toBeGreaterThan(last)
+    expect(shown).toBeLessThan(60)
+    last = shown
+    expect(midRows.some(r => r === `    + ${60 - shown} more`)).toBe(true)
+    expect([h, slackAboveFooter(midRows)]).toEqual([h, 1])
+    await mid.unmount()
+  }
+  const tall = await mount($, 'terminal', 62, false, 120)
+  expect((await artButtons(tall)).length).toBe(60)
   expect((await drawnRows(tall)).some(r => r.startsWith('    + '))).toBe(false)
   await tall.unmount()
 })

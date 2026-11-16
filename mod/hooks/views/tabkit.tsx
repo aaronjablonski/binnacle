@@ -158,16 +158,18 @@ export function footerRow(ctx: ViewCtx, $: EngineInterface, hints: FootHint[]): 
   }
   const arms = hints.flatMap(x => ('hotkey' in x ? [{ id: x.id, hotkey: x.hotkey, onPress: x.onPress }] : []))
   return (
-    <Box key="footer" flexDirection="row" paddingLeft={left} columnGap={3}>
-      {kept.map(x => {
-        const k = 'hotkey' in x ? x.hotkey : x.key
-        return (
-          <Text key={`hint-${k}-${x.label}`}>
-            <Text color={CK.accent}>{k}</Text>
-            <Text dimColor>{` ${x.label}`}</Text>
-          </Text>
-        )
-      })}
+    <Box key="footer" flexDirection="column">
+      <Box key="footer-hints" flexDirection="row" paddingLeft={left} columnGap={3}>
+        {kept.map(x => {
+          const k = 'hotkey' in x ? x.hotkey : x.key
+          return (
+            <Text key={`hint-${k}-${x.label}`}>
+              <Text color={CK.accent}>{k}</Text>
+              <Text dimColor>{` ${x.label}`}</Text>
+            </Text>
+          )
+        })}
+      </Box>
       {armKeys($, ctx.e, arms)}
     </Box>
   )
@@ -204,14 +206,16 @@ export function withFooter(ctx: ViewCtx, $: EngineInterface, out: RenderElement[
   return filled
 }
 
-/** The pane height the mocks are drawn at: the rows a tab's lists keep their caps in (R37). */
+/** The pane height the mocks are drawn at: where a tab's lists first show their own `+ n more` (R37 grows them from there and below). */
 export const MOCK_ROWS = 46
 
 /**
- * R37, the owner's binding rule 2: a tab's lists grow with the pane's height. `build(caps)` draws the rows and
- * the footer's hints with each list showing `caps[i]` items; at the mocks' 46 rows the caps are the lists'
- * own (the mock's `+ n more`), and every row the pane has beyond 46 goes to the lists in order (`growCaps`),
- * as far as the rows the tab left free hold them. The blank row above the footer always stays.
+ * R37, the owner's binding rule 2: a tab's lists grow with the pane's height, at every height including the mocks'
+ * 46 rows. `build(caps)` draws the rows and the footer's hints with each list showing `caps[i]` items. The lists
+ * start at their own caps (the mock's `+ n more`) and every row the tab leaves free is dealt to them in order
+ * (`growCaps`), so `+ n more` shows only when a list is longer than the rows left. A grown draw that comes out
+ * taller than the body (a two-row item, such as a Steps kept note, counts as two) is trimmed one row at a time
+ * until it fits; it never falls back to the floor draw unless nothing fits. The blank row above the footer stays.
  */
 export function growBody(
   ctx: ViewCtx,
@@ -219,16 +223,15 @@ export function growBody(
   lists: readonly { count: number; cap: number }[],
   build: (caps: number[]) => { out: RenderElement[]; hints: FootHint[] },
 ): RenderElement[] {
-  const floor = lists.map(l => l.cap)
-  const first = build(floor)
-  const rows = (ctx.bodyRows ?? MOCK_ROWS) - TAB_ROWS
+  const first = build(lists.map(l => l.cap))
+  const room = (ctx.bodyRows ?? MOCK_ROWS) - TAB_ROWS - 2
   const used = (out: RenderElement[]): number => out.reduce((n, el) => n + heightOf(el), 0)
-  const beyond = (ctx.bodyRows ?? MOCK_ROWS) - MOCK_ROWS
-  const spare = Math.min(beyond, rows - 2 - used(first.out))
-  if (spare > 0 && lists.some(l => l.count > l.cap)) {
-    const caps = growCaps(spare, lists)
-    const second = build(caps)
-    if (used(second.out) <= rows - 2) return withFooter(ctx, $, second.out, second.hints)
+  let spare = room - used(first.out)
+  while (spare > 0 && lists.some(l => l.count > l.cap)) {
+    const grown = build(growCaps(spare, lists))
+    const over = used(grown.out) - room
+    if (over <= 0) return withFooter(ctx, $, grown.out, grown.hints)
+    spare -= over
   }
   return withFooter(ctx, $, first.out, first.hints)
 }

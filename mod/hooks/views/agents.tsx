@@ -340,13 +340,11 @@ export function agentsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       hints = [{ key: '↵', label: 'open agent' }, ...(list.failed > 0 ? [{ key: 'v', label: 'transcript' }] : []), ...nextPrev(false), { key: 'esc', label: 'prompt' }]
     }
     const foot = footerSlot(ctx, $, hints)
-    if (foot !== null) {
-      const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
-      const used = out.reduce((n, el) => n + heightOf(el), 0)
-      const pad = Math.max(1, rows - 1 - used)
-      for (let i = 0; i < pad; i++) out.push(blank(ctx, $, `pad-${i}`))
-      out.push(foot)
-    }
+    const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
+    const used = out.reduce((n, el) => n + heightOf(el), 0)
+    const pad = Math.max(1, rows - 1 - used)
+    for (let i = 0; i < pad; i++) out.push(blank(ctx, $, `pad-${i}`))
+    out.push(foot)
     return <Box flexDirection="column">{out}</Box>
   } catch (err) {
     debug($, `agents view failed: ${errText(err)}`)

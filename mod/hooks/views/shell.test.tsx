@@ -269,7 +269,9 @@ const TAB_TIERS: [number, number, string[]][] = [
 ]
 
 for (const [cols, cell, labels] of TAB_TIERS) {
-  test(`at ${cols} columns the tabs are one line of ${cell}-column cells from column 2, then the track and a blank row (or 0: options)`, async ($, on) => {
+  // BEHAVIOUR CHANGE (task C3b): the track runs under each tab only, as the mocks draw it (it ran on under the closed tabs), and
+  // `0: options` is armed but never drawn: it sat on the blank row under the tabs.
+  test(`at ${cols} columns the tabs are one line of ${cell}-column cells from column 2, a track under each tab only, and a blank row; 0 is armed, not drawn`, async ($, on) => {
     world(on, empty, { ...initialUi, tab: 'agents' })
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...PANE(cols), surface })
@@ -279,21 +281,15 @@ for (const [cols, cell, labels] of TAB_TIERS) {
         expect(colOf(tabs, `${i + 1}: ${label}`)).toBe(2 + i * cell)
       })
       expect((tabs ?? '').length <= cols).toBe(true)
-      // The track: subtle rest, the open tab (3: Agents) underlined in the accent.
-      const open = `3: ${labels[2]}`
-      const from = 2 + 2 * cell
-      expect(colOf(track, '─')).toBe(2)
-      expect((track ?? '').slice(from, from + open.length)).toBe('━'.repeat(open.length))
-      expect((track ?? '').length).toBe(Math.min(cols, 2 + 5 * cell))
-      // 0: options follows the tabs where the row has room, else ends the blank row under the track.
-      const onTabs = 2 + 5 * cell + 2 + '0: options'.length <= cols
-      if (onTabs) {
-        expect(colOf(tabs, '0: options')).toBe(2 + 5 * cell + 2)
-        expect(gap).toBe('')
-      } else {
-        expect((gap ?? '').trimStart()).toBe('0: options')
-        expect((gap ?? '').length).toBe(cols)
-      }
+      // The track: each tab's own underline as long as its `n: Label`, `━` under the open tab (3: Agents), `─` under the others, spaces between.
+      const want = labels.map((label, i) => (i === 2 ? '━' : '─').repeat(`${i + 1}: ${label}`.length))
+      const expected = '  ' + want.map((w, i) => (i === want.length - 1 ? w : w.padEnd(cell))).join('')
+      expect(track).toBe(expected)
+      expect(track).toContain(' ')
+      // Nothing is drawn for 0: it is neither on the tab row nor on the row under the track.
+      expect(gap).toBe('')
+      expect(rows.some(r => r.includes('0: options'))).toBe(false)
+      expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0', plain: true })
       const row = await ui.find({ type: 'Box', key: 'tabs' })
       expect(row?.props.flexWrap).toBe(undefined)
       expect((await ui.findAll({ type: 'Text', text: '│' })).length).toBe(0)

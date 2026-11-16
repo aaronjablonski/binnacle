@@ -584,6 +584,20 @@ export function isTextTheme(theme: string | undefined): boolean {
 }
 
 /**
+ * The `look` option as `lookOf` should read it (R21). `rich` and `text` are
+ * explicit and win. `auto` (the default, and an unset option) means rich,
+ * except text on an ANSI or daltonized theme; where the surface cannot draw a
+ * Raster, `lookOf` gives the text (or desktop Svg) form whatever this says.
+ * Returns the value to hand `lookOf`, or undefined to follow the surface.
+ *
+ * @example lookFor(table, surface, { look: lookAsked(options.look, theme) })
+ */
+export function lookAsked(option: string | undefined, theme: string | undefined): string | undefined {
+  if (option === 'rich' || option === 'text') return option
+  return isTextTheme(theme) ? 'text' : undefined
+}
+
+/**
  * The theme's name from `/config` (the `theme` row of `$.config.list()`), or
  * undefined when it cannot be read. Async: call it outside a draw (the shell
  * reads it once per open and on `config.set`) and hand the result to

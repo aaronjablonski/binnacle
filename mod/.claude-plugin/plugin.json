@@ -19,9 +19,9 @@
     "look": {
       "type": "string",
       "title": "Look",
-      "description": "How the pane and band are drawn: rich (pictures where the terminal can draw them) or text (letters and box lines only, for a terminal whose glyphs render badly, or a screen reader). Applies at once.",
-      "options": ["rich", "text"],
-      "default": "rich"
+      "description": "How the pane and band are drawn: auto (rich, except text on an ANSI or daltonized theme or where the terminal cannot draw pictures), rich (pictures where the terminal can draw them) or text (letters and box lines only, for a terminal whose glyphs render badly, or a screen reader). Applies at once.",
+      "options": ["auto", "rich", "text"],
+      "default": "auto"
     },
     "notify": {
       "type": "string",

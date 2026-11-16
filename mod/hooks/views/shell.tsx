@@ -15,7 +15,7 @@ import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, GRID, groundOf, isTextTheme, motionOn, TAB_CELL, themeOf, tier } from './style'
+import { C, GRID, groundOf, lookAsked, motionOn, TAB_CELL, themeOf, tier } from './style'
 import type { Ground, Look, Tier } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
@@ -179,7 +179,7 @@ export function registerShell(on: On, options: PluginOptions): void {
         ) : (
           <Box flexDirection="column">
             {tabBar($, e, rest, width)}
-            {tabsGap($, e, rest, width)}
+            {tabsGap($, e)}
             {body($, e, rest)}
           </Box>
         )
@@ -198,21 +198,18 @@ export function registerShell(on: On, options: PluginOptions): void {
 }
 
 /**
- * The tab bar and its track (spec "Grid"): five plain hotkeyed Buttons, each
- * in a Box of the tier's cell width (12, 7 or 5) from column 2, on one line
- * with no wrap and no separators; the open tab bold in the accent, the others
- * dim. Under them the track: `─` in `subtle` with `━` in the accent under the
- * open tab's `n: Label`, to the end of the last cell.
+ * The tab bar and its track (the cockpit mocks): five plain hotkeyed Buttons,
+ * each in a Box of the tier's cell width (12, 7 or 5) from column 2, on one
+ * line with no wrap and no separators; the open tab bold in the accent, the
+ * others dim. Under each tab its own underline, as long as its `n: Label`:
+ * `━` in the accent under the open one, `─` in `subtle` under the others,
+ * and nothing between them, so the track never runs on under the closed tabs.
+ * `0: options` is armed, never drawn (see `optionsArm`).
  */
 function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<Tier, 'slim'>): RenderElement {
   const { u, cols, showCost } = rest
   const { Box, Text, Button } = $.ui.resolve(e)
   const cell = TAB_CELL[width]
-  const openAt = Math.max(0, TABS.findIndex(x => x.tab === u.tab))
-  const openTab = TABS[openAt] ?? TABS[0]!
-  const from = GRID.margin + openAt * cell
-  const span = openTab.hotkey.length + 2 + tabLabel(openTab, width).length
-  const end = Math.min(cols, GRID.margin + TABS.length * cell)
   return (
     <Box key="tab-bar" flexDirection="column">
       <Box key="tabs" flexDirection="row">
@@ -240,14 +237,21 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<
             </Box>
           )
         })}
-        {optionsOnTabs(cols, width) ? <Text key="tabs-options-gap">{'  '}</Text> : null}
-        {optionsOnTabs(cols, width) ? optionsButton($, e, u) : null}
+        {optionsArm($, e, u, cols)}
       </Box>
-      <Text key="track">
+      <Text key="track" wrap="truncate-end">
         {' '.repeat(GRID.margin)}
-        <Text color={C.subtle}>{'─'.repeat(Math.max(0, from - GRID.margin))}</Text>
-        <Text color={C.accent}>{'━'.repeat(Math.max(0, Math.min(span, end - from)))}</Text>
-        <Text color={C.subtle}>{'─'.repeat(Math.max(0, end - from - span))}</Text>
+        {TABS.map((x, i) => {
+          const span = x.hotkey.length + 2 + tabLabel(x, width).length
+          const isOpen = x.tab === u.tab
+          const last = i === TABS.length - 1
+          return (
+            <Text key={`track-${x.tab}`} color={isOpen ? C.accent : C.subtle}>
+              {(isOpen ? '━' : '─').repeat(span)}
+              {last ? '' : ' '.repeat(Math.max(0, cell - span))}
+            </Text>
+          )
+        })}
       </Text>
     </Box>
   )
@@ -255,55 +259,32 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<
 
 /** The Options Button's label: `0: options`. */
 const OPTIONS_LABEL = 'options'
-const OPTIONS_WIDTH = OPTIONS_HOTKEY.length + 2 + OPTIONS_LABEL.length
-
-/** Whether the Options Button fits on the tab row, two columns after the last tab cell. */
-function optionsOnTabs(cols: number, width: Exclude<Tier, 'slim'>): boolean {
-  return GRID.margin + TABS.length * TAB_CELL[width] + 2 + OPTIONS_WIDTH <= cols
-}
 
 /**
- * The Options Button (`0: options`): opens the Options page, or closes it
- * when it is open; bold in the accent while it is. The hotkey is `0`, as a
- * Button takes only a digit or a lowercase letter (the mocks' `,` is not one).
+ * The Options Button (`0`): opens the Options page, or closes it when it is
+ * open. The mocks' footer says `0 options` as text and draw no button for
+ * it, so this one is armed and not seen: a Box of no size that clips it. It
+ * stays a real Button (key `tab-options`) so the hotkey, a press and the focus
+ * ring reach it at every width. The hotkey is `0`, as a Button takes only a
+ * digit or a lowercase letter (the mocks' `,` is not one).
  */
-function optionsButton($: EngineInterface, e: RenderInput, u: UiState): RenderElement {
-  const { Text, Button } = $.ui.resolve(e)
+function optionsArm($: EngineInterface, e: RenderInput, u: UiState, cols: number): RenderElement | null {
+  if (cols < 1) return null
+  const { Box, Text, Button } = $.ui.resolve(e)
   const isOpen = pageOf(u)?.kind === 'options'
   return (
-    <Button
-      key={OPTIONS_KEY}
-      hotkey={OPTIONS_HOTKEY}
-      plain
-      dimColor={isOpen ? undefined : true}
-      onPress={() => toggleOptions($, isOpen)}
-    >
-      {isOpen ? (
-        <Text color={C.accent} bold>
-          {OPTIONS_LABEL}
-        </Text>
-      ) : (
-        OPTIONS_LABEL
-      )}
-    </Button>
+    <Box key="tabs-options-arm" width={0} height={0} overflow="hidden">
+      <Button key={OPTIONS_KEY} hotkey={OPTIONS_HOTKEY} plain dimColor={isOpen ? undefined : true} onPress={() => toggleOptions($, isOpen)}>
+        <Text>{OPTIONS_LABEL}</Text>
+      </Button>
+    </Box>
   )
 }
 
-/**
- * The blank row under the tab bar. Where the tab row has no room for the
- * Options Button (the full labels at 62 to 72 columns, the shorter ones
- * under 49), it sits at this row's right end instead, so `0` is armed at
- * every width the tabs are drawn at.
- */
-function tabsGap($: EngineInterface, e: RenderInput, rest: Drawn, width: Exclude<Tier, 'slim'>): RenderElement {
-  const { Box, Text } = $.ui.resolve(e)
-  if (optionsOnTabs(rest.cols, width)) return <Text key="tabs-gap">{' '}</Text>
-  return (
-    <Box key="tabs-gap" flexDirection="row">
-      <Text>{' '.repeat(Math.max(GRID.margin, rest.cols - OPTIONS_WIDTH))}</Text>
-      {optionsButton($, e, rest.u)}
-    </Box>
-  )
+/** The blank row under the tab bar. */
+function tabsGap($: EngineInterface, e: RenderInput): RenderElement {
+  const { Text } = $.ui.resolve(e)
+  return <Text key="tabs-gap">{' '}</Text>
 }
 
 type Drawn = {
@@ -321,7 +302,7 @@ type Drawn = {
  */
 async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: PluginOptions, look?: string): Promise<Drawn> {
   const theme = await themeOf($)
-  const asked = look === undefined || look === 'auto' ? (isTextTheme(theme) ? 'text' : look) : look
+  const asked = lookAsked(look, theme)
   return {
     look: lookFor($.ui.resolve(e), e.surface, asked !== undefined ? { look: asked } : {}),
     site: PANE,

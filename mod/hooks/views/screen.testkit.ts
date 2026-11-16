@@ -10,7 +10,8 @@
 //   Ink) puts its children side by side, each as wide as its own `width` or its widest row, with
 //   `columnGap` between them;
 // - `paddingLeft` (or `paddingX`) indents, `width` pads a Box's rows, and
-//   `display: 'none'` draws nothing.
+//   `display: 'none'` draws nothing, and `overflow: 'hidden'` cuts a Box to its
+//   own `width` and `height`.
 // Rows are not cut: a row longer than the body is what a test should catch.
 
 type El = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
@@ -68,6 +69,11 @@ function rowsOf(node: Node): string[] {
     }
   } else {
     rows = kidsOf(node).flatMap(rowsOf)
+  }
+  // `overflow: 'hidden'` clips to the Box's own `height` and `width` (a Box of no size draws nothing).
+  if (props.overflow === 'hidden') {
+    if (typeof props.height === 'number') rows = rows.slice(0, props.height)
+    if (width !== undefined) rows = rows.map(r => r.slice(0, width))
   }
   rows = rows.map(r => pad + r)
   if (width !== undefined) rows = rows.map(r => r.padEnd(width))

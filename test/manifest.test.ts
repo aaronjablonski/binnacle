@@ -7,10 +7,11 @@ const manifest = JSON.parse(readFileSync(new URL('../mod/.claude-plugin/plugin.j
   userConfig: Record<string, { type: string; options?: string[]; default?: unknown; description?: string }>
 }
 
-test('look is declared: rich or text, rich by default, so the text form can be chosen', () => {
+// BEHAVIOUR CHANGE (task C3b, R21): was rich or text, rich by default; auto joins them and is the default (rich, except text on ANSI or daltonized themes).
+test('look is declared: auto, rich or text, auto by default, so the text form can be chosen', () => {
   const look = manifest.userConfig.look
   expect(look).toBeDefined()
   expect(look?.type).toBe('string')
-  expect(look?.options).toEqual(['rich', 'text'])
-  expect(look?.default).toBe('rich')
+  expect(look?.options).toEqual(['auto', 'rich', 'text'])
+  expect(look?.default).toBe('auto')
 })

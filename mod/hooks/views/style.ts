@@ -699,6 +699,10 @@ export type CritterOpts = {
   since?: number
   /** One frame of a move drawn in place of the still critter (10: the lead on the finish sweep's frames). */
   pose?: PoseFrame
+  /** The critter is on a card that folds into "finished" when its agent ends: the settle then asks one pane redraw (Now's cards, the Agents list), not elsewhere. */
+  fold?: boolean
+  /** Skip the `ask` move (the tag is still noted): the header's lead while the Needs block, with its own asker, is drawn (B-M7). */
+  noAsk?: boolean
 }
 
 /** A critter met for the first time this soon after its state began plays its arrival (motion sketches 2 and 4). */
@@ -737,14 +741,14 @@ export function critterMove(role: CritterRole, prev: string | undefined, state: 
 }
 
 /** A critter's burst picker for `inst` (paint.ts `trackBurst`). */
-function critterBurst(role: CritterRole, state: PodState, size: CritterSize, ground: Ground, since: number | undefined): BurstOf {
+function critterBurst(role: CritterRole, state: PodState, size: CritterSize, ground: Ground, since: number | undefined, fold: boolean, noAsk: boolean): BurstOf {
   return (prev, now) => {
     const m = critterMove(role, prev, state, since, now)
-    if (m === undefined) return undefined
+    if (m === undefined || (noAsk && m.move === 'ask')) return undefined
     return {
       frames: () => moveFrames(m.move).map(f => critterPoseBox(role, size, f, ground)),
       ms: MOVE_MS[m.move],
-      ...(m.move === 'settle' ? { end: 'redraw' as const } : {}),
+      ...(m.move === 'settle' && fold ? { end: 'redraw' as const } : {}),
       ...(m.once !== undefined ? { once: m.once } : {}),
     }
   }
@@ -809,7 +813,7 @@ export function critterArgs(role: CritterRole, state: PodState, o: Omit<CritterO
     sig: `critter:${role}:${state}:${size}:${ground}:${motion && pose === undefined ? `blink${phase % BLINK_BEATS}` : 'still'}${poseSig}`,
     frames: () => (pose !== undefined ? [critterPoseBox(role, size, pose, ground)] : critterFrames(role, state, size, { ground, motion, phase })),
     fallback,
-    ...(moves ? { tag: o.since !== undefined ? `${state}@${o.since}` : state, burst: critterBurst(role, state, size, ground, o.since) } : {}),
+    ...(moves ? { tag: o.since !== undefined ? `${state}@${o.since}` : state, burst: critterBurst(role, state, size, ground, o.since, o.fold === true, o.noAsk === true) } : {}),
   }
 }
 

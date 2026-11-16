@@ -155,7 +155,7 @@ export function liveCard(
   const time: string | Run[] = o.state === 'waiting' && o.since !== undefined ? [{ text: cellTime(ctx.now - o.since), color: CK.ask }] : timeCell(ctx, a)
   return agentCard(ctx, $, {
     key: o.key,
-    critter: critterOf(a, { state: o.state, ground: ctx.ground ?? 'night', motion: ctx.motion === true }),
+    critter: critterOf(a, { state: o.state, ground: ctx.ground ?? 'night', motion: ctx.motion === true, fold: true }),
     name: typeName(a.type),
     job: a.description.replace(/\s+/g, ' ').trim(),
     time,

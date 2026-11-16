@@ -4,8 +4,9 @@ import { debug, errText } from '../state'
 import { sweepCells, sweepFrame, sweepShows } from './delights'
 import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapWords } from './fit'
 import { closePage } from './pagenav'
-import { track } from './paint'
-import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, getCellAspect } from './raster'
+import { siteDraws, track, trackBurst } from './paint'
+import type { BurstOf } from './paint'
+import { frameFoot, frameTop, GAUGE_FILL_MS, GAUGE_JUMP, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugeFill, gaugePair, getCellAspect } from './raster'
 import type { Grid, Ground, Hue } from './raster'
 import type { ViewCtx } from './shell'
 import { accentName, C, cellsFor, CK, COCKPIT, COL, DECK, edges, gaugeStyle, GRID, palette, RAIL, tableCols, toneKey } from './style'
@@ -633,6 +634,10 @@ export type InstSpec = {
   sig: string
   frames: () => Grid[]
   fallback: Run[][]
+  /** What it shows in the view's words (a critter's state, a count): a change may play `burst` (rich look, motion on). */
+  tag?: string
+  /** The one-shot burst for a change of `tag` (paint.ts `trackBurst`). */
+  burst?: BurstOf
 }
 
 /** The text form of an instrument: `rows` rows, each exactly `columns` wide; a row too long is cut on a word (`fitRuns`). */
@@ -666,7 +671,9 @@ export function inst(ctx: ViewCtx, $: EngineInterface, s: InstSpec): RenderEleme
   const table = $.ui.resolve(ctx.e)
   if (ctx.look === 'rich' && 'Raster' in table) {
     const { Box, Raster } = table
-    const p = track(ctx.site ?? 'binnacle', s.key, s.sig, s.frames)
+    const site = ctx.site ?? 'binnacle'
+    // A tagged instrument may play a one-shot burst when its tag changes; with motion off it only notes the tag (the end state at once).
+    const p = s.tag !== undefined ? trackBurst($, site, s.key, s.sig, s.frames, s.tag, ctx.motion === true ? s.burst : undefined, ctx.now) : track(site, s.key, s.sig, s.frames)
     if (p.columns !== s.columns || p.rows !== s.rows) {
       throw new Error(`instrument ${s.key} draws ${p.columns}x${p.rows}, not ${s.columns}x${s.rows}`)
     }
@@ -1070,7 +1077,7 @@ const runsOf = (v: string | Run[] | Run | undefined, style: Omit<Run, 'text'> = 
 const width = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
 
 /** A section's title tone: `ask` amber (Needs you), `dim` (Watch), `fail` red (Failed); plain bold ink when absent. */
-export type SectionTone = 'ask' | 'dim' | 'fail'
+export type SectionTone = 'ask' | 'askSoft' | 'dim' | 'fail'
 
 /** Options of `section`. */
 export type CockpitSectionOpts = {
@@ -1112,7 +1119,7 @@ export function section(ctx: ViewCtx, $: EngineInterface, title: string, sum?: s
   const sumRuns = forms.find(f => titleFit.length + 3 + width(f) <= w) ?? forms.find(f => titleFit.length + 1 + width(f) <= w) ?? []
   const sw = width(sumRuns)
   const titleStyle: Omit<Run, 'text'> =
-    opts.tone === 'ask' ? { bold: true, color: CK.ask } : opts.tone === 'fail' ? { bold: true, color: CK.fail } : opts.tone === 'dim' ? { bold: true, dim: true } : { bold: true }
+    opts.tone === 'ask' ? { bold: true, color: CK.ask } : opts.tone === 'askSoft' ? { bold: true, color: CK.ask, dim: true } : opts.tone === 'fail' ? { bold: true, color: CK.fail } : opts.tone === 'dim' ? { bold: true, dim: true } : { bold: true }
   const t = titleFit
   const hair = w - t.length - (sw > 0 ? sw + 2 : 1)
   const runs: Run[] = [{ text: t, ...titleStyle }]
@@ -1186,7 +1193,7 @@ const figureStyle = (pct: number): Omit<Run, 'text'> => (pct >= 90 ? { color: CK
  * 11). As text (R22): each figure centred in the middle row; the words go
  * under it as Text either way.
  */
-export function gaugesInst(key: string, gauges: readonly Gauge[], ground: Ground = 'night'): InstSpec {
+export function gaugesInst(key: string, gauges: readonly Gauge[], ground: Ground = 'night', opening = false): InstSpec {
   const shown = gauges.slice(0, 2)
   const mid: Run[] = []
   shown.forEach((g, i) => {
@@ -1204,6 +1211,19 @@ export function gaugesInst(key: string, gauges: readonly Gauge[], ground: Ground
     sig: `gauges:${ground}:${accentName()}:${getCellAspect()}:${shown.map(g => Math.round(g.pct)).join(',')}`,
     frames: () => [gaugePair(shown.map(g => g.pct), palette(ground))],
     fallback: [blank, blank, mid, blank, blank],
+    // Motion sketch 6: the arcs travel to their values when the pane opens on Now (from empty), or when a
+    // gauge jumps GAUGE_JUMP points or more (from where it was). The figures are true from the first frame.
+    tag: shown.map(g => String(Math.round(g.pct))).join(','),
+    burst: prev => {
+      const pcts = shown.map(g => g.pct)
+      const was = prev?.split(',').map(Number)
+      let from: number[] | undefined
+      if (was === undefined) from = opening ? pcts.map(() => 0) : undefined
+      else if (was.length === pcts.length && pcts.some((p, i) => Math.abs(p - was[i]!) >= GAUGE_JUMP)) from = pcts.map((p, i) => (Math.abs(p - was[i]!) >= GAUGE_JUMP ? was[i]! : p))
+      if (from === undefined) return undefined
+      const start = from
+      return { frames: () => gaugeFill(pcts, start, palette(ground)), ms: Array.from({ length: 5 }, () => GAUGE_FILL_MS) }
+    },
   }
 }
 
@@ -1349,7 +1369,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
         </Box>
         <Text key={`${spec.key}-below`}> </Text>
       </Box>
-      {withGauges ? inst(ctx, $, gaugesInst(`${spec.key}-gauges`, gauges, ground)) : null}
+      {withGauges ? inst(ctx, $, gaugesInst(`${spec.key}-gauges`, gauges, ground, siteDraws(ctx.site ?? 'binnacle') <= 1)) : null}
     </Box>
   )
   // The budget line, and under each gauge its word (centred under its 9 cells).

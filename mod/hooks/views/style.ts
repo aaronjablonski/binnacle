@@ -1,6 +1,7 @@
 import type { AgentRow, StepStatus, TaskItem } from '../../types'
-import { accentPalette, BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
-import type { CritterRole, CritterSize, Grid, Ground, Palette, Size, State } from './raster'
+import { accentPalette, BLINK_BEATS, CRITTER, critterFrames, critterPoseBox, MOVE_MS, moveFrames, SPRITE, sprite } from './raster'
+import type { CritterRole, CritterSize, Grid, Ground, Move, Palette, PoseFrame, Size, State } from './raster'
+import type { BurstOf } from './paint'
 
 /**
  * The accent (R35): the theme key the structural colour draws in. `iris`
@@ -301,7 +302,7 @@ export function roleOf(agentType: string): Role {
  * caller has it, wins over `type` for the role; `state` (from the model's
  * problems: `waiting`, `stalled`; or `queued`) wins over `status`.
  */
-export type PodAgent = Pick<AgentRow, 'id' | 'type' | 'status'> & { subagentType?: string; state?: PodState }
+export type PodAgent = Pick<AgentRow, 'id' | 'type' | 'status'> & { subagentType?: string; state?: PodState; startedAt?: number }
 
 /** The state of a pod: `agent.state` when given, else running works, error fails, done is done. */
 export function podStateOf(agent: PodAgent): PodState {
@@ -689,6 +690,64 @@ export type CritterOpts = {
   phase?: number
   /** Whether the text form writes the role word under the glyph: `critterArgs` does (the header's lead), `critterOf` does not, since a name stands beside it (R43). */
   roleWord?: boolean
+  /**
+   * When the state began (an agent's start, an ask's time): a critter drawn
+   * for the first time within `APPEAR_FRESH_MS` of it plays its arrival once
+   * (working: the wake hop; waiting: the glance and hop). `critterOf` gives
+   * the agent's start.
+   */
+  since?: number
+  /** One frame of a move drawn in place of the still critter (10: the lead on the finish sweep's frames). */
+  pose?: PoseFrame
+}
+
+/** A critter met for the first time this soon after its state began plays its arrival (motion sketches 2 and 4). */
+export const APPEAR_FRESH_MS = 2000
+
+/** The state part of a critter's tag (`working@1700000`). */
+const tagState = (tag: string | undefined): string | undefined => tag?.split('@')[0]
+
+/**
+ * The one-shot move a critter plays when its state changes (motion sketches
+ * 2, 3, 4, 8, 9), from the state it showed before:
+ *   - working after done or queued (the lead woken by a prompt, a queued agent starting), or a new card just started: the wake
+ *   - done after working, waiting or stalled (not the lead: the finish sweep moves it): the nod and fade, then the card folds
+ *   - waiting after anything else, or a new asker just asked: the glance toward the badge and one hop
+ *   - stalled after working: eyes shut, a slow sink
+ *   - failed after working, waiting or stalled: the flinch
+ */
+export function critterMove(role: CritterRole, prev: string | undefined, state: PodState, since: number | undefined, now: number): { move: Move; once?: string } | undefined {
+  const was = tagState(prev)
+  const fresh = since !== undefined && now - since >= 0 && now - since < APPEAR_FRESH_MS
+  if (was === undefined || (was === state && prev !== undefined)) {
+    // New to the registry (or a new ask under the same key): only an arrival this fresh moves, once.
+    if (!fresh) return undefined
+    if (state === 'working') return { move: 'wake', once: `wake@${since}` }
+    if (state === 'waiting') return { move: 'ask', once: `ask@${since}` }
+    return undefined
+  }
+  if (was === state) return undefined
+  const live = was === 'working' || was === 'waiting' || was === 'stalled'
+  if (state === 'working' && (was === 'done' || was === 'queued')) return { move: 'wake' }
+  if (state === 'done' && live && role !== 'lead') return { move: 'settle' }
+  if (state === 'waiting') return { move: 'ask' }
+  if (state === 'stalled' && was === 'working') return { move: 'stall' }
+  if (state === 'failed' && live) return { move: 'fail' }
+  return undefined
+}
+
+/** A critter's burst picker for `inst` (paint.ts `trackBurst`). */
+function critterBurst(role: CritterRole, state: PodState, size: CritterSize, ground: Ground, since: number | undefined): BurstOf {
+  return (prev, now) => {
+    const m = critterMove(role, prev, state, since, now)
+    if (m === undefined) return undefined
+    return {
+      frames: () => moveFrames(m.move).map(f => critterPoseBox(role, size, f, ground)),
+      ms: MOVE_MS[m.move],
+      ...(m.move === 'settle' ? { end: 'redraw' as const } : {}),
+      ...(m.once !== undefined ? { once: m.once } : {}),
+    }
+  }
 }
 
 /**
@@ -707,6 +766,9 @@ export type CritterArgs = {
   sig: string
   frames: () => Grid[]
   fallback: Run[][]
+  /** The state it shows, with `@since` when known: a change plays a move (`critterMove`). */
+  tag?: string
+  burst?: BurstOf
 }
 
 /** A stable small number from an id: the blink's phase. */
@@ -734,15 +796,20 @@ export function critterArgs(role: CritterRole, state: PodState, o: Omit<CritterO
     : [glyph, { text: ' '.repeat(columns - 1 - (badge !== undefined ? 1 : 0)) }, ...(badge !== undefined ? [badge] : [])]
   const fallback: Run[][] = [first, [{ text: (beside ? '' : word).padEnd(columns), dim: true }]]
   for (let i = 2; i < box.rows; i++) fallback.push([{ text: ' '.repeat(columns) }])
+  // The moves are for the places that pass `motion` (R24: never the band); `inst` plays them only with the option on, in the rich look.
+  const moves = o.motion === true
+  const pose = moves ? o.pose : undefined
+  const poseSig = pose !== undefined ? `:pose-${pose.pose}-${pose.face}-${pose.state}-${pose.toward ?? ''}${pose.t ?? ''}` : ''
   return {
     role,
     state,
     size,
     columns,
     rows: box.rows,
-    sig: `critter:${role}:${state}:${size}:${ground}:${motion ? `blink${phase % BLINK_BEATS}` : 'still'}`,
-    frames: () => critterFrames(role, state, size, { ground, motion, phase }),
+    sig: `critter:${role}:${state}:${size}:${ground}:${motion && pose === undefined ? `blink${phase % BLINK_BEATS}` : 'still'}${poseSig}`,
+    frames: () => (pose !== undefined ? [critterPoseBox(role, size, pose, ground)] : critterFrames(role, state, size, { ground, motion, phase })),
     fallback,
+    ...(moves ? { tag: o.since !== undefined ? `${state}@${o.since}` : state, burst: critterBurst(role, state, size, ground, o.since) } : {}),
   }
 }
 
@@ -755,5 +822,6 @@ export function critterArgs(role: CritterRole, state: PodState, o: Omit<CritterO
  */
 export function critterOf(agent: PodAgent, o: CritterOpts = {}): CritterArgs {
   const state = o.state ?? podStateOf(agent)
-  return critterArgs(crewRole(agent.id, agent.subagentType ?? agent.type), state, { ...o, roleWord: o.roleWord ?? false, phase: o.phase ?? phaseOf(agent.id) })
+  const since = o.since ?? agent.startedAt
+  return critterArgs(crewRole(agent.id, agent.subagentType ?? agent.type), state, { ...o, roleWord: o.roleWord ?? false, phase: o.phase ?? phaseOf(agent.id), ...(since !== undefined ? { since } : {}) })
 }

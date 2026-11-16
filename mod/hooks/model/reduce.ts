@@ -1,0 +1,794 @@
+import type { AgentKey, AgentRow, ArtifactRow, Budget, Ev, InputAsk, Run, Sample, Samples, Step, TaskItem, Timeline, TurnRow } from '../../types'
+import { basename, cut, isDoc, labelOf, oneLine, pathsOf, sigOf, tail2 } from './label'
+import {
+  CACHE_TTL_MS, MAX_AGENTS, MAX_ARTIFACTS, MAX_ASK_TEXT, MAX_ASKS, MAX_CHANGED, MAX_LINE, MAX_LIST_ITEMS, MAX_LIST_TITLE, MAX_MODEL, MAX_NOTES, MAX_PENDING,
+  MAX_PENDING_STEPS, MAX_REASON, MAX_REF, MAX_RESULT, MAX_RUNS, MAX_SAMPLES, MAX_STEP_ID, MAX_STEPS, MAX_TASKS, MAX_TURNS, MAX_WINDOWS, SAMPLE_GAP_MS,
+} from './limits'
+import { inConversation, inLeadList, usesTaskTools } from './todo'
+import { windowsOf } from './usage'
+
+const DOING_MAX = 80
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+/** The input keys step.end reads, per tool; a step of any other tool keeps no `pending`. */
+const PENDING_KEYS: Record<string, readonly string[]> = {
+  TaskCreate: ['subject', 'activeForm'],
+  TaskUpdate: ['taskId', 'status', 'subject', 'activeForm'],
+  Write: ['file_path', 'notebook_path'],
+  Edit: ['file_path', 'notebook_path'],
+  MultiEdit: ['file_path', 'notebook_path'],
+  NotebookEdit: ['file_path', 'notebook_path'],
+  Artifact: ['file_path', 'title'],
+}
+const TASK_STATUS = new Set<TaskItem['status']>(['pending', 'in_progress', 'completed'])
+
+const mainRow: AgentRow = {
+  id: 'main', parent: 'main', type: 'main', description: '',
+  status: 'running', startedAt: 0, doing: '', stepCount: 0,
+}
+
+export const empty: Timeline = {
+  seq: 0, turns: [], steps: [],
+  agents: { main: mainRow }, runs: {},
+  tasks: [], notes: [], artifacts: [], changed: [],
+}
+
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+const idOf = (v: unknown): string | undefined =>
+  typeof v === 'string' && v !== '' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : undefined
+/** One line, trimmed, cut to MAX_LINE; undefined for a non-string or an empty string. */
+const line = (v: unknown): string | undefined => {
+  if (typeof v !== 'string') return undefined
+  const s = cut(oneLine(v), MAX_LINE)
+  return s === '' ? undefined : s
+}
+/** A finite, non-negative number, or undefined. */
+const count = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
+const modelOf = (v: unknown): string | undefined => {
+  if (typeof v !== 'string') return undefined
+  const m = cut(oneLine(v), MAX_MODEL)
+  return m === '' ? undefined : m
+}
+const taskStatus = (v: unknown): TaskItem['status'] | undefined =>
+  TASK_STATUS.has(v as TaskItem['status']) ? (v as TaskItem['status']) : undefined
+
+/**
+ * The primitive values of the keys step.end reads for this tool, each string
+ * cut to MAX_PENDING; undefined when the tool has none.
+ */
+function keepPending(tool: string, input: Obj): Obj | undefined {
+  const keys = PENDING_KEYS[tool]
+  if (keys === undefined) return undefined
+  const out: Obj = {}
+  for (const k of keys) {
+    const v = input[k]
+    if (typeof v === 'string') out[k] = cut(v, MAX_PENDING)
+    else if (typeof v === 'number' || typeof v === 'boolean') out[k] = v
+  }
+  return out
+}
+
+/**
+ * Drops items past `max`: those `finished` says are done go first, oldest
+ * (by `at`) first; then the oldest of the rest. `keep` items are never dropped.
+ */
+function dropOldest<T>(list: T[], max: number, finished: (x: T) => boolean, at: (x: T) => number, keep: (x: T) => boolean = () => false): T[] {
+  const over = list.length - max
+  if (over <= 0) return list
+  const order = list
+    .map((x, i) => ({ i, done: finished(x), at: at(x) }))
+    .filter((r) => !keep(list[r.i]!))
+    .sort((a, b) => (a.done === b.done ? a.at - b.at : a.done ? -1 : 1))
+  const drop = new Set(order.slice(0, over).map((r) => r.i))
+  return list.filter((_, i) => !drop.has(i))
+}
+
+function boundTasks(tasks: TaskItem[]): TaskItem[] {
+  return dropOldest(tasks, MAX_TASKS, (x) => x.status === 'completed', (x) => x.updatedAt)
+}
+
+function boundAgents(agents: Record<AgentKey, AgentRow>): Record<AgentKey, AgentRow> {
+  const rows = Object.values(agents)
+  if (rows.length <= MAX_AGENTS) return agents
+  const kept = dropOldest(rows, MAX_AGENTS, (a) => a.status !== 'running', (a) => a.endedAt ?? a.startedAt, (a) => a.id === 'main')
+  return Object.fromEntries(kept.map((a) => [a.id, a]))
+}
+
+function boundRuns(runs: Record<string, Run>): Record<string, Run> {
+  const rows = Object.values(runs)
+  if (rows.length <= MAX_RUNS) return runs
+  return Object.fromEntries(dropOldest(rows, MAX_RUNS, () => true, (r) => r.startedAt).map((r) => [r.runId, r]))
+}
+
+function newAgent(id: AgentKey, at: number): AgentRow {
+  return { id, parent: 'main', type: 'unknown', description: '', status: 'running', startedAt: at, doing: '', stepCount: 0 }
+}
+
+function withAgent(t: Timeline, id: AgentKey, at: number, fn: (a: AgentRow) => AgentRow): Timeline {
+  const old = t.agents[id]
+  const agents = { ...t.agents, [id]: fn(old ?? newAgent(id, at)) }
+  return { ...t, agents: old === undefined ? boundAgents(agents) : agents }
+}
+
+function dropPast<T>(list: T[], max: number): T[] {
+  return list.length > max ? list.slice(list.length - max) : list
+}
+
+/**
+ * Only the newest MAX_PENDING_STEPS steps keep their `pending`: a step whose
+ * end has not come by then (a lost or very late step.end) is left without it.
+ */
+function boundPending(steps: Step[]): Step[] {
+  let over = -MAX_PENDING_STEPS
+  for (const s of steps) if (s.pending !== undefined) over++
+  if (over <= 0) return steps
+  return steps.map((s) => {
+    if (over <= 0 || s.pending === undefined) return s
+    over--
+    const { pending: _drop, ...rest } = s
+    return rest
+  })
+}
+
+function boundSteps(steps: Step[]): Step[] {
+  let over = steps.length - MAX_STEPS
+  if (over <= 0) return steps
+  return steps.filter((s) => {
+    if (over > 0 && s.pin === undefined) { over--; return false }
+    return true
+  })
+}
+
+function boundArtifacts(list: ArtifactRow[]): ArtifactRow[] {
+  let out = list
+  while (out.length > MAX_ARTIFACTS) {
+    let oldest = 0
+    out.forEach((a, i) => { if (a.updatedAt < out[oldest]!.updatedAt) oldest = i })
+    out = out.filter((_, i) => i !== oldest)
+  }
+  return out
+}
+
+function putArtifact(t: Timeline, row: Omit<ArtifactRow, 'count'>): Timeline {
+  const i = t.artifacts.findIndex((a) => a.id === row.id)
+  if (i < 0) return { ...t, artifacts: boundArtifacts([...t.artifacts, { ...row, count: 1 }]) }
+  const old = t.artifacts[i]!
+  const next: ArtifactRow = { ...old, ...row, count: old.count + 1 }
+  for (const k of ['ref', 'summary', 'stepId'] as const) if (row[k] === undefined && old[k] !== undefined) next[k] = old[k]
+  return { ...t, artifacts: t.artifacts.map((a, j) => (j === i ? next : a)) }
+}
+
+/**
+ * A task-tool id as the timeline keys it: after a `/clear` the task list
+ * starts again at 1, so the id carries the conversation (`c<clearedAt>:<id>`)
+ * and an id that comes round again is a new task (C1). Unchanged before any.
+ */
+function taskKey(t: Timeline, raw: string): string {
+  return t.clearedAt === undefined ? raw : `c${t.clearedAt}:${raw}`
+}
+
+function putTask(t: Timeline, id: string, fn: (old: TaskItem | undefined) => TaskItem | undefined): Timeline {
+  const i = t.tasks.findIndex((x) => x.id === id)
+  const res = fn(i < 0 ? undefined : t.tasks[i])
+  if (i < 0) return res ? { ...t, tasks: boundTasks([...t.tasks, res]) } : t
+  return { ...t, tasks: res ? t.tasks.map((x, j) => (j === i ? res : x)) : t.tasks.filter((_, j) => j !== i) }
+}
+
+/**
+ * The task tools win (R16, review C-1): once a task tool writes a task, its
+ * owner's current list from the update tool's `tasks` field goes whole, so the
+ * two never merge. The lead's folded "Earlier" items stay.
+ */
+function toolsWin(t: Timeline, taskId: string): Timeline {
+  const owner = t.tasks.find((x) => x.id === taskId)?.owner
+  if (owner === undefined) return t
+  const kept = t.tasks.filter((x) => !(x.owner === owner && x.id.startsWith('list:') && (owner !== 'main' ? inConversation(x, t.clearedAt) : inLeadList(x, t.listFrom, t.clearedAt))))
+  return kept.length === t.tasks.length ? t : { ...t, tasks: kept }
+}
+
+function openTurn(t: Timeline, agent: AgentKey): string | undefined {
+  for (let i = t.turns.length - 1; i >= 0; i--) {
+    const x = t.turns[i]!
+    if (x.agent === agent && x.endedAt === undefined) return x.id
+  }
+  return undefined
+}
+
+const isWorkflowAgent = (a: AgentRow): boolean => a.id !== 'main' && (a.runId !== undefined || a.type === 'workflow-subagent')
+
+/** A StructuredOutput input on one line: `key: value` joined by ` · `, nested values as JSON, cut to MAX_RESULT. */
+function resultLine(input: Obj): string {
+  const parts: string[] = []
+  for (const [k, v] of Object.entries(input)) {
+    let text: string
+    if (typeof v === 'string') text = v
+    else if (typeof v === 'number' || typeof v === 'boolean' || v === null) text = String(v)
+    else {
+      try {
+        text = JSON.stringify(v) ?? ''
+      } catch {
+        text = ''
+      }
+    }
+    parts.push(`${k}: ${text}`)
+  }
+  return cut(oneLine(parts.join(' · ')), MAX_RESULT)
+}
+
+/** The step with its ask mark dropped; the same timeline when it has none. */
+function unask(t: Timeline, id: string): Timeline {
+  const i = t.steps.findIndex((s) => s.id === id)
+  if (i < 0 || t.steps[i]!.asking === undefined) return t
+  const { asking: _asked, ...rest } = t.steps[i]!
+  return { ...t, steps: t.steps.map((x, j) => (j === i ? rest : x)) }
+}
+
+function stepStart(t: Timeline, ev: Extract<Ev, { kind: 'step.start' }>): Timeline {
+  if (t.steps.some((s) => s.id === ev.id)) return t
+  const input = isObj(ev.input) ? ev.input : {}
+  const label = labelOf(ev.tool, input)
+  const seq = t.seq + 1
+  const step: Step = {
+    id: ev.id, seq, agent: ev.agent, tool: ev.tool, label, status: 'running',
+    startedAt: ev.at, sig: sigOf(ev.tool, input),
+  }
+  const pending = keepPending(ev.tool, input)
+  if (pending !== undefined) step.pending = pending
+  const turnId = openTurn(t, ev.agent)
+  if (turnId !== undefined) step.turnId = turnId
+  // An agent's first step shows the call that spawned it went ahead: its ask is settled.
+  const spawner = t.agents[ev.agent]
+  const settled = spawner?.spawnStep !== undefined && spawner.stepCount === 0 ? unask(t, spawner.spawnStep) : t
+  let next: Timeline = { ...settled, seq, steps: boundPending(boundSteps([...settled.steps, step])) }
+  next = withAgent(next, ev.agent, ev.at, (a) => {
+    const row: AgentRow = { ...a, stepCount: a.stepCount + 1, doing: label, lastStepAt: ev.at }
+    if (ev.tool === 'StructuredOutput' && isWorkflowAgent(a)) row.result = resultLine(input)
+    return row
+  })
+  if (ev.tool === 'TodoWrite' && Array.isArray(input.todos)) {
+    const todos: TaskItem[] = []
+    const before = new Map(next.tasks.map((x) => [x.id, x]))
+    input.todos.forEach((td, i) => {
+      if (!isObj(td)) return
+      const item: TaskItem = {
+        id: taskKey(next, `todo:${ev.agent}:${i}`),
+        subject: line(td.content) ?? line(td.subject) ?? `Todo ${i + 1}`,
+        status: taskStatus(td.status) ?? 'pending',
+        owner: ev.agent, updatedAt: ev.at,
+      }
+      const af = line(td.activeForm)
+      if (af !== undefined) item.activeForm = af
+      // The list is rewritten whole: an item it leaves as it was keeps its
+      // time, and every item keeps the turns already attributed to it.
+      const old = before.get(item.id)
+      if (old !== undefined) {
+        if (old.subject === item.subject && old.status === item.status) item.updatedAt = old.updatedAt
+        if (old.tokens !== undefined) item.tokens = old.tokens
+        if (old.ms !== undefined) item.ms = old.ms
+      }
+      todos.push(item)
+    })
+    // A cleared conversation's list stays, folded away (C1).
+    next = { ...next, tasks: boundTasks([...next.tasks.filter((x) => x.owner !== ev.agent || !inConversation(x, next.clearedAt)), ...todos]) }
+  }
+  return next
+}
+
+function stepEnd(t: Timeline, ev: Extract<Ev, { kind: 'step.end' }>): Timeline {
+  const i = t.steps.findIndex((s) => s.id === ev.id)
+  if (i < 0) return t
+  const step = t.steps[i]!
+  if (step.status !== 'running' && step.status !== 'interrupted') return t
+  const pending = step.pending ?? {}
+  const { pending: _drop, asking: _asked, ...rest } = step
+  const ended: Step = { ...rest, status: ev.status, endedAt: ev.at }
+  let next: Timeline = { ...t, steps: t.steps.map((s, j) => (j === i ? ended : s)) }
+  if (ev.status !== 'done') return next
+  const result = isObj(ev.result) ? ev.result : {}
+  const agent = step.agent
+
+  if (step.tool === 'TaskCreate') {
+    const raw = isObj(result.task) ? idOf(result.task.id) : undefined
+    if (raw !== undefined) {
+      const id = taskKey(next, raw)
+      next = putTask(next, id, (old) => {
+        const item: TaskItem = {
+          id, subject: line(pending.subject) ?? old?.subject ?? `Task ${raw}`,
+          status: old?.status ?? 'pending', owner: old?.owner ?? agent, updatedAt: ev.at,
+        }
+        const af = line(pending.activeForm) ?? old?.activeForm
+        if (af !== undefined) item.activeForm = af
+        return item
+      })
+      next = toolsWin(next, id)
+    }
+  } else if (step.tool === 'TaskUpdate') {
+    const raw = idOf(pending.taskId) ?? idOf(result.taskId)
+    if (raw !== undefined) {
+      const id = taskKey(next, raw)
+      next = putTask(next, id, (old) => {
+        if (pending.status === 'deleted') return undefined
+        const item: TaskItem = { ...(old ?? { id, subject: `Task ${raw}`, status: 'pending', owner: agent }), updatedAt: ev.at }
+        const st = taskStatus(pending.status)
+        if (st) item.status = st
+        const subject = line(pending.subject)
+        if (subject !== undefined) item.subject = subject
+        const af = line(pending.activeForm)
+        if (af !== undefined) item.activeForm = af
+        return item
+      })
+      next = toolsWin(next, id)
+    }
+  } else if (WRITE_TOOLS.has(step.tool)) {
+    for (const p of pathsOf(step.tool, pending)) {
+      if (isDoc(p)) {
+        next = putArtifact(next, { id: `doc:${p}`, kind: 'document', title: tail2(p), ref: p, stepId: step.id, agent, updatedAt: ev.at })
+      } else if (!next.changed.includes(p) && next.changed.length < MAX_CHANGED) {
+        next = { ...next, changed: [...next.changed, p] }
+      }
+    }
+  } else if (step.tool === 'Artifact') {
+    const raw = str(result.url)
+    const url = raw === undefined ? undefined : cut(oneLine(raw), MAX_REF)
+    if (url) {
+      const fp = str(pending.file_path)
+      const title = line(pending.title) ?? (fp ? line(basename(fp)) : undefined) ?? 'Page'
+      next = putArtifact(next, { id: `page:${url}`, kind: 'page', title, ref: url, stepId: step.id, agent, updatedAt: ev.at })
+    }
+  } else if (step.tool === 'Workflow') {
+    const runId = str(result.runId)
+    const name = str(result.workflowName)
+    if (runId && name) {
+      const old = next.runs[runId]
+      const run: Run = { runId, name: cut(oneLine(name), MAX_LINE), parent: agent, startedAt: old?.startedAt ?? step.startedAt }
+      next = { ...next, runs: boundRuns({ ...next.runs, [runId]: run }) }
+    }
+  }
+  return next
+}
+
+function agentStart(t: Timeline, ev: Extract<Ev, { kind: 'agent.start' }>): Timeline {
+  let next = t
+  if (ev.runId !== undefined && !next.runs[ev.runId]) {
+    const run: Run = { runId: ev.runId, name: 'workflow', parent: ev.parent, startedAt: ev.at }
+    next = { ...next, runs: boundRuns({ ...next.runs, [ev.runId]: run }) }
+  }
+  let taskId: string | undefined
+  let best = -Infinity
+  for (const x of next.tasks) {
+    if (x.owner === ev.parent && x.status === 'in_progress' && inConversation(x, next.clearedAt) && x.updatedAt >= best) { best = x.updatedAt; taskId = x.id }
+  }
+  return withAgent(next, ev.id, ev.at, (old) => {
+    const row: AgentRow = {
+      ...old, id: ev.id, parent: ev.parent, type: cut(oneLine(str(ev.type) ?? ''), DOING_MAX), description: cut(oneLine(ev.description ?? ''), MAX_LINE),
+      status: 'running',
+    }
+    if (old.stepCount === 0) row.startedAt = ev.at
+    if (ev.runId !== undefined) row.runId = ev.runId
+    if (ev.agentIndex !== undefined) row.agentIndex = ev.agentIndex
+    if (taskId !== undefined) row.taskId = taskId
+    const spawnStep = typeof ev.spawnStep === 'string' && ev.spawnStep !== '' ? cut(ev.spawnStep, MAX_STEP_ID) : undefined
+    if (spawnStep !== undefined) row.spawnStep = spawnStep
+    return row
+  })
+}
+
+function applyUpdate(t: Timeline, ev: Extract<Ev, { kind: 'update' }>): Timeline {
+  const u: Obj = isObj(ev.update) ? ev.update : {}
+  const focus = line(u.focus)
+  const nxt = line(u.next)
+  const note = line(u.note)
+  let next = t
+  if (ev.agent === 'main') {
+    if (focus !== undefined) {
+      next = { ...next, now: nxt !== undefined ? { focus, next: nxt, at: ev.at } : { focus, at: ev.at } }
+    } else if (nxt !== undefined) {
+      next = { ...next, now: { focus: next.now?.focus ?? '', next: nxt, at: ev.at } }
+    }
+  } else if (focus !== undefined) {
+    next = withAgent(next, ev.agent, ev.at, (a) => ({ ...a, doing: cut(focus, DOING_MAX) }))
+  }
+  if (note !== undefined) {
+    next = { ...next, notes: dropPast([...next.notes, { text: note, agent: ev.agent, at: ev.at }], MAX_NOTES) }
+  }
+  if (Array.isArray(u.tasks)) next = applyList(next, ev.agent, u.tasks, ev.at)
+  const art = u.artifact
+  if (isObj(art) && (art.kind === 'result' || art.kind === 'link')) {
+    const title = line(art.title)
+    if (title !== undefined) {
+      const ref = typeof art.ref === 'string' && art.ref.trim() !== '' ? cut(oneLine(art.ref), MAX_REF) : undefined
+      const summary = line(art.summary)
+      const row: Omit<ArtifactRow, 'count'> = { id: `${art.kind}:${ref ?? title}`, kind: art.kind, title, agent: ev.agent, updatedAt: ev.at }
+      if (ref !== undefined) row.ref = ref
+      if (summary !== undefined) row.summary = summary
+      next = putArtifact(next, row)
+    }
+  }
+  return next
+}
+
+const LIST_STATE: Record<string, TaskItem['status']> = { todo: 'pending', doing: 'in_progress', done: 'completed' }
+
+/**
+ * The update tool's `tasks` list: the caller's whole list, replacing only its
+ * own list made this way (the lead's current one; its folded "Earlier" items
+ * stay). Ignored for an owner that uses the task tools (R16: they win, never
+ * merged). At most MAX_LIST_ITEMS items, each title one line cut to
+ * MAX_LIST_TITLE; an item without a title or a known state is skipped. An item
+ * sent again unchanged keeps its time and the turns attributed to it.
+ */
+function applyList(t: Timeline, agent: AgentKey, raw: unknown[], at: number): Timeline {
+  if (usesTaskTools(t, agent)) return t
+  const base = agent === 'main' ? t.listFrom ?? 0 : t.clearedAt ?? 0
+  const prefix = `list:${agent}:${base}:`
+  const before = new Map(t.tasks.filter((x) => x.id.startsWith(prefix)).map((x) => [x.id, x]))
+  const items: TaskItem[] = []
+  for (const it of raw) {
+    if (items.length >= MAX_LIST_ITEMS) break
+    if (!isObj(it) || typeof it.title !== 'string' || typeof it.state !== 'string') continue
+    const subject = cut(oneLine(it.title), MAX_LIST_TITLE)
+    const status = LIST_STATE[it.state]
+    if (subject === '' || status === undefined) continue
+    const item: TaskItem = { id: `${prefix}${items.length}`, subject, status, owner: agent, updatedAt: at }
+    const old = before.get(item.id)
+    if (old !== undefined) {
+      if (old.subject === item.subject && old.status === item.status) item.updatedAt = old.updatedAt
+      if (old.tokens !== undefined) item.tokens = old.tokens
+      if (old.ms !== undefined) item.ms = old.ms
+    }
+    items.push(item)
+  }
+  const kept = t.tasks.filter((x) => !(x.owner === agent && x.id.startsWith('list:') && (agent !== 'main' ? inConversation(x, t.clearedAt) : inLeadList(x, t.listFrom, t.clearedAt))))
+  return { ...t, tasks: boundTasks([...kept, ...items]) }
+}
+
+/**
+ * Only the newest MAX_TURNS turns are kept, but never an open one (M3): a
+ * request with hundreds of subagent runs keeps the lead's running turn. The
+ * oldest ended turns go first.
+ */
+function boundTurns(turns: TurnRow[]): TurnRow[] {
+  let over = turns.length - MAX_TURNS
+  if (over <= 0) return turns
+  return turns.filter((x) => {
+    if (over > 0 && x.endedAt !== undefined) { over--; return false }
+    return true
+  })
+}
+
+function turnStart(t: Timeline, ev: Extract<Ev, { kind: 'turn.start' }>): Timeline {
+  const row: TurnRow = { id: ev.turnId, agent: ev.agent, prompt: cut(oneLine(str(ev.prompt) ?? ''), MAX_LINE), startedAt: ev.at }
+  // A subagent's run is a turn of its own; Steps files it under the request it serves (C2).
+  if (ev.agent !== 'main') {
+    const lead = openTurn(t, 'main')
+    if (lead !== undefined) row.lead = lead
+  }
+  const next: Timeline = { ...t, turns: boundTurns([...t.turns, row]) }
+  // A new main prompt with every task of the lead's list complete folds that list away (R12).
+  if (ev.agent === 'main') {
+    const list = t.tasks.filter((x) => x.owner === 'main' && inLeadList(x, t.listFrom, t.clearedAt))
+    if (list.length > 0 && list.every((x) => x.status === 'completed')) next.listFrom = ev.at
+  }
+  // A main turn's cost share starts from the session's cost as it stands.
+  if (ev.agent === 'main') {
+    delete next.turnCost
+    const usd = t.budget?.costUsd
+    if (usd !== undefined) next.turnCost = { turnId: ev.turnId, from: usd }
+  }
+  return withAgent(next, ev.agent, ev.at, (a) => (ev.agent === 'main' || a.status === 'running' ? a : { ...a, status: 'running' }))
+}
+
+function turnEnd(t: Timeline, ev: Extract<Ev, { kind: 'turn.end' }>): Timeline {
+  const turns = t.turns.map((x): TurnRow => {
+    if (x.id !== ev.turnId || x.endedAt !== undefined) return x
+    const row: TurnRow = { ...x, endedAt: ev.at }
+    if (ev.failed === true) row.failed = true
+    if (ev.aborted === true) row.aborted = true
+    return row
+  })
+  const steps = t.steps.map((s): Step => {
+    if (s.agent !== ev.agent || s.status !== 'running') return s
+    const { asking: _asked, ...rest } = s
+    return { ...rest, status: 'interrupted', endedAt: ev.at }
+  })
+  const first = cut(oneLine((str(ev.answer) ?? '').trim().split(/\r?\n/)[0] ?? ''), DOING_MAX)
+  const ended: Timeline = { ...t, turns, steps }
+  // An input request lives inside the turn's tool call: none outlives the turn.
+  if (t.asks !== undefined) {
+    const asks = t.asks.filter((a) => a.agent !== ev.agent)
+    if (asks.length > 0) ended.asks = asks
+    else delete ended.asks
+  }
+  if (ev.agent === 'main' && turns.some((x) => x.id === ev.turnId)) {
+    if (ev.failed === true && ev.aborted !== true) {
+      const given = typeof ev.reason === 'string' ? cut(oneLine(ev.reason), MAX_REASON) : ''
+      const held = t.failure?.turnId === ev.turnId ? t.failure.reason : ''
+      ended.failure = { turnId: ev.turnId, reason: given || held || 'An API error ended the turn' }
+    } else delete ended.failure
+  }
+  const usd = t.budget?.costUsd
+  if (ev.agent === 'main' && t.turnCost !== undefined && t.turnCost.turnId === ev.turnId && usd !== undefined) {
+    ended.turnCost = { ...t.turnCost, to: usd }
+  }
+  return withAgent(ended, ev.agent, ev.at, (a) => {
+    const row: AgentRow = { ...a }
+    if (first !== '') row.doing = first
+    if (ev.agent !== 'main') {
+      row.status = ev.failed ? 'error' : 'done'
+      row.endedAt = ev.at
+    }
+    return row
+  })
+}
+
+/** Marks a running step as sent to ask; the first ask's time is kept. */
+function stepAsk(t: Timeline, ev: Extract<Ev, { kind: 'step.ask' }>): Timeline {
+  const i = t.steps.findIndex((s) => s.id === ev.id)
+  if (i < 0) return t
+  const s = t.steps[i]!
+  if (s.status !== 'running' || s.asking !== undefined || typeof ev.at !== 'number') return t
+  const next: Timeline = { ...t, steps: t.steps.map((x, j) => (j === i ? { ...s, asking: ev.at } : x)) }
+  // The session's mode at the ask, for the ASK_MS rule (R2).
+  if (ev.auto === true) next.autoAsk = true
+  else delete next.autoAsk
+  return next
+}
+
+/** An MCP server asked the person for input: kept until its result (or the turn's end); past MAX_ASKS the oldest goes. */
+function inputAsk(t: Timeline, ev: Extract<Ev, { kind: 'input.ask' }>): Timeline {
+  if (typeof ev.at !== 'number' || typeof ev.server !== 'string') return t
+  const server = cut(oneLine(ev.server), MAX_MODEL)
+  const id = cut(typeof ev.id === 'string' && ev.id !== '' ? ev.id : `${server}:${ev.at}`, MAX_STEP_ID)
+  const agent = typeof ev.agent === 'string' && ev.agent !== '' ? ev.agent : 'main'
+  const row: InputAsk = { id, agent, server, message: cut(oneLine(str(ev.message) ?? ''), MAX_ASK_TEXT), at: ev.at }
+  return { ...t, asks: dropPast([...(t.asks ?? []).filter((a) => a.id !== id), row], MAX_ASKS) }
+}
+
+/** An input request answered: the one with its id, else the oldest from its server. */
+function inputDone(t: Timeline, ev: Extract<Ev, { kind: 'input.done' }>): Timeline {
+  const asks = t.asks ?? []
+  const id = typeof ev.id === 'string' && ev.id !== '' ? cut(ev.id, MAX_STEP_ID) : undefined
+  let i = id !== undefined ? asks.findIndex((a) => a.id === id) : -1
+  if (i < 0) i = asks.findIndex((a) => a.server === ev.server)
+  if (i < 0) return t
+  const left = asks.filter((_, j) => j !== i)
+  const next: Timeline = { ...t }
+  if (left.length > 0) next.asks = left
+  else delete next.asks
+  return next
+}
+
+/** Why a main turn failed (StopFailure): kept for the newest main turn, whichever of this and its end comes first. */
+function turnFail(t: Timeline, ev: Extract<Ev, { kind: 'turn.fail' }>): Timeline {
+  if (ev.agent !== 'main' || typeof ev.reason !== 'string') return t
+  const reason = cut(oneLine(ev.reason), MAX_REASON)
+  let turn: TurnRow | undefined
+  for (let i = t.turns.length - 1; i >= 0 && turn === undefined; i--) if (t.turns[i]!.agent === 'main') turn = t.turns[i]
+  if (turn === undefined || reason === '') return t
+  return { ...t, failure: { turnId: turn.id, reason } }
+}
+
+/**
+ * The index of the main task a main-loop turn that ended at `at` after `ms`
+ * goes to: the one in progress (the newest), else the one it closed (completed
+ * since the turn began, the newest); -1 when neither.
+ */
+function taskAtTurnEnd(t: Timeline, at: number, ms: number): number {
+  const newest = (ok: (x: TaskItem) => boolean): number => {
+    let best = -1
+    t.tasks.forEach((x, i) => {
+      if (x.owner === 'main' && ok(x) && (best < 0 || x.updatedAt >= t.tasks[best]!.updatedAt)) best = i
+    })
+    return best
+  }
+  const open = newest((x) => x.status === 'in_progress' && inConversation(x, t.clearedAt))
+  return open >= 0 ? open : newest((x) => x.status === 'completed' && x.updatedAt >= at - ms)
+}
+
+/**
+ * True when a main turn's cache counts show it read a prefix an earlier turn
+ * left, not one it wrote itself: what it wrote, times its requests (its steps
+ * plus one), is under half of what it read. A cold turn writes the whole
+ * prefix once and reads it back on each later request, so it fails this.
+ */
+function readWarm(t: Timeline, turnId: string | undefined, read: number, write: number): boolean {
+  if (read <= 0) return false
+  let requests = 1
+  if (turnId !== undefined) for (const s of t.steps) if (s.turnId === turnId) requests++
+  return write * requests < read / 2
+}
+
+/**
+ * The main loop's cache clock moved to its reply at `ev.at`; it says an hour
+ * from then on once a turn that began more than CACHE_TTL_MS after the last
+ * reply still read from the cache.
+ */
+function cacheClock(t: Timeline, ev: Extract<Ev, { kind: 'usage' }>, read: number | undefined, write: number | undefined): Timeline {
+  const old = t.cache
+  let hour = old?.hour === true
+  if (!hour && old !== undefined && read !== undefined) {
+    const turn = ev.turnId === undefined ? undefined : t.turns.find((x) => x.id === ev.turnId)
+    const ms = count(ev.ms)
+    const began = turn?.startedAt ?? (ms !== undefined ? ev.at - ms : undefined)
+    if (began !== undefined && began - old.at > CACHE_TTL_MS && readWarm(t, ev.turnId, read, write ?? 0)) hour = true
+  }
+  return { ...t, cache: hour ? { at: ev.at, hour: true } : { at: ev.at } }
+}
+
+/**
+ * Adds a turn's token counts, cache reads and writes and length to its agent;
+ * a model given replaces the one held. A main-loop turn's tokens and length
+ * also go to the task in progress at its end (taskAtTurnEnd), and its reply
+ * moves the cache clock.
+ */
+function addUsage(t: Timeline, ev: Extract<Ev, { kind: 'usage' }>): Timeline {
+  const tokensIn = count(ev.tokensIn)
+  const tokensOut = count(ev.tokensOut)
+  const read = count(ev.cacheRead)
+  const write = count(ev.cacheWrite)
+  const ms = count(ev.ms)
+  const model = modelOf(ev.model)
+  if (tokensIn === undefined && tokensOut === undefined && model === undefined && ms === undefined) return t
+  let next = withAgent(t, ev.agent, ev.at, (a) => {
+    const row: AgentRow = { ...a }
+    if (tokensIn !== undefined) row.tokensIn = (a.tokensIn ?? 0) + tokensIn
+    if (tokensOut !== undefined) row.tokensOut = (a.tokensOut ?? 0) + tokensOut
+    if (read !== undefined) row.cacheRead = (a.cacheRead ?? 0) + read
+    if (write !== undefined) row.cacheWrite = (a.cacheWrite ?? 0) + write
+    if (ms !== undefined) row.ms = (a.ms ?? 0) + ms
+    if (model !== undefined) row.model = model
+    return row
+  })
+  if (ev.agent !== 'main') return next
+  const i = taskAtTurnEnd(next, ev.at, ms ?? 0)
+  if (i >= 0) {
+    const x = next.tasks[i]!
+    const task: TaskItem = { ...x, tokens: (x.tokens ?? 0) + (tokensIn ?? 0) + (tokensOut ?? 0) }
+    if (ms !== undefined) task.ms = (x.ms ?? 0) + ms
+    next = { ...next, tasks: next.tasks.map((y, j) => (j === i ? task : y)) }
+  }
+  if (tokensIn !== undefined || tokensOut !== undefined) next = cacheClock(next, ev, read, write)
+  return next
+}
+
+function agentModel(t: Timeline, ev: Extract<Ev, { kind: 'agent.model' }>): Timeline {
+  const model = modelOf(ev.model)
+  if (model === undefined) return t
+  const at = t.agents[ev.id]?.startedAt ?? 0
+  return withAgent(t, ev.id, at, (a) => ({ ...a, model }))
+}
+
+/**
+ * The pace ring with `budget` taken in as a sample: window names it has not
+ * seen are added (at most MAX_WINDOWS); the newest sample is replaced while it
+ * is under SAMPLE_GAP_MS after the one before it, else a new one is added; past
+ * MAX_SAMPLES the oldest goes.
+ */
+function takeSample(old: Samples | undefined, budget: Budget): Samples {
+  const names = [...(old?.names ?? [])]
+  for (const w of budget.windows) if (!names.includes(w.name) && names.length < MAX_WINDOWS) names.push(w.name)
+  const sample: Sample = { at: budget.at, w: names.map((n) => budget.windows.find((w) => w.name === n)?.pct ?? null) }
+  if (budget.contextPct !== undefined) sample.ctx = budget.contextPct
+  const list = [...(old?.list ?? [])]
+  const n = list.length
+  if (n >= 2 && list[n - 1]!.at - list[n - 2]!.at < SAMPLE_GAP_MS) list[n - 1] = sample
+  else list.push(sample)
+  return { names, list: dropPast(list, MAX_SAMPLES) }
+}
+
+/**
+ * The budget replaced whole by the newest measurement and sampled for pace;
+ * an open main turn's cost share follows the cost.
+ */
+function measure(t: Timeline, ev: Extract<Ev, { kind: 'measure' }>): Timeline {
+  const src: Partial<Budget> = isObj(ev.budget) ? ev.budget : {}
+  const budget: Budget = { windows: windowsOf(src.windows), at: ev.at }
+  if (typeof src.contextPct === 'number' && Number.isFinite(src.contextPct)) budget.contextPct = src.contextPct
+  const tokens = count(src.contextTokens)
+  if (tokens !== undefined) budget.contextTokens = tokens
+  const usd = count(src.costUsd)
+  if (usd !== undefined) budget.costUsd = usd
+  const next: Timeline = { ...t, budget, samples: takeSample(t.samples, budget) }
+  const tc = t.turnCost
+  const open = tc !== undefined && t.turns.some((x) => x.id === tc.turnId && x.agent === 'main' && x.endedAt === undefined)
+  if (open && usd !== undefined) next.turnCost = { ...tc, to: usd }
+  return next
+}
+
+/** What `/binnacle export` wrote last: its time and path (one line, cut to MAX_REF); a blank path changes nothing. */
+function noteExport(t: Timeline, ev: Extract<Ev, { kind: 'export' }>): Timeline {
+  if (typeof ev.path !== 'string' || typeof ev.at !== 'number') return t
+  const path = cut(oneLine(ev.path), MAX_REF)
+  return path === '' ? t : { ...t, lastExport: { at: ev.at, path } }
+}
+
+/**
+ * A `/clear` ended the conversation (C1): what it was doing folds away as a
+ * finished request does. Steps, agents, artifacts and the budget stay for
+ * Steps and Artifacts; anything still running is settled (nothing of it can
+ * end now) and open turns end at the clear. The headline (`now`), the failure
+ * and the open asks go; the lead's list folds to "Earlier" whatever its
+ * states (`listFrom`, `clearedAt`), and task-tool ids are keyed anew.
+ */
+function clearConversation(t: Timeline, at: number): Timeline {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return t
+  const settled = settle(t)
+  const turns = settled.turns.map((x): TurnRow => (x.endedAt === undefined ? { ...x, endedAt: Math.max(x.startedAt, at) } : x))
+  const out: Timeline = { ...settled, turns, listFrom: at, clearedAt: at }
+  delete out.now
+  delete out.failure
+  delete out.autoAsk
+  if (out.turnCost !== undefined && out.turnCost.to === undefined) delete out.turnCost
+  return out
+}
+
+function pin(t: Timeline, id: string, note: string | undefined): Timeline {
+  const i = t.steps.findIndex((s) => s.id === id)
+  if (i < 0) return t
+  const s = t.steps[i]!
+  if (note === undefined && s.pin === undefined) return t
+  let changed: Step
+  if (note === undefined) { const { pin: _p, ...rest } = s; changed = rest } else changed = { ...s, pin: note }
+  return { ...t, steps: t.steps.map((x, j) => (j === i ? changed : x)) }
+}
+
+/** Folds one event into the Timeline. Pure: never mutates `t`, never throws (returns `t` on a bad event). */
+export function reduce(t: Timeline, ev: Ev): Timeline {
+  try {
+    switch (ev.kind) {
+      case 'step.start': return stepStart(t, ev)
+      case 'step.end': return stepEnd(t, ev)
+      case 'agent.start': return agentStart(t, ev)
+      case 'update': return applyUpdate(t, ev)
+      case 'turn.start': return turnStart(t, ev)
+      case 'turn.end': return turnEnd(t, ev)
+      case 'pin': return pin(t, ev.id, typeof ev.note === 'string' ? cut(oneLine(ev.note), MAX_LINE) : '')
+      case 'unpin': return pin(t, ev.id, undefined)
+      case 'step.ask': return stepAsk(t, ev)
+      case 'step.unask': return typeof ev.id === 'string' ? unask(t, ev.id) : t
+      case 'input.ask': return inputAsk(t, ev)
+      case 'input.done': return inputDone(t, ev)
+      case 'turn.fail': return turnFail(t, ev)
+      case 'usage': return addUsage(t, ev)
+      case 'agent.model': return agentModel(t, ev)
+      case 'measure': return measure(t, ev)
+      case 'export': return noteExport(t, ev)
+      case 'clear': return clearConversation(t, ev.at)
+      default: return t
+    }
+  } catch {
+    return t
+  }
+}
+
+/** The newest time anything in `t` happened: a step's or turn's start or end, an agent's start, last step or end. */
+function lastActivity(t: Timeline): number {
+  let last = 0
+  for (const s of t.steps) last = Math.max(last, s.endedAt ?? s.startedAt)
+  for (const x of t.turns) last = Math.max(last, x.endedAt ?? x.startedAt)
+  for (const a of Object.values(t.agents)) last = Math.max(last, a.endedAt ?? 0, a.lastStepAt ?? 0, a.startedAt)
+  return last
+}
+
+/**
+ * A stored timeline folded through an interrupt pass, for adopting it into a
+ * new session: nothing that was running then can end now. Running steps
+ * become `interrupted` with their ask dropped; running subagents become
+ * `done`. Both end at the timeline's last activity. Main stays as it is. Pure.
+ */
+export function settle(t: Timeline): Timeline {
+  const last = lastActivity(t)
+  const steps = t.steps.map((s): Step => {
+    if (s.status !== 'running') return s
+    const { asking: _asked, ...rest } = s
+    return { ...rest, status: 'interrupted', endedAt: s.endedAt ?? last }
+  })
+  const agents: Record<AgentKey, AgentRow> = {}
+  for (const [id, a] of Object.entries(t.agents)) {
+    agents[id] = a.id === 'main' || a.status !== 'running' ? a : { ...a, status: 'done', endedAt: last }
+  }
+  const out: Timeline = { ...t, steps, agents }
+  delete out.asks
+  return out
+}

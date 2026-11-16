@@ -1,162 +1,144 @@
-# Handover — Mission Control mod
+# Handover: Binnacle mod
 
-Written 2026-11-15 at the end of the planning session, which ran in
-`../claude-code-workflow-visualizer`. Nothing is built yet. This repo holds
-the design, the plan, the mock sources and this note. Nothing is committed.
+A Claude Code mod that keeps tasks, agents, a step timeline and artifacts in
+a pane and band beside the chat. The mod is built and lives in `mod/`. This
+note says what it is, how it is put together and where to read more.
 
-## What this is
+## What it is
 
-Aaron wants a native interface inside the Claude Code CLI that shows what a
-session is doing and keeps it findable: tasks and sub-tasks, running agents
-and workflows with a one-line "doing now", a timeline of steps that can be
-reopened after they scroll away, and the artifacts the session produced. The
-trigger: in the plain CLI, long file dumps bury important intermediate steps
-and scrolling back to find them is slow.
-
-It is built as a **Claude Code mod**: a plugin with a hooks module that draws
-a pane beside the chat and a band above the prompt. It replaces the VS Code
-extension in `../claude-code-workflow-visualizer` as the focus; that repo is
+The trigger: in the plain CLI, long file dumps bury the intermediate steps
+and scrolling back to find them is slow. Binnacle draws a pane next to
+the transcript and a band above the prompt, and keeps a record of the
+session that can be reopened after it scrolls away. The transcript itself is
 left alone.
+
+It is a **Claude Code mod**: a plugin whose hooks module draws the pane and
+the band. `README.md` is the user-facing description; this file is for the
+next developer.
+
+## The cockpit and the Critters
+
+The current design is the cockpit (spec
+`docs/superpowers/specs/2026-11-15-binnacle-cockpit-design.md`), with
+the crew drawn as small pictures called Critters. The rulings that override
+the specs where they differ are in
+`docs/superpowers/plans/2026-11-16-cockpit-critters-rulings.md` (R1 to R43);
+read them before changing words, colours or the alert rules.
+
+- **Tabs:** Now, Tasks, Agents, Steps, Artifacts (keys `1` to `5`), plus an
+  Options page (`0`, `/binnacle options`).
+- **Now** is the header (a pill, the time this turn and any quiet time, the
+  request's goal, the budget line and two gauges), then Needs you, Watch, To
+  do, This turn, Agents, and Notes and decisions. It holds no step log.
+- **Needs you** holds only what blocks the session on a dialog: a permission,
+  a question, a plan to approve or an MCP input request. It has no dismiss
+  key. **Watch** holds what is worth a glance and asks nothing: a stalled
+  step, a quiet agent, a long run (limits 60 minutes for an agent and 120 for
+  a turn), a repeat and a loop. `x` dismisses a Watch row.
+- **Colour:** amber is for a dialog only; gauges go bold at 70 % and red at
+  90 %; a failed turn is the STOPPED pill with its reason in red.
+- **Alert model:** `mod/hooks/model/alerts.ts` is the one place that decides
+  what needs the person (`needs`), what to watch (`watch`), the header's
+  state (`headerState`) and which notifications to raise.
+  Hooks get no signal that a permission was settled, so a permission is a
+  need only while the pane sees the prompt covered; the clock clears an ask
+  the pane watched uncovered for 20 s. With no pane, the band shows a
+  permission amber for its first minute (20 s "Checking a permission" in auto
+  mode), then dim "asked to run a command · running". Questions, plans and
+  MCP input stay amber while they last. Permission notifications need the
+  pane open; Claude Code notifies for its own dialogs either way.
+- **Band:** one row above the prompt (the lead's or the asker's Critter, the
+  goal, the context and week figures, `/mc`), a second row with the to-do bar
+  when wide, one dim row when everything is done.
+- **Surfaces:** the terminal draws Rasters (cell pictures) and text; the
+  desktop app draws the Now header and the band as Svg
+  (`mod/hooks/views/svg.ts`), from the same model as the terminal's header
+  (`headWords`, `headline`, `nowGauges`, `budgetWords`), on the pane's ground
+  (day on a light theme), with an alt that says the same words. VS Code and
+  mobile take the text form.
+- **Widths:** the pane draws the inline strip from 96 columns, the full tabs
+  at 62 and the slim pane under 32. `/binnacle strip`
+  moves the strip into the band.
+- **Options:** `guide`, `autoOpen`, `look` (`auto`, `rich`, `text`),
+  `ground` (`auto`, `night`, `day`), `motion` (`on`, `off`), `accent`
+  (`iris`, `sky`, `slate`), `notify`, `watchNotify`, `showCost`, `editor`,
+  `doneSound`, `agentLimitMin` (60) and `turnLimitMin` (120).
+- **Commands:** `/binnacle`, `/binnacle 1` to `/binnacle 5`, `/binnacle keep <note>`, `/binnacle export`,
+  `/binnacle close`, `/binnacle slim`, `/binnacle strip`, `/binnacle options`.
 
 ## Where things are
 
 | What | Where |
 |---|---|
-| Design (read first) | `docs/superpowers/specs/2026-11-15-mission-control-mod-design.md` |
-| Implementation plan, 9 tasks | `docs/superpowers/plans/2026-11-15-mission-control-mod.md` |
-| Mocks (8 boards) | https://claude.ai/artifact/L51pHiKbjfBac7eQEVUUnF — private to Aaron |
-| Mock sources | `docs/mocks/*.dc.html` + `canvas.json` (copies; the plan's view tasks point at them) |
-| Working rules | `CLAUDE.md`; local-only rules in `CLAUDE.local.md` (git-ignored: no Claude attribution on commits or PRs) |
-| The mod itself | `mod/` — does not exist yet; Task 1 creates it |
-
-## Decisions Aaron made
-
-- A CLI mod, not a VS Code extension, for now.
-- Its own repo: this folder.
-- **Overview is the first tab**: a condensed, always-current view of all the
-  other tabs.
-- **The mod instructs Claude to keep the Overview updated as it works.** This
-  is the one place the mod adds to a conversation.
-- **An Artifacts tab instead of a Files tab** — a list of every edited file
-  would blow up.
-- An optional **tree view of agents and subagents**, like the extension's
-  topology view.
-- Planning on Fable in that session; **execution on Opus and/or Sonnet**.
-
-## Calls made for Aaron, not yet confirmed
-
-He saw these and moved on without objecting; treat them as defaults he can
-overturn, and ask before building on any that looks shaky.
-
-1. Name `mission-control`, command `/mc`, mod in `mod/`.
-2. Tabs: 1 Overview · 2 Tasks · 3 Agents · 4 Timeline · 5 Artifacts.
-3. "Artifact" means four kinds: page (published with the Artifact tool),
-   document (a written non-code file), result and link (declared by Claude).
-4. Claude updates the Overview through one tool
-   (`mcp__mission-control__update`: focus, next, note, artifact) plus one
-   fixed system-prompt section; subagents get both too. Option `guide: false`
-   turns it off.
-5. Overview sections, in order: Now, Tasks, Agents, Latest, Notes, Artifacts.
-6. Sub-tasks are derived, because the task tools have no parent field: agents
-   sit under the task that was in progress when they spawned, and an agent's
-   own tasks sit under that agent.
-7. The pane opens on `/mc`, not by itself (`autoOpen` option, default off);
-   the band is the always-on part.
-8. The agent tree is a text tree inside the Agents tab (`List | Tree`), List
-   being the default. No drawn graph.
-9. In the Timeline, older turns are folded and pin notes show inline.
-10. Step bodies are kept under `~/.claude/mission-control/<session-id>/`,
-    pruned to the newest 20 sessions.
-11. Not in v1: restyling the transcript (collapsing long output in place),
-    model-written agent summaries, graph or waterfall views, cost analytics.
-
-Three questions were asked and not answered: whether the four artifact kinds
-are what he means; whether subagents should get the update instruction or
-only the main conversation; whether the Overview's sections and order are
-right.
+| The mod | `mod/` (manifest `mod/.claude-plugin/plugin.json`, hooks `mod/hooks/`) |
+| The pure session model | `mod/hooks/model/` (reducer, alerts, meter, todo, ledger, digest), tested by vitest from `test/` |
+| The views | `mod/hooks/views/`: the shell and tabs, the band, the Svg forms, the Rasters and Critters (`raster.ts`), the parts the screens share (`parts.tsx`) |
+| Capture and journal | `mod/hooks/capture.ts`, `mod/hooks/journal.ts` |
+| The guide (the one system-prompt section and the update tool) | `mod/hooks/guide.tsx` |
+| Design and plans | `docs/superpowers/specs/`, `docs/superpowers/plans/`, `docs/superpowers/TASKS.md` |
+| Mocks | `docs/mocks/*.dc.html` and `canvas.json` |
+| README images | `docs/readme/`, drawn from the real views by `node docs/readme/tools/make.mjs` (rerun after view changes) |
+| Working rules | `CLAUDE.md`; local-only rules in `CLAUDE.local.md` (git-ignored) |
 
 ## What is known about the mods API
 
-Checked against Claude Code **2.1.325**'s generated type file and the docs at
-https://code.claude.com/docs/en/plugins/mods/overview (also `create`,
-`interface`, `events`, `api`, `reference`, `troubleshoot`, `test` under the
-same path).
+Checked against Claude Code 2.1.325's generated type file. The API is early
+access, and the type file is the authority: load the `plugin-authoring` skill
+at the start of any session that touches the mod. It writes this build's
+`claude-code.d.ts`; once the mod has loaded, the same types are in
+`mod/.claude-plugin/types/`.
 
-- A mod is `.claude-plugin/plugin.json` + `hooks/hooks.json`
-  (`{ "modules": ["./register.tsx"] }`) + the hooks module exporting
+- A mod is `.claude-plugin/plugin.json`, `hooks/hooks.json`
+  (`{ "modules": ["./register.tsx"] }`) and the hooks module exporting
   `register(on, options)`. No build step, no Node APIs, relative imports
   only. Every hook is `($, e, next)`.
-- **The type file is the authority and the API is early access.** Load the
-  `plugin-authoring` skill at the start of any session that touches the mod:
-  it writes this build's `claude-code.d.ts` and names its path, and ships
-  worked examples (`pane.tsx`, `pane.test.tsx`, `pane-state.d.ts`,
-  `band.tsx`, `tool-call.ts`). Once the mod has loaded, the same types are in
-  `mod/.claude-plugin/types/`.
-- Events the design relies on: `tool.call` (carries `agentId`,
-  `tool_use_id`; `await next(e)` gives the result), `agent.spawn` (carries
-  `parentAgentId`, `subagentType`, `description`, and for workflow agents
-  `workflow: { runId, agentIndex }`), `turn.start` / `turn.complete`
-  (carry `agentId`), `prompt.compose`, `ui.render`, `command.run`,
-  `session.start`, `classic.SessionStart`.
-- Tasks are tool calls (`TaskCreate`, `TaskUpdate`, `TodoWrite`). There is no
-  workflow-run event, and `$.agent.list()` leaves workflow agents out.
+- Capture hooks only observe: they return what `next(e)` resolved to. The
+  only things the mod adds to a conversation are the update tool and one
+  system-prompt section.
 - Drawing: a `Pane` docks beside the transcript in a fullscreen terminal, at
-  most 45% of the columns, otherwise sits inline above the prompt. A pane
-  opened unasked shows only at ≥144 columns (≥110 once the person has opened
+  most 45 % of the columns, otherwise sits inline above the prompt. A pane
+  opened unasked shows only from 144 columns (110 once the person has opened
   it); opened by a command it shows at any width. Keys reach a pane only
-  while it has focus (Ctrl+X Tab, a click, or opened with `focus`).
+  while it has focus.
+- A render hook may not write `$.state` or read options, so view state that
+  needs either lives in module variables set at register time or by a press.
 - Limits: 10 s per hook; `$.state` lasts the session and survives a reload;
-  `$.store` is 4 MiB across all sessions; `$.fs` handles ≤4 MiB per file; a
-  tree draws ≤100,000 characters and ≤20,000 elements.
-- The state contract (`mod/types/index.d.ts`) must be one self-contained
-  `.d.ts` with no imports.
-
-**Not verified — Task 1 is a probe that settles these before anything is
-built on them:** whether subagent and workflow-agent tool calls reach a
-mod's `tool.call` hook; how large a `$.state` value may be; where `$.fs` may
-write; the exact shapes of `$.tool.register` and a `prompt.compose` section;
-whether Claude actually calls the update tool when told to; hook order when
-two `tool.call` hooks match. If workflow-agent calls are invisible, the
-Agents and Timeline views lose detail for workflows and the plan changes.
+  `$.store` is 4 MiB across all sessions; `$.fs` handles up to 4 MiB per
+  file; a tree draws at most 100,000 characters and 20,000 elements; an Svg
+  `source` is at most 131,072 characters.
+- Subagents never see the guide: Claude Code 2.1.325 does not raise the
+  system-prompt event for subagent or workflow-agent prompts.
+- The state contract (`mod/types/index.d.ts`) is one self-contained `.d.ts`
+  with no imports.
 
 ## Developing and testing locally
 
 - `claude --plugin-dir ./mod` loads the mod for that session and reloads it
   on every save. Add `--debug-file mod-debug.log` to see why a hook was
   skipped.
-- `claude plugin validate ./mod` — static check, no session.
-- `claude plugin test ./mod` — hook and drawing tests against the engine, no
+- `claude plugin validate ./mod`: static check, no session.
+- `claude plugin test ./mod`: hook and drawing tests against the engine, no
   sign-in or network.
-- `tsc -p mod` — type check. `npm test` — the pure model, with vitest.
+- `tsc -p mod`: type check. `npm test`: the pure model, with vitest.
 - Always-on while developing: the absolute path of `mod/` in
   `CLAUDE_CODE_PLUGIN_DIRS` under `env` in `~/.claude/settings.json`.
-- Publishing later needs one `.claude-plugin/marketplace.json`; out of scope.
+- A local marketplace manifest exists for a live install with `/plugin`;
+  publishing publicly is not done.
 
-## How to start
+## Ideas from the VS Code extension
 
-1. Read the design, then the plan. Look at the mocks.
-2. Settle the three open questions with Aaron if he wants to; otherwise the
-   defaults above stand.
-3. Run the plan with subagent-driven development, **one subagent at a time**:
-   Tasks 1–4 on Opus, 5–9 on Sonnet; Opus reviews after Task 4 and after
-   Task 9, then one adversarial whole-branch pass. The plan stops after Task
-   5 for Aaron to look at the real pane before the other views are built.
-4. Task 1 creates `package.json`, CI and `mod/`, records probe fixtures and
-   fills in the plan's Findings. If a finding contradicts a later task, stop
-   and re-plan that task before going on.
+The extension in `../claude-code-workflow-visualizer` is left alone; its code
+is not reusable (React, a JSONL-shaped model, and a mod may import only its
+own files), but these ideas carried over:
 
-## Ideas worth carrying over from the extension
+- **Granularity bundling:** show bundles first, expand on demand (the folded
+  turns in the Steps tab).
+- **Repeat-failure and loop detection:** group steps by a signature; two
+  errors are a repeat failure, three repeats a loop (the Watch rows).
+- **The self-contained diff**, if `Code format="diff"` proves too limited for
+  the step page.
 
-Code is not reusable (React, a JSONL-shaped model, and a mod may import only
-its own files), but these were validated there:
+## Open items
 
-- **Granularity bundling** in the Activity view
-  (`../claude-code-workflow-visualizer/src/webview/activity.ts`): show
-  bundles first, expand on demand. The folded turns in the Timeline and the
-  Overview follow it.
-- **Repeat-failure and loop detection** (`src/webview/problems.ts`): group
-  steps by a signature; ≥2 errors is a repeat failure, ≥3 repeats a loop. A
-  candidate for the Overview's Latest section after v1.
-- **The self-contained diff** (`src/webview/diff.ts`), if `Code
-  format="diff"` proves too limited for the step detail.
-- The agent-topology view is what the Agents tree stands in for.
+- Not built: restyling the transcript, model-written agent summaries, graph
+  or waterfall views, cost analytics.

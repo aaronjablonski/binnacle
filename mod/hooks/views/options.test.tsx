@@ -122,7 +122,7 @@ test('the card lists every option with its value and when it applies, and a Neve
   expect(rowOf('Show cost').slice(38)).toMatch(/^off\s+now$/)
   expect(rowOf('Agent time limit').slice(38, 41)).toBe('60m')
   expect(rowOf('Open at start').slice(50)).toBe('next start')
-  expect(rowOf('Accent').slice(50)).toBe('coming')
+  expect(rowOf('Accent').slice(50)).toBe('now')
   const never = rows.findIndex(r => r.trimStart().startsWith('Never '))
   expect(never > 0).toBe(true)
   const after = rows.slice(never + 1, never + 5).join('\n')

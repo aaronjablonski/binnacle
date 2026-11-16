@@ -9,11 +9,11 @@ import { needsLimits } from './needs'
 import { inst, runText } from './parts'
 import type { Run } from './parts'
 import { begin } from './paint'
-import { lookOption } from './options'
+import { accentOption, lookOption } from './options'
 import { leaveStrip } from './shell'
 import { stripBandView } from './stripband'
 import type { ViewCtx } from './shell'
-import { CK, critterArgs, groundOf, lookAsked, themeOf } from './style'
+import { CK, critterArgs, groundOf, lookAsked, setAccent, themeOf } from './style'
 import { bandSvgOf, lookFor } from './svgview'
 
 // The band above the prompt (cockpit spec "CockpitBand", mock CockpitBand;
@@ -285,7 +285,7 @@ function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel): RenderElement 
  * it opens the pane. The desktop app draws the band as one Svg with `/mc`
  * beside it as a Button.
  */
-export function registerBand(on: On, options: { look?: string; ground?: unknown } = {}): void {
+export function registerBand(on: On, options: { look?: string; ground?: unknown; accent?: unknown } = {}): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     try {
@@ -297,6 +297,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown 
       if (m.nothing && !isStrip) return next(e)
 
       const cols = e.props.bodyColumns
+      setAccent(accentOption() ?? options.accent)
       // The Rasters here are all still, so the paint clock never blits the band.
       begin(BAND_SITE)
       const theme = await themeOf($)

@@ -45,12 +45,10 @@ type Field = {
 /**
  * The fields the card knows, in its order. A field the manifest declares
  * and this list lacks is still drawn, under More, its kind from its value.
- * `accent` is drawn as coming until the manifest declares it.
  */
 const FIELDS: readonly Field[] = [
   { field: 'look', label: 'Look', section: 'Look', applies: 'now', kind: 'choice', choices: ['auto', 'rich', 'text'] },
-  // Declared in the manifest (C2) with R35's choices; it takes effect with C7, so the card says coming.
-  { field: 'accent', label: 'Accent', section: 'Look', applies: 'coming', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
+  { field: 'accent', label: 'Accent', section: 'Look', applies: 'now', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
   { field: 'notify', label: 'Notify', section: 'Signals', applies: 'now', kind: 'choice', choices: ['off', 'waits', 'done', 'all'] },
   { field: 'doneSound', label: 'Done sound', section: 'Signals', applies: 'now', kind: 'boolean' },
   {
@@ -96,6 +94,12 @@ export function configureOptions(options: PluginOptions): void {
  */
 export function lookOption(): string | undefined {
   const v = valueOf('look')
+  return typeof v === 'string' ? v : undefined
+}
+
+/** The `accent` option as it stands now (what a press just wrote, else the module's), for a draw to hand `setAccent`. */
+export function accentOption(): string | undefined {
+  const v = valueOf('accent')
   return typeof v === 'string' ? v : undefined
 }
 
@@ -392,7 +396,7 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
     if (name === 'Look') {
       // Without the option declared, the row only says what this surface draws.
       if (!('look' in given)) rows.push(infoRow(ctx, $, 'opt-look', 'Look', ctx.look ?? 'text', 'this surface'))
-      if (!('accent' in given)) rows.push(infoRow(ctx, $, 'opt-accent', 'Accent', 'iris', 'coming'))
+      if (!('accent' in given)) rows.push(infoRow(ctx, $, 'opt-accent', 'Accent', 'iris', 'default'))
     }
     for (const f of fields) {
       rows.push(optionRow(ctx, $, f, open === f.field))

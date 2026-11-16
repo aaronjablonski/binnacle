@@ -24,6 +24,9 @@ export { ASK_MS, NOTIFY_ASK_MS }
 const FRESH_MS = 15_000
 // The warm countdown's words change once a minute (`warmWords`, R40), so it redraws once a minute.
 const COUNTDOWN_REDRAW_MS = 60_000
+/** Agent-finished toasts wait this long for the others still running, so a batch folds into one (R36). */
+const FOLD_HOLD_MS = 2_000
+let foldSince: number | undefined
 
 export type { NotifyMode }
 
@@ -561,6 +564,13 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
       const first = result !== '' ? result : oneLine(a.doing.split('\n')[0] ?? '')
       toasts.push({ id, text: `${a.type} finished${first !== '' ? `: ${first}` : ''}` })
     }
+    // R36: finishes fold into one toast. While other agents still run, the first finish waits a moment for the rest.
+    const othersRunning = Object.values(t.agents).some(a => a.id !== 'main' && a.status === 'running')
+    if (toasts.length === 0) foldSince = undefined
+    else if (othersRunning && (foldSince === undefined || now - foldSince < FOLD_HOLD_MS)) {
+      foldSince ??= now
+      toasts.length = 0
+    } else foldSince = undefined
     if (notes.length === 0 && toasts.length === 0) return
 
     await updateUi($, cur => ({
@@ -582,7 +592,7 @@ export async function needsTick($: EngineInterface, notify: NotifyMode | undefin
         }
       }
     }
-    for (const x of toasts) $.ui.toast(x.text)
+    if (toasts.length > 0) $.ui.toast(toasts.length === 1 ? toasts[0]!.text : `${toasts.length} agents finished`)
   } catch (err) {
     debug($, `needs tick failed: ${errText(err)}`)
   }

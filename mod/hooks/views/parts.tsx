@@ -1,6 +1,7 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { debug, errText } from '../state'
+import { sweepCells, sweepFrame, sweepShows } from './delights'
 import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
@@ -1178,14 +1179,29 @@ export function section(ctx: ViewCtx, $: EngineInterface, title: string, sum?: s
 }
 
 /** The cockpit lintel as an instrument: `frameTop` (clamp and hairline, no pill), as text `┏━━` and a `─` hairline. */
-export function frameTopInst(key: string, width: number, tone: Tone4 = 'iris', ground: Ground = 'night'): InstSpec {
+export function frameTopInst(key: string, width: number, tone: Tone4 = 'iris', ground: Ground = 'night', sweep?: number): InstSpec {
+  // R36: the clean-run sweep lights a window of the hairline in the accent; absent, the plain lintel.
+  const [from, to] = sweepCells(sweep, width)
   return {
     key,
     columns: width,
     rows: 1,
-    sig: `frameTop:${width}:${tone}:${ground}`,
-    frames: () => [frameTop(width, { hue: tone, pal: PALETTE[ground] })],
-    fallback: [[{ text: '┏━━'.slice(0, width), color: toneKey(tone) }, { text: '─'.repeat(Math.max(0, width - 3)), color: C.subtle }]],
+    sig: `frameTop:${width}:${tone}:${ground}${to > from ? `:s${from}` : ''}`,
+    frames: () => {
+      const g = frameTop(width, { hue: tone, pal: PALETTE[ground] })
+      for (let i = from; i < to; i++) g.ht(i, 0, 'iris')
+      return [g]
+    },
+    fallback: [
+      to > from
+        ? [
+            { text: '┏━━'.slice(0, width), color: toneKey(tone) },
+            { text: '─'.repeat(Math.max(0, from - 3)), color: C.subtle },
+            { text: '━'.repeat(to - from), color: C.accent },
+            { text: '─'.repeat(Math.max(0, width - to)), color: C.subtle },
+          ]
+        : [{ text: '┏━━'.slice(0, width), color: toneKey(tone) }, { text: '─'.repeat(Math.max(0, width - 3)), color: C.subtle }],
+    ],
   }
 }
 
@@ -1302,7 +1318,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
       {runs.map((r, i) => runText(r, ctx.e, $, `${k}-${i}`))}
     </Text>
   )
-  const top = inst(ctx, $, frameTopInst(`${spec.key}-lintel`, cols, tone, ground))
+  const top = inst(ctx, $, frameTopInst(`${spec.key}-lintel`, cols, tone, ground, sweepShows(ctx) ? sweepFrame() : undefined))
   const foot = inst(ctx, $, frameFootInst(`${spec.key}-sill`, cols, tone, ground))
 
   if (cols < HEADER_COMPACT_UNDER || spec.compact === true) {

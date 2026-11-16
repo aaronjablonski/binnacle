@@ -11,11 +11,12 @@ import { overviewView } from './overview'
 import { leavePage, pageOf } from './pagenav'
 import { begin, forget, startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
+import { delightsTick } from './delights'
 import { needsTick, observeCover } from './needs'
 import type { NotifyMode } from './needs'
-import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
+import { accentOption, configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, GRID, groundOf, lookAsked, motionOn, themeOf, tier } from './style'
+import { C, GRID, groundOf, lookAsked, motionOn, setAccent, themeOf, tier } from './style'
 import type { Ground, Look } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
@@ -342,6 +343,8 @@ type Drawn = {
  */
 async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: PluginOptions, look?: string): Promise<Drawn> {
   const theme = await themeOf($)
+  const accent = accentOption() ?? options.accent
+  setAccent(accent)
   const asked = lookAsked(look, theme)
   return {
     look: lookFor($.ui.resolve(e), e.surface, asked !== undefined ? { look: asked } : {}),
@@ -355,7 +358,7 @@ async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: Plug
     bodyRows: e.props.scroll.bodyRows,
     ground: groundOf(options.ground, theme),
     motion: motionOn(options.motion),
-    accent: typeof options.accent === 'string' ? options.accent : 'iris',
+    accent: typeof accent === 'string' ? accent : 'iris',
     isPromptCovered: e.props.isPromptCovered === true,
   }
 }
@@ -590,9 +593,10 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim, strip or options.' }
 }
 
-async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise<void> {
+async function tick($: EngineInterface, notify: NotifyMode | undefined, motion: boolean): Promise<void> {
   await needsTick($, notify)
   await budgetTick($)
+  await delightsTick($, { motion })
   try {
     const t = await readTimeline($)
     // `main` is a row of its own and stays 'running' for the whole session.
@@ -605,7 +609,7 @@ async function tick($: EngineInterface, notify: NotifyMode | undefined): Promise
 }
 
 /** Session-start work, called from register.tsx's one session.start hook. Never throws. */
-export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode }): Promise<void> {
+export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode; motion?: unknown }): Promise<void> {
   // The strip stands in for the pane: a reload or a resumed session keeps it.
   if (options.autoOpen === true && !(await isStrip($))) {
     try {
@@ -626,7 +630,7 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   // The mod's one 1 s clock lives in paint.ts: each period runs this tick,
   // then the rich instruments' paint pass. A second start cancels the first.
   try {
-    startClock($, () => tick($, options.notify))
+    startClock($, () => tick($, options.notify, motionOn(options.motion)))
   } catch (err) {
     debug($, `clock failed: ${errText(err)}`)
   }

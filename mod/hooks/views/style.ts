@@ -3,6 +3,32 @@ import { BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
 import type { CritterSize, Grid, Ground, Hue, Neutral, Size, State } from './raster'
 
 /**
+ * The accent (R35): the theme key the structural colour draws in. `iris`
+ * (default) is `suggestion`; `sky` is `ide` (the IDE blue) and `slate` is
+ * `promptBorder` (the neutral prompt-box grey). None is a state colour
+ * (`success`, `error`, `warning`) or a role hue (`merged`, `claude`).
+ */
+export const ACCENTS = { iris: 'suggestion', sky: 'ide', slate: 'promptBorder' } as const
+export type AccentName = keyof typeof ACCENTS
+
+/** The theme key of an accent option; anything unknown is iris. */
+export function accentKeyOf(option: unknown): string {
+  return typeof option === 'string' && Object.hasOwn(ACCENTS, option) ? ACCENTS[option as AccentName] : ACCENTS.iris
+}
+
+let accentKey: string = ACCENTS.iris
+
+/**
+ * Points `C.accent`, `C.live` and `CK.accent` at the accent option. The shell
+ * and the band call it at the top of every draw from the option as it stands
+ * (a press applies at once), so every view reads one structural colour with no
+ * per-view option read. It is module configuration, not session state.
+ */
+export function setAccent(option: unknown): void {
+  accentKey = accentKeyOf(option)
+}
+
+/**
  * The palette: theme keys only, so the pane follows the person's theme.
  * Views never write a colour literal.
  *
@@ -24,8 +50,8 @@ import type { CritterSize, Grid, Ground, Hue, Neutral, Size, State } from './ras
  * `?` and `z` are `wait`; failed hulls and `!` are `fail`.
  */
 export const C = {
-  accent: 'suggestion',
-  live: 'suggestion',
+  get accent(): string { return accentKey },
+  get live(): string { return accentKey },
   wait: 'warning',
   error: 'error',
   fail: 'error',
@@ -509,7 +535,7 @@ export function spriteOf(agent: PodAgent, now: number, state?: PodState, size: S
  * - `inverse` (`inverseText`): the text on a pill.
  */
 export const CK = {
-  accent: 'suggestion',
+  get accent(): string { return accentKey },
   ask: 'warning',
   fail: 'error',
   ok: 'success',

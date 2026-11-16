@@ -9,7 +9,7 @@ import { buckets, clock, elapsed, growLists, levels, listSplit, pips, spark, typ
 import { exportDigest } from './handoff'
 import { podFor, waitStates } from './needs'
 import { openPage } from './pagenav'
-import { blank, footer, heightOf, more, page, richDeck, row, section } from './parts'
+import { blank, footer, heightOf, more, page, richDeck, row, tableHead } from './parts'
 import type { Action, Detail, Hint, InstSpec, PageBlock, RichRow, Run } from './parts'
 import { bars } from './raster'
 import type { Ink } from './raster'
@@ -252,7 +252,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const blocks: RenderElement[][] = []
 
     if (active.length > 0) {
-      const lines: RenderElement[] = [section(ctx, $, 'ACTIVE', 'tokens', 'time')]
+      const lines: RenderElement[] = [tableHead(ctx, $, 'ACTIVE', 'tokens', 'time')]
       for (const x of active.slice(0, ACTIVE_CAP)) {
         const key = keyOf(x)
         const agents = agentsOn(t, x)
@@ -310,7 +310,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const doneSplit = listSplit(done.length, grown.get('done') ?? 0)
 
     if (queued.length > 0) {
-      const lines: RenderElement[] = [section(ctx, $, 'QUEUED')]
+      const lines: RenderElement[] = [tableHead(ctx, $, 'QUEUED')]
       for (const x of queued.slice(0, queuedSplit.shown)) {
         const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
         const owner = ownerType !== undefined ? typeShort(ownerType) : undefined
@@ -329,7 +329,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     }
 
     if (done.length > 0) {
-      const lines: RenderElement[] = [section(ctx, $, 'DONE', 'tokens', 'time')]
+      const lines: RenderElement[] = [tableHead(ctx, $, 'DONE', 'tokens', 'time')]
       for (const x of done.slice(0, doneSplit.shown)) {
         const m = byTask.get(keyOf(x))
         const used = m !== undefined ? tok(m.tokens) : ''

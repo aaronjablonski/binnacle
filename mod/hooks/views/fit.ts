@@ -1,6 +1,6 @@
 // Pure text helpers for the views. No claude-code import, so vitest loads it.
 
-import { C, dialOf, GLYPHS, rateColor } from './style'
+import { C, dialOf, GLYPHS, rateColor, typeName } from './style'
 import type { Pod, Run } from './style'
 
 /** Cuts `text` to `columns` cells with a trailing '…'; '' when there is no room. */
@@ -315,6 +315,8 @@ const TOOL_SHORT: Record<string, string> = {
 }
 
 /**
+ * @deprecated R31: a tool cell is never empty. Use `toolName` (and `toolRoom`).
+ *
  * A tool's name for a column of `room` (5 in a table row): whole when it
  * fits, else its short name (`SubagentHandback` is `Hand`), else '' (the
  * name column after it says what the step is). Never cut.
@@ -936,4 +938,326 @@ export function wrapFull(text: string, cols: number): string[] {
   while (out.length > 0 && out[out.length - 1] === '') out.pop()
   while (out.length > 0 && out[0] === '') out.shift()
   return out
+}
+
+// ---------- the cockpit: words (cockpit spec "Vocabulary", rulings R22, R27, R31) ----------
+
+/** What `doing` reads of a step: a model `Step` fits (`pending` is its input while it runs). */
+export type DoingStep = { tool: string; label?: string; pending?: Record<string, unknown>; asking?: number }
+
+const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? oneSpaced(v) : undefined)
+
+/** The last two segments of a path, `/` separated: what a card shows of a file. */
+function tail2(path: string): string {
+  return path
+    .split(/[\\/]+/)
+    .filter(s => s !== '')
+    .slice(-2)
+    .join('/')
+}
+
+/** A step's label without its leading tool name (`Edit a/b.ts` is `a/b.ts`). */
+function labelRest(s: DoingStep): string {
+  const l = oneSpaced(s.label ?? '')
+  return l.startsWith(`${s.tool} `) ? l.slice(s.tool.length + 1) : l === s.tool ? '' : l
+}
+
+const quoted = (s: string): string => `“${s.replace(/^"(.*)"$/, '$1')}”`
+
+const FILE_VERB: Record<string, string> = { Read: 'Reading', Edit: 'Editing', MultiEdit: 'Editing', NotebookEdit: 'Editing', Write: 'Writing' }
+const LIST_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate'])
+const ASK_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+
+/**
+ * What an agent is doing, as a verb phrase for Now (cockpit spec: tool names
+ * become verbs; Steps keeps the names): no running step is "Thinking"; a step
+ * a dialog waits on (`asking`, or the question and plan tools) is "Waiting
+ * for your answer"; Read is "Reading <file>", Grep and Glob "Searching
+ * <where> for “<what>”", Bash "Running <command>", Edit "Editing <file>",
+ * Write "Writing <file>", Agent "Delegating: <description>", the task tools
+ * "Updating the to-do list", anything else "Using <tool>". Files show their
+ * last two segments. The phrase is one line, uncut: the view fits it.
+ *
+ * @example doing({ tool: 'Edit', label: 'Edit test/rateLimit.test.ts' })                              // 'Editing test/rateLimit.test.ts'
+ * @example doing({ tool: 'Grep', label: 'Grep "upload("', pending: { pattern: 'upload(', path: 'src/server' } }) // 'Searching src/server for “upload(”'
+ * @example doing(undefined)                                                                             // 'Thinking'
+ */
+export function doing(step: DoingStep | undefined): string {
+  if (step === undefined) return 'Thinking'
+  const t = step.tool
+  const input = step.pending ?? {}
+  if (step.asking !== undefined || ASK_TOOLS.has(t)) return 'Waiting for your answer'
+  const rest = labelRest(step)
+  const verb = FILE_VERB[t]
+  if (verb !== undefined) {
+    const p = text(input.file_path) ?? text(input.notebook_path)
+    const what = p !== undefined ? tail2(p) : rest
+    return what !== '' ? `${verb} ${what}` : verb
+  }
+  if (t === 'Grep' || t === 'Glob') {
+    const pattern = text(input.pattern) ?? (rest !== '' ? rest.replace(/^"(.*)"$/, '$1') : undefined)
+    const where = text(input.path)
+    const what = pattern !== undefined ? (t === 'Grep' ? quoted(pattern) : pattern) : undefined
+    if (what === undefined) return where !== undefined ? `Searching ${tail2(where)}` : 'Searching'
+    return where !== undefined ? `Searching ${tail2(where)} for ${what}` : `Searching for ${what}`
+  }
+  if (t === 'Bash' || t === 'PowerShell') {
+    const c = text(input.command) ?? rest
+    return c !== '' ? `Running ${c}` : 'Running a command'
+  }
+  if (t === 'Agent' || t === 'Task') {
+    const d = text(input.description)
+    if (d !== undefined) return `Delegating: ${d}`
+    const ty = text(input.subagent_type)
+    if (ty !== undefined) return `Delegating to ${typeName(ty)}`
+    const fromLabel = rest.includes(' · ') ? rest.slice(rest.indexOf(' · ') + 3) : rest
+    return fromLabel !== '' ? `Delegating: ${fromLabel}` : 'Delegating'
+  }
+  if (t === 'WebFetch') {
+    const u = text(input.url) ?? rest
+    const host = /^[a-z]+:\/\/([^/\s]+)/i.exec(u)?.[1]
+    return host !== undefined ? `Reading ${host}` : 'Reading a web page'
+  }
+  if (t === 'WebSearch') {
+    const q = text(input.query) ?? rest
+    return q !== '' ? `Searching the web for ${quoted(q)}` : 'Searching the web'
+  }
+  if (LIST_TOOLS.has(t)) return 'Updating the to-do list'
+  if (t === 'Skill') {
+    const sk = text(input.skill) ?? rest
+    return sk !== '' ? `Using the ${sk} skill` : 'Using a skill'
+  }
+  if (t === 'SubagentHandback') return 'Handing back'
+  return `Using ${mcpPart(t)}`
+}
+
+/** An MCP tool's own part (`mcp__server__tool` is `tool`); any other name as it is. */
+function mcpPart(tool: string): string {
+  if (!tool.startsWith('mcp__')) return tool
+  const parts = tool.split('__').filter(p => p !== '')
+  return parts[parts.length - 1] ?? tool
+}
+
+/**
+ * The short tool names (R31, owner: short, then drop below 40): `Edit Read
+ * Write Bash Grep Glob Web Fetch Agent Skill Todo Task+ Task✓ Back Cell`,
+ * and a few more the session meets so no cell is ever empty.
+ */
+export const TOOL_NAMES: Readonly<Record<string, string>> = {
+  MultiEdit: 'Edit',
+  WebSearch: 'Web',
+  WebFetch: 'Fetch',
+  TodoWrite: 'Todo',
+  TaskCreate: 'Task+',
+  TaskUpdate: 'Task✓',
+  SubagentHandback: 'Back',
+  BashOutput: 'Back',
+  TaskOutput: 'Back',
+  NotebookEdit: 'Cell',
+  PowerShell: 'Shell',
+  AskUserQuestion: 'Ask',
+  ExitPlanMode: 'Plan',
+  EnterPlanMode: 'Plan',
+  StructuredOutput: 'Out',
+  Workflow: 'Flow',
+  ToolSearch: 'Tools',
+  TaskList: 'Tasks',
+  TaskGet: 'Task',
+  TaskStop: 'Stop',
+  KillShell: 'Stop',
+  SendMessage: 'Send',
+}
+
+/** Under this many body columns the tool column is dropped (R31). */
+export const TOOL_COLUMN_FROM = 40
+
+/** The width of a step's tool column at `cols`: 5 (short names), or 0 under 40 columns: dropped. */
+export function toolRoom(cols: number): number {
+  return cols < TOOL_COLUMN_FROM ? 0 : 5
+}
+
+/**
+ * A tool's name for a column of `room` (R31): whole when it fits; else its
+ * short name (`TaskUpdate` is `Task✓`); an MCP tool is the last part of
+ * `mcp__server__tool`, cut at a word (`_`, `-` or a capital); any other
+ * name is cut at a word the same way. Never empty while `room` > 0: a name
+ * whose first word is wider than the room keeps `room - 1` letters and `…`
+ * (the only cut inside a word, so the column is never blank). Room 0 is ''.
+ *
+ * @example toolName('TaskUpdate')                     // 'Task✓'
+ * @example toolName('mcp__mission-control__update')    // 'updat…' at 5; 'update' at 6
+ * @example toolName('mcp__github__get_issue')         // 'get'
+ */
+export function toolName(tool: string, room = 5): string {
+  if (room <= 0) return ''
+  if ([...tool].length <= room) return tool
+  const short = TOOL_NAMES[tool]
+  if (short !== undefined && [...short].length <= room) return short
+  const own = mcpPart(tool)
+  if ([...own].length <= room) return own
+  const words = own
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(w => w !== '')
+  let head = ''
+  for (const w of words) {
+    const next = head === '' ? w : `${head} ${w}`
+    if (next.length > room) break
+    head = next
+  }
+  if (head !== '') return head
+  return room === 1 ? '…' : `${own.slice(0, room - 1)}…`
+}
+
+/**
+ * A duration in the cockpit's words (R27): `45s` under a minute; `2m 14s`
+ * under 10 min only where `steps` asks for it (the Steps tab); `12 min`;
+ * `1 h 12 min` (and `2 h` on the hour).
+ *
+ * @example span(45_000)                      // '45s'
+ * @example span(134_000, { steps: true })    // '2m 14s'
+ * @example span(134_000)                     // '2 min'
+ * @example span(72 * 60_000)                 // '1 h 12 min'
+ */
+export function span(ms: number, o: { steps?: boolean } = {}): string {
+  const s = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (o.steps === true && m < 10) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  if (m < 60) return `${m} min`
+  const h = Math.floor(m / 60)
+  return m % 60 === 0 ? `${h} h` : `${h} h ${m % 60} min`
+}
+
+/** A countdown as `m:ss` (R27: only a countdown reads this way): `4:48`. */
+export function countdown(ms: number): string {
+  const s = Math.max(0, Math.ceil((Number.isFinite(ms) ? ms : 0) / 1000))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+// ---------- the cockpit: bars in `━` (R22: Text, so no Raster on any surface) ----------
+
+/** One part of a `ruleBar`: a count and its style (a theme key, or dim). */
+export type BarPart = { count: number; color?: string; dim?: boolean }
+
+/** Adjacent runs of the same style joined. */
+function joinRuns(runs: Run[]): Run[] {
+  const out: Run[] = []
+  for (const r of runs) {
+    if (r.text === '') continue
+    const last = out[out.length - 1]
+    if (last !== undefined && last.color === r.color && last.dim === r.dim && last.bold === r.bold) out[out.length - 1] = { ...last, text: last.text + r.text }
+    else out.push(r)
+  }
+  return out
+}
+
+const styleOf = (p: BarPart): Omit<Run, 'text'> => ({ ...(p.color !== undefined ? { color: p.color } : {}), ...(p.dim === true ? { dim: true } : {}) })
+
+/**
+ * A stacked bar of `cells` `━` (the spec's `bar(cells, parts)`): each part's
+ * share by largest remainder, a non-zero part never under one cell while
+ * cells remain; all zero is the rest. Exactly `cells` wide.
+ *
+ * @example ruleBar(28, [{ count: 71, color: 'suggestion' }, { count: 29, dim: true }])
+ */
+export function ruleBar(cells: number, parts: readonly BarPart[], rest: Omit<Run, 'text'> = { color: C.subtle }): Run[] {
+  const n = Math.max(0, Math.floor(cells))
+  const counts = parts.map(p => Math.max(0, Number.isFinite(p.count) ? p.count : 0))
+  const total = counts.reduce((a, b) => a + b, 0)
+  if (n === 0) return []
+  if (total <= 0) return [{ text: '━'.repeat(n), ...rest }]
+  const raw = counts.map(c => (c * n) / total)
+  const got = raw.map(Math.floor)
+  let left = n - got.reduce((a, b) => a + b, 0)
+  // A part with a count but no cell takes one first, from the largest part, while that keeps a cell.
+  counts.forEach((c, i) => {
+    if (c > 0 && got[i] === 0) {
+      if (left > 0) {
+        got[i] = 1
+        left--
+        return
+      }
+      const big = got.indexOf(Math.max(...got))
+      if (got[big]! > 1) {
+        got[big]!--
+        got[i] = 1
+      }
+    }
+  })
+  raw
+    .map((v, i) => [v - Math.floor(v), i] as const)
+    .sort((a, b) => b[0] - a[0])
+    .forEach(([, i]) => {
+      if (left > 0 && counts[i]! > 0) {
+        got[i]!++
+        left--
+      }
+    })
+  const runs: Run[] = parts.map((p, i) => ({ text: '━'.repeat(got[i]!), ...styleOf(p) }))
+  if (left > 0) runs.push({ text: '━'.repeat(left), ...rest })
+  return joinRuns(runs)
+}
+
+/** A share bar of `cells` `━`: the lit part (any non-zero lights one cell) in `color`, the rest in `subtle`. */
+export function pctBar(cells: number, pct: number, color: string = C.live): Run[] {
+  const n = Math.max(0, Math.floor(cells))
+  const p = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0
+  const lit = p > 0 ? Math.max(1, Math.round((n * p) / 100)) : 0
+  return joinRuns([
+    { text: '━'.repeat(Math.min(n, lit)), color },
+    { text: '━'.repeat(Math.max(0, n - lit)), color: C.subtle },
+  ])
+}
+
+/** Options of `todoBar`. */
+export type TodoBarOpts = {
+  /** The done part's style: the accent dimmed (iris soft) when absent; `success` when every task is done. */
+  done?: Omit<Run, 'text'>
+  /** The current part's style: the accent when absent; `warning` while it is paused on a dialog. */
+  current?: Omit<Run, 'text'>
+}
+
+/**
+ * The to-do bar of `cells` (the spec's `todoBar(total, done, current)`): one
+ * `━` segment a task with a one-cell gap (`gen-cockpit.js` `todoBar`), done
+ * segments dim in the accent, the current in the accent, the open ones in
+ * `subtle`. When a segment would be under two cells (more tasks than the
+ * width holds, R13) the bar is proportional instead: one done run, one
+ * current run (at least a cell), the open rest, with no gaps. All done, the
+ * done part is `success` (mint) unless `o.done` says otherwise. Exactly
+ * `cells` wide; no tasks is the rest alone.
+ *
+ * @example todoBar(58, 14, 9, 1) // 14 segments of 3 or 4 cells, the 10th lit
+ */
+export function todoBar(cells: number, total: number, done: number, current: number, o: TodoBarOpts = {}): Run[] {
+  const n = Math.max(0, Math.floor(cells))
+  const t = Math.max(0, Math.floor(total))
+  const d = Math.max(0, Math.min(t, Math.floor(done)))
+  const c = Math.max(0, Math.min(t - d, Math.floor(current)))
+  if (n === 0) return []
+  if (t === 0) return [{ text: '━'.repeat(n), color: C.subtle }]
+  const doneStyle = o.done ?? (d === t ? { color: C.result } : { color: C.live, dim: true })
+  const curStyle = o.current ?? { color: C.live }
+  const openStyle = { color: C.subtle }
+  const at = (i: number) => Math.floor((i * (n + 1)) / t)
+  const segments = Array.from({ length: t }, (_, i) => at(i + 1) - at(i) - 1)
+  if (Math.min(...segments) >= 2) {
+    const runs: Run[] = []
+    for (let i = 0; i < t; i++) {
+      const style = i < d ? doneStyle : i < d + c ? curStyle : openStyle
+      runs.push({ text: '━'.repeat(segments[i]!), ...style })
+      if (i < t - 1) runs.push({ text: ' ' })
+    }
+    return joinRuns(runs)
+  }
+  let nd = d > 0 ? Math.max(1, Math.round((n * d) / t)) : 0
+  let nc = c > 0 ? Math.max(1, Math.round((n * c) / t)) : 0
+  if (d < t && nd + nc >= n) nd = Math.max(d > 0 ? 1 : 0, n - nc - 1)
+  if (nd + nc > n) nc = Math.max(0, n - nd)
+  return joinRuns([
+    { text: '━'.repeat(nd), ...doneStyle },
+    { text: '━'.repeat(nc), ...curStyle },
+    { text: '━'.repeat(Math.max(0, n - nd - nc)), ...openStyle },
+  ])
 }

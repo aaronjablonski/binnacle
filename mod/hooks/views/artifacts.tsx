@@ -10,7 +10,7 @@ import type { DigestParts } from './handoff'
 import { paneState } from './needs'
 import { openStep, openStepInline } from './openstep'
 import { openPage } from './pagenav'
-import { blank, footer, heightOf, inst, more, opened, page, richDeck, row, section } from './parts'
+import { blank, footer, heightOf, inst, more, opened, page, richDeck, row, tableHead } from './parts'
 import type { Action, Detail, Hint, InstSpec, Run } from './parts'
 import { stack } from './raster'
 import type { Hue } from './raster'
@@ -320,7 +320,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const artSplit = listSplit(rows.length, grown.get('artifacts') ?? 0)
     const fileSplit = listSplit(files.length, grown.get('files') ?? 0)
 
-    const list: RenderElement[] = [section(ctx, $, 'ARTIFACTS', 'kind', 'age')]
+    const list: RenderElement[] = [tableHead(ctx, $, 'ARTIFACTS', 'kind', 'age')]
     if (rows.length === 0) {
       wrapWords(EMPTY, Math.max(1, cols - COL.glyph), 5).forEach((l, i) => {
         list.push(
@@ -368,7 +368,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     blocks.push(list)
 
     if (files.length > 0) {
-      const out: RenderElement[] = [section(ctx, $, 'FILES CHANGED', 'edits', 'last')]
+      const out: RenderElement[] = [tableHead(ctx, $, 'FILES CHANGED', 'edits', 'last')]
       const most = Math.max(...files.map(f => f.edits))
       const tc = tableCols(cols)
       // The edit bar sits between the count and the time: only where both columns exist.

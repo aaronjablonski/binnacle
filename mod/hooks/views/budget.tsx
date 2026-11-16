@@ -14,7 +14,7 @@ import { bar, clock, elapsed, growLists, listSplit, meter, shortPaths, wordFit }
 import { laid, runsLine } from './lay'
 import type { Placed } from './lay'
 import { podFor, waitStates } from './needs'
-import { blank, deck, heightOf, inst, more, section } from './parts'
+import { blank, deck, heightOf, inst, more, tableHead } from './parts'
 import type { DeckCell, DeckRow, InstSpec, ReadoutCell, Run } from './parts'
 import { Grid } from './raster'
 import type { Ink } from './raster'
@@ -208,7 +208,7 @@ type Share = { key: string; glyph: Run; name: string; tokens: number; color: str
 function shareTable(ctx: ViewCtx, $: EngineInterface, label: string, items: Share[], total: number, extra: number): RenderElement[] {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const tc = tableCols(ctx.cols)
-  const out: RenderElement[] = [section(ctx, $, label, 'tokens', 'share')]
+  const out: RenderElement[] = [tableHead(ctx, $, label, 'tokens', 'share')]
   for (const x of items) {
     const dim = x.dim === true ? { dim: true } : {}
     const segs: Placed[] = [
@@ -732,7 +732,7 @@ function richBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     const items: Share[] = totals.slice(0, caps.models).map(x => ({ key: `model-${x.model}`, glyph: { text: '◆', color: C.model }, name: x.model, tokens: x.tokens, color: C.model }))
     out.push(
       blank(ctx, $, 'budget-gap-1'),
-      section(ctx, $, 'MODELS', 'tokens', 'share'),
+      tableHead(ctx, $, 'MODELS', 'tokens', 'share'),
       ...items.map(x => richShareRow(ctx, $, x, all, 'orchid')),
       ...(totals.length > items.length ? [more(ctx, $, totals.length - items.length, 'more models')] : []),
     )
@@ -759,7 +759,7 @@ function richBudgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     })
     out.push(
       blank(ctx, $, 'budget-gap-2'),
-      section(ctx, $, 'AGENTS', 'tokens', 'share'),
+      tableHead(ctx, $, 'AGENTS', 'tokens', 'share'),
       ...items.map(x => richShareRow(ctx, $, x, sum, 'iris')),
       ...(reported.length > items.length ? [more(ctx, $, reported.length - items.length, 'more agents')] : []),
     )

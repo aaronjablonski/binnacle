@@ -1,6 +1,6 @@
 import type { AgentRow, StepStatus, TaskItem } from '../../types'
-import { SPRITE, sprite } from './raster'
-import type { Grid, Hue, Neutral, Size, State } from './raster'
+import { BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
+import type { CritterSize, Grid, Ground, Hue, Neutral, Size, State } from './raster'
 
 /**
  * The palette: theme keys only, so the pane follows the person's theme.
@@ -88,6 +88,9 @@ export const COL = {
 } as const
 
 /**
+ * @deprecated Neo deck stops. The cockpit's columns are `COCKPIT` (the spec's
+ * new `DECK`: text 9, gauges 40 and 51, mid 49, right 59).
+ *
  * A deck row's stops at 62 columns (spec "Label column"): the rail at 0, a dim
  * caps label at 2 (to 11), the gauge at 14 (22 wide, to 35), the value at 38
  * (10 wide), the aside at 50 (ends by 59), the right rail at the last column
@@ -453,6 +456,8 @@ export type SpriteArgs = {
 }
 
 /**
+ * @deprecated Neo Rich sprites. Use `critterOf` (Critters, small and micro).
+ *
  * An agent as a sprite (the rich form of `podOf`, which stays the text form):
  * role from `roleOf` (`main` is the lead), state from `state` when given,
  * else the agent's own (`podStateOf`). Size `L` is 9 x 4 cells, `S` 5 x 2
@@ -486,4 +491,254 @@ export function spriteOf(agent: PodAgent, now: number, state?: PodState, size: S
         : [sprite(role, st, size)],
     fallback,
   }
+}
+
+// ---------- the cockpit (cockpit spec "Palette", "Spacing and type"; rulings R19 to R25) ----------
+
+/**
+ * The cockpit's text roles, as theme keys (owner ruling 1: text and every
+ * non-sprite element use these; the role hues stay inside critters).
+ * - `accent` (`suggestion`, iris): now: the current task, the open tab, the
+ *   one filled button, hotkeys. Done segments are the accent dimmed (iris
+ *   soft has no theme key; it is a Raster hue).
+ * - `ask` (`warning`, amber): a dialog waits (Needs you) and nothing else (R9).
+ * - `fail` (`error`, red): a failure you can open; a gauge at 90 %.
+ * - `ok` (`success`, mint): the all-clear tick, `ALL DONE`.
+ * - `rule` (`subtle`): hairlines, open circles, a bar's rest.
+ * - ink is the default colour, dim is `dimColor`: neither is a key.
+ * - `inverse` (`inverseText`): the text on a pill.
+ */
+export const CK = {
+  accent: 'suggestion',
+  ask: 'warning',
+  fail: 'error',
+  ok: 'success',
+  rule: 'subtle',
+  inverse: 'inverseText',
+} as const
+
+/**
+ * The cockpit's columns at 62 (cockpit spec "Spacing and type"; the spec's new
+ * `DECK`, under its own name while the Neo views still read `DECK`):
+ * - `marker` 0: the gutter, only `▍` and `◂`
+ * - `left` 2: content starts
+ * - `text` 9: the header's kicker and headline, an agent card's name and job
+ * - `gauge` 40, `gauge2` 51: the header's two 9 x 5 gauges
+ * - `mid` 49: a second figure ends here (tokens)
+ * - `right` 59: content ends; times end here
+ * - `headline` 29: the headline's width beside the gauges
+ */
+export const COCKPIT = { marker: 0, left: 2, text: 9, gauge: 40, gauge2: 51, mid: 49, right: 59, headline: 29 } as const
+
+/**
+ * Where content runs at a body width (narrow tiers scale per the spec): from
+ * 2 to `cols - 3` (59 at 62) with two gutter columns each side; under 32
+ * columns (slim) from 1 to `cols - 2`.
+ */
+export function edges(cols: number): { left: number; right: number } {
+  return cols < 32 ? { left: 1, right: Math.max(1, cols - 2) } : { left: 2, right: Math.max(2, cols - 3) }
+}
+
+/** A frame or pill tone, and its theme key: iris works, amber asks, mint is all done, red stopped. */
+export type Tone4 = 'iris' | 'amber' | 'mint' | 'red'
+
+/** The theme key of a tone, for Text (a pill's background, a clamp's text form). */
+export function toneKey(tone: Tone4): string {
+  return tone === 'amber' ? CK.ask : tone === 'mint' ? CK.ok : tone === 'red' ? CK.fail : CK.accent
+}
+
+/**
+ * A gauge's text style (R9: amber is the dialog colour only): dim under 70 %,
+ * bold ink from 70, red from 90. Used for the word under a gauge and a gauge
+ * written as words.
+ */
+export function gaugeStyle(pct: number): Omit<Run, 'text'> {
+  if (pct >= 90) return { color: CK.fail }
+  if (pct >= 70) return { bold: true }
+  return { dim: true }
+}
+
+/** The ground a Raster is drawn for: `day` on light themes, `night` on the rest (R21). */
+export type { Ground }
+
+/**
+ * The ground for the `ground` option and the theme's name (R21): `night` and
+ * `day` win; `auto` (and anything else) reads the theme: a light theme
+ * (`light`, `light-daltonized`, `light-ansi`, any name with "light") gives
+ * day, every other theme (and no theme) night.
+ *
+ * @example groundOf(options.ground, await themeOf($)) // 'day' on the light theme
+ */
+export function groundOf(option: unknown, theme: string | undefined): Ground {
+  if (option === 'night' || option === 'day') return option
+  return theme !== undefined && /light/i.test(theme) ? 'day' : 'night'
+}
+
+/**
+ * Whether a theme draws in the text look by default (R21): the ANSI themes
+ * (16 colours: a Raster's hex would ignore the person's palette) and the
+ * daltonized ones (role hues are told apart by hue). The `look` option still wins.
+ */
+export function isTextTheme(theme: string | undefined): boolean {
+  return theme !== undefined && /ansi|dalton/i.test(theme)
+}
+
+/**
+ * The theme's name from `/config` (the `theme` row of `$.config.list()`), or
+ * undefined when it cannot be read. Async: call it outside a draw (the shell
+ * reads it once per open and on `config.set`) and hand the result to
+ * `groundOf` and `isTextTheme`.
+ */
+export async function themeOf($: { config: { list: () => Promise<{ key: string; value: unknown }[]> } }): Promise<string | undefined> {
+  try {
+    const row = (await $.config.list()).find(r => r.key === 'theme')
+    return typeof row?.value === 'string' ? row.value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Whether the `motion` option allows the blink and the sweep (R24): on unless it says `off` (or false). */
+export function motionOn(option: unknown): boolean {
+  return option !== 'off' && option !== false
+}
+
+/**
+ * An agent's role for its critter: only `main` is the lead (ember means the
+ * lead, R20); every other agent takes `roleOf` of its type, a planning agent
+ * (which `roleOf` calls lead) and unknown types drawing the builder hat (R23).
+ */
+export function crewRole(agentId: string, agentType: string): Role {
+  if (agentId === 'main') return 'lead'
+  const r = roleOf(agentType)
+  return r === 'lead' ? 'build' : r
+}
+
+const TYPE_NAMES: Record<string, string> = {
+  main: 'Claude',
+  'general-purpose': 'General',
+  explore: 'Explorer',
+  plan: 'Planner',
+}
+
+/**
+ * An agent type in friendly case for the name column (R23: the role word
+ * never lies; the hat is only a hint): `general-purpose` is "General",
+ * `Explore` "Explorer", `Plan` "Planner", `main` "Claude"; any other type
+ * has its hyphens and underscores turned to spaces, its camel case parted,
+ * and only its first letter capitalised ("code-reviewer" is "Code reviewer").
+ */
+export function typeName(agentType: string): string {
+  const t = agentType.trim()
+  const known = TYPE_NAMES[t.toLowerCase()]
+  if (known !== undefined) return known
+  const words = t
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(w => w !== '')
+    .map(w => w.toLowerCase())
+  if (words.length === 0) return 'Agent'
+  const s = words.join(' ')
+  return s[0]!.toUpperCase() + s.slice(1)
+}
+
+/** The role word a critter's text form writes (R22): the hat it wears. */
+export const ROLE_WORD: Record<Role, string> = { lead: 'lead', scout: 'scout', build: 'build', check: 'check' }
+
+/**
+ * A critter's state glyph and badge as text (R22: one state glyph in the
+ * state colour, then the role word): queued `○` dim, working `●` in the
+ * accent, waiting `●` with `?` in amber, stalled `●` with `z` dim, failed
+ * `×` with `!` in red, done `✓` dim.
+ */
+export function critterGlyph(state: PodState): { glyph: Run; badge?: Run } {
+  switch (state) {
+    case 'queued':
+      return { glyph: { text: '○', dim: true } }
+    case 'working':
+      return { glyph: { text: '●', color: CK.accent } }
+    case 'waiting':
+      return { glyph: { text: '●', color: CK.ask }, badge: { text: '?', color: CK.ask, bold: true } }
+    case 'stalled':
+      return { glyph: { text: '●', dim: true }, badge: { text: 'z', dim: true } }
+    case 'failed':
+      return { glyph: { text: '×', color: CK.fail }, badge: { text: '!', color: CK.fail, bold: true } }
+    case 'done':
+      return { glyph: { text: '✓', dim: true } }
+  }
+}
+
+/** What `critterOf` reads besides the agent. */
+export type CritterOpts = {
+  /** The state, when the model's problems know better than the row (waiting, stalled, queued). */
+  state?: PodState
+  /** `small` (default) or `micro`. */
+  size?: CritterSize
+  ground?: Ground
+  /** The blink (R24): pass it only where the spec allows it (not the band, not idle). */
+  motion?: boolean
+  /** Shifts the blink so agents blink apart; `critterOf` derives one from the id when absent. */
+  phase?: number
+}
+
+/**
+ * One critter as an instrument: what `inst` mounts (add a `key`). The box is
+ * the body and the badge column: 6 x 3 small, 5 x 2 micro. `fallback` is its
+ * text form at the same size (R22): the state glyph and the badge on the
+ * first row, the role word on the second. `sig` changes only with role,
+ * state, size, ground and the blink, so the paint clock re-encodes it only then.
+ */
+export type CritterArgs = {
+  role: Role
+  state: PodState
+  size: CritterSize
+  columns: number
+  rows: number
+  sig: string
+  frames: () => Grid[]
+  fallback: Run[][]
+}
+
+/** A stable small number from an id: the blink's phase. */
+function phaseOf(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return h % BLINK_BEATS
+}
+
+/** A critter for a role and state, without an agent row (the header's lead, a map node). */
+export function critterArgs(role: Role, state: PodState, o: Omit<CritterOpts, 'state'> = {}): CritterArgs {
+  const size = o.size ?? 'small'
+  const box = CRITTER[size]
+  const columns = box.columns + 1
+  const ground = o.ground ?? 'night'
+  const motion = o.motion === true && state === 'working'
+  const phase = o.phase ?? 0
+  const { glyph, badge } = critterGlyph(state)
+  const first: Run[] = [glyph, { text: ' '.repeat(columns - 1 - (badge !== undefined ? 1 : 0)) }]
+  if (badge !== undefined) first.push(badge)
+  const fallback: Run[][] = [first, [{ text: ROLE_WORD[role].padEnd(columns), dim: true }]]
+  for (let i = 2; i < box.rows; i++) fallback.push([{ text: ' '.repeat(columns) }])
+  return {
+    role,
+    state,
+    size,
+    columns,
+    rows: box.rows,
+    sig: `critter:${role}:${state}:${size}:${ground}:${motion ? `blink${phase % BLINK_BEATS}` : 'still'}`,
+    frames: () => critterFrames(role, state, size, { ground, motion, phase }),
+    fallback,
+  }
+}
+
+/**
+ * An agent as a critter (the cockpit form of `spriteOf`): role from
+ * `crewRole` (`main` is the lead), state from `o.state` when given, else the
+ * agent's own (`podStateOf`).
+ *
+ * @example inst(ctx, $, { key: `card-${a.id}`, ...critterOf(a, { ground, motion }) })
+ */
+export function critterOf(agent: PodAgent, o: CritterOpts = {}): CritterArgs {
+  const state = o.state ?? podStateOf(agent)
+  return critterArgs(crewRole(agent.id, agent.subagentType ?? agent.type), state, { ...o, phase: o.phase ?? phaseOf(agent.id) })
 }

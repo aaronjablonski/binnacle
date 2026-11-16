@@ -14,7 +14,7 @@ import { openStep } from './openstep'
 import { clearCountdown, setCountdown } from './countdown'
 import { openAgentPage } from './agentmeta'
 import { openPage } from './pagenav'
-import { blank, deck, deckRows, footer, heightOf, hero, inst, more, row, section } from './parts'
+import { blank, deck, deckRows, footer, heightOf, hero, inst, more, row, tableHead } from './parts'
 import type { DeckCell, DeckRow, Hint, InstSpec } from './parts'
 import { barsSpec, deckRowEl, lintelSpec, ringsSpec, sillSpec, toneOf } from './richkit'
 import type { DeckRowSpec, Ring } from './richkit'
@@ -132,7 +132,7 @@ function agentsBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       onPress: () => openAgentPage($, a.id, `agent-${a.id}`),
     })
   })
-  return [section(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows, ...(live.length > MAX_LIST ? [more(ctx, $, live.length - MAX_LIST)] : [])]
+  return [tableHead(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows, ...(live.length > MAX_LIST ? [more(ctx, $, live.length - MAX_LIST)] : [])]
 }
 
 /** The steps LATEST shows: the one running (else the newest) and the newest error. */
@@ -164,7 +164,7 @@ function latestBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       onPress: () => openStep($, x.id, `step-${x.id}`),
     }),
   )
-  return [section(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
+  return [tableHead(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
 }
 
 function keptBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
@@ -186,14 +186,14 @@ function keptBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
     kept.length < 3
       ? [runsLine(e, $, [{ col: COL.name, text: wordFit(KEPT_NOTE, ctx.cols - COL.name), dim: true }], 'kept-note')]
       : []
-  return [section(ctx, $, 'KEPT', 'step', 'at'), ...rows, ...(kept.length > MAX_LIST ? [more(ctx, $, kept.length - MAX_LIST)] : []), ...note]
+  return [tableHead(ctx, $, 'KEPT', 'step', 'at'), ...rows, ...(kept.length > MAX_LIST ? [more(ctx, $, kept.length - MAX_LIST)] : []), ...note]
 }
 
 function notesBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const notes = summary(ctx.t).notes.slice(0, 2)
   if (notes.length === 0) return []
   return [
-    section(ctx, $, 'NOTES'),
+    tableHead(ctx, $, 'NOTES'),
     ...notes.map((n, i) =>
       runsLine(
         ctx.e,
@@ -772,7 +772,7 @@ function agentsBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElemen
       onPress: () => openAgentPage($, a.id, `agent-${a.id}`),
     })
   })
-  return [section(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows]
+  return [tableHead(ctx, $, 'AGENTS', 'tokens', 'time'), ...rows]
 }
 
 /** LATEST in rich Now: the step running (else the newest) and the newest error first, then the rest newest first. */
@@ -795,7 +795,7 @@ function latestBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElemen
       onPress: () => openStep($, x.id, `step-${x.id}`),
     }),
   )
-  return [section(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
+  return [tableHead(ctx, $, 'LATEST', 'agent', 'time'), ...rows]
 }
 
 /** THIS TURN (spec "Done signal"): what the turn that just ended did, in LATEST's place. */
@@ -818,7 +818,7 @@ function turnBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement[
   const rows = lines.slice(0, n).map((l, i) =>
     runsLine(ctx.e, $, [{ col: COL.glyph, text: l.glyph, ...(l.color !== undefined ? { color: l.color } : { dim: true }) }, { col: COL.name, text: l.text }], `turn-${i}`),
   )
-  return [section(ctx, $, 'THIS TURN', undefined, undefined, { key: 'sec-this-turn' }), ...rows]
+  return [tableHead(ctx, $, 'THIS TURN', undefined, undefined, { key: 'sec-this-turn' }), ...rows]
 }
 
 const taskGlyph = { in_progress: '▸', pending: '▫', completed: '▪' } as const
@@ -844,7 +844,7 @@ function tasksBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement
       onPress: () => openPage($, 'task', `${x.owner}:${x.id}`, `task-${x.owner}-${x.id}`),
     })
   })
-  return [section(ctx, $, 'TASKS', 'tokens', 'time'), ...rows]
+  return [tableHead(ctx, $, 'TASKS', 'tokens', 'time'), ...rows]
 }
 
 function keptBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement[] {
@@ -867,14 +867,14 @@ function keptBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement[
   const extra: RenderElement[] = []
   if (note && n > shown.length) extra.push(runsLine(e, $, [{ col: COL.name, text: wordFit(KEPT_NOTE, ctx.cols - COL.name), dim: true }], 'kept-note'))
   else if (kept.length > shown.length) extra.push(more(ctx, $, kept.length - shown.length))
-  return [section(ctx, $, 'KEPT', 'step', 'at'), ...rows, ...extra]
+  return [tableHead(ctx, $, 'KEPT', 'step', 'at'), ...rows, ...extra]
 }
 
 function notesBlockN(ctx: ViewCtx, $: EngineInterface, n: number): RenderElement[] {
   const notes = [...ctx.t.notes].reverse().slice(0, n)
   if (notes.length === 0 || n <= 0) return []
   return [
-    section(ctx, $, 'NOTES'),
+    tableHead(ctx, $, 'NOTES'),
     ...notes.map((x, i) =>
       runsLine(
         ctx.e,

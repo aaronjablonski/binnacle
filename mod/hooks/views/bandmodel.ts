@@ -8,7 +8,7 @@
 // shows after its 20 s). No Button, no blink, no clamp, no pill.
 
 import type { Timeline, UiState } from '../../types'
-import { headerState, needs, watch } from '../model/alerts'
+import { CHECKING_TEXT, headerState, needs, watch } from '../model/alerts'
 import type { Need } from '../model/alerts'
 import type { RunLimits } from '../model/meter'
 import { cacheLine, thisTurn } from '../model/meter'
@@ -56,6 +56,8 @@ export type BandModel = {
   waiting: number
   /** Watch rows standing (dim, never coloured). */
   watch: number
+  /** An auto-mode permission is still being checked (R2, F I1): the band says so, as the pane does, and never "nothing needs you". */
+  checking: boolean
   context?: number
   week?: number
   /** Idle line: the head ("All 14 done", "Finished"), whether it takes the tick, and the facts after it. */
@@ -137,6 +139,7 @@ export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: numbe
     working,
     waiting,
     watch: watch(t, now, u.dismissed, limits).length,
+    checking: view.checking,
   }
   if (form === 'asked') model.ask = askOf(view.items)
   if (t.budget?.contextPct !== undefined) model.context = Math.max(0, Math.min(999, Math.round(t.budget.contextPct)))
@@ -165,6 +168,16 @@ export function agentsWords(m: Pick<BandModel, 'working'>): string {
   return `${m.working} ${m.working === 1 ? 'agent' : 'agents'} working`
 }
 
+/**
+ * The band's word on needs while nothing is asked: "Checking a permission"
+ * while an auto-mode ask is settled (F I1: the pane says the same), else the
+ * Watch count, else "nothing needs you".
+ */
+export function needsPiece(m: Pick<BandModel, 'watch' | 'checking'>): string {
+  if (m.checking) return CHECKING_TEXT
+  return m.watch > 0 ? `${m.watch} to watch` : 'nothing needs you'
+}
+
 /** The model in words, for the Svg's alt. */
 export function bandWords(m: BandModel): string {
   if (m.form === 'asked' && m.ask !== undefined) {
@@ -175,7 +188,8 @@ export function bandWords(m: BandModel): string {
   const parts = [`Working on ${m.focus}.`]
   if (m.total > 0) parts.push(`${m.done} of ${m.total} done.`)
   if (m.working > 0) parts.push(`${agentsWords(m)}.`)
-  parts.push(m.watch > 0 ? `${m.watch} to watch.` : 'Nothing needs you.')
+  const piece = needsPiece(m)
+  parts.push(`${piece.charAt(0).toUpperCase()}${piece.slice(1)}.`)
   if (m.context !== undefined) parts.push(`Context ${m.context}%.`)
   if (m.week !== undefined) parts.push(`Week ${m.week}%.`)
   return parts.join(' ')

@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, NotifyMode, Timeline, UiState } from '../../types'
-import { alertNotes, autoFocuses, CHECKING_TEXT, needs, promptHint, spanText } from '../model/alerts'
+import { alertNotes, answeredAsks, autoFocuses, CHECKING_TEXT, headerState, needs, promptHint, spanText } from '../model/alerts'
 import type { Need, NeedsView } from '../model/alerts'
 import { oneLine } from '../model/label'
 import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
@@ -9,7 +9,7 @@ import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '.
 import type { RunLimits } from '../model/meter'
 import { problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
-import { debug, errText, readTimeline, readUi, updateUi } from '../state'
+import { apply, debug, errText, readTimeline, readUi, updateUi } from '../state'
 import { elapsed, fitRuns, shortPaths, span, toolName, wordFit } from './fit'
 import { openStepInline } from './openstep'
 import { tickCountdown } from './countdown'
@@ -23,8 +23,8 @@ import type { CritterArgs, Pod, PodState } from './style'
 export { ASK_MS, NOTIFY_ASK_MS }
 /** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
-// The warm countdown redraws the pane at most this often (nothing to blit: it is words).
-const COUNTDOWN_REDRAW_MS = 10_000
+// The warm countdown's words change once a minute (`warmWords`, R40), so it redraws once a minute.
+const COUNTDOWN_REDRAW_MS = 60_000
 
 export type { NotifyMode }
 
@@ -178,10 +178,81 @@ export function paneState(ctx: ViewCtx): { word: string; color: string } {
 // auto-mode ask is being settled (R2), else the Needs you block. Needs come
 // from the alert model's `needs` selector (no dismissals: no `x` on a need).
 
-/** What blocks the session now, with the pane's `isPromptCovered` (R2: covered, an ask shows at once). */
-export function needsView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'>): NeedsView {
+// What the pane last saw of the prompt (F C1). Ephemeral pane state like
+// onscreen.ts's: a drawing notes its own `isPromptCovered` here and writes no
+// `$.state`; the clock reads it and records on the Timeline the asks whose
+// dialog it saw close (`step.unask`). Only the terminal pane is read: the
+// prop speaks of the terminal's keys, and another surface's drawing (with no
+// prop) must not read as "the dialog closed". A reload starts it empty, which
+// only delays a clear until the step ends. Bounded by MAX_COVERED.
+const MAX_COVERED = 50
+// `coveredAt` and `uncoveredAt` hold the drawing's number (`seq`), not the time: two drawings in one millisecond keep their order.
+const cover: { seq: number; coveredAt: Map<string, number>; uncoveredAt?: number; drawnAt?: number } = { seq: 0, coveredAt: new Map() }
+/** The pane counts as watching the prompt while its last terminal drawing is this fresh (it redraws every second while a step runs). */
+const WATCHING_MS = 5_000
+
+/**
+ * Notes what a terminal drawing of the pane saw (no `$.state`, no redraw):
+ * covered, each asking step is marked seen covered by this drawing;
+ * uncovered, this drawing is the latest without a dialog. O(steps). Any
+ * other site or surface is ignored.
+ */
+export function observeCover(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): void {
+  const e = ctx.e
+  if (e === undefined || e.component !== 'Pane' || e.surface !== 'terminal') return
+  cover.drawnAt = ctx.now
+  const seq = ++cover.seq
+  if (ctx.isPromptCovered !== true) {
+    cover.uncoveredAt = seq
+    return
+  }
+  for (const s of ctx.t.steps) {
+    if (s.status !== 'running' || s.asking === undefined) continue
+    cover.coveredAt.delete(s.id)
+    cover.coveredAt.set(s.id, seq)
+  }
+  while (cover.coveredAt.size > MAX_COVERED) cover.coveredAt.delete(cover.coveredAt.keys().next().value!)
+}
+
+/** Forgets what the pane saw (tests; a new session). */
+export function resetCover(): void {
+  cover.seq = 0
+  cover.coveredAt.clear()
+  delete cover.uncoveredAt
+  delete cover.drawnAt
+}
+
+/** Whether the terminal pane drew lately, so an answered ask is cleared and permission notifications may be raised (`alertNotes` `watching`). */
+export function paneWatching(now: number): boolean {
+  return cover.drawnAt !== undefined && now - cover.drawnAt <= WATCHING_MS
+}
+
+/**
+ * The clock's half of F C1: the asks the pane saw covered and then
+ * uncovered are taken off the Timeline (`step.unask`), and forgotten here.
+ * Clock only (it writes state). Returns how many were cleared.
+ */
+async function clearAnswered($: EngineInterface, t: Timeline): Promise<number> {
+  for (const id of cover.coveredAt.keys()) {
+    const s = t.steps.find(x => x.id === id)
+    if (s === undefined || s.status !== 'running' || s.asking === undefined) cover.coveredAt.delete(id)
+  }
+  const ids = answeredAsks(t, cover.coveredAt, cover.uncoveredAt)
+  for (const id of ids) {
+    await apply($, { kind: 'step.unask', id })
+    cover.coveredAt.delete(id)
+  }
+  return ids.length
+}
+
+/** What blocks the session now, with the pane's `isPromptCovered` (R2: covered, an ask shows at once). A terminal pane's drawing also notes what it saw (`observeCover`). */
+export function needsView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'> & Partial<Pick<ViewCtx, 'e'>>): NeedsView {
+  observeCover(ctx)
   return needs(ctx.t, ctx.now, { covered: ctx.isPromptCovered === true })
 }
+
+/** The needs slot's line under a stopped turn (F I2): no tick, plain words. */
+export const STOPPED_TEXT = 'Stopped. Send a prompt to carry on'
 
 /** The count and noun a Needs you head sums up to: "1 permission", "2 questions", "3 asks" when the kinds differ. */
 export function needsSum(items: readonly Need[]): { n: number; noun: string } {
@@ -247,7 +318,9 @@ export function needsSlotHeight(view: NeedsView, cap = 3): number {
  * The needs slot (cockpit spec principle 1: the same row with and without an
  * ask). Nothing waits: `✓ Nothing needs you` and `watchCount` as " · 2 things
  * to watch". An auto-mode ask still settling: no tick, a dim "Checking a
- * permission" (R2). Otherwise the Needs you block: the amber head with the
+ * permission" (R2). Under a stopped turn no tick either, the plain
+ * `STOPPED_TEXT`; after a request that ended with tasks open, a dim "5 to do
+ * still open" (F I2). Otherwise the Needs you block: the amber head with the
  * count and noun; the opened need (the first, until `n` moves it) as three
  * rows behind an amber `▍`: the asker's critter waiting at 2, the sentence
  * at 9 (the asker bold unless ambiguous, R4) and "asked 40s ago" at the
@@ -269,8 +342,15 @@ export function needsSlot(
   const watchCount = o.watchCount ?? 0
   const extra = watchCount > 0 ? ` · ${watchCount} ${watchCount === 1 ? 'thing' : 'things'} to watch` : ''
   if (view.items.length === 0) {
-    if (!view.checking) return [allClear(ctx, $, extra)]
-    const runs = fitRuns([{ text: CHECKING_TEXT, dim: true }, ...(extra !== '' ? [{ text: extra, dim: true }] : [])], right - left + 1) as Run[]
+    // F I2: no green tick under a stopped turn or a request that ended with tasks open.
+    const hs = view.checking ? undefined : headerState(ctx.t, now, view)
+    const words: Run | undefined =
+      view.checking ? { text: CHECKING_TEXT, dim: true }
+      : hs?.state === 'stopped' ? { text: STOPPED_TEXT }
+      : hs?.state === 'idle-open' ? { text: `${hs.open} to do still open`, dim: true }
+      : undefined
+    if (words === undefined) return [allClear(ctx, $, extra)]
+    const runs = fitRuns([words, ...(extra !== '' ? [{ text: extra, dim: true }] : [])], right - left + 1) as Run[]
     return [
       <Text key="all-clear" wrap="truncate-end">
         {' '.repeat(left)}
@@ -367,19 +447,21 @@ export function doneText(t: Timeline, ms: number): string {
   return bits.length > 0 ? `${head}. ${bits.join(', ')}.` : head
 }
 
-// The idle countdown's last redraw: the 10 s bucket it showed, and whether
+// The idle countdown's last redraw: the minute it showed, and whether
 // the cold redraw (which clears the readout) was taken. Ephemeral.
 const countdown: { bucket?: number; cold: boolean } = { cold: true }
 
 /**
  * While the session is idle and the cache is warm, Now's budget line counts
- * it down ("cache stays warm 4:48", R29; plan constraint 5: idle is still).
+ * it down in whole minutes (R40; plan constraint 5: idle is still).
  * An instrument registered with countdown.ts is blitted alone (the cockpit
- * registers none); otherwise, while the pane or the strip is open, the pane
- * is redrawn at most once every 10 s. Once the cache is cold one redraw
- * clears the words and the countdown stops.
+ * registers none); otherwise the pane and the band are redrawn when the
+ * whole minute the words name changes, whether or not the pane is open: with
+ * the pane closed the band is the only surface, and its words must stay true
+ * (O I-3). Once the cache is cold one redraw clears the words and the
+ * countdown stops.
  */
-async function countdownTick($: EngineInterface, t: Timeline, u: UiState, now: number): Promise<void> {
+async function countdownTick($: EngineInterface, t: Timeline, now: number): Promise<void> {
   const warm = cacheLine(t).warmUntil
   if (warm === undefined || turnClock(t, now) !== undefined) return
   const redraw = (): void => {
@@ -398,7 +480,6 @@ async function countdownTick($: EngineInterface, t: Timeline, u: UiState, now: n
   }
   countdown.cold = false
   if (await tickCountdown($, now)) return
-  if (u.paneOpen !== true && u.strip !== true) return
   const bucket = Math.floor((warm - now) / COUNTDOWN_REDRAW_MS)
   if (bucket === countdown.bucket) return
   countdown.bucket = bucket
@@ -406,22 +487,26 @@ async function countdownTick($: EngineInterface, t: Timeline, u: UiState, now: n
 }
 
 /**
- * The clock's one call: raises the notifications the alert model decides
- * (`alertNotes`: a need that has waited, a fresh failed turn with `all`, a
- * Watch row that has stood 10 min only with `watchNotify`), the done
+ * The clock's one call: first takes off the Timeline each ask the pane saw
+ * answered (F C1, `clearAnswered`); then raises the notifications the alert
+ * model decides (`alertNotes`: a need that has waited, a permission only
+ * while the pane watches, a fresh failed turn with `all`, a Watch row that
+ * has stood 10 min only with `watchNotify`), the done
  * notification, and a toast when a subagent has just finished. What was raised is recorded in
  * `ui` before it is sent. Runs from the clock callback, not a render hook, so
  * it may write state. Never throws.
  */
 export async function needsTick($: EngineInterface, notify: NotifyMode | undefined): Promise<void> {
   try {
-    const t = await readTimeline($)
+    let t = await readTimeline($)
     const u = await readUi($)
     const now = await $.clock.now()
     const mode = notify ?? 'waits'
-    await countdownTick($, t, u, now)
+    // F C1: an ask whose dialog the pane saw close is answered; the Timeline says so before anything reads it.
+    if ((await clearAnswered($, t)) > 0) t = await readTimeline($)
+    await countdownTick($, t, now)
 
-    const notes: { id: string; text: string }[] = alertNotes(t, u, now, { mode, watchNotify, limits, freshMs: FRESH_MS })
+    const notes: { id: string; text: string }[] = alertNotes(t, u, now, { mode, watchNotify, limits, freshMs: FRESH_MS, watching: paneWatching(now) })
     let doneId: string | undefined
     // One notification when a main turn of a minute or more ended normally.
     if (notifies(mode, 'done')) {

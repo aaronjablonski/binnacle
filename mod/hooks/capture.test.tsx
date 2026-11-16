@@ -202,7 +202,7 @@ test('a permission request in auto mode marks the running step with the same com
   expect(needsYou(box.timeline!, UI, 1000 + 5 * 60_000)).toEqual([])
 })
 
-test('a permission request outside auto mode is one need at once, with its tool, command and asker, and clears when answered', async ($, on) => {
+test('a permission request outside auto mode is one need at once, with its tool, command and asker, and clears when its step ends', async ($, on) => {
   const box = world(on)
   unanswered(on)
   let during: Timeline | undefined

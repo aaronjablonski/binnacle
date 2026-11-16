@@ -943,7 +943,11 @@ export function wrapFull(text: string, cols: number): string[] {
 // ---------- the cockpit: words (cockpit spec "Vocabulary", rulings R22, R27, R31) ----------
 
 /** What `doing` reads of a step: a model `Step` fits (`pending` is its input while it runs). */
-export type DoingStep = { tool: string; label?: string; pending?: Record<string, unknown>; asking?: number }
+export type DoingStep = { id?: string; tool: string; label?: string; pending?: Record<string, unknown>; asking?: number }
+/** What `doing` reads of the needs view (alerts.ts `needs`): the steps whose ask is shown. */
+export type DoingView = { items: readonly { stepId?: string }[] }
+/** A step whose auto-mode ask is still being checked (R2; alerts.ts `CHECKING_TEXT`). */
+const CHECKING = 'Checking a permission'
 
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? oneSpaced(v) : undefined)
 
@@ -972,7 +976,9 @@ const ASK_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
  * What an agent is doing, as a verb phrase for Now (cockpit spec: tool names
  * become verbs; Steps keeps the names): no running step is "Thinking"; a step
  * a dialog waits on (`asking`, or the question and plan tools) is "Waiting
- * for your answer"; Read is "Reading <file>", Grep and Glob "Searching
+ * for your answer", except that, given the needs `view`, a permission it
+ * does not show yet (auto mode's checking gap) is "Checking a permission",
+ * as the pane and the band say (F I1); Read is "Reading <file>", Grep and Glob "Searching
  * <where> for “<what>”", Bash "Running <command>", Edit "Editing <file>",
  * Write "Writing <file>", Agent "Delegating: <description>", the task tools
  * "Updating the to-do list", anything else "Using <tool>". Files show their
@@ -982,11 +988,15 @@ const ASK_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
  * @example doing({ tool: 'Grep', label: 'Grep "upload("', pending: { pattern: 'upload(', path: 'src/server' } }) // 'Searching src/server for “upload(”'
  * @example doing(undefined)                                                                             // 'Thinking'
  */
-export function doing(step: DoingStep | undefined): string {
+export function doing(step: DoingStep | undefined, view?: DoingView): string {
   if (step === undefined) return 'Thinking'
   const t = step.tool
   const input = step.pending ?? {}
-  if (step.asking !== undefined || ASK_TOOLS.has(t)) return 'Waiting for your answer'
+  if (ASK_TOOLS.has(t)) return 'Waiting for your answer'
+  if (step.asking !== undefined) {
+    const shown = view === undefined || (step.id !== undefined && view.items.some(n => n.stepId === step.id))
+    return shown ? 'Waiting for your answer' : CHECKING
+  }
   const rest = labelRest(step)
   const verb = FILE_VERB[t]
   if (verb !== undefined) {

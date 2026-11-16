@@ -126,7 +126,9 @@ export function registerCapture(on: On): void {
   // auto mode that comes before the classifier allows it, with nobody asked.
   // The request names no tool_use_id, so the step is found by tool and input.
   // A hook beneath that answered it asked nobody: nothing is marked. The mark
-  // clears when the step ends, or when an agent it spawned shows it went ahead.
+  // clears when the step ends, when an agent it spawned shows it went ahead,
+  // or when the pane saw the dialog cover the prompt and then close (the
+  // clock's `step.unask`, needs.tsx `clearAnswered`).
   // Observes only: the answer is never changed or given here.
   on('classic.PermissionRequest', async ($, e, next) => {
     const answer = await next(e)

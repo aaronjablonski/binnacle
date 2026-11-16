@@ -9,7 +9,7 @@ import { debug, errText, updateUi } from '../state'
 import { openAgentPage, runningStep } from './agentmeta'
 import { lineOf, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
-import { clock, doing, elapsed, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
+import { clock, doing, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
 import { waitStates } from './needs'
 import { openPage } from './pagenav'
 import { blank, frameFootInst, frameTopInst, inst, page, runText, section } from './parts'
@@ -504,7 +504,7 @@ export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
         ...(glyph.badge !== undefined ? [glyph.badge] : []),
         { text: ' ' },
         { text: typeName(a.type), bold: true },
-        { text: `${at > 0 ? ` · ${tok(at)}` : ''} · ${elapsed(a.startedAt, a.status === 'running' ? now : (a.endedAt ?? a.startedAt))} · ${a.status}`, dim: true },
+        { text: `${at > 0 ? ` · ${tok(at)}` : ''} · ${span((a.status === 'running' ? now : (a.endedAt ?? a.startedAt)) - a.startedAt)} · ${a.status}`, dim: true },
       ])
       for (const l of wrapFull(a.description, room)) lines.push([{ text: l }])
       if (a.status === 'running' && a.doing !== '') for (const l of wrapFull(`now: ${a.doing}`, room)) lines.push([{ text: l, dim: true }])

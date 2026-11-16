@@ -104,64 +104,6 @@ const FOUR = tl(
   { steps: [step('s1', 1, 'Write docs/plan.md'), step('s9', 9, 'Publish the page')] },
 )
 
-// LOOK TEST (edited for Neo): the result glyph is ✦ (◆ is now a hull).
-test('rows are newest first: glyph at 2, title at 4, the kind at 38 and the age at 50', async ($, on) => {
-  seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    expect(await artButtons(ui)).toEqual(['art-link:PR #41', 'art-result:Review findings', 'art-page:Rate limit design', 'art-document:docs/plan.md'])
-    const rows = await drawnRows(ui)
-    const page = rowWith(rows, 'Rate limit design')
-    expect([colOf(page, '↗'), colOf(page, 'Rate limit design'), colOf(page, 'page'), colOf(page, '9m')]).toEqual([2, 4, 38, 50])
-    const doc = rowWith(rows, 'docs/plan.md')
-    expect([colOf(doc, '▤'), doc.slice(38, 41), colOf(doc, '12m')]).toEqual([2, 'doc', 50])
-    expect(colOf(rowWith(rows, 'Review findings'), '✦')).toBe(2)
-    expect(colOf(rowWith(rows, 'PR #41'), '⎇')).toBe(2)
-    const head = rowWith(rows, '┌ ARTIFACTS')
-    expect([colOf(head, 'kind'), colOf(head, 'age')]).toEqual([38, 50])
-    await ui.unmount()
-  }
-})
-
-test('kinds keep their colours: page and link in the accent, document merged, result success', async ($, on) => {
-  seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
-  const ui = await mount($, 'terminal')
-  const found = await ui.findAll({ type: 'Text' })
-  const color = (glyph: string): string | undefined => (found.find(f => f.text === glyph)?.props as { color?: string }).color
-  expect([color('↗'), color('▤'), color('✦'), color('⎇')]).toEqual(['suggestion', 'merged', 'success', 'suggestion'])
-  await ui.unmount()
-})
-
-test('a document written three times shows doc ×3 as its kind', async ($, on) => {
-  seed(on, tl([art('document', 'a.md', { ref: 'a.md', count: 3 })]), ART_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const r = rowWith(await drawnRows(ui), 'a.md')
-    expect(colOf(r, 'doc ×3')).toBe(38)
-    await ui.unmount()
-  }
-})
-
-// BEHAVIOUR CHANGE (rich rule 4): the action line drops `p: page`; Enter on the row opens the page.
-test('the newest artifact is open by default: link and from at 6 and 14, then o: step  c: copy link  g: chat', async ($, on) => {
-  seed(
-    on,
-    tl([art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', stepId: 's9' })], { steps: [step('s9', 9, 'Publish')] }),
-    ART_UI,
-  )
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const rows = await drawnRows(ui)
-    const link = rowWith(rows, 'claude.ai/artifact/x')
-    expect([colOf(link, 'link'), colOf(link, 'claude.ai/artifact/x')]).toEqual([6, 14])
-    const from = rowWith(rows, 'from')
-    expect(colOf(from, 'main · step 9 · ')).toBe(14)
-    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat')
-    expect(colOf(rowWith(rows, 'o: step'), 'o: step')).toBe(6)
-    await ui.unmount()
-  }
-})
-
 // BEHAVIOUR CHANGE (rich rule 4): was "press again closes"
 test('Enter on an artifact row opens its page; b returns to the list with the artifact row focused', async ($, on) => {
   const stored = seed(on, FOUR, ART_UI)
@@ -271,33 +213,6 @@ test('a step no longer in the timeline leaves only c: no o and no g', async ($, 
   await ui.unmount()
 })
 
-// LOOK TEST (rewritten for Rich): a changed file's glyph is ▪ (was ·); its name keeps column 4.
-// BEHAVIOUR CHANGE (binding rule 2): FILES CHANGED was capped at 3; it now grows with the pane's height, never below 3.
-test('FILES CHANGED grows with the height: the newest 3 and a more line on a short pane, more at 24 and 36, every file at 50', async ($, on) => {
-  const changed = ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts', 'j.ts', 'k.ts', 'l.ts']
-  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed }), ART_UI)
-  for (const surface of SURFACES) {
-    const filesAt = async (bodyRows: number): Promise<{ names: string[]; more: string | undefined }> => {
-      const ui = await mount($, surface, 62, false, bodyRows)
-      const rows = await drawnRows(ui)
-      await ui.unmount()
-      const at = rows.findIndex(r => r.startsWith('┌ FILES CHANGED'))
-      expect(at).toBeGreaterThan(-1)
-      const list = rows.slice(at + 1)
-      return { names: list.filter(r => r.slice(2, 3) === '▪').map(r => r.slice(4, 36).trimEnd()), more: list.find(r => r.startsWith('  + ')) }
-    }
-    const tiny = await filesAt(10)
-    expect(tiny.names).toEqual(['l.ts', 'k.ts', 'j.ts'])
-    expect(tiny.more).toBe('  + 9 more')
-    const short = await filesAt(24)
-    const mid = await filesAt(36)
-    expect(short.names.length).toBeGreaterThan(3)
-    expect(mid.names.length).toBeGreaterThanOrEqual(short.names.length)
-    const tall = await filesAt(50)
-    expect([tall.names.length, tall.more]).toEqual([12, undefined])
-  }
-})
-
 const EXPORT_ENV = { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' }
 
 function exportWorld(on: On): { writes: string[] } {
@@ -314,147 +229,6 @@ function exportWorld(on: On): { writes: string[] } {
   on('ui.toast', () => ({ value: undefined }))
   return { writes }
 }
-
-// LOOK TEST (rewritten for Rich, text form): the Neo deck of the surfaces without Rasters. HANDOFF stays its top row; DIGEST and its legend now sit between it and KEPT.
-test('text form: the deck is HANDOFF, DIGEST, the legend and KEPT in one bracket; a press on HANDOFF exports', async ($, on) => {
-  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
-  const { writes } = exportWorld(on)
-  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
-    const ui = await mount($, surface)
-    const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.includes('HANDOFF'))
-    expect(at).toBeGreaterThan(-1)
-    const ex = rows[at] ?? ''
-    expect(ex.startsWith('┏ HANDOFF')).toBe(true)
-    // the first press records an export, so later surfaces show its time in place of `not yet`
-    expect([colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal'), ex.slice(50, 51) === ' ' ? -1 : 50]).toEqual([14, 16, 38, 50])
-    expect(ex.length).toBe(62)
-    expect(ex.endsWith('┓')).toBe(true)
-    expect(rows[at + 1]?.startsWith('┃ DIGEST')).toBe(true)
-    expect(rows[at + 3]?.startsWith('┗ KEPT')).toBe(true)
-    expect(rows.some(r => r.startsWith('┌ HANDOFF'))).toBe(false)
-    writes.length = 0
-    await ui.press({ key: 'handoff-export' })
-    expect(writes.length).toBe(1)
-    expect(writes[0]).toMatch(/\/sess1\/export-.*\.md$/)
-    await ui.unmount()
-  }
-})
-
-// LOOK TEST (new for Rich, rich form): the terminal's deck is a lintel Raster, the rows on the grid, a sill Raster; no rails.
-test('rich form: a lintel, HANDOFF, DIGEST with its legend, KEPT and a sill; a press on HANDOFF exports', async ($, on) => {
-  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
-  const { writes } = exportWorld(on)
-  const ui = await mount($, 'terminal')
-  const rows = await drawnRows(ui)
-  const at = rows.findIndex(r => r.includes('HANDOFF'))
-  expect(at).toBeGreaterThan(0)
-  expect(rows[at - 1]).toBe('')
-  const ex = rows[at] ?? ''
-  expect([colOf(ex, 'HANDOFF'), colOf(ex, '↥'), colOf(ex, 'Export digest'), colOf(ex, 'journal'), colOf(ex, 'not yet')]).toEqual([2, 14, 16, 38, 50])
-  expect(colOf(rows[at + 1] ?? '', 'DIGEST')).toBe(2)
-  expect(colOf(rows[at + 2] ?? '', '▪ tasks')).toBe(14)
-  expect([colOf(rows[at + 3] ?? '', 'KEPT'), colOf(rows[at + 3] ?? '', '★')]).toEqual([2, 14])
-  const rasters = (await ui.findAll({ type: 'Raster' })).map(r => String(r.key))
-  expect(rasters).toEqual(expect.arrayContaining(['artifacts-deck-lintel', 'digest', 'artifacts-deck-sill']))
-  writes.length = 0
-  await ui.press({ key: 'handoff-export' })
-  expect(writes.length).toBe(1)
-  await ui.unmount()
-})
-
-// LOOK TEST (rewritten for Rich): KEPT is the deck's last row, after DIGEST and the legend, then ARTIFACTS, then FILES CHANGED.
-test('the KEPT row counts the kept steps; the deck comes first, then ARTIFACTS, then FILES CHANGED', async ($, on) => {
-  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
-  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps: [kept, step('s2', 2, 'Write b.md')], changed: ['a.ts'] }), ART_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const rows = await drawnRows(ui)
-    const at = rows.findIndex(r => r.includes('HANDOFF'))
-    const k = rows.find(r => r.includes('KEPT')) ?? ''
-    const kAt = rows.indexOf(k)
-    expect(kAt).toBe(at + 3)
-    expect([colOf(k, '★'), colOf(k, '1 step goes in full'), colOf(k, 'the rest in brief')]).toEqual([14, 16, 38])
-    expect(k.length).toBe(surface === 'terminal' ? k.trimEnd().length : 62)
-    if (surface !== 'terminal') expect(k.endsWith('┛')).toBe(true)
-    const next = rows.findIndex((r, i) => i > kAt && r.includes('ARTIFACTS'))
-    expect(next).toBeGreaterThan(kAt + 1)
-    expect(rows[kAt + 1] === '' || rows[kAt + 2] === '').toBe(true)
-    expect(rows.findIndex(r => r.includes('FILES CHANGED'))).toBeGreaterThan(next)
-    await ui.unmount()
-  }
-})
-
-test('KEPT with no kept steps says so', async ($, on) => {
-  seed(on, tl([art('link', 'PR', { ref: 'x' })]), ART_UI)
-  const none = await mount($, 'terminal')
-  expect(rowWith(await drawnRows(none), 'KEPT')).toContain('none kept yet')
-  await none.unmount()
-})
-
-test('KEPT with several kept steps uses the plural', async ($, on) => {
-  const two = tl([art('link', 'PR', { ref: 'x' })], { steps: [{ ...step('s1', 1, 'a'), pin: '' }, { ...step('s2', 2, 'b'), pin: 'x' }] })
-  seed(on, two, ART_UI)
-  const ui = await mount($, 'terminal')
-  expect(rowWith(await drawnRows(ui), 'KEPT')).toContain('2 steps go in full')
-  await ui.unmount()
-})
-
-test('e exports from the footer, which shows 3 entries and only while focused', async ($, on) => {
-  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
-  mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
-  const writes: string[] = []
-  on('fs.read', () => {
-    throw new Error('ENOENT')
-  })
-  on('fs.write', (_, e) => {
-    writes.push(e.path)
-    return { value: undefined }
-  })
-  on('ui.copy', () => ({ value: { isCopied: true as const } }))
-  on('ui.toast', () => ({ value: undefined }))
-  const quiet = await mount($, 'terminal', 62, false)
-  expect((await drawnRows(quiet)).some(r => r.includes('e: export'))).toBe(false)
-  await quiet.unmount()
-  const ui = await mount($, 'terminal', 62, true)
-  expect(rowWith(await drawnRows(ui), 'e: export').trim()).toBe('↵ open   e: export   esc prompt')
-  await ui.press({ key: 'hint-e' })
-  expect(writes.length).toBe(1)
-  await ui.unmount()
-})
-
-test('a long path is cut from the left in the link line and fits 32 columns', async ($, on) => {
-  const ref = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
-  seed(on, tl([art('document', ref, { ref, count: 2 })]), ART_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface, 32)
-    const rows = await drawnRows(ui)
-    const link = rowWith(rows, 'link')
-    expect(link.length <= 32).toBe(true)
-    expect(link).toContain('…')
-    expect(link.endsWith('limiter.ts')).toBe(true)
-    await ui.unmount()
-  }
-})
-
-// BEHAVIOUR CHANGE (binding rule 2): ARTIFACTS was capped at 6; it now grows with the pane's height, never below 6.
-test('ARTIFACTS grows with the height: 6 rows and a more line on a short pane, more at 24 and 36, all 24 at 50', async ($, on) => {
-  const many = Array.from({ length: 24 }, (_, i) => art('link', `L${i + 1}`, { ref: `r${i + 1}`, updatedAt: NOW - (i + 1) * 1000 }))
-  seed(on, tl(many), { ...ART_UI, artifactOpen: '' })
-  const at = async (bodyRows: number): Promise<{ n: number; more: boolean }> => {
-    const ui = await mount($, 'terminal', 62, false, bodyRows)
-    const n = (await artButtons(ui)).length
-    const more = (await drawnRows(ui)).some(r => /^ {2}\+ \d+ more$/.test(r))
-    await ui.unmount()
-    return { n, more }
-  }
-  expect(await at(10)).toEqual({ n: 6, more: true })
-  const short = await at(24)
-  const mid = await at(36)
-  expect(short.n).toBeGreaterThan(6)
-  expect(mid.n).toBeGreaterThan(short.n)
-  expect(await at(50)).toEqual({ n: 24, more: false })
-})
 
 test('empty state', async ($, on) => {
   seed(on, empty, ART_UI)
@@ -528,51 +302,6 @@ test('focused, every row of Artifacts, footer included, fits 32 and 40 columns',
 
 // ---------- Neo Rich: DIGEST, the last export, edit bars, open, the artifact page ----------
 
-test('the deck shows the last export from lastExport: its time, or "not yet"', async ($, on) => {
-  const exported = NOW - 3_600_000
-  const stored = seed(on, tl([art('link', 'PR', { ref: 'x' })], { lastExport: { at: exported, path: 'C:/j/export.md' } }), ART_UI)
-  for (const surface of SURFACES) {
-    const ui = await mount($, surface)
-    const ex = rowWith(await drawnRows(ui), 'HANDOFF')
-    expect(colOf(ex, clock(exported))).toBe(50)
-    expect(ex).not.toContain('not yet')
-    await ui.unmount()
-  }
-  stored.set('timeline', tl([art('link', 'PR', { ref: 'x' })]))
-  const none = await mount($, 'terminal')
-  expect(colOf(rowWith(await drawnRows(none), 'HANDOFF'), 'not yet')).toBe(50)
-  await none.unmount()
-})
-
-test('DIGEST: a 22-cell stack Raster of the four parts, with its words and parts; text form a run of ▄', async ($, on) => {
-  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
-  const steps = [kept, ...[2, 3, 4, 5].map(n => step(`s${n}`, n, `Read f${n}`))]
-  const tasks = [1, 2].map(n => ({ id: String(n), subject: `task ${n}`, status: 'completed' as const, owner: 'main', updatedAt: NOW }))
-  seed(on, tl([art('result', 'Findings', { summary: 's' })], { steps, tasks, changed: ['a.ts'] }), ART_UI)
-  const ui = await mount($, 'terminal')
-  const rows = await drawnRows(ui)
-  const d = rowWith(rows, 'DIGEST')
-  expect(d).toMatch(/~\d+ words/)
-  expect(colOf(d, '4 parts')).toBe(50)
-  expect(colOf(d, '~')).toBe(38)
-  const raster = await ui.find({ type: 'Raster', key: 'digest' })
-  expect(raster?.props).toMatchObject({ columns: 22, rows: 1 })
-  expect(rowWith(rows, '▪ tasks')).toContain('▪ tasks  ▪ steps  ▪ kept  ▪ made')
-  await ui.unmount()
-  const text = await mount($, 'desktop')
-  expect(rowWith(await drawnRows(text), 'DIGEST')).toMatch(/DIGEST {6}▄{22}/)
-  await text.unmount()
-})
-
-test('DIGEST with nothing to hold is a rest line and 0 parts', async ($, on) => {
-  seed(on, tl([]), ART_UI)
-  const ui = await mount($, 'desktop')
-  const d = rowWith(await drawnRows(ui), 'DIGEST')
-  expect(d).toContain('─'.repeat(22))
-  expect(d).toContain('0 parts')
-  await ui.unmount()
-})
-
 // A world with an editor that records its runs.
 function runWorld(on: On): { runs: string[][]; toasts: string[]; copies: string[] } {
   const copies: string[] = []
@@ -595,25 +324,6 @@ function runWorld(on: On): { runs: string[][]; toasts: string[]; copies: string[
 }
 
 const edit = (id: string, seq: number, label: string, ago: number): Step => ({ ...step(id, seq, label), tool: 'Edit', startedAt: NOW - ago })
-
-test('FILES CHANGED: each file has an edit bar sized by its edits, its count and its last edit', async ($, on) => {
-  const steps = [edit('e1', 1, 'Edit src/up.ts', 600_000), edit('e2', 2, 'Edit src/up.ts', 300_000), edit('e3', 3, 'Edit src/rl.ts', 60_000), edit('e4', 4, 'Edit src/rl.ts', 30_000), edit('e5', 5, 'Edit src/rl.ts', 12_000)]
-  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps, changed: ['src/up.ts', 'src/rl.ts'] }), ART_UI)
-  const ui = await mount($, 'terminal')
-  const rows = await drawnRows(ui)
-  const rl = rowWith(rows, '/rl.ts')
-  const up = rowWith(rows, '/up.ts')
-  expect([colOf(rl, '3'), colOf(rl, '12s')]).toEqual([38, 50])
-  expect([colOf(up, '2'), colOf(up, '5m')]).toEqual([38, 50])
-  const bars = (await ui.findAll({ type: 'Raster' })).filter(r => String(r.key).startsWith('edits-'))
-  expect(bars.map(b => b.props)).toEqual([expect.objectContaining({ columns: 6, rows: 1 }), expect.objectContaining({ columns: 6, rows: 1 })])
-  await ui.unmount()
-  const text = await mount($, 'mobile')
-  const t = await drawnRows(text)
-  expect(rowWith(t, '/rl.ts')).toContain('▮▮▮▮▮▮')
-  expect(rowWith(t, '/up.ts')).toContain('▮▮▮▮▯▯')
-  await text.unmount()
-})
 
 test('files changed: o calls openInEditor on a press only, for the file that was selected', async ($, on) => {
   seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed: ['src/up.ts', 'src/rl.ts'] }), { ...ART_UI, artifactOpen: '' })
@@ -659,20 +369,6 @@ test('the artifact page shows everything and never ends a line in …', async ($
   }
 })
 
-test('the artifact page: kind, made, path, step it came from, and o: open  c: copy  g: chat  b: back', async ($, on) => {
-  const a = art('document', 'Plan', { ref: 'docs/plan.md', summary: 'The plan.', stepId: 's9', updatedAt: NOW - 540_000 })
-  seed(on, tl([a, art('link', 'PR', { ref: 'x' })], { steps: [step('s9', 9, 'Write the plan')] }), { ...ART_UI, page: { kind: 'artifact', id: a.id } })
-  const ui = await mount($, 'terminal', 62, true)
-  const rows = await drawnRows(ui)
-  expect(rowWith(rows, 'TITLE')).toContain('Plan')
-  expect(rowWith(rows, 'KIND')).toContain('▤ doc')
-  expect([colOf(rowWith(rows, 'KIND'), 'made'), colOf(rowWith(rows, 'KIND'), '9m ago')]).toEqual([38, 50])
-  expect(rowWith(rows, 'PATH')).toContain('docs/plan.md')
-  expect(rowWith(rows, 'MADE BY')).toContain('▸ step 9  Write')
-  expect(rowWith(rows, 'o: open').trim()).toBe('o: open   c: copy   g: chat   b: back')
-  await ui.unmount()
-})
-
 test('the artifact page: o opens a file in the editor and a link in the opener, on a press only; c copies the ref', async ($, on) => {
   const doc = art('document', 'Plan', { ref: 'docs/plan.md' })
   const pg = art('page', 'Design', { ref: 'claude.ai/artifact/x' })
@@ -716,13 +412,311 @@ test('the artifact page: the step that made it opens the step page through openS
   await ui.unmount()
 })
 
-test('the lintel never gets a readout that meets the pill: the deck and the page draw at 32 columns', async ($, on) => {
+
+// ---------- the cockpit Artifacts tab (task C5) ----------
+// Each test below replaces a Neo or Rich look test of the same subject; the old one is gone, its behaviour kept.
+
+// LOOK TEST (rewritten for the cockpit): replaces "rows are newest first: glyph at 2, title at 4, the kind at 38 and the age at 50".
+test('rows are newest first: glyph at 2, title at 4, the kind ending at 49 and the age at 59', async ($, on) => {
+  seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    expect(await artButtons(ui)).toEqual(['art-link:PR #41', 'art-result:Review findings', 'art-page:Rate limit design', 'art-document:docs/plan.md'])
+    const rows = await drawnRows(ui)
+    const page = rowWith(rows, 'Rate limit design')
+    expect([colOf(page, '↗'), colOf(page, 'Rate limit design'), colOf(page, 'page') + 4, page.trimEnd().length, page.trimEnd().endsWith('9 min')]).toEqual([2, 4, 50, 60, true])
+    const doc = rowWith(rows, 'docs/plan.md')
+    expect([colOf(doc, '▤'), doc.slice(0, 50).trimEnd().endsWith('doc'), doc.trimEnd().endsWith('12 min')]).toEqual([2, true, true])
+    expect(colOf(rowWith(rows, 'Review findings'), '✦')).toBe(2)
+    expect(colOf(rowWith(rows, 'PR #41'), '⎇')).toBe(2)
+    // the section head: Artifacts, a hairline, the count and the dim heads over the two columns
+    const head = rowWith(rows, 'Artifacts ─')
+    expect([colOf(head, 'Artifacts'), colOf(head, 'kind') + 4, head.trimEnd().length, head.trimEnd().endsWith('age'), head.includes('4  ·  kind')]).toEqual([2, 50, 60, true, true])
+    await ui.unmount()
+  }
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "kinds keep their colours: page and link in the accent, document merged, result success" (no merged and no success in the cockpit palette).
+test('kinds keep their colours: page and link in the accent, document and result dim', async ($, on) => {
+  seed(on, FOUR, { ...ART_UI, artifactOpen: '' })
+  const ui = await mount($, 'terminal')
+  const found = await ui.findAll({ type: 'Text' })
+  const style = (glyph: string): { color?: string; dimColor?: boolean } => found.find(f => f.text === glyph)?.props as { color?: string; dimColor?: boolean }
+  expect([style('↗').color, style('⎇').color]).toEqual(['suggestion', 'suggestion'])
+  expect([style('▤').dimColor, style('✦').dimColor]).toEqual([true, true])
+  expect([style('▤').color, style('✦').color]).toEqual([undefined, undefined])
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "a document written three times shows doc ×3 as its kind"; the kind column is plain and the count is the opened artifact's `version`.
+test('a document written three times says version 3 under Made by', async ($, on) => {
+  seed(on, tl([art('document', 'a.md', { ref: 'a.md', count: 3 })]), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const r = rowWith(rows, 'a.md ')
+    expect(r).toContain('doc')
+    expect(r).not.toContain('×')
+    expect(colOf(rowWith(rows, 'Made by'), 'main, version 3')).toBe(14)
+    await ui.unmount()
+  }
+})
+
+// BEHAVIOUR CHANGE (rich rule 4): the action line drops `p: page`; Enter on the row opens the page.
+// LOOK TEST (rewritten for the cockpit): the keys are at 4 and the values at 14, "Made by" in place of "from".
+test('the newest artifact is open by default: Link and Made by at 4 and 14, then o: step  c: copy link  g: chat', async ($, on) => {
+  seed(
+    on,
+    tl([art('page', 'Rate limit design', { ref: 'claude.ai/artifact/x', stepId: 's9' })], { steps: [step('s9', 9, 'Publish')] }),
+    ART_UI,
+  )
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const link = rowWith(rows, 'claude.ai/artifact/x')
+    expect([colOf(link, 'Link'), colOf(link, 'claude.ai/artifact/x')]).toEqual([4, 14])
+    const made = rowWith(rows, 'Made by')
+    expect([colOf(made, 'Made by'), colOf(made, 'main, step 9')]).toEqual([4, 14])
+    expect(rowWith(rows, 'o: step').trim()).toBe('o: step   c: copy link   g: chat')
+    expect(colOf(rowWith(rows, 'o: step'), 'o: step')).toBe(4)
+    await ui.unmount()
+  }
+})
+
+// BEHAVIOUR CHANGE (cockpit, principle 5: spare rows stay empty): Files changed was grown by the pane's height (binding rule 2, up from 3); it shows the newest 3 and `+ n more` at any height, as the mock does.
+test('Files changed shows the newest 3 and a more line at any height', async ($, on) => {
+  const changed = ['mod/a.ts', 'mod/views/b.ts', 'c.ts', 'mod/views/d.ts', 'e.ts', 'f.ts', 'g.ts', 'h.ts', 'i.ts', 'j.ts', 'k.ts', 'l.ts']
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { changed }), ART_UI)
+  for (const surface of SURFACES) {
+    for (const bodyRows of [24, 50]) {
+      const ui = await mount($, surface, 62, false, bodyRows)
+      const rows = await drawnRows(ui)
+      await ui.unmount()
+      const at = rows.findIndex(r => r.startsWith('  Files changed'))
+      expect(at).toBeGreaterThan(-1)
+      const list = rows.slice(at + 1)
+      expect(list.filter(r => r.slice(2, 3) === '·').map(r => r.slice(4, 30).trimEnd())).toEqual(['l.ts', 'k.ts', 'j.ts'])
+      expect(list.find(r => r.startsWith('    + '))).toBe('    + 9 more')
+    }
+  }
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces the Neo deck, "the deck is HANDOFF, DIGEST, the legend and KEPT in one bracket" and the rich form. Handoff is the header: a lintel, the title and when it was last exported, the one filled button (R33) with its sentence, "The digest will contain" (R30), its bar and legend, a sill.
+test('Handoff header: the title, the filled export button with its words, The digest will contain, its bar and legend; a press exports', async ($, on) => {
+  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
+  const steps = [kept, ...[2, 3, 4, 5].map(n => step(`s${n}`, n, `Read f${n}`))]
+  const tasks = [1, 2].map(n => ({ id: String(n), subject: `task ${n}`, status: 'completed' as const, owner: 'main', updatedAt: NOW }))
+  seed(on, { ...tl([art('result', 'Findings', { summary: 's' })], { steps, tasks, changed: ['a.ts'] }), journal: 'sess1' }, ART_UI)
+  const { writes } = exportWorld(on)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const at = rows.findIndex(r => r.includes('Handoff'))
+    expect(at).toBeGreaterThan(-1)
+    const title = rows[at] ?? ''
+    expect([colOf(title, 'Handoff'), title.trimEnd().length]).toEqual([2, 60])
+    expect(title.includes('exported')).toBe(true)
+    expect(rows[at + 1]).toBe('')
+    const button = rows[at + 2] ?? ''
+    expect([colOf(button, '[ Export digest ]'), colOf(button, 'saved to this session and copied')]).toEqual([2, 21])
+    expect(rows.join('\n')).not.toContain('journal')
+    expect(colOf(rows[at + 4] ?? '', 'The digest will contain')).toBe(2)
+    expect((rows[at + 5] ?? '').trim()).toMatch(/^━{58}$/)
+    expect(rows[at + 6]?.trim()).toBe('■ summary  ■ 2 tasks  ■ 1 kept  ■ 2 made')
+    expect(colOf(rows[at + 6] ?? '', '■')).toBe(2)
+    expect(rows.join('\n')).not.toContain('It will hold')
+    // the button is the screen's one filled button: variant "primary", and it stays a Button
+    const found = await ui.find({ type: 'Button', key: 'handoff-export' })
+    expect((found?.props as { variant?: string } | undefined)?.variant).toBe('primary')
+    writes.length = 0
+    await ui.press({ key: 'handoff-export' })
+    expect(writes.length).toBe(1)
+    expect(writes[0]).toMatch(/\/sess1\/export-.*\.md$/)
+    await ui.unmount()
+  }
+})
+
+test('on the terminal the Handoff frame is a lintel and a sill instrument with no pill', async ($, on) => {
+  seed(on, tl([art('link', 'PR', { ref: 'x' })]), ART_UI)
+  const ui = await mount($, 'terminal')
+  const rasters = (await ui.findAll({ type: 'Raster' })).map(r => String(r.key))
+  expect(rasters).toEqual(expect.arrayContaining(['handoff-lintel', 'handoff-sill']))
+  const rows = await drawnRows(ui)
+  expect(rows.join('\n')).not.toMatch(/WAITING|WORKING|IDLE|ALL DONE|HANDOFF/)
+  await ui.unmount()
+  const text = await mount($, 'vscode')
+  const t = await drawnRows(text)
+  expect(t.some(r => r.startsWith('┏━━─'))).toBe(true)
+  expect(t.some(r => r.endsWith('━━┛'))).toBe(true)
+  await text.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "the KEPT row counts the kept steps": Kept is a section after Files changed that lists the kept steps.
+test('Kept lists the kept steps after Files changed: ★ at 2, the note at 4, the tool ending at 49 and the age at 59, and says they are exported in full', async ($, on) => {
+  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan', startedAt: NOW - 360_000 }
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps: [kept, step('s2', 2, 'Write b.md')], changed: ['a.ts'] }), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const head = rowWith(rows, 'Kept ─')
+    const at = rows.indexOf(head)
+    expect(at).toBeGreaterThan(rows.findIndex(r => r.includes('Files changed')))
+    expect([colOf(head, 'Kept'), head.includes('1  ·  from'), head.trimEnd().endsWith('age')]).toEqual([2, true, true])
+    const k = rows[at + 1] ?? ''
+    expect([colOf(k, '★'), colOf(k, 'the plan'), colOf(k, 'Write') + 5, k.trimEnd().endsWith('6 min')]).toEqual([2, 4, 50, true])
+    expect(colOf(rows[at + 2] ?? '', 'Kept steps are never trimmed and export in full.')).toBe(4)
+    await ui.unmount()
+  }
+})
+
+test('Kept with no kept steps is absent, and so is the word kept in the digest legend', async ($, on) => {
+  seed(on, tl([art('link', 'PR', { ref: 'x' })]), ART_UI)
+  const none = await mount($, 'terminal')
+  const rows = await drawnRows(none)
+  expect(rows.some(r => r.startsWith('  Kept'))).toBe(false)
+  expect(rows.join('\n')).not.toContain(' kept')
+  await none.unmount()
+})
+
+test('Kept with several kept steps counts them and shows the newest 3', async ($, on) => {
+  const many = [1, 2, 3, 4, 5].map(n => ({ ...step(`s${n}`, n, `Write f${n}.md`), pin: n % 2 === 0 ? 'note ' + n : '', startedAt: NOW - n * 60_000 }))
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps: many }), ART_UI)
+  const ui = await mount($, 'terminal')
+  const rows = await drawnRows(ui)
+  expect(rowWith(rows, 'Kept ─')).toContain('5  ·  from')
+  expect(rows.filter(r => r.startsWith('  ★')).length).toBe(3)
+  expect(rows.some(r => r === '    + 2 more')).toBe(true)
+  expect(rowWith(rows, '★ f1.md')).not.toBe('')
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "e exports from the footer, which shows 3 entries and only while focused": `e` is armed by the Export button in the header, so the footer says it as text (R28) and the press is on the button.
+test('the footer reads ↵ open artifact, e export, esc prompt, only while focused; e is the Export button', async ($, on) => {
+  seed(on, { ...tl([art('link', 'PR', { ref: 'x' })]), journal: 'sess1' }, ART_UI)
+  const { writes } = exportWorld(on)
+  const quiet = await mount($, 'terminal', 62, false)
+  expect((await drawnRows(quiet)).some(r => r.includes('↵ open artifact'))).toBe(false)
+  await quiet.unmount()
+  const ui = await mount($, 'terminal', 62, true)
+  const rows = await drawnRows(ui)
+  expect(rowWith(rows, '↵ open artifact')).toContain('↵ open artifact   e export   esc prompt')
+  expect(colOf(rowWith(rows, '↵ open artifact'), '↵')).toBe(2)
+  expect(rows.indexOf(rowWith(rows, '↵ open artifact'))).toBe(rows.length - 1)
+  const exportButton = await ui.find({ type: 'Button', key: 'handoff-export' })
+  expect((exportButton?.props as { hotkey?: string }).hotkey).toBe('e')
+  await ui.press({ key: 'handoff-export' })
+  expect(writes.length).toBe(1)
+  await ui.unmount()
+})
+
+test('a long path is cut from the left in the Link line and fits 32 columns', async ($, on) => {
+  const ref = 'src/very/long/folder/structure/for/the/rate/limiter.ts'
+  seed(on, tl([art('document', ref, { ref, count: 2 })]), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface, 32)
+    const rows = await drawnRows(ui)
+    const link = rowWith(rows, 'Link')
+    expect(link.length <= 32).toBe(true)
+    expect(link).toContain('…')
+    expect(link.endsWith('limiter.ts')).toBe(true)
+    await ui.unmount()
+  }
+})
+
+// BEHAVIOUR CHANGE (cockpit, principle 5): Artifacts was grown by the pane's height (binding rule 2, up from 6); it shows 6 and `+ n more` at any height.
+test('Artifacts shows 6 rows and a more line at any height', async ($, on) => {
+  const many = Array.from({ length: 24 }, (_, i) => art('link', `L${i + 1}`, { ref: `r${i + 1}`, updatedAt: NOW - (i + 1) * 1000 }))
+  seed(on, tl(many), { ...ART_UI, artifactOpen: '' })
+  for (const bodyRows of [10, 24, 50]) {
+    const ui = await mount($, 'terminal', 62, false, bodyRows)
+    expect((await artButtons(ui)).length).toBe(6)
+    expect((await drawnRows(ui)).some(r => r === '    + 18 more')).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the header shows the last export from lastExport: "last exported" and its time, or "not exported yet"', async ($, on) => {
+  const exported = NOW - 3_600_000
+  const stored = seed(on, tl([art('link', 'PR', { ref: 'x' })], { lastExport: { at: exported, path: 'C:/j/export.md' } }), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const ex = rowWith(await drawnRows(ui), 'Handoff')
+    expect(ex.trimEnd().endsWith(`last exported ${clock(exported)}`)).toBe(true)
+    expect(ex.trimEnd().length).toBe(60)
+    expect(ex).not.toContain('not exported yet')
+    await ui.unmount()
+  }
+  stored.set('timeline', tl([art('link', 'PR', { ref: 'x' })]))
+  const none = await mount($, 'terminal')
+  expect(rowWith(await drawnRows(none), 'Handoff').trimEnd().endsWith('not exported yet')).toBe(true)
+  await none.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "DIGEST: a 22-cell stack Raster ... text form a run of ▄": the bar is Text `━` runs (R22) and needs no Raster; no words estimate and no part count.
+test('the digest bar is 58 cells of ━ in the four parts, and the legend names them', async ($, on) => {
+  const kept = { ...step('s1', 1, 'Write a.md'), pin: 'the plan' }
+  const steps = [kept, ...[2, 3, 4, 5].map(n => step(`s${n}`, n, `Read f${n}`))]
+  const tasks = [1, 2].map(n => ({ id: String(n), subject: `task ${n}`, status: 'completed' as const, owner: 'main', updatedAt: NOW }))
+  seed(on, tl([art('result', 'Findings', { summary: 's' })], { steps, tasks, changed: ['a.ts'] }), ART_UI)
+  const ui = await mount($, 'terminal')
+  expect(await ui.find({ type: 'Raster', key: 'digest' })).toBeUndefined()
+  const rows = await drawnRows(ui)
+  const bar = rows.find(r => /^ {2}━{58}$/.test(r))
+  expect(bar).toBeDefined()
+  expect(rows.join('\n')).not.toMatch(/words|parts/)
+  await ui.unmount()
+})
+
+test('a digest with nothing in it is a rest bar and has no legend', async ($, on) => {
+  seed(on, tl([]), ART_UI)
+  const ui = await mount($, 'desktop')
+  const rows = await drawnRows(ui)
+  const at = rows.findIndex(r => r.includes('The digest will contain'))
+  expect((rows[at + 1] ?? '').trim()).toMatch(/^━{58}$/)
+  expect(rows[at + 2]?.includes('■')).toBe(false)
+  await ui.unmount()
+})
+
+// LOOK TEST (rewritten for the cockpit): replaces "FILES CHANGED: each file has an edit bar sized by its edits": the marks are ▪ in Text from column 36, the count ends at 49 and the time at 59.
+test('Files changed: each file has edit marks (one ▪ an edit), its count ending at 49 and its last edit at 59', async ($, on) => {
+  const steps = [edit('e1', 1, 'Edit src/up.ts', 600_000), edit('e2', 2, 'Edit src/up.ts', 300_000), edit('e3', 3, 'Edit src/rl.ts', 60_000), edit('e4', 4, 'Edit src/rl.ts', 30_000), edit('e5', 5, 'Edit src/rl.ts', 12_000)]
+  seed(on, tl([art('link', 'PR', { ref: 'x' })], { steps, changed: ['src/up.ts', 'src/rl.ts'] }), ART_UI)
+  for (const surface of SURFACES) {
+    const ui = await mount($, surface)
+    const rows = await drawnRows(ui)
+    const rl = rowWith(rows, 'src/rl.ts')
+    const up = rowWith(rows, 'src/up.ts')
+    expect([colOf(rl, '·'), colOf(rl, 'src/rl.ts'), colOf(rl, '▪▪▪'), rl.slice(0, 50).trimEnd().endsWith('3'), rl.trimEnd().endsWith('12s'), rl.trimEnd().length]).toEqual([2, 4, 36, true, true, 60])
+    expect([colOf(up, '▪▪'), up.includes('▪▪▪'), up.slice(0, 50).trimEnd().endsWith('2'), up.trimEnd().endsWith('5 min')]).toEqual([36, false, true, true])
+    expect(rowWith(rows, 'Files changed ─').includes('2  ·  edits')).toBe(true)
+    await ui.unmount()
+  }
+})
+
+test('the artifact page: sentence-case labels for kind, made, path, step it came from, and o: open  c: copy  g: chat  b: back', async ($, on) => {
+  const a = art('document', 'Plan', { ref: 'docs/plan.md', summary: 'The plan.', stepId: 's9', updatedAt: NOW - 540_000 })
+  seed(on, tl([a, art('link', 'PR', { ref: 'x' })], { steps: [step('s9', 9, 'Write the plan')] }), { ...ART_UI, page: { kind: 'artifact', id: a.id } })
+  const ui = await mount($, 'terminal', 62, true)
+  const rows = await drawnRows(ui)
+  expect(rowWith(rows, 'Title')).toContain('Plan')
+  expect(rowWith(rows, 'Kind')).toContain('▤ doc')
+  expect([colOf(rowWith(rows, 'Kind'), 'made'), colOf(rowWith(rows, 'Kind'), '9 min ago')]).toEqual([38, 50])
+  expect(rowWith(rows, 'Path')).toContain('docs/plan.md')
+  expect(rowWith(rows, 'Made by')).toContain('▸ step 9  Write')
+  expect(rowWith(rows, 'o: open').trim()).toBe('o: open   c: copy   g: chat   b: back')
+  // the cockpit page: the state in plain words, no pill, no caps labels
+  expect(rowWith(rows, 'artifact 2 of 2')).toMatch(/^ {2}Doc {2,}artifact 2 of 2$/)
+  expect(rows.join('\n')).not.toMatch(/TITLE|KIND|PATH|MADE BY|HANDOFF|DOC /)
+  await ui.unmount()
+})
+
+test('the lintel never gets a readout that meets the pill: the Handoff header and the page draw at 32 columns', async ($, on) => {
   const a = art('document', 'Plan', { ref: 'docs/plan.md' })
   const stored = seed(on, tl([a, art('link', 'PR', { ref: 'x' })]), ART_UI)
   for (const columns of [32, 36, 40]) {
     const deckUi = await mount($, 'terminal', columns)
     expect((await drawnRows(deckUi)).join('\n')).not.toContain('This tab failed')
-    expect(await deckUi.find({ key: 'artifacts-deck-lintel' })).toBeDefined()
+    expect(await deckUi.find({ key: 'handoff-lintel' })).toBeDefined()
     await deckUi.unmount()
     stored.set('ui', { ...ART_UI, page: { kind: 'artifact', id: a.id } })
     const pageUi = await mount($, 'terminal', columns)

@@ -2,33 +2,37 @@ import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { ArtifactKind, ArtifactRow, Timeline } from '../../types'
 import { debug, errText, updateUi } from '../state'
-import { clock, elapsed, fitLeft, growLists, listSplit, shortPaths, wrapWords } from './fit'
+import { lineOf } from './crewnode'
+import type { Seg } from './crewnode'
+import { clock, fitLeft, ruleBar, span, toolName, toolRoom, wordFit, wrapWords } from './fit'
 import { showInChat } from './find'
 import { openInEditor } from './editor'
 import { digestParts, exportDigest } from './handoff'
 import type { DigestParts } from './handoff'
-import { paneState } from './needs'
 import { openStep, openStepInline } from './openstep'
+import type { FootHint } from './overview'
 import { openPage } from './pagenav'
-import { blank, footer, heightOf, inst, more, opened, page, richDeck, row, tableHead } from './parts'
-import type { Action, Detail, Hint, InstSpec, Run } from './parts'
-import { stack } from './raster'
-import type { Hue } from './raster'
+import { blank, frameFootInst, frameTopInst, inst, page, primaryButton, primaryWidth, runText, section } from './parts'
+import type { Action, Detail, Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, COL, DECK, tableCols } from './style'
+import { C, CK, COL, DECK, edges } from './style'
+import { colHeads, flushRight, hasTime, midEnd, moreRow, nameLimit, openedBlock, pathFit, withFooter } from './tabkit'
+
+// The Artifacts tab (cockpit spec "CockpitArtifacts"): Handoff as the header
+// (the one filled button, what the digest will contain), then Artifacts with
+// the newest opened, Files changed with edit marks, and Kept. Enter opens an
+// artifact's page.
 
 const GLYPH: Record<ArtifactKind, string> = { page: '↗', document: '▤', result: '✦', link: '⎇' }
-const COLOR: Record<ArtifactKind, string> = { page: C.accent, document: C.doc, result: C.result, link: C.accent }
+const TONE: Record<ArtifactKind, Omit<Run, 'text'>> = { page: { color: CK.accent }, document: { dim: true }, result: { dim: true }, link: { color: CK.accent } }
 const KIND: Record<ArtifactKind, string> = { page: 'page', document: 'doc', result: 'result', link: 'link' }
 const EMPTY = 'No artifacts yet. Pages Claude publishes, documents it writes and results it reports are listed here.'
-// Rows each list shows however short the pane, before its `+ n more` line (binding rule 2 grows them).
+// Rows each list shows before its `+ n more` line.
 const ARTIFACT_CAP = 6
 const FILES_CAP = 3
-/** The DIGEST stack's width: the gauge. */
-const STACK = 22
-/** An edit bar's width and the column it starts on. */
-const BAR = 6
-const BAR_COL = 41
+const KEPT_CAP = 3
+/** The most edit marks a file shows. */
+const MARKS = 6
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 
 type Surface = Parameters<EngineInterface['ui']['copy']>[0]['surface']
@@ -92,12 +96,12 @@ async function openRef($: EngineInterface, a: ArtifactRow, surface: Surface): Pr
 
 // ---------- the digest ----------
 
-/** The four parts in stack order: what the stack and its legend call them, the text colour and the Raster hue. */
-const PARTS: { key: 'tasks' | 'steps' | 'kept' | 'made'; color: string; hue: Hue | 'mute' }[] = [
-  { key: 'tasks', color: C.accent, hue: 'iris' },
-  { key: 'steps', color: C.subtle, hue: 'mute' },
-  { key: 'kept', color: C.spark, hue: 'ember' },
-  { key: 'made', color: C.result, hue: 'mint' },
+/** The four parts in stack order: the bar's style and the legend's word. */
+const PARTS: { key: 'steps' | 'tasks' | 'kept' | 'made'; style: Omit<Run, 'text'> }[] = [
+  { key: 'steps', style: { color: CK.accent } },
+  { key: 'tasks', style: { color: CK.accent, dim: true } },
+  { key: 'kept', style: { dim: true } },
+  { key: 'made', style: { color: C.subtle } },
 ]
 
 /**
@@ -110,50 +114,18 @@ function weights(p: DigestParts): number[] {
   return counts.map(n => (n > 0 ? Math.max(n, total * 0.06) : 0))
 }
 
-/** Cells for each weight by largest remainder; a zero weight gets none. */
-function shares(w: number[], cells: number): number[] {
-  const total = w.reduce((a, b) => a + b, 0)
-  if (total === 0) return w.map(() => 0)
-  const raw = w.map(v => (v * cells) / total)
-  const out = raw.map(Math.floor)
-  let left = cells - out.reduce((a, b) => a + b, 0)
-  raw
-    .map((v, i) => [v - Math.floor(v), i] as const)
-    .sort((a, b) => b[0] - a[0])
-    .forEach(([, i]) => {
-      if (left > 0 && (w[i] ?? 0) > 0) {
-        out[i] = (out[i] ?? 0) + 1
-        left--
-      }
-    })
-  return out
-}
-
-/** The DIGEST stack as an instrument: a Raster stack, in text a run of `▄` in the parts' colours. */
-function digestInst(p: DigestParts): InstSpec {
-  const w = weights(p)
-  const cells = shares(w, STACK)
-  const empty = cells.every(n => n === 0)
-  return {
-    key: 'digest',
-    columns: STACK,
-    rows: 1,
-    sig: `digest:${cells.join(':')}`,
-    frames: () => [stack(STACK, empty ? [[1, 'rest']] : PARTS.map((x, i) => [cells[i] ?? 0, x.hue] as const))],
-    fallback: [
-      empty
-        ? [{ text: '─'.repeat(STACK), color: C.subtle }]
-        : PARTS.map((x, i): Run => ({ text: '▄'.repeat(cells[i] ?? 0), color: x.color })).filter(r => r.text !== ''),
-    ],
+/** The legend's words per part: `summary`, `9 tasks`, `3 kept`, `8 made`; a part with nothing is left out. */
+function legendOf(p: DigestParts): { style: Omit<Run, 'text'>; text: string }[] {
+  const words: Record<(typeof PARTS)[number]['key'], string> = {
+    steps: 'summary',
+    tasks: `${p.tasks} ${p.tasks === 1 ? 'task' : 'tasks'}`,
+    kept: `${p.kept} kept`,
+    made: `${p.made} made`,
   }
+  return PARTS.filter(x => p[x.key] > 0).map(x => ({ style: x.style, text: words[x.key] }))
 }
 
-/** `~2.1k words`: an estimate, since kept bodies are read from disk only when the export runs. */
-function wordsText(n: number): string {
-  return n >= 1000 ? `~${(n / 1000).toFixed(1)}k words` : `~${n} words`
-}
-
-// ---------- files changed, with edit bars ----------
+// ---------- files changed, with edit marks ----------
 
 type FileEdit = { path: string; edits: number; at?: number }
 
@@ -174,173 +146,105 @@ function fileEdits(t: Timeline): FileEdit[] {
   return out.map(f => (f.edits === 0 ? { ...f, edits: 1 } : f))
 }
 
-/** A file's edit bar: filled in proportion to the most-edited file's count, never empty. */
-function editBar(key: string, edits: number, most: number): InstSpec {
-  const lit = Math.max(1, Math.min(BAR, Math.ceil((edits / Math.max(1, most)) * BAR)))
-  return {
-    key,
-    columns: BAR,
-    rows: 1,
-    sig: `edits:${lit}`,
-    frames: () => [stack(BAR, [[lit, 'iris'], [BAR - lit, 'rest']])],
-    fallback: [[{ text: '▮'.repeat(lit), color: C.accent }, { text: '▯'.repeat(BAR - lit), color: C.subtle }]],
-  }
-}
-
-/**
- * An opened artifact's action line: `opened` draws at most 3 actions, and this
- * row has four (`o`, `c`, `g`, `p`), so it draws its own from column 6, three
- * apart, leaving off from the end those that do not fit.
- */
-function actionLine(ctx: ViewCtx, $: EngineInterface, actions: Action[], key: string): RenderElement {
-  const { Box, Button } = $.ui.resolve(ctx.e)
-  const shown: Action[] = []
-  let used: number = COL.action
-  for (const a of actions) {
-    const w = (shown.length > 0 ? 3 : 0) + a.hotkey.length + 2 + a.label.length
-    if (used + w > ctx.cols) break
-    shown.push(a)
-    used += w
-  }
-  return (
-    <Box key={key} flexDirection="row" paddingLeft={COL.action} columnGap={3}>
-      {shown.map(a => (
-        <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
-          {a.label}
-        </Button>
-      ))}
-    </Box>
-  )
-}
-
 // The file whose actions are open (a press selects it). Ephemeral: a reload starts with none.
 let fileOpen: string | undefined
 
-/** The opened row's lines: the link, what it is about, and who wrote it and when. */
+/** `now` for a moment ago, else a short span (`2 min`, `40s`). */
+const ago = (ms: number): string => (ms < 5000 ? 'now' : span(ms))
+
+/** The opened artifact's lines: its link, what it is about, and who made it and which step. */
 function detailsOf(t: Timeline, a: ArtifactRow, cols: number, stepSeq: number | undefined): Detail[] {
-  const room = Math.max(0, cols - COL.detailValue)
+  const room = Math.max(0, edges(cols).right + 1 - 14)
   const out: Detail[] = []
   if (a.ref !== undefined && a.ref !== '') {
     // A path keeps its end (the file name); a link or page keeps its start.
-    out.push({ key: 'link', value: a.kind === 'document' ? fitLeft(a.ref, room) : a.ref })
+    out.push({ key: 'Link', value: a.kind === 'document' ? fitLeft(a.ref, room) : a.ref })
   }
-  if (a.summary !== undefined && a.summary !== '') out.push({ key: 'about', value: a.summary })
+  if (a.summary !== undefined && a.summary !== '') out.push({ key: 'About', value: a.summary })
   const who = a.agent === 'main' ? 'main' : (t.agents[a.agent]?.type ?? a.agent)
-  const step = stepSeq !== undefined ? ` · step ${stepSeq}` : ''
-  out.push({ key: 'from', value: [{ text: `${who}${step} · ${clock(a.updatedAt)}`, dim: true }] satisfies Run[] })
+  const bits = [who, ...(stepSeq !== undefined ? [`step ${stepSeq}`] : []), ...(a.count > 1 ? [`version ${a.count}`] : [])]
+  out.push({ key: 'Made by', value: bits.join(', ') })
   return out
 }
 
-/** The Artifacts tab: the HANDOFF, DIGEST and KEPT deck, then ARTIFACTS (the newest opened) and FILES CHANGED. */
+/** The Artifacts tab: Handoff, then Artifacts (the newest opened), Files changed and Kept. */
 export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const { Box, Text } = $.ui.resolve(ctx.e)
   const { t, u, cols, e } = ctx
+  const { left, right } = edges(cols)
+  const ground = ctx.ground ?? 'night'
+  const mid = midEnd(cols)
   try {
     const rows = [...t.artifacts].sort((a, b) => b.updatedAt - a.updatedAt)
     const stepSeq = new Map(t.steps.map(s => [s.id, s.seq]))
     const newest = rows[0]?.id
     // Absent, the newest is open; '' means the person closed it.
     const openId = u.artifactOpen ?? newest
-    const blocks: RenderElement[][] = []
+    const out: RenderElement[] = []
+    const gap = (): void => void out.push(blank(ctx, $, `gap-${out.length}`))
 
-    // ---- the deck: HANDOFF (a press exports the digest), DIGEST (what it will hold), KEPT
+    // ---- Handoff: the header (a press exports the digest), what the digest will contain
     const parts = digestParts(t, ctx.now)
-    const kept = parts.kept
-    const keptLine: Run[] =
-      kept > 0
-        ? [
-            { text: '★ ', color: C.spark },
-            { text: String(kept), bold: true },
-            { text: ` ${kept === 1 ? 'step goes' : 'steps go'} in full`, dim: true },
-          ]
-        : [
-            { text: '★ ', color: C.spark },
-            { text: 'none kept yet', dim: true },
-          ]
     const last = t.lastExport
-    const legend: Run[] = PARTS.flatMap((x, i): Run[] => [
-      { text: '▪', color: x.color },
-      { text: ` ${x.key}${i < PARTS.length - 1 ? '  ' : ''}`, dim: true },
-    ])
-    const word = paneState(ctx)
-    const handoff = richDeck(
-      ctx,
-      $,
-      [
-        {
-          key: 'handoff-export',
-          label: 'HANDOFF',
-          onPress: async () => void (await exportDigest($)),
-          cells: [
-            { col: DECK.gauge, runs: [{ text: '↥ ', color: C.accent }, { text: 'Export digest', bold: true }] },
-            { col: DECK.value, runs: [{ text: 'journal', dim: true }] },
-            { col: DECK.aside, runs: [{ text: last !== undefined ? clock(last.at) : 'not yet', dim: true }], whole: true },
-          ],
-        },
-        {
-          key: 'digest',
-          label: 'DIGEST',
-          inst: digestInst(parts),
-          cells: [
-            { col: DECK.value, runs: [{ text: wordsText(parts.words), bold: true }], whole: true },
-            { col: DECK.aside, runs: [{ text: `${parts.count} ${parts.count === 1 ? 'part' : 'parts'}`, dim: true }], whole: true },
-          ],
-        },
-        { key: 'digest-legend', cells: [{ col: DECK.gauge, runs: legend }] },
-        {
-          label: 'KEPT',
-          cells: [
-            { col: DECK.gauge, runs: keptLine },
-            { col: DECK.value, runs: [{ text: 'the rest in brief', dim: true }] },
-          ],
-        },
-      ],
-      {
-        key: 'artifacts-deck',
-        ...(word.word === 'WAITING' ? { tone: 'warning' as const } : {}),
-        frame: { pill: word.word, pillColor: word.color, ...(rows.length > 0 ? { right: `${rows.length} made` } : {}) },
-      },
+    const lastRuns: Run[] = [{ text: last !== undefined ? `last exported ${clock(last.at)}` : 'not exported yet', dim: true }]
+    const exportNow = async (): Promise<void> => void (await exportDigest($))
+    const content = right - left + 1
+    out.push(inst(ctx, $, frameTopInst('handoff-lintel', cols, 'iris', ground)))
+    out.push(lineOf(ctx, $, { key: 'handoff-title', body: [{ col: left, text: 'Handoff', bold: true }, ...flushRight(lastRuns, right)] }))
+    out.push(blank(ctx, $, 'handoff-gap-button'))
+    const buttonW = primaryWidth('Export digest')
+    const sentence = 'saved to this session and copied'
+    out.push(
+      <Box key="handoff-export-row" flexDirection="row">
+        <Text key="handoff-export-pad">{' '.repeat(left)}</Text>
+        {primaryButton(ctx, $, { key: 'handoff-export', label: 'Export digest', hotkey: 'e', onPress: exportNow })}
+        {left + buttonW + 2 + sentence.length <= right + 1 ? <Text key="handoff-export-note" dimColor>{`  ${sentence}`}</Text> : null}
+      </Box>,
     )
-    if (handoff !== null) blocks.push([handoff])
+    out.push(blank(ctx, $, 'handoff-gap-digest'))
+    out.push(lineOf(ctx, $, { key: 'digest-label', body: [{ col: left, text: 'The digest will contain', dim: true }] }))
+    const w = weights(parts)
+    out.push(
+      <Text key="digest-bar" wrap="truncate-end">
+        {' '.repeat(left)}
+        {ruleBar(content, PARTS.map((x, i) => ({ count: w[i] ?? 0, ...x.style }))).map((r, i) => runText(r, ctx.e, $, `digest-bar-${i}`))}
+      </Text>,
+    )
+    const legend: Seg[] = []
+    let lc: number = left
+    for (const x of legendOf(parts)) {
+      legend.push({ col: lc, text: '■', ...x.style }, { col: lc + 2, text: x.text, dim: true })
+      lc += 2 + x.text.length + 2
+    }
+    out.push(lineOf(ctx, $, { key: 'digest-legend', body: legend }))
+    out.push(inst(ctx, $, frameFootInst('handoff-sill', cols, 'iris', ground)))
+    gap()
 
+    // ---- Artifacts
     const files = fileEdits(t)
     // A file's actions show only while no artifact is open: they share the hotkeys `o` and `c`.
     const noArtifactOpen = openId === undefined || openId === ''
     const fileSel = noArtifactOpen ? (files.find(f => f.path === fileOpen) ?? (rows.length === 0 ? files[0] : undefined))?.path : undefined
 
-    // Binding rule 2: ARTIFACTS and FILES CHANGED share the rows the deck, the opened artifact and the footer leave, never fewer than their old caps.
-    const openRow = rows.find(a => a.id === openId)
-    const openExtra =
-      openRow !== undefined ? heightOf(opened(ctx, $, detailsOf(t, openRow, cols, openRow.stepId !== undefined ? stepSeq.get(openRow.stepId) : undefined), [])) + 3 : 0
-    const fixed = (handoff !== null ? heightOf(handoff) + 1 : 0) + openExtra + heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2
-    const grown = growLists((ctx.bodyRows ?? 40) - fixed, [
-      { key: 'artifacts', count: rows.length, least: ARTIFACT_CAP },
-      { key: 'files', count: files.length, least: FILES_CAP },
-    ])
-    const artSplit = listSplit(rows.length, grown.get('artifacts') ?? 0)
-    const fileSplit = listSplit(files.length, grown.get('files') ?? 0)
-
-    const list: RenderElement[] = [tableHead(ctx, $, 'ARTIFACTS', 'kind', 'age')]
+    out.push(section(ctx, $, 'Artifacts', rows.length > 0 ? colHeads(cols, String(rows.length), 'kind', 'age') : undefined, { key: 'sec-artifacts' }))
     if (rows.length === 0) {
-      wrapWords(EMPTY, Math.max(1, cols - COL.glyph), 5).forEach((l, i) => {
-        list.push(
-          <Text key={`empty-${i}`} dimColor wrap="truncate-end">{`  ${l}`}</Text>,
-        )
+      wrapWords(EMPTY, Math.max(1, right - left + 1), 5).forEach((l, i) => {
+        out.push(lineOf(ctx, $, { key: `empty-${i}`, body: [{ col: left, text: l, dim: true }] }))
       })
     }
-    rows.slice(0, artSplit.shown).forEach((a, i) => {
+    const shownRows = rows.slice(0, ARTIFACT_CAP)
+    shownRows.forEach((a, i) => {
       const seq = a.stepId !== undefined ? stepSeq.get(a.stepId) : undefined
       const isOpen = a.id === openId
-      if (isOpen && i > 0) list.push(blank(ctx, $, `above-${a.id}`))
-      list.push(
-        row(ctx, $, {
+      const room = Math.max(1, nameLimit(cols) - COL.name)
+      const body: Seg[] = [{ col: 2, text: GLYPH[a.kind], ...(isOpen && a.kind === 'page' ? { color: CK.accent } : TONE[a.kind]) }, { col: COL.name, text: wordFit(a.title, room), ...(isOpen ? { bold: true } : {}) }]
+      if (mid !== undefined) body.push(...flushRight([{ text: KIND[a.kind], dim: true }], mid))
+      if (hasTime(cols)) body.push(...flushRight([{ text: ago(ctx.now - a.updatedAt), dim: true }], right))
+      out.push(
+        lineOf(ctx, $, {
           key: `art-${a.id}`,
-          glyph: GLYPH[a.kind],
-          glyphColor: COLOR[a.kind],
-          name: a.title,
-          bold: isOpen,
-          metric: a.count > 1 ? `${KIND[a.kind]} ×${a.count}` : KIND[a.kind],
-          time: elapsed(a.updatedAt, ctx.now),
+          ...(isOpen ? { pre: [{ col: 0, text: '▍', color: CK.accent }] } : {}),
+          body,
           // Enter on an artifact row opens its page (rich rule 4); `b` comes back to the row.
           onPress: () => openPage($, 'artifact', a.id, `art-${a.id}`),
         }),
@@ -352,28 +256,22 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
         actions.push({ hotkey: 'o', label: 'step', key: `act-o-${a.id}`, onPress: () => openStepInline($, stepId) })
       }
       const hasRef = a.ref !== undefined && a.ref !== ''
-      actions.push({
-        hotkey: 'c',
-        label: hasRef ? 'copy link' : 'copy',
-        key: `act-c-${a.id}`,
-        onPress: () => copyText($, a.ref ?? a.title, e.surface),
-      })
+      actions.push({ hotkey: 'c', label: hasRef ? 'copy link' : 'copy', key: `act-c-${a.id}`, onPress: () => copyText($, a.ref ?? a.title, e.surface) })
       if (stepId !== undefined && seq !== undefined) {
         actions.push({ hotkey: 'g', label: 'chat', key: `act-g-${a.id}`, onPress: () => showInChat($, stepId) })
       }
-      list.push(opened(ctx, $, detailsOf(t, a, cols, seq), []), actionLine(ctx, $, actions, `actions-${a.id}`))
-      if (i < artSplit.shown - 1 || artSplit.more > 0) list.push(blank(ctx, $, `below-${a.id}`))
+      out.push(<Box key={`open-${a.id}`} flexDirection="column">{openedBlock(ctx, $, { key: `open-${a.id}`, details: detailsOf(t, a, cols, seq), actions })}</Box>)
+      if (i < shownRows.length - 1 || rows.length > ARTIFACT_CAP) out.push(blank(ctx, $, `below-${a.id}`))
     })
-    if (artSplit.more > 0) list.push(more(ctx, $, artSplit.more))
-    blocks.push(list)
+    if (rows.length > ARTIFACT_CAP) out.push(moreRow(ctx, $, 'artifacts-more', `+ ${rows.length - ARTIFACT_CAP} more`))
 
+    // ---- Files changed
     if (files.length > 0) {
-      const out: RenderElement[] = [tableHead(ctx, $, 'FILES CHANGED', 'edits', 'last')]
-      const most = Math.max(...files.map(f => f.edits))
-      const tc = tableCols(cols)
-      // The edit bar sits between the count and the time: only where both columns exist.
-      const barred = tc.metric === DECK.value && tc.time === DECK.aside
-      files.slice(0, fileSplit.shown).forEach((f, i) => {
+      gap()
+      out.push(section(ctx, $, 'Files changed', colHeads(cols, String(files.length), 'edits', 'last'), { key: 'sec-files' }))
+      const markCol = mid !== undefined ? mid - 13 : undefined
+      const limit = markCol !== undefined ? markCol - 2 : nameLimit(cols)
+      files.slice(0, FILES_CAP).forEach((f, i) => {
         const select = () => {
           fileOpen = f.path
           return updateUi($, s => ({ ...s, artifactOpen: '' })).then(() => {
@@ -384,65 +282,54 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
             }
           })
         }
-        const base = row(ctx, $, {
-          key: `file-${i}`,
-          glyph: '▪',
-          glyphColor: f.path === fileSel ? C.accent : undefined,
-          name: shortPaths(f.path),
-          bold: f.path === fileSel,
-          metric: String(f.edits),
-          ...(barred ? {} : f.at !== undefined ? { time: elapsed(f.at, ctx.now) } : {}),
-          onPress: select,
-        })
-        if (barred) {
-          out.push(
-            <Box key={`filerow-${i}`} flexDirection="row">
-              <Box key={`filerow-${i}-name`} width={BAR_COL} flexShrink={0}>
-                {base}
-              </Box>
-              {inst(ctx, $, editBar(`edits-${i}`, f.edits, most))}
-              <Text key={`filerow-${i}-time`} dimColor wrap="truncate-end">
-                {f.at !== undefined ? `${' '.repeat(DECK.aside - BAR_COL - BAR)}${elapsed(f.at, ctx.now)}` : ''}
-              </Text>
-            </Box>,
-          )
-        } else {
-          out.push(base)
-        }
-        if (f.path !== fileSel) return
+        const sel = f.path === fileSel
+        const body: Seg[] = [
+          { col: 2, text: '·', ...(sel ? { color: CK.accent } : { dim: true }) },
+          { col: COL.name, text: pathFit(f.path, Math.max(1, limit - COL.name)), ...(sel ? { bold: true } : {}) },
+        ]
+        if (markCol !== undefined) body.push({ col: markCol, text: '▪'.repeat(Math.min(MARKS, f.edits)), dim: true })
+        if (mid !== undefined) body.push(...flushRight([{ text: String(f.edits), dim: true }], mid))
+        if (hasTime(cols) && f.at !== undefined) body.push(...flushRight([{ text: ago(ctx.now - f.at), dim: true }], right))
+        out.push(lineOf(ctx, $, { key: `file-${i}`, body, onPress: select }))
+        if (!sel) return
         const path = f.path
         out.push(
-          opened(
-            ctx,
-            $,
-            [{ key: 'path', value: fitLeft(path, Math.max(0, cols - COL.detailValue)) }],
-            [
-              { hotkey: 'o', label: 'open', key: `act-o-file-${i}`, onPress: async () => void (await openInEditor($, path, undefined, e.surface)) },
-              { hotkey: 'c', label: 'copy path', key: `act-c-file-${i}`, onPress: () => copyText($, path, e.surface) },
-            ],
-          ),
+          <Box key={`open-file-${i}`} flexDirection="column">
+            {openedBlock(ctx, $, {
+              key: `open-file-${i}`,
+              details: [{ key: 'Path', value: fitLeft(path, Math.max(0, right + 1 - 14)) }],
+              actions: [
+                { hotkey: 'o', label: 'open', key: `act-o-file-${i}`, onPress: async () => void (await openInEditor($, path, undefined, e.surface)) },
+                { hotkey: 'c', label: 'copy path', key: `act-c-file-${i}`, onPress: () => copyText($, path, e.surface) },
+              ],
+            })}
+          </Box>,
         )
       })
-      if (fileSplit.more > 0) out.push(more(ctx, $, fileSplit.more))
-      blocks.push(out)
+      if (files.length > FILES_CAP) out.push(moreRow(ctx, $, 'files-more', `+ ${files.length - FILES_CAP} more`))
     }
 
-    const hints: Hint[] = [
-      { text: '↵ open' },
-      { hotkey: 'e', label: 'export', key: 'hint-e', onPress: async () => void (await exportDigest($)) },
-      { text: 'esc prompt' },
-    ]
-    const out: RenderElement[] = []
-    for (const lines of blocks) {
-      if (out.length > 0) out.push(blank(ctx, $, `gap-${out.length}`))
-      out.push(...lines)
+    // ---- Kept: the steps kept in full
+    const keptSteps = t.steps.filter(s => s.pin !== undefined).sort((a, b) => b.startedAt - a.startedAt)
+    if (keptSteps.length > 0) {
+      gap()
+      out.push(section(ctx, $, 'Kept', colHeads(cols, String(keptSteps.length), 'from', 'age'), { key: 'sec-kept' }))
+      const toolW = toolRoom(cols)
+      keptSteps.slice(0, KEPT_CAP).forEach(s => {
+        const note = s.pin !== undefined && s.pin !== '' ? s.pin.replace(/\s+/g, ' ').trim() : ''
+        const text = note !== '' ? note : s.label.startsWith(`${s.tool} `) ? s.label.slice(s.tool.length + 1) : s.label
+        const body: Seg[] = [{ col: 2, text: '★', color: CK.accent }, { col: COL.name, text: pathFit(text, Math.max(1, nameLimit(cols) - COL.name)) }]
+        if (mid !== undefined) body.push(...flushRight([{ text: toolName(s.tool, Math.max(toolW, 4)), dim: true }], mid))
+        if (hasTime(cols)) body.push(...flushRight([{ text: ago(ctx.now - s.startedAt), dim: true }], right))
+        out.push(lineOf(ctx, $, { key: `kept-${s.id}`, body, onPress: () => openStep($, s.id, `kept-${s.id}`) }))
+      })
+      if (keptSteps.length > KEPT_CAP) out.push(moreRow(ctx, $, 'kept-more', `+ ${keptSteps.length - KEPT_CAP} more`))
+      out.push(lineOf(ctx, $, { key: 'kept-note', body: [{ col: COL.name, text: wordFit('Kept steps are never trimmed and export in full.', Math.max(1, right - COL.name + 1)), dim: true }] }))
     }
-    const foot = footer(ctx, $, hints)
-    if (foot !== null) {
-      out.push(blank(ctx, $, 'gap-footer'))
-      out.push(foot)
-    }
-    return <Box flexDirection="column">{out}</Box>
+
+    // `e` is armed by the Export button above, so the footer only says it.
+    const hints: FootHint[] = [{ key: '↵', label: 'open artifact' }, { key: 'e', label: 'export' }, { key: 'esc', label: 'prompt' }]
+    return <Box flexDirection="column">{withFooter(ctx, $, out, hints)}</Box>
   } catch (err) {
     debug($, `artifacts view failed: ${errText(err)}`)
     return <Text dimColor>{`Artifacts: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
@@ -455,7 +342,7 @@ export function artifactsView(ctx: ViewCtx, $: EngineInterface): RenderElement {
  * ref (a path or a link), the summary and the step that made it, none of it
  * cut. `o: open` (a file in the editor, a link in the browser, on a press
  * only), `c: copy` the ref (the title when it has none), `g: chat` and
- * `b: back`. The MADE BY row is a Button: it opens that step's page.
+ * `b: back`. The Made by row is a Button: it opens that step's page.
  */
 export function artifactPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderElement {
   const { t, e } = ctx
@@ -468,26 +355,26 @@ export function artifactPage(ctx: ViewCtx, $: EngineInterface, id: string): Rend
   const hasRef = a.ref !== undefined && a.ref !== ''
   const stepId = step?.id
   const fields: Parameters<typeof page>[2]['fields'] = [
-    { key: 'artifact-title', label: 'TITLE', value: [{ text: a.title, bold: true }] },
+    { key: 'artifact-title', label: 'Title', value: [{ text: a.title, bold: true }] },
     {
       key: 'artifact-kind',
-      label: 'KIND',
-      value: [{ text: `${GLYPH[a.kind]} `, color: COLOR[a.kind] }, { text: KIND[a.kind] }],
+      label: 'Kind',
+      value: [{ text: `${GLYPH[a.kind]} `, ...TONE[a.kind] }, { text: KIND[a.kind] }],
       cells: [
         { col: DECK.value, runs: [{ text: 'made', dim: true }] },
-        { col: DECK.aside, runs: [{ text: `${elapsed(a.updatedAt, ctx.now)} ago`, dim: true }] },
+        { col: DECK.aside, runs: [{ text: `${span(ctx.now - a.updatedAt)} ago`, dim: true }] },
       ],
     },
   ]
-  if (a.count > 1) fields.push({ key: 'artifact-written', label: 'WRITTEN', value: `${a.count} times, the newest shown` })
-  if (hasRef) fields.push({ key: 'artifact-ref', label: a.kind === 'document' ? 'PATH' : 'REF', value: a.ref ?? '' })
-  if (a.summary !== undefined && a.summary !== '') fields.push({ key: 'artifact-summary', label: 'SUMMARY', value: a.summary })
+  if (a.count > 1) fields.push({ key: 'artifact-written', label: 'Written', value: `${a.count} times, the newest shown` })
+  if (hasRef) fields.push({ key: 'artifact-ref', label: a.kind === 'document' ? 'Path' : 'Link', value: a.ref ?? '' })
+  if (a.summary !== undefined && a.summary !== '') fields.push({ key: 'artifact-summary', label: 'Summary', value: a.summary })
   fields.push({
     key: 'artifact-madeby',
-    label: 'MADE BY',
+    label: 'Made by',
     value:
       step !== undefined
-        ? [{ text: '▸ ', color: C.accent }, { text: `step ${step.seq}  ${step.tool}` }]
+        ? [{ text: '▸ ', color: CK.accent }, { text: `step ${step.seq}  ${step.tool}` }]
         : [{ text: 'a step no longer in the timeline', dim: true }],
     cells: [
       { col: DECK.value, runs: [{ text: who, dim: true }] },
@@ -495,7 +382,7 @@ export function artifactPage(ctx: ViewCtx, $: EngineInterface, id: string): Rend
     ],
     ...(stepId !== undefined ? { onPress: () => openStep($, stepId) } : {}),
   })
-  fields.push({ key: 'artifact-handoff', label: 'HANDOFF', value: `goes into the digest as ${a.kind === 'document' ? 'a file path' : 'a link'}` })
+  fields.push({ key: 'artifact-handoff', label: 'Handoff', value: `goes into the digest as ${a.kind === 'document' ? 'a file path' : 'a link'}` })
   const actions: Action[] = []
   if (hasRef) {
     actions.push({ hotkey: 'o', label: 'open', key: 'artifact-page-open', onPress: async () => void (await openRef($, a, e.surface)) })

@@ -1,33 +1,41 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
-import type { AgentRow, Step, TaskItem, Timeline } from '../../types'
+import type { AgentRow, TaskItem, Timeline } from '../../types'
+import { oneLine } from '../model/label'
 import { median, taskMeter } from '../model/meter'
 import type { TaskMeterRow } from '../model/meter'
+import { NO_LIST_TEXT, todoBlock } from '../model/todo'
 import { debug, errText, updateUi } from '../state'
-import { STEP_GLYPH, openAgentPage, signalFlag } from './agentmeta'
-import { buckets, clock, elapsed, growLists, levels, listSplit, pips, spark, typeShort, wrapFull, wrapWords } from './fit'
-import { exportDigest } from './handoff'
-import { podFor, waitStates } from './needs'
+import { openAgentPage, runningStep } from './agentmeta'
+import { lineOf, stateOf } from './crewnode'
+import type { Seg } from './crewnode'
+import { clock, doing, elapsed, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
+import { waitStates } from './needs'
 import { openPage } from './pagenav'
-import { blank, footer, heightOf, more, page, richDeck, row, tableHead } from './parts'
-import type { Action, Detail, Hint, InstSpec, PageBlock, RichRow, Run } from './parts'
-import { bars } from './raster'
-import type { Ink } from './raster'
+import { blank, frameFootInst, frameTopInst, inst, page, runText, section } from './parts'
+import type { InstSpec, PageBlock, Run } from './parts'
+import { Grid, PALETTE } from './raster'
+import type { Ground } from './raster'
 import type { ViewCtx } from './shell'
-import { C, COL, DECK, GLYPHS, podOf, statusColor } from './style'
+import { C, CK, COL, critterGlyph, critterOf, edges, podOf, statusColor, typeName } from './style'
+import { colHeads, flushRight, hasTime, midEnd, moreRow, nameLimit, stepGlyph, withFooter } from './tabkit'
+import type { FootHint } from './overview'
 
-const EMPTY = 'No tasks yet. They appear when Claude writes a task list.'
+// The Tasks tab (cockpit spec "CockpitTasks"): a header (how many are done,
+// the pace sentence, the bar, "Effort so far" with one bar a task and the
+// heaviest), then Doing now (its agents tethered as micro critters), Up next
+// and Done, and "Earlier" for the lists of earlier requests (R12). Enter
+// opens a task's page.
+
 // Rows each section shows before its `+ n more` line.
 const ACTIVE_CAP = 1
 const QUEUED_CAP = 5
 const DONE_CAP = 3
+const EARLIER_CAP = 3
 // `d` unfolds the done tasks; a very long list still stops here.
 const UNFOLDED_CAP = 20
 // Agents tethered under the active task before the more line.
 const TETHERED_AGENTS = 4
-// The PLAN strip: one column per task (two cells apart while they fit), at most this wide, three rows tall.
-const PLAN_MAX = 34
-const PLAN_ROWS = 3
 
 /** A task's identity in the pane: its owner and id (ids repeat across agents). */
 const keyOf = (x: TaskItem): string => `${x.owner}:${x.id}`
@@ -45,12 +53,6 @@ function agentsOn(t: Timeline, task: TaskItem): AgentRow[] {
     .sort((a, b) => a.startedAt - b.startedAt)
 }
 
-/** When the session began: the earliest turn, step or task time; `now` when there is none. */
-function startOf(t: Timeline, now: number): number {
-  const times = [...t.turns.map(x => x.startedAt), ...t.steps.map(x => x.startedAt), ...t.tasks.map(x => x.updatedAt)]
-  return times.length > 0 ? Math.min(...times) : now
-}
-
 /** A token count as `72k` or `1.2M`; empty for none. */
 function tok(n: number): string {
   if (n <= 0) return ''
@@ -59,330 +61,351 @@ function tok(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`
 }
 
-/** Tokens as `72k` or `1.2M`; empty when the agent has none yet. */
-function tokensOf(a: AgentRow): string {
-  return tok((a.tokensIn ?? 0) + (a.tokensOut ?? 0))
-}
-
 /** What a task took in wall-clock time: the main loop's turns on it and its agents' own. */
 const spentMs = (m: TaskMeterRow | undefined): number => (m !== undefined ? m.ms + m.agentMs : 0)
 
-const [PIP_DONE, PIP_NOW, PIP_QUEUED] = GLYPHS.pip
+// ---- the pace sentence ---------------------------------------------------------
 
-type PlanCol = { tokens: number; state: 'done' | 'active' | 'queued'; first: number }
+const FIVE_MIN = 5 * 60_000
+
+/** "about 25 min left at this pace": the average time a done task took this request, times the tasks left. Nothing before one is done. */
+function paceRuns(done: number, open: number, since: number | undefined, now: number): Run[] {
+  if (open <= 0 || done <= 0 || since === undefined || now <= since) return []
+  const left = ((now - since) / done) * open
+  const rounded = left < 10 * 60_000 ? Math.max(60_000, Math.round(left / 60_000) * 60_000) : Math.round(left / FIVE_MIN) * FIVE_MIN
+  return [{ text: 'about ', dim: true }, { text: span(rounded), bold: true }, { text: ' left at this pace', dim: true }]
+}
+
+// ---- Effort so far -------------------------------------------------------------
+
+type Unit = { tokens: number; state: 'done' | 'active' | 'queued' }
 
 /**
- * The PLAN strip's columns: one per task, its height the tokens it took and
- * its state the colour. Over what fits, tasks are bucketed in runs (a run is
- * `active` if any of its tasks is, `queued` if all are, else `done`).
+ * One bar a task: three cells to a task (a two-cell bar and a gap) while they
+ * fit, else two, else one; past that, tasks share a bar in runs (a run is
+ * active if any of its tasks is, queued if all are, else done).
  */
-function planCols(rows: TaskMeterRow[], room: number): { cols: PlanCol[]; pitch: 1 | 2 } {
-  const one: PlanCol[] = rows.map((m, i) => ({
-    tokens: m.tokens,
-    state: m.task.status === 'completed' ? 'done' : m.task.status === 'in_progress' ? 'active' : 'queued',
-    first: i,
-  }))
-  const cap = Math.max(4, Math.min(PLAN_MAX, room))
-  if (one.length * 2 <= cap) return { cols: one, pitch: 2 }
-  if (one.length <= cap) return { cols: one, pitch: 1 }
-  const size = Math.ceil(one.length / cap)
-  const out: PlanCol[] = []
+function effortUnits(rows: TaskMeterRow[], room: number): { units: Unit[]; pitch: 3 | 2 | 1 } {
+  const one: Unit[] = rows.map(m => ({ tokens: m.tokens, state: m.task.status === 'completed' ? 'done' : m.task.status === 'in_progress' ? 'active' : 'queued' }))
+  if (one.length * 3 <= room) return { units: one, pitch: 3 }
+  if (one.length * 2 <= room) return { units: one, pitch: 2 }
+  if (one.length <= room) return { units: one, pitch: 1 }
+  const size = Math.ceil(one.length / Math.max(1, room))
+  const out: Unit[] = []
   for (let i = 0; i < one.length; i += size) {
     const run = one.slice(i, i + size)
     out.push({
       tokens: run.reduce((n, c) => n + c.tokens, 0),
       state: run.some(c => c.state === 'active') ? 'active' : run.every(c => c.state === 'queued') ? 'queued' : 'done',
-      first: i,
     })
   }
-  return { cols: out, pitch: 1 }
+  return { units: out, pitch: 1 }
 }
 
-const PLAN_INK: Record<PlanCol['state'], Ink> = { done: 'mute', active: 'iris', queued: 'rest' }
-const PLAN_TEXT: Record<PlanCol['state'], Omit<Run, 'text'>> = { done: { dim: true }, active: { color: C.live }, queued: { color: C.subtle } }
+const EFFORT_ROWS = 2
 
-/**
- * The PLAN instrument (the task meter): one column per task, three rows
- * tall, its height the tokens it took, its colour its state (done `mute`,
- * active `iris`, queued `rest`, the heaviest `ember`). The text form is the
- * same box in eighth blocks.
- */
-function planInst(t: Timeline, meter: TaskMeterRow[], heaviest: string | undefined, room: number): InstSpec {
-  const { cols, pitch } = planCols(meter, room)
-  const vals = cols.map(c => c.tokens)
-  const heavy = heaviest !== undefined ? meter.findIndex(m => keyOf(m.task) === heaviest) : -1
-  let peak = -1
-  cols.forEach((c, i) => {
-    if (heavy >= 0 && c.first <= heavy) peak = i
-  })
-  const hueOf = (i: number): Ink => (cols[i]?.state === 'active' ? 'iris' : i === peak ? 'ember' : PLAN_INK[cols[i]?.state ?? 'queued'])
-  const columns = Math.max(1, cols.length * pitch)
-  const lv = levels(vals, PLAN_ROWS)
-  const textRows: Run[][] = []
-  for (let r = 0; r < PLAN_ROWS; r++) {
-    const runs: Run[] = []
-    cols.forEach((c, i) => {
-      const part = Math.max(0, Math.min(8, (lv[i] ?? 0) - (PLAN_ROWS - 1 - r) * 8))
-      const glyph = part > 0 ? GLYPHS.sparks[part - 1]! : r === PLAN_ROWS - 1 ? GLYPHS.sparks[0] : ' '
-      const style = i === peak && c.state !== 'active' ? { color: C.lead } : PLAN_TEXT[c.state]
-      runs.push({ text: glyph, ...style })
-      if (pitch === 2) runs.push({ text: ' ' })
-    })
-    textRows.push(runs)
-  }
-  return {
-    key: 'plan',
-    columns,
-    rows: PLAN_ROWS,
-    sig: `plan:${pitch}:${peak}:${cols.map(c => `${c.state[0]}${c.tokens}`).join(',')}`,
-    frames: () => [bars(PLAN_ROWS, vals, { pitch, hueOf: (i: number) => hueOf(i) })],
-    fallback: textRows,
-  }
-}
-
-/** The PACE instrument: tasks closed per bucket of the session, one row. */
-function paceInst(values: number[], n: 10 | 22): InstSpec {
-  const text = spark(values, n)
-  return {
-    key: 'pace',
-    columns: n,
-    rows: 1,
-    sig: `pace:${n}:${values.join(',')}`,
-    frames: () => [bars(1, values.slice(-n), { hueOf: () => 'iris' })],
-    fallback: [text],
-  }
-}
-
-/** The Tasks tab: the PLAN and PACE deck, then ACTIVE (agents tethered under the task), QUEUED and DONE. */
-export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const { t, u, cols, now } = ctx
-  try {
-    if (t.tasks.length === 0) {
-      return (
-        <Box flexDirection="column">
-          {wrapWords(EMPTY, Math.max(1, cols - 2), 4).map((l, i) => (
-            <Text key={`empty-${i}`} dimColor wrap="truncate-end">{`  ${l}`}</Text>
-          ))}
-        </Box>
-      )
+/** The effort chart as an instrument: two rows of eighth blocks, the task in progress bright, the done ones soft, the rest at rest. */
+function effortInst(rows: TaskMeterRow[], width: number, ground: Ground): InstSpec {
+  const { units, pitch } = effortUnits(rows, width)
+  const barW = pitch === 3 ? 2 : 1
+  const lv = levels(units.map(u => u.tokens), EFFORT_ROWS)
+  const used = units.length * pitch
+  const text: Run[][] = [[], []]
+  units.forEach((u, i) => {
+    const v = lv[i] ?? 0
+    for (let r = 0; r < EFFORT_ROWS; r++) {
+      const k = EFFORT_ROWS - 1 - r
+      const part = Math.max(0, Math.min(8, v - k * 8))
+      const glyph = part > 0 ? '▁▂▃▄▅▆▇█'[part - 1]! : r === EFFORT_ROWS - 1 ? '▁' : ' '
+      const style: Omit<Run, 'text'> = v <= 0 ? { color: C.subtle } : u.state === 'active' ? { color: CK.accent } : u.state === 'done' ? { color: CK.accent, dim: true } : { color: C.subtle }
+      text[r]!.push({ text: glyph.repeat(barW), ...style }, ...(pitch === 1 ? [] : [{ text: ' '.repeat(pitch - barW) }]))
     }
-    const total = t.tasks.length
-    const active = t.tasks.filter(x => x.status === 'in_progress').sort(byNewest)
-    const queued = t.tasks.filter(x => x.status === 'pending')
-    const done = t.tasks.filter(x => x.status === 'completed').sort(byNewest)
-    const start = startOf(t, now)
-    const waits = waitStates(t, u, now)
+  })
+  return {
+    key: 'effort',
+    columns: Math.max(1, used),
+    rows: EFFORT_ROWS,
+    sig: `effort:${ground}:${pitch}:${units.map(u => `${u.state[0]}${u.tokens}`).join(',')}`,
+    frames: () => {
+      const g = new Grid(Math.max(1, used), EFFORT_ROWS, PALETTE[ground])
+      units.forEach((u, i) => {
+        const v = lv[i] ?? 0
+        for (let w = 0; w < barW; w++) {
+          for (let k = 0; k < EFFORT_ROWS; k++) {
+            const part = Math.max(0, Math.min(8, v - k * 8))
+            const rr = EFFORT_ROWS - 1 - k
+            if (part > 0) g.lv(i * pitch + w, rr, part, u.state === 'active' ? 'iris' : u.state === 'done' ? 'irisSoft' : 'rest')
+            else if (k === 0) g.lv(i * pitch + w, rr, 1, 'rest')
+          }
+        }
+      })
+      return [g]
+    },
+    fallback: text,
+  }
+}
+
+// ---- the rows ------------------------------------------------------------------
+
+/** One task row at absolute columns: the glyph at 2, the name at 4, a figure ending at 49, a time ending at 59. */
+function taskRow(
+  ctx: ViewCtx,
+  $: EngineInterface,
+  r: { key: string; glyph: Run; name: Run[]; mid?: Run; time?: Run | Run[]; mark?: string; onPress: () => void | Promise<void> },
+): RenderElement {
+  const mid = midEnd(ctx.cols)
+  const { right } = edges(ctx.cols)
+  const name = (fitRuns(r.name, Math.max(1, nameLimit(ctx.cols) - COL.name)) as Run[]).filter(x => x.text !== '')
+  const body: Seg[] = [{ col: 2, ...r.glyph }]
+  let col: number = COL.name
+  for (const n of name) {
+    body.push({ ...n, col })
+    col += n.text.length
+  }
+  if (r.mid !== undefined && mid !== undefined) body.push(...flushRight([r.mid], mid))
+  if (r.time !== undefined && hasTime(ctx.cols)) body.push(...flushRight(Array.isArray(r.time) ? r.time : [r.time], right))
+  return lineOf(ctx, $, {
+    key: r.key,
+    ...(r.mark !== undefined ? { pre: [{ col: 0, text: '▍', color: r.mark }] } : {}),
+    body,
+    onPress: r.onPress,
+  })
+}
+
+/** The dim line of a plain sentence at column 2, cut at a word. */
+function noteRow(ctx: ViewCtx, $: EngineInterface, key: string, text: string): RenderElement {
+  const { left, right } = edges(ctx.cols)
+  return lineOf(ctx, $, { key, body: [{ col: left, text: wordFit(text, right - left + 1), dim: true }] })
+}
+
+/** One tethered agent: its micro critter at column 4 (badge column kept), the type bold at 10 and what it does dim, the time at 59; three rows (two for the last, the section's gap being the third). */
+function tetherRow(ctx: ViewCtx, $: EngineInterface, t: Timeline, a: AgentRow, state: ReturnType<typeof stateOf>, last: boolean): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { right } = edges(ctx.cols)
+  const ground = ctx.ground ?? 'night'
+  const room = Math.max(1, right - 10 + 1)
+  const what: Run[] =
+    state === 'waiting'
+      ? [{ text: 'Waiting for your answer', color: CK.ask }]
+      : state === 'failed'
+        ? [{ text: oneLine((a.result ?? a.doing ?? '').split('\n')[0] ?? '') || 'Stopped by an error', color: CK.fail }]
+        : [{ text: doing(runningStep(t, a.id)), dim: true }]
+  const time: Run[] = [{ text: span(ctx.now - a.startedAt), dim: true }]
+  const rw = time[0]!.text.length
+  const name = typeName(a.type)
+  const left = fitRuns([{ text: name, bold: true }, { text: '  ', dim: true }, ...what], Math.max(1, room - rw - 2)) as Run[]
+  const lw = left.reduce((n, x) => n + x.text.length, 0)
+  const body = [...left, { text: ' '.repeat(Math.max(1, room - lw - rw)) }, ...time].filter(x => x.text !== '')
+  const key = `task-agent-${a.id}`
+  return (
+    <Box key={`row-${key}`} flexDirection="row">
+      <Text key={`${key}-pad`}>{' '.repeat(COL.name)}</Text>
+      {inst(ctx, $, { key: `${key}-who`, ...critterOf(a, { state, size: 'micro', ground, motion: ctx.motion === true }) })}
+      <Text key={`${key}-gap`}> </Text>
+      <Box key={`${key}-text`} flexDirection="column" width={room} flexShrink={0}>
+        <Button key={key} plain onPress={() => openAgentPage($, a.id, key)}>
+          {body.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
+        </Button>
+        <Text key={`${key}-gap1`}> </Text>
+        {last ? null : <Text key={`${key}-gap2`}> </Text>}
+      </Box>
+    </Box>
+  )
+}
+
+/** The Tasks tab: the header, then Doing now (agents tethered under the task), Up next, Done and Earlier. */
+export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { t, u, cols, now } = ctx
+  const { left, right } = edges(cols)
+  const ground = ctx.ground ?? 'night'
+  try {
+    const block = todoBlock(t)
+    // The current request's tasks: the lead's list and every other agent's own.
+    const current: TaskItem[] = [...block.items, ...t.tasks.filter(x => x.owner !== 'main')]
+    const active = current.filter(x => x.status === 'in_progress').sort(byNewest)
+    const queued = current.filter(x => x.status === 'pending')
+    const done = current.filter(x => x.status === 'completed').sort(byNewest)
+    const earlier = [...block.earlier].sort(byNewest)
     const meter = taskMeter(t)
     const byTask = new Map<string, TaskMeterRow>(meter.rows.map(m => [keyOf(m.task), m]))
-
-    const activeCount = active.length > 0 ? 1 : 0
-    const doneTimes = done.map(x => x.updatedAt)
-    const gauge = cols >= 62 ? 22 : 10
-    const paceValues = buckets(doneTimes, start, now, gauge)
-    const plan = planInst(t, meter.rows, meter.heaviest, cols - DECK.gauge - 2)
-    const peak = meter.rows.reduce((n, m) => Math.max(n, m.tokens), 0)
-    const anyLive = Object.values(t.agents).some(a => a.status === 'running')
-    const planValues = meter.rows.map(m => m.tokens)
-    const rows: RichRow[] = []
-    if (ctx.look !== 'rich') {
-      rows.push({
-        key: 'deck-tasks',
-        label: 'TASKS',
-        cells: [
-          { col: DECK.gauge, runs: pips(done.length, total, 22, activeCount), narrow: pips(done.length, total, 10, activeCount), whole: true },
-          { col: DECK.value, runs: [{ text: String(done.length), bold: true }, { text: `/${total}`, dim: true }] },
-          { col: DECK.aside, runs: [{ text: elapsed(start, now), dim: true }] },
-        ],
-      })
-    }
-    rows.push({
-      key: 'deck-plan',
-      label: 'PLAN',
-      inst: plan,
-      cells: [
-        { col: DECK.gauge, runs: spark(planValues, 22), narrow: spark(planValues, 10), whole: true },
-        { col: DECK.value, runs: [{ text: tok(meter.total) === '' ? '0' : tok(meter.total), bold: true }, { text: ' all', dim: true }] },
-        { col: DECK.aside, runs: peak > 0 ? [{ text: 'peak ', dim: true }, { text: tok(peak), bold: true }] : [{ text: 'no tokens yet', dim: true }] },
-      ],
-    })
-    rows.push({
-      key: 'deck-pace',
-      label: 'PACE',
-      inst: paceInst(paceValues, gauge),
-      cells: [
-        { col: DECK.gauge, runs: spark(paceValues, gauge), whole: true },
-        ...(done.length > 0
-          ? [{ col: DECK.value, runs: [{ text: elapsed(0, Math.round(Math.max(0, now - start) / done.length)), bold: true }, { text: ' each', dim: true }] }]
-          : []),
-        { col: DECK.aside, runs: [{ text: String(queued.length), bold: true }, { text: ' queued', dim: true }] },
-      ],
-    })
-    const deckEl = richDeck(ctx, $, rows, {
-      key: 'tasks-deck',
-      frame: (() => {
-        const pill = anyLive || active.length > 0 ? 'WORKING' : 'IDLE'
-        return { pill, right: `${done.length} of ${total}` }
-      })(),
-    })
-    // The strip names its heaviest and current column (the rich form only: the text deck has no room).
-    const heavyAt = meter.heaviest !== undefined ? meter.rows.findIndex(m => keyOf(m.task) === meter.heaviest) : -1
-    const nowAt = meter.rows.findIndex(m => m.task.status === 'in_progress')
-    const capRoom = Math.max(0, cols - (DECK.gauge + 2) - 1)
-    const heavyText = heavyAt >= 0 ? `▴${heavyAt + 1} heaviest` : ''
-    const nowText = nowAt >= 0 ? `▴${nowAt + 1} now` : ''
-    // What fits the row: both, else the current one, else nothing.
-    const both = [heavyText, nowText].filter(x => x !== '').join('  ')
-    const captionText = both.length <= capRoom ? both : nowText.length <= capRoom ? nowText : ''
-    const captionEl =
-      ctx.look === 'rich' && captionText !== '' ? (
-        <Text key="plan-caption" wrap="truncate-end">
-          {' '.repeat(DECK.gauge + 2)}
-          <Text color={C.lead}>{captionText === both ? heavyText : ''}</Text>
-          {captionText === both && heavyText !== '' && nowText !== '' ? '  ' : ''}
-          <Text color={C.live} bold>
-            {nowText}
-          </Text>
-        </Text>
-      ) : null
-
-    // Enter on a task row opens its page (rich rule 4); `b` comes back to the row.
+    // Effort so far is this request's tasks only: the folded ones of earlier requests are not bars.
+    const currentKeys = new Set(current.map(keyOf))
+    const chartRows = meter.rows.filter(m => currentKeys.has(keyOf(m.task)))
+    const waits = waitStates(t, u, now)
     const toPage = (key: string) => (): Promise<void> => openPage($, 'task', key, `task-${key}`)
+    const out: RenderElement[] = []
+    const gap = (): void => void out.push(blank(ctx, $, `gap-${out.length}`))
 
-    const blocks: RenderElement[][] = []
+    const emptyList = current.length === 0
+    if (!emptyList) {
+      // The counts are the lead's list (R11); with no lead list, every task.
+      const lead = block.total > 0
+      const total = lead ? block.total : current.length
+      const nDone = lead ? block.done : done.length
+      const hasCurrent = lead ? block.current !== undefined : active.length > 0
+      out.push(inst(ctx, $, frameTopInst('tasks-lintel', cols, 'iris', ground)))
+      const sentence: Run[] = nDone === total && total > 0 ? [{ text: `All ${total} done`, bold: true }] : [{ text: `${nDone} of ${total} done`, bold: true }]
+      const pace = paceRuns(nDone, total - nDone, block.since, now)
+      const paceW = pace.reduce((n, r) => n + r.text.length, 0)
+      const first: Seg[] = [{ col: left, ...sentence[0]! }]
+      if (paceW > 0 && paceW + sentence[0]!.text.length + 4 <= right - left + 1) first.push(...flushRight(pace, right))
+      out.push(lineOf(ctx, $, { key: 'tasks-count', body: first }))
+      out.push(blank(ctx, $, 'tasks-gap-bar'))
+      out.push(
+        <Text key="tasks-bar" wrap="truncate-end">
+          {' '.repeat(left)}
+          {todoBar(right - left + 1, total, nDone, hasCurrent ? 1 : 0).map((r, i) => runText(r, ctx.e, $, `tasks-bar-${i}`))}
+        </Text>,
+      )
+      out.push(blank(ctx, $, 'tasks-gap-effort'))
+      const chartCol = 18
+      const room = right - chartCol + 1
+      const heavy = chartRows.reduce<TaskMeterRow | undefined>((a, m) => (m.tokens > 0 && (a === undefined || m.tokens > a.tokens) ? m : a), undefined)
+      if (room >= 12 && cols >= 50) {
+        out.push(
+          <Box key="tasks-effort" flexDirection="row">
+            <Box key="tasks-effort-words" flexDirection="column" width={chartCol} flexShrink={0}>
+              <Text key="tasks-effort-0" dimColor>{`${' '.repeat(left)}Effort so far`}</Text>
+              <Text key="tasks-effort-1" dimColor>{`${' '.repeat(left)}one bar a task`}</Text>
+            </Box>
+            {inst(ctx, $, effortInst(chartRows, room, ground))}
+          </Box>,
+        )
+      }
+      if (heavy !== undefined) {
+        const tail = `, ${tok(heavy.tokens)}`
+        const label = wordFit(oneLine(heavy.task.subject), Math.max(1, right - left + 1 - 'Heaviest: '.length - tail.length))
+        out.push(
+          lineOf(ctx, $, {
+            key: 'tasks-heaviest',
+            body: [{ col: left, text: 'Heaviest: ', dim: true }, { col: left + 10, text: label }, { col: left + 10 + label.length, text: tail, dim: true }],
+          }),
+        )
+      } else if (room < 12 || cols < 50) {
+        out.push(noteRow(ctx, $, 'tasks-effort-none', 'Effort so far: no tokens yet'))
+      }
+      out.push(inst(ctx, $, frameFootInst('tasks-sill', cols, 'iris', ground)))
+      gap()
+    }
+
+    const unfolded = u.doneAll === true
+    const doneCap = unfolded ? UNFOLDED_CAP : DONE_CAP
+    const doneShown = done.slice(0, doneCap)
+    const doneMore = done.length - doneShown.length
+
+    if (emptyList) {
+      out.push(section(ctx, $, 'To do', undefined, { key: 'sec-todo' }))
+      out.push(noteRow(ctx, $, 'todo-none', NO_LIST_TEXT))
+      if (earlier.length > 0) gap()
+    }
 
     if (active.length > 0) {
-      const lines: RenderElement[] = [tableHead(ctx, $, 'ACTIVE', 'tokens', 'time')]
+      out.push(section(ctx, $, 'Doing now', String(active.length), { key: 'sec-doing' }))
       for (const x of active.slice(0, ACTIVE_CAP)) {
         const key = keyOf(x)
-        const agents = agentsOn(t, x)
-        const live = agents.filter(a => a.status === 'running').length
         const m = byTask.get(key)
         const used = m !== undefined ? tok(m.tokens) : ''
-        lines.push(
-          row(ctx, $, {
+        out.push(
+          taskRow(ctx, $, {
             key: `task-${key}`,
-            glyph: PIP_NOW,
-            glyphColor: statusColor(x.status),
-            name: x.activeForm ?? x.subject,
-            bold: true,
-            ...(used !== '' ? { metric: used } : live > 0 && x.owner === 'main' ? { metric: `${live} live` } : {}),
-            time: elapsed(x.updatedAt, now),
+            glyph: { text: '▸', color: CK.accent },
+            name: [{ text: oneLine(x.activeForm ?? x.subject), bold: true }],
+            ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
+            time: { text: span(now - x.updatedAt), color: CK.accent },
+            mark: CK.accent,
             onPress: toPage(key),
           }),
         )
+        const agents = agentsOn(t, x)
         const shown = agents.slice(0, TETHERED_AGENTS)
-        const hidden = agents.length - shown.length
-        shown.forEach((a, i) => {
-          const pod = podFor(a, waits, now)
-          const flag = signalFlag(pod)
-          const at = tokensOf(a)
-          lines.push(
-            row(ctx, $, {
-              key: `task-agent-${a.id}`,
-              ...(flag !== undefined ? { flag } : {}),
-              glyph: pod.hull.text,
-              ...(pod.hull.color !== undefined ? { glyphColor: pod.hull.color } : {}),
-              name: a.description,
-              depth: 1,
-              tether: { last: i === shown.length - 1 && hidden === 0 },
-              ...(at !== '' ? { metric: at } : {}),
-              time: elapsed(a.startedAt, now),
-              onPress: () => openAgentPage($, a.id, `task-agent-${a.id}`),
-            }),
-          )
-        })
-        if (hidden > 0) lines.push(more(ctx, $, hidden, 'more agents', 1))
+        // The last agent keeps two rows when the section's gap follows (the mock's six rows for two agents); a more line keeps the blank.
+        shown.forEach((a, i) => out.push(tetherRow(ctx, $, t, a, stateOf(a, waits), i === shown.length - 1 && agents.length === shown.length)))
+        if (agents.length > shown.length) out.push(moreRow(ctx, $, 'tether-more', `+ ${agents.length - shown.length} more agents`))
       }
-      if (active.length > ACTIVE_CAP) lines.push(more(ctx, $, active.length - ACTIVE_CAP, 'more active'))
-      blocks.push(lines)
+      if (active.length > ACTIVE_CAP) out.push(moreRow(ctx, $, 'active-more', `+ ${active.length - ACTIVE_CAP} more doing now`))
+      if (queued.length > 0 || done.length > 0 || earlier.length > 0) gap()
     }
 
-    // Binding rule 2: QUEUED and DONE share the rows the deck, ACTIVE and the footer leave, never fewer than their old caps.
-    const unfolded = u.doneAll === true
-    const fixed =
-      heightOf(deckEl) + heightOf(captionEl) + blocks.reduce((n, b) => n + 1 + heightOf(b), 0) + heightOf(footer(ctx, $, [{ text: '↵ open' }])) * 2
-    const grown = growLists((ctx.bodyRows ?? 40) - fixed - 1, [
-      { key: 'queued', count: queued.length, least: QUEUED_CAP },
-      { key: 'done', count: done.length, least: unfolded ? UNFOLDED_CAP : DONE_CAP },
-    ])
-    const queuedSplit = listSplit(queued.length, grown.get('queued') ?? 0)
-    const doneSplit = listSplit(done.length, grown.get('done') ?? 0)
-
     if (queued.length > 0) {
-      const lines: RenderElement[] = [tableHead(ctx, $, 'QUEUED')]
-      for (const x of queued.slice(0, queuedSplit.shown)) {
+      out.push(section(ctx, $, 'Up next', String(queued.length), { key: 'sec-next' }))
+      queued.slice(0, QUEUED_CAP).forEach((x, i) => {
         const ownerType = x.owner !== 'main' ? t.agents[x.owner]?.type : undefined
-        const owner = ownerType !== undefined ? typeShort(ownerType) : undefined
-        lines.push(
-          row(ctx, $, {
+        out.push(
+          taskRow(ctx, $, {
             key: `task-${keyOf(x)}`,
-            glyph: PIP_QUEUED,
-            name: x.subject,
-            ...(owner !== undefined ? { metric: owner } : {}),
+            glyph: { text: '○', color: C.subtle },
+            name: [{ text: oneLine(x.subject) }],
+            ...(ownerType !== undefined ? { mid: { text: typeShort(ownerType), dim: true } } : {}),
+            ...(i === 0 ? { time: { text: 'next', dim: true } } : {}),
             onPress: toPage(keyOf(x)),
           }),
         )
-      }
-      if (queuedSplit.more > 0) lines.push(more(ctx, $, queuedSplit.more))
-      blocks.push(lines)
+      })
+      if (queued.length > QUEUED_CAP) out.push(moreRow(ctx, $, 'queued-more', `+ ${queued.length - QUEUED_CAP} more to do`))
+      if (done.length > 0 || earlier.length > 0) gap()
     }
 
     if (done.length > 0) {
-      const lines: RenderElement[] = [tableHead(ctx, $, 'DONE', 'tokens', 'time')]
-      for (const x of done.slice(0, doneSplit.shown)) {
+      out.push(section(ctx, $, 'Done', colHeads(cols, String(done.length), 'tokens', 'time'), { key: 'sec-done' }))
+      for (const x of doneShown) {
         const m = byTask.get(keyOf(x))
         const used = m !== undefined ? tok(m.tokens) : ''
         const took = spentMs(m)
-        lines.push(
-          row(ctx, $, {
+        out.push(
+          taskRow(ctx, $, {
             key: `task-${keyOf(x)}`,
-            glyph: PIP_DONE,
-            name: x.subject,
-            dim: true,
-            ...(used !== '' ? { metric: used } : {}),
-            time: took > 0 ? elapsed(0, took) : elapsed(x.updatedAt, now),
+            glyph: { text: '✓', dim: true },
+            name: [{ text: oneLine(x.subject), dim: true }],
+            ...(used !== '' ? { mid: { text: used, dim: true } } : {}),
+            time: { text: took > 0 ? span(took) : span(now - x.updatedAt), dim: true },
             onPress: toPage(keyOf(x)),
           }),
         )
       }
-      if (doneSplit.more > 0) lines.push(more(ctx, $, doneSplit.more))
-      blocks.push(lines)
-    }
-
-    const hints: Hint[] = []
-    if (active.length > 0 || queued.length > 0 || done.length > 0) hints.push({ text: '↵ open' })
-    // `d` lists every done task where the height rule shows only some (and folds them again).
-    if (unfolded || doneSplit.more > 0) {
-      hints.push({
-        hotkey: 'd',
-        label: unfolded ? 'newest 3' : 'all done',
-        key: 'hint-d',
-        onPress: () =>
+      // `d` lists every done task where the rule shows only some (and folds them again).
+      if (unfolded || doneMore > 0) {
+        const toggle = (): Promise<void> =>
           updateUi($, s => {
             if (s.doneAll === true) {
               const { doneAll: _folded, ...rest } = s
               return rest
             }
             return { ...s, doneAll: true }
-          }),
-      })
+          })
+        out.push(
+          <Box key="done-more" flexDirection="row" paddingLeft={COL.name} columnGap={3}>
+            <Text key="done-more-text" dimColor>{doneMore > 0 ? `+ ${doneMore} more` : ''}</Text>
+            <Button key="hint-d" hotkey="d" plain dimColor onPress={toggle}>
+              {unfolded ? 'newest 3' : 'show all'}
+            </Button>
+          </Box>,
+        )
+      }
+      if (earlier.length > 0) gap()
     }
-    hints.push({ hotkey: 'e', label: 'export', key: 'hint-e', onPress: async () => void (await exportDigest($)) })
 
-    const out: RenderElement[] = []
-    if (deckEl !== null) out.push(deckEl)
-    if (captionEl !== null) out.push(captionEl)
-    for (const lines of blocks) {
-      if (out.length > 0) out.push(blank(ctx, $, `gap-${out.length}`))
-      out.push(...lines)
+    if (earlier.length > 0) {
+      out.push(section(ctx, $, 'Earlier', String(earlier.length), { key: 'sec-earlier' }))
+      const cap = unfolded ? UNFOLDED_CAP : EARLIER_CAP
+      for (const x of earlier.slice(0, cap)) {
+        out.push(
+          taskRow(ctx, $, {
+            key: `task-${keyOf(x)}`,
+            glyph: { text: '✓', dim: true },
+            name: [{ text: oneLine(x.subject), dim: true }],
+            onPress: toPage(keyOf(x)),
+          }),
+        )
+      }
+      if (earlier.length > cap) out.push(moreRow(ctx, $, 'earlier-more', `+ ${earlier.length - cap} more`))
     }
-    const foot = footer(ctx, $, hints)
-    if (foot !== null) {
-      out.push(blank(ctx, $, 'gap-footer'))
-      out.push(foot)
-    }
-    return <Box flexDirection="column">{out}</Box>
+
+    const hints: FootHint[] = []
+    if (current.length > 0 || earlier.length > 0) hints.push({ key: '↵', label: 'open task' })
+    if (unfolded || doneMore > 0) hints.push({ key: 'd', label: unfolded ? 'newest 3' : 'all done' })
+    hints.push({ key: 'esc', label: 'prompt' })
+    return <Box flexDirection="column">{withFooter(ctx, $, out, hints)}</Box>
   } catch (err) {
     debug($, `tasks view failed: ${errText(err)}`)
     return <Text dimColor>{`Tasks: ${errText(err)}`.slice(0, Math.max(1, cols))}</Text>
@@ -393,8 +416,8 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
 
 const PILL = { in_progress: 'ACTIVE', completed: 'DONE', pending: 'QUEUED' } as const
 const STATUS_WORD = { in_progress: 'in progress', completed: 'done', pending: 'queued' } as const
-// What each share of the stack takes: the accent first, then the other hues.
-const SHARE_COLORS = [C.lead, C.live, C.model, C.result, C.wait, C.fail]
+// What each share of the stack takes: the accent, the accent soft, then greys.
+const SHARE_STYLES: Omit<Run, 'text'>[] = [{ color: CK.accent }, { color: CK.accent, dim: true }, { dim: true }, { color: C.subtle }]
 const STACK_CELLS = 28
 
 /** Each part's cells out of `cells` by largest remainder; a part with nothing gets none. */
@@ -418,11 +441,11 @@ function shareCells(values: number[], cells: number): number[] {
 
 /**
  * The task page (`ui.page = { kind: 'task', id: '<owner>:<id>' }`; Enter on a
- * queued or done task, `p` on the opened active one). The full subject and
- * the active form; STATUS, TIME against what a task usually takes here
- * (the median of the done ones) and TOKENS; TOKENS stacked by agent; its
- * agents, each with its hull and its whole description and what it is doing;
- * and the steps its agents ran. Nothing is cut: text wraps in full.
+ * task row): the full subject and the active form; status, time against what
+ * a task usually takes here (the median of the done ones) and tokens; tokens
+ * stacked by agent; its agents (a state glyph in the state's colour, the type
+ * and the whole description); and the steps its agents ran. Nothing is cut:
+ * text wraps in full.
  */
 export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderElement {
   const { t, cols, now } = ctx
@@ -434,23 +457,23 @@ export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
   const agents = agentsOn(t, task)
   const room = Math.max(8, cols - COL.name)
   const took = spentMs(m)
-  const spentText = took > 0 ? elapsed(0, took) : task.status === 'in_progress' ? elapsed(task.updatedAt, now) : task.status === 'completed' ? 'not recorded' : 'not started'
+  const spentText = took > 0 ? span(took) : task.status === 'in_progress' ? span(now - task.updatedAt) : task.status === 'completed' ? 'not recorded' : 'not started'
   const usual = median(meter.rows.filter(r => r.task.status === 'completed' && keyOf(r.task) !== id && spentMs(r) > 0).map(spentMs))
-  const timeValue: Run[] = [{ text: spentText, bold: true }, ...(usual !== undefined ? [{ text: ` · usually ${elapsed(0, usual)}`, dim: true }] : [])]
+  const timeValue: Run[] = [{ text: spentText, bold: true }, ...(usual !== undefined ? [{ text: ` · usually ${span(usual)}`, dim: true }] : [])]
   const status = statusColor(task.status)
 
   const fields = [
-    { label: 'STATUS', value: [{ text: STATUS_WORD[task.status], ...(status !== undefined ? { color: status } : {}) }, { text: ` · updated ${clock(task.updatedAt, true)}`, dim: true }] as Run[] },
-    { label: 'TIME', value: timeValue },
-    { label: 'TOKENS', value: [{ text: tok(m?.tokens ?? 0) || '0', bold: true }, ...(m !== undefined && m.agents > 0 ? [{ text: ` · ${m.agents} ${m.agents === 1 ? 'agent' : 'agents'}`, dim: true }] : [])] as Run[] },
-    ...(task.owner !== 'main' ? [{ label: 'OWNER', value: t.agents[task.owner]?.type ?? task.owner }] : []),
+    { label: 'Status', value: [{ text: STATUS_WORD[task.status], ...(status !== undefined && task.status !== 'in_progress' ? { color: status } : {}) }, { text: ` · updated ${clock(task.updatedAt, true)}`, dim: true }] as Run[] },
+    { label: 'Time', value: timeValue },
+    { label: 'Tokens', value: [{ text: tok(m?.tokens ?? 0) || '0', bold: true }, ...(m !== undefined && m.agents > 0 ? [{ text: ` · ${m.agents} ${m.agents === 1 ? 'agent' : 'agents'}`, dim: true }] : [])] as Run[] },
+    ...(task.owner !== 'main' ? [{ label: 'Owner', value: t.agents[task.owner] !== undefined ? typeName(t.agents[task.owner]!.type) : task.owner }] : []),
   ]
 
   const blocks: PageBlock[] = []
   // Tokens stacked by agent: the main loop's own, then each agent's.
   const parts: { name: string; tokens: number }[] = []
-  if ((task.tokens ?? 0) > 0) parts.push({ name: 'main', tokens: task.tokens ?? 0 })
-  for (const a of agents) parts.push({ name: a.type, tokens: (a.tokensIn ?? 0) + (a.tokensOut ?? 0) })
+  if ((task.tokens ?? 0) > 0) parts.push({ name: 'Main', tokens: task.tokens ?? 0 })
+  for (const a of agents) parts.push({ name: typeName(a.type), tokens: (a.tokensIn ?? 0) + (a.tokensOut ?? 0) })
   const shown = parts.filter(p => p.tokens > 0)
   if (shown.length > 0) {
     const total = shown.reduce((n, p) => n + p.tokens, 0)
@@ -458,15 +481,15 @@ export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
       shown.map(p => p.tokens),
       Math.min(STACK_CELLS, room),
     )
-    const lines: Run[][] = [shown.map((p, i) => ({ text: '▄'.repeat(cells[i] ?? 0), color: SHARE_COLORS[i % SHARE_COLORS.length] })).filter(r => r.text !== '')]
+    const lines: Run[][] = [shown.map((_p, i) => ({ text: '━'.repeat(cells[i] ?? 0), ...SHARE_STYLES[i % SHARE_STYLES.length]! })).filter(r => r.text !== '')]
     shown.forEach((p, i) => {
       lines.push([
-        { text: '▄ ', color: SHARE_COLORS[i % SHARE_COLORS.length] },
+        { text: '■ ', ...SHARE_STYLES[i % SHARE_STYLES.length]! },
         { text: p.name, bold: true },
         { text: ` ${tok(p.tokens)} · ${Math.round((p.tokens / total) * 100)}%`, dim: true },
       ])
     })
-    blocks.push({ key: 'tokens', label: 'TOKENS BY AGENT', lines })
+    blocks.push({ key: 'tokens', label: 'Tokens by agent', lines })
   }
 
   if (agents.length > 0) {
@@ -474,35 +497,36 @@ export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
     agents.forEach((a, i) => {
       if (i > 0) lines.push([{ text: '' }])
       const pod = podOf(a, now)
-      const at = tokensOf(a)
+      const glyph = critterGlyph(pod.state)
+      const at = (a.tokensIn ?? 0) + (a.tokensOut ?? 0)
       lines.push([
-        pod.hull,
+        glyph.glyph,
+        ...(glyph.badge !== undefined ? [glyph.badge] : []),
         { text: ' ' },
-        ...(pod.signal !== undefined ? [pod.signal, { text: ' ' }] : []),
-        { text: a.type, bold: true },
-        { text: `${at !== '' ? ` · ${at}` : ''} · ${elapsed(a.startedAt, a.status === 'running' ? now : (a.endedAt ?? a.startedAt))} · ${a.status}`, dim: true },
+        { text: typeName(a.type), bold: true },
+        { text: `${at > 0 ? ` · ${tok(at)}` : ''} · ${elapsed(a.startedAt, a.status === 'running' ? now : (a.endedAt ?? a.startedAt))} · ${a.status}`, dim: true },
       ])
       for (const l of wrapFull(a.description, room)) lines.push([{ text: l }])
       if (a.status === 'running' && a.doing !== '') for (const l of wrapFull(`now: ${a.doing}`, room)) lines.push([{ text: l, dim: true }])
     })
-    blocks.push({ key: 'agents', label: 'AGENTS', lines })
+    blocks.push({ key: 'agents', label: 'Agents', lines })
   } else {
-    blocks.push({ key: 'agents', label: 'AGENTS', lines: [[{ text: task.status === 'pending' ? 'None yet: the task has not started.' : 'No agent worked on it.', dim: true }]] })
+    blocks.push({ key: 'agents', label: 'Agents', lines: [[{ text: task.status === 'pending' ? 'None yet: the task has not started.' : 'No agent worked on it.', dim: true }]] })
   }
 
   const ids = new Set(agents.map(a => a.id))
-  const steps: Step[] = t.steps.filter(s => ids.has(s.agent)).sort((a, b) => a.seq - b.seq)
+  const steps = t.steps.filter(s => ids.has(s.agent)).sort((a, b) => a.seq - b.seq)
   if (steps.length > 0) {
     const lines: Run[][] = steps.map(s => {
       const color = statusColor(s.status)
-      const who = t.agents[s.agent]?.type ?? s.agent
+      const who = t.agents[s.agent] !== undefined ? typeName(t.agents[s.agent]!.type) : s.agent
       return [
-        { text: `${STEP_GLYPH[s.status]} `, ...(color !== undefined ? { color } : { dim: true }) },
+        { text: `${stepGlyph(s.status)} `, ...(color !== undefined ? { color } : { dim: true }) },
         { text: s.label },
         { text: ` · ${who} · ${clock(s.startedAt, true)}`, dim: true },
       ]
     })
-    blocks.push({ key: 'steps', label: 'STEPS', lines })
+    blocks.push({ key: 'steps', label: 'Steps', lines })
   }
 
   return page(ctx, $, {
@@ -514,3 +538,4 @@ export function taskPage(ctx: ViewCtx, $: EngineInterface, id: string): RenderEl
     blocks,
   })
 }
+

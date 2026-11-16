@@ -115,9 +115,9 @@ test('/mc keep note keeps the newest main step; it shows ★ and the Kept chip',
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     const rows = screen(await ui.drawn()).slice(3) // under the tab bar, track and blank row
-    // Kept steps draw ★ where the glyph goes; the chip is on the second cell of the SHOW row (26).
+    // Kept steps draw ★ where the glyph goes; the chip is on the second cell of the chips row (14), the row under the find row (cockpit Steps).
     expect(colOf(rows.find(r => r.includes('npm test')), '★')).toBe(2)
-    expect(colOf(rows[1], 'Kept 1')).toBe(26)
+    expect(colOf(rows[2], 'Kept 1')).toBe(14)
     expect(rows.join('\n')).not.toContain('Pinned')
     await ui.unmount()
   }
@@ -141,14 +141,14 @@ test('/mc keep with no steps says Nothing to keep yet.', async ($, on) => {
   expect(got.text).toBe('Nothing to keep yet.')
 })
 
-test('a kept step that failed keeps its ✖ (the failure outranks the mark) and still counts in Kept', async ($, on) => {
+test('a kept step that failed keeps its × (the failure outranks the mark) and still counts in Kept', async ($, on) => {
   const t = twoTurns()
   t.steps = t.steps.map(s => (s.id === 's4' ? { ...s, status: 'error' as const } : s))
   world(on, t, UI)
   await $.command.run({ command: 'mc', args: 'keep' } as never)
   const ui = await mount($, 'terminal')
   const rows = screen(await ui.drawn()).slice(3)
-  expect(colOf(rows.find(r => r.includes('npm test')), '✖')).toBe(2)
-  expect(colOf(rows[1], 'Kept 1')).toBe(26)
+  expect(colOf(rows.find(r => r.includes('npm test')), '×')).toBe(2)
+  expect(colOf(rows[2], 'Kept 1')).toBe(14)
   await ui.unmount()
 })

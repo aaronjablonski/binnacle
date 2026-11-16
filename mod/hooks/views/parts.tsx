@@ -1096,16 +1096,14 @@ export type PageBlock = {
 }
 
 /**
- * What a detail page draws (spec "Detail pages"). `kind` and `id` name it;
- * `frame` is its lintel (pill and readout); `who` a large character beside
- * the title in the label column; `title` bold and `body` dim, both wrapped
- * in full; `fields` the labelled rows; `blocks` the sections; `actions` the
+ * What a detail page draws (spec "Detail pages"). `frame` names the state
+ * (the pill word, drawn in plain words) and the readout; `title` bold and
+ * `body` dim, both wrapped in full; `fields` the labelled rows; `blocks` the sections; `actions` the
  * hotkeyed row (`b: back` is added last by `page`).
  */
 export type PageSpec = {
   key: string
   frame?: FrameSpec & { tone?: DeckOpts['tone'] }
-  who?: InstSpec
   title?: string
   body?: string
   fields?: PageField[]
@@ -1140,26 +1138,36 @@ function actionRows(cols: number, actions: Action[]): Action[][] {
   return out
 }
 
+/** `WAITING FOR YOU` as `Waiting for you`. */
+const sentenceCase = (s: string): string => (s === '' ? '' : s[0]!.toUpperCase() + s.slice(1).toLowerCase())
+
 /**
- * A detail page (spec "Detail pages"; binding rule 4): replaces the tab's
- * list while `ui.page` is set. Nothing on it is cut: every value and block
- * wraps in full (`wrapFull`, so no line ends in `…`), a list draws every row
- * and the pane scrolls. Top to bottom:
- * - the frame: in the rich look the lintel (pill, readout); in text a `┏`
- *   row with a Text pill and the readout
- * - `who` at 2 with `title` (bold) and `body` (dim) wrapped from 14 beside it;
- *   without `who` they wrap from 2
- * - `fields`: label at 2, value from 14 wrapped, cells at 38 and 50
- * - the sill (rich) or `┗` (text), then each block after one blank row:
+ * A detail page (spec "Detail pages"; binding rule 4; cockpit palette, section
+ * heads and plain words): replaces the tab's list while `ui.page` is set.
+ * Nothing on it is cut: every value and block wraps in full (`wrapFull`, so no
+ * line ends in `…`), a list draws every row and the pane scrolls. A page holds
+ * no Raster of its own for a critter: its text form (a state glyph, the type)
+ * is what a block draws. Top to bottom:
+ * - the frame's top (`frameTopInst`, no pill) and, when `frame` is given, one
+ *   row: the state in plain words (`Working`, `Failed`), dim, and the readout
+ *   (`task 3 of 14`) flush right
+ * - `title` bold and `body` dim, wrapped from column 2
+ * - `fields`: a dim sentence-case label at 2, the value from 14 wrapped,
+ *   cells at 38 and 50
+ * - the frame's foot, then each block after one blank row: a cockpit
  *   `section(label, heads)`, then its text (wrapped at 4), rows or lines
  * - one blank row, then the actions with `b: back` last (keyed `page-back`)
  *
- * @example page(ctx, $, { key: 'agent-page', frame: { pill: 'WORKING', right: 'agent 3 of 6' }, who, title: a.description, fields: [{ label: 'AGENT', value: a.type }], blocks: [{ key: 'steps', label: 'STEPS', rows }], actions })
+ * @example page(ctx, $, { key: 'agent-page', frame: { pill: 'WORKING', right: 'agent 3 of 6' }, title: a.description, fields: [{ label: 'Agent', value: a.type }], blocks: [{ key: 'steps', label: 'Steps', rows }], actions })
  */
 export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const cols = Math.max(DECK.gauge + 8, ctx.cols)
-  const tone = p.frame?.tone
+  const { left } = edges(cols)
+  const ground = ctx.ground ?? 'night'
+  // Amber only for a real permission: the WAITING state.
+  const asking = p.frame?.pill === 'WAITING'
+  const tone: Tone4 = asking ? 'amber' : 'iris'
   const out: RenderElement[] = []
   const lineText = (key: string, col: number, runs: Run[]): RenderElement => (
     <Text key={key}>
@@ -1168,36 +1176,28 @@ export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderEleme
     </Text>
   )
 
-  // The frame's top.
-  if (p.frame !== undefined || ctx.look === 'rich') out.push(inst(ctx, $, lintelInst(`${p.key}-lintel`, cols, tone, p.frame ?? {})))
+  // The frame's top, and the state in plain words with the readout.
+  if (p.frame !== undefined) {
+    out.push(inst(ctx, $, frameTopInst(`${p.key}-lintel`, cols, tone, ground)))
+    const word = p.frame.pill !== undefined ? sentenceCase(p.frame.pill) : ''
+    const wordStyle: Omit<Run, 'text'> = asking ? { color: CK.ask } : p.frame.pillColor === C.fail ? { color: CK.fail } : { dim: true }
+    const room = cols - 2 * left
+    const right: Run[] = p.frame.right !== undefined && p.frame.right.length + word.length + 3 <= room ? [{ text: p.frame.right, dim: true }] : []
+    if (word !== '' || right.length > 0) {
+      out.push(lineText(`${p.key}-state`, left, spread(word !== '' ? [{ text: word, ...wordStyle }] : [], right, room)))
+    }
+  }
 
-  // The character, title and body.
-  const textCol = p.who !== undefined ? DECK.gauge : DECK.label
-  const head: RenderElement[] = []
+  // The title and body.
+  const textCol = left
+  const headDrawn = (p.title ?? '') !== '' || (p.body ?? '') !== '' || p.frame?.pill !== undefined || p.frame?.right !== undefined
   if (p.title !== undefined && p.title !== '') {
-    fullLines(p.title, cols - textCol, { bold: true }).forEach((l, i) => head.push(lineText(`${p.key}-title-${i}`, 0, l)))
+    fullLines(p.title, cols - textCol - left, { bold: true }).forEach((l, i) => out.push(lineText(`${p.key}-title-${i}`, textCol, l)))
   }
   if (p.body !== undefined && p.body !== '') {
-    fullLines(p.body, cols - textCol, { dim: true }).forEach((l, i) => head.push(lineText(`${p.key}-body-${i}`, 0, l)))
+    fullLines(p.body, cols - textCol - left, { dim: true }).forEach((l, i) => out.push(lineText(`${p.key}-body-${i}`, textCol, l)))
   }
-  if (p.who !== undefined) {
-    out.push(
-      <Box key={`${p.key}-head`} flexDirection="row">
-        <Box key={`${p.key}-who`} width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
-          {inst(ctx, $, p.who)}
-        </Box>
-        <Box key={`${p.key}-headtext`} flexDirection="column" width={cols - DECK.gauge}>
-          {head}
-        </Box>
-      </Box>,
-    )
-  } else if (head.length > 0) {
-    out.push(
-      <Box key={`${p.key}-head`} flexDirection="column" paddingLeft={DECK.label}>
-        {head}
-      </Box>,
-    )
-  }
+  if (headDrawn && (p.fields ?? []).length > 0) out.push(blank(ctx, $, `${p.key}-gap-fields`))
 
   // The labelled rows.
   ;(p.fields ?? []).forEach((f, i) => {
@@ -1205,7 +1205,7 @@ export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderEleme
     const cells = deckCells((f.cells ?? []).filter(c => c.col >= DECK.value), cols, cols)
     const valueEnd = cells.length > 0 ? (cells[0]?.[0]?.col ?? cols) - 2 : cols
     const lines = fullLines(f.value, Math.max(1, valueEnd - DECK.gauge))
-    const label: Run & { col: number } = { col: DECK.label, text: wordFit(f.label, DECK.gauge - 2 - DECK.label), dim: true }
+    const label: Run & { col: number } = { col: left, text: wordFit(f.label, DECK.gauge - 2 - left), dim: true }
     lines.forEach((l, j) => {
       const segs: (Run & { col: number })[] = []
       if (j === 0) segs.push(label)
@@ -1229,29 +1229,30 @@ export function page(ctx: ViewCtx, $: EngineInterface, p: PageSpec): RenderEleme
   })
 
   // The frame's foot.
-  if (p.frame !== undefined || ctx.look === 'rich') out.push(inst(ctx, $, sillInst(`${p.key}-sill`, cols, tone)))
+  if (p.frame !== undefined) out.push(inst(ctx, $, frameFootInst(`${p.key}-sill`, cols, tone, ground)))
 
   // The blocks.
   for (const b of p.blocks ?? []) {
     out.push(blank(ctx, $, `${p.key}-${b.key}-gap`))
-    out.push(tableHead(ctx, $, b.label, b.heads?.metric, b.heads?.time, { key: `${p.key}-${b.key}-sec` }))
+    const sum = [b.heads?.metric, b.heads?.time].filter((x): x is string => x !== undefined && x !== '').join('   ')
+    out.push(section(ctx, $, b.label, sum === '' ? undefined : sum, { key: `${p.key}-${b.key}-sec` }))
     if (b.text !== undefined) {
-      wrapFull(b.text, cols - COL.name).forEach((t, i) => out.push(lineText(`${p.key}-${b.key}-t${i}`, COL.name, [{ text: t }])))
+      wrapFull(b.text, cols - COL.name - left).forEach((t, i) => out.push(lineText(`${p.key}-${b.key}-t${i}`, COL.name, [{ text: t }])))
     }
     for (const r of b.rows ?? []) out.push(row(ctx, $, r))
     ;(b.lines ?? []).forEach((l, i) => {
-      fullLines(l, cols - COL.name).forEach((w, j) => out.push(lineText(`${p.key}-${b.key}-l${i}-${j}`, COL.name, w)))
+      fullLines(l, cols - COL.name - left).forEach((w, j) => out.push(lineText(`${p.key}-${b.key}-l${i}-${j}`, COL.name, w)))
     })
   }
 
-  // The actions, `b: back` last.
+  // The actions, `b: back` last: hotkeyed Buttons the engine draws as `g: chat`.
   const actions: Action[] = [...(p.actions ?? []), { hotkey: 'b', label: 'back', key: 'page-back', onPress: () => closePage($) }]
   out.push(blank(ctx, $, `${p.key}-actions-gap`))
   actionRows(cols, actions).forEach((as, i) =>
     out.push(
-      <Box key={`${p.key}-actions-${i}`} flexDirection="row" paddingLeft={GRID.margin} columnGap={3}>
+      <Box key={`${p.key}-actions-${i}`} flexDirection="row" paddingLeft={left} columnGap={3}>
         {as.map(a => (
-          <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
+          <Button key={a.key} hotkey={a.hotkey} plain dimColor onPress={a.onPress}>
             {a.label}
           </Button>
         ))}

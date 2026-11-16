@@ -56,17 +56,17 @@ test('focusFind asks the engine to focus the find field of the pane', async ($, 
     return {}
   }) as never)
   const seat = { ui: { focus: (a: Parameters<Engine['ui']['focus']>[0]) => $.ui.focus(a), log: () => undefined } }
-  await focusFind(seat as never, 'mission-control')
+  await focusFind(seat as never, 'binnacle')
   expect(calls.length).toBe(1)
-  expect(JSON.stringify(calls[0])).toContain('mission-control')
+  expect(JSON.stringify(calls[0])).toContain('binnacle')
 })
 
 test('focusFind logs a refusal and never throws', async () => {
   const logs: string[] = []
   const refusing = { ui: { focus: () => Promise.resolve({ deny: 'not holding the keys' }), log: (m: string) => void logs.push(m) } }
-  await focusFind(refusing as never, 'mission-control')
+  await focusFind(refusing as never, 'binnacle')
   const throwing = { ui: { focus: () => Promise.reject(new Error('boom')), log: (m: string) => void logs.push(m) } }
-  await focusFind(throwing as never, 'mission-control')
+  await focusFind(throwing as never, 'binnacle')
   expect(logs.length).toBe(2)
 })
 

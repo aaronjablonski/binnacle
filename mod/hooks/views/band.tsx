@@ -36,7 +36,7 @@ const BAR_GAP = 2
 /** The least room a cut focus is worth: under it the focus is dropped. */
 const MIN_FOCUS = 8
 const MC = '/mc'
-const BAND_SITE = 'mission-control-band'
+const BAND_SITE = 'binnacle-band'
 
 const widthOf = (runs: Run[]): number => runs.reduce((n, r) => n + r.text.length, 0)
 const spaces = (n: number): Run => ({ text: ' '.repeat(Math.max(0, n)) })
@@ -307,7 +307,7 @@ function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel): RenderElement 
  * The row above the prompt. Two rows while the pane is closed and the band
  * has `TWO_ROWS_FROM` columns; one row otherwise (the pane open, narrow, or
  * `maxRows` of 1); at idle one dim line. Nothing for an empty session. While
- * `ui.strip` (`/mc strip`) the strip draws over the one row, and a press in
+ * `ui.strip` (`/binnacle strip`) the strip draws over the one row, and a press in
  * it opens the pane. The desktop app draws the band as one Svg with `/mc`
  * beside it as a Button.
  */

@@ -33,7 +33,7 @@ function world(on: On, t: Timeline, u: UiState = initialUi): void {
 
 const BAND = (columns: number, extra: Record<string, unknown> = {}) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'AbovePrompt',
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: columns, scroll: { offset: 0, bodyRows: 10 }, view: {}, ...extra },
   }) as const

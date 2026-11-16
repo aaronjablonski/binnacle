@@ -38,10 +38,10 @@ function world(on: On, t: Timeline, u: UiState = initialUi): { stored: Map<strin
 
 const PANE = (columns: number, bodyRows = 40, placement = 'dock') =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: false, bodyColumns: columns, placement, scroll: { offset: 0, bodyRows }, view: {} },
+    requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: false, bodyColumns: columns, placement, scroll: { offset: 0, bodyRows }, view: {} },
   }) as const
 
 async function mount($: Engine, columns = 62, bodyRows = 40, surface: (typeof SURFACES)[number] = 'terminal', placement = 'dock') {
@@ -271,7 +271,7 @@ async function ticking($: Engine, on: On, t: Timeline) {
   on('ui.toast', () => ({ value: undefined }))
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: false as const, reason: 'narrow' } }))
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })

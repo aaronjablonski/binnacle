@@ -38,10 +38,10 @@ function world(on: On, t: Timeline, u: UiState): void {
 
 const PANE = (columns: number, rows: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {} },
+    requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {} },
   }) as const
 
 /** The pane in the text look (VS Code draws no Raster): the terminal's rows, the instruments as their text forms. */

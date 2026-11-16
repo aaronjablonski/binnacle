@@ -45,8 +45,8 @@ function world(on: On, t: Timeline, u: UiState, env: Record<string, string> = {}
   on('ui.notify', () => ({ value: { isSent: true as const, channel: 'terminal' } }) as never)
   on('ui.open', () => ({ value: { isPlaced: true as const } }) as never)
   // The engine's record of the pane: up and placed when the test says the pane is open.
-  on('ui.panes', () => ({ value: u.paneOpen === true ? [{ id: 'mission-control', title: 'Mission Control', isShown: true, isFocused: false, isPlaced: true }] : [] }) as never)
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('ui.panes', () => ({ value: u.paneOpen === true ? [{ id: 'binnacle', title: 'Binnacle', isShown: true, isFocused: false, isPlaced: true }] : [] }) as never)
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   return { stored, clock, toasts }
@@ -67,13 +67,13 @@ type Mounted = Awaited<ReturnType<Engine['ui']['mount']>>
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control', component: 'Pane', requestId: 'mission-control', surface: 'terminal' as const,
-    props: { title: 'Mission Control', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 46 }, view: {} },
+    plugin: 'binnacle', component: 'Pane', requestId: 'binnacle', surface: 'terminal' as const,
+    props: { title: 'Binnacle', isFocused: false, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 46 }, view: {} },
   }) as const
 
 const BAND = (columns: number) =>
   ({
-    plugin: 'mission-control', component: 'AbovePrompt', surface: 'terminal' as const,
+    plugin: 'binnacle', component: 'AbovePrompt', surface: 'terminal' as const,
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: columns, scroll: { offset: 0, bodyRows: 10 }, view: {} },
   }) as const
 

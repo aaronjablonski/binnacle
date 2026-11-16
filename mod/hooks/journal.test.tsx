@@ -9,7 +9,7 @@ import { problems } from './model/select'
 import { todoBlock } from './model/todo'
 
 const HOME = 'C:/home'
-const ROOT = `${HOME}/.claude/mission-control`
+const ROOT = `${HOME}/.claude/binnacle`
 const DAY = 24 * 60 * 60 * 1000
 /** The clock prune reads: well past every mtime the tests' disks give, unless a test says otherwise. */
 const NOW = 10 * DAY
@@ -165,7 +165,7 @@ test('prune spares the running session even when it is old', async () => {
 test("prune never runs cmd for a home folder cmd could misread (USERPROFILE='C:\\Users\\R&D')", async () => {
   const d = new Disk()
   const home = 'C:\\Users\\R&D'
-  for (let i = 0; i < 25; i++) d.files.set(`C:/Users/R&D/.claude/mission-control/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  for (let i = 0; i < 25; i++) d.files.set(`C:/Users/R&D/.claude/binnacle/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
   let ran = 0
   const $ = engineOver(d, { USERPROFILE: home, OS: 'Windows_NT' })
   ;($ as unknown as { process: { run: () => Promise<never> } }).process.run = async () => {
@@ -181,7 +181,7 @@ test("prune never runs cmd for a home folder cmd could misread (USERPROFILE='C:\
 
 test('prune runs cmd with the plain path when the home folder is safe, spaces included', async () => {
   const d = new Disk()
-  for (let i = 0; i < 21; i++) d.files.set(`C:/Users/Tom Smith/.claude/mission-control/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
+  for (let i = 0; i < 21; i++) d.files.set(`C:/Users/Tom Smith/.claude/binnacle/sess-${i}/timeline.json`, { text: '{}', mtimeMs: 100 + i })
   const argvs: (readonly string[])[] = []
   const $ = engineOver(d, { USERPROFILE: 'C:\\Users\\Tom Smith', OS: 'Windows_NT' })
   ;($ as unknown as { process: { run: (argv: readonly string[]) => unknown } }).process.run = async (argv: readonly string[]) => {
@@ -191,7 +191,7 @@ test('prune runs cmd with the plain path when the home folder is safe, spaces in
 
   await prune($, 20)
 
-  expect(argvs).toEqual([['cmd', '/d', '/c', 'rmdir', '/s', '/q', 'C:\\Users\\Tom Smith\\.claude\\mission-control\\sess-0']])
+  expect(argvs).toEqual([['cmd', '/d', '/c', 'rmdir', '/s', '/q', 'C:\\Users\\Tom Smith\\.claude\\binnacle\\sess-0']])
 })
 
 test('prune keeps a folder under 24 hours old', async () => {
@@ -278,7 +278,7 @@ function world(on: On, d: Disk, sessionId: string, opts: { failCommand?: boolean
   on('session.id', () => ({ value: box.sessionId }))
   on('command.register', () => {
     if (opts.failCommand === true) throw new Error('command.register is down')
-    return { value: { command: 'mc' } }
+    return { value: { command: 'binnacle' } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('classic.SessionStart', () => ({}))
@@ -444,7 +444,7 @@ test('C1: after a /clear the cleared request folds away (headline gone, its open
   const clock = mock.clock(on, { now: 1000 })
 
   await $.turn.start({ text: 'add rate limiting', turnId: 't1' })
-  await $.tool.call({ tool: 'mcp__mission-control__update', focus: 'Wiring the limiter into the chain' } as never)
+  await $.tool.call({ tool: 'mcp__binnacle__update', focus: 'Wiring the limiter into the chain' } as never)
   await $.tool.call({ tool: 'TaskCreate', subject: 'Read the route', id: '1', tool_use_id: 'c1' } as never)
   await $.tool.call({ tool: 'TaskCreate', subject: 'Write the limiter', id: '2', tool_use_id: 'c2' } as never)
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'u1' } as never)
@@ -518,7 +518,7 @@ test('a timeline-1 value an earlier version stored reads as empty, and the snaps
   expect(box.timeline).toEqual(saved)
 })
 
-const MARK = 'mission-control:cleared'
+const MARK = 'binnacle:cleared'
 
 test('a /clear that resets the state restores the timeline, its journal kept, and links the new id', async ($, on) => {
   const d = new Disk()

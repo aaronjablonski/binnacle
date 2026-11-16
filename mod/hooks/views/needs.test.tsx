@@ -50,11 +50,11 @@ function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockC
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: false,
       bodyColumns: columns,
       placement: 'dock',
@@ -65,7 +65,7 @@ const PANE = (columns: number) =>
 
 const BAND = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'AbovePrompt',
     props: {
       hasSurvey: false,
@@ -154,7 +154,7 @@ async function ticking($: Engine, on: On, t: Timeline, u?: UiState, onInvalidate
     return { value: undefined }
   })
   on('ui.open', () => ({ value: { isPlaced: false as const, reason: 'narrow' } }))
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })

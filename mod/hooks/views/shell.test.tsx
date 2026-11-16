@@ -48,7 +48,7 @@ function world(on: On, t: Timeline, u?: UiState, shapes: Record<string, string> 
 }
 
 const run = ($: { command: { run: (a: never) => Promise<{ text?: string }> } }, args: string) =>
-  $.command.run({ command: 'mc', args } as never)
+  $.command.run({ command: 'binnacle', args } as never)
 
 const FORMS: [string, string, string][] = [
   ['1', 'overview', 'Now'],
@@ -58,24 +58,24 @@ const FORMS: [string, string, string][] = [
   ['5', 'artifacts', 'Artifacts'],
 ]
 
-const UNKNOWN = 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim, strip or options.'
+const UNKNOWN = 'Unknown. Try /binnacle, /binnacle 1-5, keep <note>, export, close, slim, strip or options.'
 
 for (const [arg, tab, label] of FORMS) {
-  test(`/mc ${arg} switches to ${tab}, clears detail and opens the pane`, async ($, on) => {
+  test(`/binnacle ${arg} switches to ${tab}, clears detail and opens the pane`, async ($, on) => {
     const { stored, opened } = world(on, empty, { tab: 'timeline', detail: { stepId: 's1' } } as UiState)
 
     const got = await run($, arg)
 
-    expect(got.text).toBe(`Mission Control: ${label}.`)
+    expect(got.text).toBe(`Binnacle: ${label}.`)
     const ui = stored.get('ui') as UiState
     expect(ui.tab).toBe(tab)
     expect(ui.detail).toBe(undefined)
     expect(opened.length).toBe(1)
-    expect(opened[0]).toMatchObject({ id: 'mission-control', focus: true })
+    expect(opened[0]).toMatchObject({ id: 'binnacle', focus: true })
   })
 }
 
-test('/mc with an old tab name answers Unknown and writes nothing', async ($, on) => {
+test('/binnacle with an old tab name answers Unknown and writes nothing', async ($, on) => {
   const { stored, opened } = world(on, empty)
 
   const got = await run($, 'agents')
@@ -85,7 +85,7 @@ test('/mc with an old tab name answers Unknown and writes nothing', async ($, on
   expect(opened.length).toBe(0)
 })
 
-test('/mc with an unknown tab answers and writes nothing', async ($, on) => {
+test('/binnacle with an unknown tab answers and writes nothing', async ($, on) => {
   const { stored, opened } = world(on, empty)
 
   for (const arg of ['6', '0', 'banana']) {
@@ -97,18 +97,18 @@ test('/mc with an unknown tab answers and writes nothing', async ($, on) => {
   expect(opened.length).toBe(0)
 })
 
-test('/mc close and /mc keep work', async ($, on) => {
+test('/binnacle close and /binnacle keep work', async ($, on) => {
   const { opened } = world(on, empty)
 
   const closed = await run($, 'close')
   const kept = await run($, 'keep')
 
-  expect(closed.text).toBe('Mission Control closed.')
+  expect(closed.text).toBe('Binnacle closed.')
   expect(kept.text).toBe('Nothing to keep yet.')
   expect(opened.length).toBe(0)
 })
 
-test('/mc keep <note> keeps the newest main step with the note', async ($, on) => {
+test('/binnacle keep <note> keeps the newest main step with the note', async ($, on) => {
   const t: Timeline = {
     ...empty,
     steps: [
@@ -127,7 +127,7 @@ test('/mc keep <note> keeps the newest main step with the note', async ($, on) =
   expect(steps.find(x => x.id === 'c')?.pin).toBe(undefined)
 })
 
-test('/mc pin is gone: it answers Unknown and keeps nothing', async ($, on) => {
+test('/binnacle pin is gone: it answers Unknown and keeps nothing', async ($, on) => {
   const t: Timeline = {
     ...empty,
     steps: [{ id: 'a', seq: 1, agent: 'main', tool: 'Edit', label: 'Edit a.ts', status: 'done', startedAt: 1 }],
@@ -141,23 +141,23 @@ test('/mc pin is gone: it answers Unknown and keeps nothing', async ($, on) => {
   expect(opened.length).toBe(0)
 })
 
-test('/mc slim asks for 28 columns, and again for 62; /mc keeps the slim width while slim', async ($, on) => {
+test('/binnacle slim asks for 28 columns, and again for 62; /binnacle keeps the slim width while slim', async ($, on) => {
   const { stored, opened } = world(on, empty)
 
   const first = await run($, 'slim')
   expect((stored.get('ui') as UiState).slim).toBe(true)
-  expect(opened[0]).toMatchObject({ id: 'mission-control', columns: 28, focus: true })
-  expect(first.text).toBe('Mission Control: slim, 28 columns.')
+  expect(opened[0]).toMatchObject({ id: 'binnacle', columns: 28, focus: true })
+  expect(first.text).toBe('Binnacle: slim, 28 columns.')
 
   await run($, '')
-  expect(opened[1]).toMatchObject({ id: 'mission-control', columns: 28 })
+  expect(opened[1]).toMatchObject({ id: 'binnacle', columns: 28 })
   await run($, '3')
-  expect(opened[2]).toMatchObject({ id: 'mission-control', columns: 28 })
+  expect(opened[2]).toMatchObject({ id: 'binnacle', columns: 28 })
 
   const second = await run($, 'slim')
   expect((stored.get('ui') as UiState).slim).toBe(false)
-  expect(opened[3]).toMatchObject({ id: 'mission-control', columns: 62, focus: true })
-  expect(second.text).toBe('Mission Control: full width, 62 columns.')
+  expect(opened[3]).toMatchObject({ id: 'binnacle', columns: 62, focus: true })
+  expect(second.text).toBe('Binnacle: full width, 62 columns.')
 
   await run($, '')
   expect(opened[4]).toMatchObject({ columns: 62 })
@@ -174,7 +174,7 @@ test('a ui value stored as ui-3 reads as the initial value', async ($, on) => {
 
 const paneOpenOf = (stored: Stored): unknown => (stored.get('ui') as UiState | undefined)?.paneOpen
 
-test('paneOpen is written by /mc, /mc 1-5 and /mc slim when the pane is placed, and cleared by /mc close', async ($, on) => {
+test('paneOpen is written by /binnacle, /binnacle 1-5 and /binnacle slim when the pane is placed, and cleared by /binnacle close', async ($, on) => {
   const { stored } = world(on, empty)
   expect(paneOpenOf(stored)).toBe(undefined)
 
@@ -213,7 +213,7 @@ test('a close of the pane from anywhere (the person, a press) clears paneOpen: a
   await run($, '')
   expect(paneOpenOf(stored)).toBe(true)
 
-  await closeVia($, 'mission-control')
+  await closeVia($, 'binnacle')
 
   expect(paneOpenOf(stored)).toBe(false)
 })
@@ -227,7 +227,7 @@ test('a ui.close of another pane leaves paneOpen alone', { plugins: [{ name: 'cl
   expect(paneOpenOf(stored)).toBe(true)
 })
 
-test('a unknown /mc word writes nothing, paneOpen included', async ($, on) => {
+test('a unknown /binnacle word writes nothing, paneOpen included', async ($, on) => {
   const { stored } = world(on, empty)
   await run($, 'bogus')
   expect(stored.get('ui')).toBe(undefined)
@@ -245,11 +245,11 @@ test('a ui-4 value without paneOpen reads false: no shape bump, nothing declined
 
 const PANE = (columns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: false,
       bodyColumns: columns,
       placement: 'dock',
@@ -365,7 +365,7 @@ test('pressing a tab writes ui.tab and leaves the step it had open', async ($, o
   }
 })
 
-test('/mc export writes the digest to the journal, copies it and answers the path', async ($, on) => {
+test('/binnacle export writes the digest to the journal, copies it and answers the path', async ($, on) => {
   const t: Timeline = {
     ...empty,
     journal: 'sess1',
@@ -382,8 +382,8 @@ test('/mc export writes the digest to the journal, copies it and answers the pat
   const copies: string[] = []
   const toasts: string[] = []
   const bodies: Record<string, string> = {
-    'C:/Users/x/.claude/mission-control/sess1/steps/p.json': JSON.stringify({ input: {}, text: 'PINNED', cut: 0, isError: false }),
-    'C:/Users/x/.claude/mission-control/sess1/steps/u.json': JSON.stringify({ input: {}, text: 'UNPINNED', cut: 0, isError: false }),
+    'C:/Users/x/.claude/binnacle/sess1/steps/p.json': JSON.stringify({ input: {}, text: 'PINNED', cut: 0, isError: false }),
+    'C:/Users/x/.claude/binnacle/sess1/steps/u.json': JSON.stringify({ input: {}, text: 'UNPINNED', cut: 0, isError: false }),
   }
   on('fs.read', (_, e) => {
     const path = slash(e.path)
@@ -408,7 +408,7 @@ test('/mc export writes the digest to the journal, copies it and answers the pat
   const got = await run($, 'export')
 
   expect(writes.length).toBe(1)
-  expect(writes[0]?.path).toMatch(/^C:\/Users\/x\/\.claude\/mission-control\/sess1\/export-\d{4}-\d{2}-\d{2}-\d{4}\.md$/)
+  expect(writes[0]?.path).toMatch(/^C:\/Users\/x\/\.claude\/binnacle\/sess1\/export-\d{4}-\d{2}-\d{2}-\d{4}\.md$/)
   expect(writes[0]?.text).toContain('PINNED')
   expect(writes[0]?.text).not.toContain('UNPINNED')
   expect(reads.some(p => p.endsWith('/u.json'))).toBe(false)
@@ -417,7 +417,7 @@ test('/mc export writes the digest to the journal, copies it and answers the pat
   expect(toasts).toEqual([`Exported: ${writes[0]?.path}`])
 })
 
-test('/mc export says when the copy failed', async ($, on) => {
+test('/binnacle export says when the copy failed', async ($, on) => {
   world(on, empty)
   mock.env(on, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
   on('session.id', () => ({ value: 'sess2' }))
@@ -433,7 +433,7 @@ test('/mc export says when the copy failed', async ($, on) => {
   expect(toasts[0]).toMatch(/^Exported: .*\(copy failed: no-clipboard\)$/)
 })
 
-test('/mc export with no home answers and writes nothing', async ($, on) => {
+test('/binnacle export with no home answers and writes nothing', async ($, on) => {
   world(on, empty)
   mock.env(on, {})
   const writes: string[] = []

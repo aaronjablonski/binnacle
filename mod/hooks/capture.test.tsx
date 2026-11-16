@@ -102,7 +102,7 @@ test('the update tool is not recorded as a step', async ($, on) => {
   const box = world(on)
   on('tool.call', () => ({ result: 'ok' }))
 
-  await $.tool.call({ tool: 'mcp__mission-control__update', focus: 'x' } as never)
+  await $.tool.call({ tool: 'mcp__binnacle__update', focus: 'x' } as never)
 
   expect(box.timeline?.steps.length ?? 0).toBe(0)
 })
@@ -481,9 +481,9 @@ test('turn.complete keeps cache counts and turn time on the agent, and marks an 
 // The ledger lives in $.store; these hooks keep it and record each write.
 function ledgerStore(on: On, start?: unknown): { writes: unknown[]; value: () => unknown } {
   const box: { writes: unknown[]; value: unknown } = { writes: [], value: start }
-  on('store.get', (_, e) => ({ value: e.key === 'mission-control:ledger' ? box.value : undefined }))
+  on('store.get', (_, e) => ({ value: e.key === 'binnacle:ledger' ? box.value : undefined }))
   on('store.set', (_, e) => {
-    if (e.key === 'mission-control:ledger') {
+    if (e.key === 'binnacle:ledger') {
       box.value = e.value
       box.writes.push(e.value)
     }

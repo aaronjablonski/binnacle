@@ -40,11 +40,11 @@ function world(on: On, t: Timeline, u: UiState = initialUi, env: Record<string, 
 
 const PANE = (columns: number, rows: number, o: { focused?: boolean; covered?: boolean } = {}) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control', isFocused: o.focused ?? true, bodyColumns: columns, placement: 'dock',
+      title: 'Binnacle', isFocused: o.focused ?? true, bodyColumns: columns, placement: 'dock',
       scroll: { offset: 0, bodyRows: rows }, view: {}, ...(o.covered === true ? { isPromptCovered: true as const } : {}),
     },
   }) as const
@@ -239,8 +239,8 @@ test('n steps to the next ask when two wait; the footer offers it then', async (
   await ui.unmount()
 })
 
-// FX3 I-3: the hidden `e` arm of Now at rest. The footer says `e export digest` as text (M5: Artifacts' own words); the press is on the armed Button and reaches the same exportDigest the `/mc export` command runs.
-test('Now at rest e: the armed hint exports the handoff, the same write /mc export makes', async ($, on) => {
+// FX3 I-3: the hidden `e` arm of Now at rest. The footer says `e export digest` as text (M5: Artifacts' own words); the press is on the armed Button and reaches the same exportDigest the `/binnacle export` command runs.
+test('Now at rest e: the armed hint exports the handoff, the same write /binnacle export makes', async ($, on) => {
   const stored = world(on, { ...idle(), journal: 'sess1' }, initialUi, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
   const writes: string[] = []
   on('fs.read', () => {
@@ -262,7 +262,7 @@ test('Now at rest e: the armed hint exports the handoff, the same write /mc expo
   expect(writes[0]).toMatch(/export-.*\.md$/)
   expect((stored.get('timeline') as Timeline).lastExport?.path.split(String.fromCharCode(92)).join('/')).toBe(writes[0])
   // the command runs the same handler: with the clock held, the same path
-  await $.command.run({ command: 'mc', args: 'export' } as never)
+  await $.command.run({ command: 'binnacle', args: 'export' } as never)
   expect(writes).toHaveLength(2)
   expect(writes[1]).toBe(writes[0])
 })

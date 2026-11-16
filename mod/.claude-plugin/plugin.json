@@ -1,5 +1,5 @@
 {
-  "name": "mission-control",
+  "name": "binnacle",
   "version": "0.1.0",
   "description": "Keeps tasks, agents, a step timeline and artifacts in a pane and band beside the chat.",
   "types": "./types/index.d.ts",
@@ -7,13 +7,13 @@
     "autoOpen": {
       "type": "boolean",
       "title": "Open at start",
-      "description": "Open the Mission Control pane when a session starts.",
+      "description": "Open the Binnacle pane when a session starts.",
       "default": false
     },
     "guide": {
       "type": "boolean",
       "title": "Guide Claude",
-      "description": "Add the Mission Control update tool and one system-prompt section so Claude keeps the panel current.",
+      "description": "Add the Binnacle update tool and one system-prompt section so Claude keeps the panel current.",
       "default": true
     },
     "look": {
@@ -33,7 +33,7 @@
     "showCost": {
       "type": "boolean",
       "title": "Show cost",
-      "description": "Add a Cost row with the session's dollar cost to the budget view. Off by default: Mission Control otherwise draws no dollar figure.",
+      "description": "Add a Cost row with the session's dollar cost to the budget view. Off by default: Binnacle otherwise draws no dollar figure.",
       "default": false
     },
     "editor": {

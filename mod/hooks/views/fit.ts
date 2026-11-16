@@ -1123,7 +1123,7 @@ export function toolRoom(cols: number): number {
  * (the only cut inside a word, so the column is never blank). Room 0 is ''.
  *
  * @example toolName('TaskUpdate')                     // 'Task✓'
- * @example toolName('mcp__mission-control__update')    // 'updat…' at 5; 'update' at 6
+ * @example toolName('mcp__binnacle__update')    // 'updat…' at 5; 'update' at 6
  * @example toolName('mcp__github__get_issue')         // 'get'
  */
 export function toolName(tool: string, room = 5): string {

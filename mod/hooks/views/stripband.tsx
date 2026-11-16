@@ -15,7 +15,7 @@ import type { Press } from './watch'
 // The inline strip (R34; unmocked): Now's header on the left, To do and
 // Agents on the right, from the same cockpit parts and on the same columns.
 // The pane draws it from 96 columns (`stripNow`); the band draws it in place
-// of the pane while `/mc strip` is on (`stripBandView`), over its compact
+// of the pane while `/binnacle strip` is on (`stripBandView`), over its compact
 // line, with every press opening the pane on what it names.
 
 /** The left column's width: Now's header at its full 62 columns. */
@@ -143,7 +143,7 @@ export function stripNow(ctx: ViewCtx, $: EngineInterface): RenderElement {
 }
 
 /**
- * The band's strip (`/mc strip`, R34), over the band's compact line, in at
+ * The band's strip (`/binnacle strip`, R34), over the band's compact line, in at
  * most `maxRows`: from 96 columns the two columns, the right one to the
  * left's height; narrower, the header and the needs slot, then To do and
  * Agents under them, each block whole or not at all. Every row that opens

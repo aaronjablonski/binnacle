@@ -47,11 +47,11 @@ const seed = (on: On, t: Timeline, u?: UiState): Stored => world(on, t, u).store
 
 const PANE = (columns: number, isFocused = false, bodyRows = 40) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused,
       bodyColumns: columns,
       placement: 'dock',
@@ -544,7 +544,7 @@ test('the footer reads ↵ open task, d all done, esc prompt, on the last row, o
   await ui.unmount()
 })
 
-// REMOVED (cockpit): "e exports the digest from the Tasks tab". The mock's Tasks footer is ↵ open task, d all done, esc prompt; export is the Artifacts tab's one action (its filled button) and /mc export.
+// REMOVED (cockpit): "e exports the digest from the Tasks tab". The mock's Tasks footer is ↵ open task, d all done, esc prompt; export is the Artifacts tab's one action (its filled button) and /binnacle export.
 
 // LOOK TEST (rewritten for the cockpit): replaces the 40 and 32 column deck tests: at 40 the heads drop the tokens, the time stays at the right edge, and nothing passes the width.
 test('at 40 columns the tokens go and the time stays at the right edge; nothing past 40, no tether text past its room', async ($, on) => {

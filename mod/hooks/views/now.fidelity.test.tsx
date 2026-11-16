@@ -34,11 +34,11 @@ function world(on: On, t: Timeline, u: UiState = initialUi): { t: Timeline; u: U
 
 const PANE = (columns: number, rows: number, covered: boolean) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control', isFocused: true, bodyColumns: columns, placement: 'dock',
+      title: 'Binnacle', isFocused: true, bodyColumns: columns, placement: 'dock',
       scroll: { offset: 0, bodyRows: rows }, view: {}, ...(covered ? { isPromptCovered: true as const } : {}),
     },
   }) as const

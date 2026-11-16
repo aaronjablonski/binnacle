@@ -33,7 +33,7 @@ function draws(on: On, build: (ctx: ViewCtx, $: EngineInterface) => RenderElemen
 
 const PANE = (columns: number, isFocused = false) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
     requestId: 'parts-test',
     props: {

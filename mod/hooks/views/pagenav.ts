@@ -1,6 +1,6 @@
 // Detail pages (rich spec binding rule 4): `ui.page = { kind, id }` names the
 // page that replaces the open tab's list. Set on a press (Enter on a task,
-// agent, step or artifact), cleared by `b`, by a tab switch and by /mc 1-5.
+// agent, step or artifact), cleared by `b`, by a tab switch and by /binnacle 1-5.
 
 import type { EngineInterface } from 'claude-code'
 
@@ -9,7 +9,7 @@ import { debug, errText, updateUi } from '../state'
 import { openStep } from './openstep'
 
 /** The pane's request id (shell.tsx `PANE`; not imported, as shell imports this module). */
-const PANE_ID = 'mission-control'
+const PANE_ID = 'binnacle'
 
 /** The kinds of page: the four detail pages, and Options. */
 export const PAGE_KINDS: readonly PageKind[] = ['task', 'agent', 'step', 'artifact', 'options']

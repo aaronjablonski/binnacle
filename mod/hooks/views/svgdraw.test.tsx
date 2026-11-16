@@ -64,7 +64,7 @@ function draws(on: On): void {
 }
 
 const PANE = {
-  plugin: 'mission-control',
+  plugin: 'binnacle',
   component: 'Pane',
   requestId: 'svg-test',
   props: { title: 't', isFocused: true, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
@@ -149,7 +149,7 @@ test('no Raster is drawn on the desktop app: every tab and the Options page', as
   const stored = world(on)
   for (const u of pages) {
     stored.set('ui', u)
-    const ui = await $.ui.mount({ ...PANE, requestId: 'mission-control', surface: 'desktop' })
+    const ui = await $.ui.mount({ ...PANE, requestId: 'binnacle', surface: 'desktop' })
     expect(await ui.find({ type: 'Raster' })).toBe(undefined)
     await ui.unmount()
   }

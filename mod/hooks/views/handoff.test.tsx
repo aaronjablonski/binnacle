@@ -5,7 +5,7 @@ import type { Timeline } from '../../types'
 import { empty } from '../model/reduce'
 import { digestParts, KEPT_WORDS } from './handoff'
 
-// The engine beneath the mod for /mc export: a timeline held under the
+// The engine beneath the mod for /binnacle export: a timeline held under the
 // current shape, a home folder, and a disk and clipboard that accept.
 function world(on: On, t: Timeline, env: Record<string, string> = { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' }): { stored: Map<string, unknown>; writes: string[] } {
   const stored = new Map<string, unknown>([['timeline', t]])
@@ -39,10 +39,10 @@ function world(on: On, t: Timeline, env: Record<string, string> = { USERPROFILE:
   return { stored, writes }
 }
 
-test('/mc export records when and where it wrote', async ($, on) => {
+test('/binnacle export records when and where it wrote', async ($, on) => {
   const { stored, writes } = world(on, { ...empty, journal: 'sess1' })
 
-  await $.command.run({ command: 'mc', args: 'export' } as never)
+  await $.command.run({ command: 'binnacle', args: 'export' } as never)
 
   expect(writes.length).toBe(1)
   const t = stored.get('timeline') as Timeline
@@ -50,10 +50,10 @@ test('/mc export records when and where it wrote', async ($, on) => {
   expect(t.lastExport?.path.replace(/\\/g, '/')).toBe(writes[0])
 })
 
-test('/mc export with no home records nothing', async ($, on) => {
+test('/binnacle export with no home records nothing', async ($, on) => {
   const { stored } = world(on, { ...empty, journal: 'sess1' }, {})
 
-  await $.command.run({ command: 'mc', args: 'export' } as never)
+  await $.command.run({ command: 'binnacle', args: 'export' } as never)
 
   expect((stored.get('timeline') as Timeline).lastExport).toBe(undefined)
 })

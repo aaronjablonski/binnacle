@@ -35,10 +35,10 @@ function draws(on: On, build: (ctx: ViewCtx, $: EngineInterface) => RenderElemen
 
 const PANE = (requestId: string, columns: number, bodyRows = 40) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
     requestId,
-    props: { title: 'Mission Control', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
+    props: { title: 'Binnacle', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
   }) as const
 
 type Node = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
@@ -257,7 +257,7 @@ for (const [p, text] of PAGES) {
     const { stored } = world(on, T, { ...initialUi, tab: 'overview', page: p })
     for (const surface of SURFACES) {
       stored.set('ui', { ...initialUi, tab: 'overview', page: p })
-      const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface })
+      const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface })
       const rows = screen(await ui.drawn())
       expect(rows.join(' ').replace(/\s+/g, ' ')).toContain(text)
       expect(await ui.find({ type: 'Button', key: 'tab-overview' })).toBeTruthy()
@@ -265,7 +265,7 @@ for (const [p, text] of PAGES) {
       await ui.press({ key: 'page-back' })
       expect((stored.get('ui') as UiState).page).toBe(undefined)
       await ui.unmount()
-      const again = await $.ui.mount({ ...PANE('mission-control', 62), surface })
+      const again = await $.ui.mount({ ...PANE('binnacle', 62), surface })
       expect(await again.find({ type: 'Button', key: 'page-back' })).toBe(undefined)
       // Now lists the current task in its To do block by design, so only the other pages' words are gone.
       if (p.kind !== 'task') expect(screen(await again.drawn()).join(' ').replace(/\s+/g, ' ')).not.toContain(text)
@@ -276,31 +276,31 @@ for (const [p, text] of PAGES) {
 
 test('a page of something gone says so; a page value of an unknown kind is ignored', async ($, on) => {
   const { stored } = world(on, T, { ...initialUi, page: { kind: 'agent', id: 'nope' } })
-  const a = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const a = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   expect(screen(await a.drawn()).join(' ')).toContain('This agent is gone.')
   await a.unmount()
   stored.set('ui', { ...initialUi, page: { kind: 'weird', id: 'x' } })
-  const b = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const b = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   expect(await b.find({ type: 'Button', key: 'page-back' })).toBe(undefined)
   await b.unmount()
 })
 
-test('a tab press and /mc 1-5 leave the page', async ($, on) => {
+test('a tab press and /binnacle 1-5 leave the page', async ($, on) => {
   const { stored } = world(on, T, { ...initialUi, page: { kind: 'task', id: 'main:10' } })
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   await ui.press({ key: 'tab-agents' })
   expect((stored.get('ui') as UiState).page).toBe(undefined)
   expect((stored.get('ui') as UiState).tab).toBe('agents')
   await ui.unmount()
   stored.set('ui', { ...initialUi, page: { kind: 'task', id: 'main:10' } })
-  await $.command.run({ command: 'mc', args: '2' } as never)
+  await $.command.run({ command: 'binnacle', args: '2' } as never)
   expect((stored.get('ui') as UiState).page).toBe(undefined)
 })
 
 test('the pane on the terminal draws the page with Rasters; on desktop, VS Code and mobile none', async ($, on) => {
   world(on, T, { ...initialUi, page: { kind: 'agent', id: 'a1' } })
   for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface })
+    const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface })
     const drawn = await ui.drawn()
     if (surface === 'terminal') expect(count(drawn, 'Raster')).toBeGreaterThan(0)
     else expect(count(drawn, 'Raster')).toBe(0)
@@ -320,18 +320,18 @@ test('forget runs on the pane closing: its pulsing Rasters stop painting', async
   on('ui.toast', () => ({ value: undefined }))
   on('ui.notify', () => ({ value: { isSent: true as const, channel: 'terminal' } }) as never)
   on('ui.invalidate', () => ({ value: undefined }))
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.root', () => ({ value: 'C:/repo' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   await ui.drawn()
   // The working agent's character pulses: the clock blits it each beat.
   await clock.advance(1000)
   await clock.advance(1000)
   expect(blits).toContain('agent-a1-who')
-  await $.command.run({ command: 'mc', args: 'close' } as never)
+  await $.command.run({ command: 'binnacle', args: 'close' } as never)
   const before = blits.length
   await clock.advance(1000)
   await clock.advance(1000)
@@ -369,12 +369,12 @@ function editorWorld(on: On, opts: { exit?: number; reject?: boolean; copied?: b
 test('openInEditor runs the editor with -r -g path on the press only, the path made absolute', async ($, on) => {
   const w = editorWorld(on)
   for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface })
+    const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface })
     await ui.drawn()
     expect(w.runs).toEqual([])
     await ui.unmount()
   }
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   await ui.press({ key: 'artifact-page-open' })
   expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/docs/limit.md']])
   expect(w.toasts).toEqual([])
@@ -384,7 +384,7 @@ test('openInEditor runs the editor with -r -g path on the press only, the path m
 
 test('openInEditor: a non-zero exit copies the path and toasts why', async ($, on) => {
   const w = editorWorld(on, { exit: 2 })
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'desktop' })
   await ui.press({ key: 'artifact-page-open' })
   expect(w.copies).toEqual([{ text: 'C:/repo/docs/limit.md', surface: 'desktop' }])
   expect(w.toasts).toEqual(['Not opened: code exited 2. Path copied.'])
@@ -393,7 +393,7 @@ test('openInEditor: a non-zero exit copies the path and toasts why', async ($, o
 
 test('openInEditor: an editor that cannot start is tried once through cmd, then the path is copied and the toast says why', async ($, on) => {
   const w = editorWorld(on, { reject: true, copied: false })
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   await ui.press({ key: 'artifact-page-open' })
   expect(w.runs).toEqual([
     ['code', '-r', '-g', 'C:/repo/docs/limit.md'],
@@ -408,7 +408,7 @@ test('openInEditor: an editor that cannot start is tried once through cmd, then 
 
 test('openInEditor never hands cmd a path with a metacharacter', async ($, on) => {
   const w = editorWorld(on, { reject: true, ref: 'a.md & calc' })
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   await ui.press({ key: 'artifact-page-open' })
   expect(w.runs).toEqual([['code', '-r', '-g', 'C:/repo/a.md & calc']])
   expect(w.toasts).toHaveLength(1)
@@ -417,7 +417,7 @@ test('openInEditor never hands cmd a path with a metacharacter', async ($, on) =
 
 test('the editor option names the editor o: open runs', { options: { editor: 'cursor' } }, async ($, on) => {
   const w = editorWorld(on, { ref: 'D:/elsewhere/notes.md' })
-  const ui = await $.ui.mount({ ...PANE('mission-control', 62), surface: 'terminal' })
+  const ui = await $.ui.mount({ ...PANE('binnacle', 62), surface: 'terminal' })
   await ui.press({ key: 'artifact-page-open' })
   expect(w.runs).toEqual([['cursor', '-r', '-g', 'D:/elsewhere/notes.md']])
   await ui.unmount()

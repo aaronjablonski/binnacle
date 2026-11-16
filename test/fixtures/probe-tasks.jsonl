@@ -1,6 +1,6 @@
 {"at":1794738361648,"event":"turn.start","e":{"text":"Create a task list with three tasks named A, B, C, mark A in progress then completed, then stop.","turnId":"17424fc5-360b-46a5-b4dc-f05580263273"},"r":{"turnId":"17424fc5-360b-46a5-b4dc-f05580263273"}}
-{"at":1794738365288,"event":"tool.call","e":{"focus":"Task list creation, tasks A-C","tool":"mcp__mission-control__probe_update","tool_use_id":"toolu_015brYDw4yjXbVEUyeMmbDYv"}}
-{"at":1794738365290,"event":"tool.result","e":{"tool":"mcp__mission-control__probe_update","tool_use_id":"toolu_015brYDw4yjXbVEUyeMmbDYv"},"r":{"result":"ok"}}
+{"at":1794738365288,"event":"tool.call","e":{"focus":"Task list creation, tasks A-C","tool":"mcp__binnacle__probe_update","tool_use_id":"toolu_015brYDw4yjXbVEUyeMmbDYv"}}
+{"at":1794738365290,"event":"tool.result","e":{"tool":"mcp__binnacle__probe_update","tool_use_id":"toolu_015brYDw4yjXbVEUyeMmbDYv"},"r":{"result":"ok"}}
 {"at":1794738365470,"event":"tool.call","e":{"subject":"Task A","description":"Task A","tool":"TaskCreate","tool_use_id":"toolu_018sBqycrVW2mroQjwcdvXZX"}}
 {"at":1794738365505,"event":"tool.result","e":{"tool":"TaskCreate","tool_use_id":"toolu_018sBqycrVW2mroQjwcdvXZX"},"r":{"ref":1,"result":{"task":{"id":"1","subject":"Task A","description":"Task A"}},"text":"Task #1 created successfully: Task A"}}
 {"at":1794738365674,"event":"tool.call","e":{"subject":"Task B","description":"Task B","tool":"TaskCreate","tool_use_id":"toolu_01VTPj57nxe987u2qQJuhMSj"}}

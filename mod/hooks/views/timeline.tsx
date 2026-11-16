@@ -142,7 +142,7 @@ async function toggleMark($: EngineInterface, mark: string): Promise<void> {
   await updateUi($, u => ({ ...u, openTurns: u.openTurns.includes(mark) ? u.openTurns.filter(x => x !== mark) : [...u.openTurns, mark] }))
 }
 
-/** Keeps the newest step of the main loop with `note`; the answer of `/mc keep`. */
+/** Keeps the newest step of the main loop with `note`; the answer of `/binnacle keep`. */
 export async function pinNewest($: EngineInterface, note: string): Promise<{ text: string }> {
   const t = await readTimeline($)
   let newest: Step | undefined

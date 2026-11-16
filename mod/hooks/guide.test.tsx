@@ -7,7 +7,7 @@ import { DESCRIPTION, GUIDE_TEXT } from './guide'
 
 type Box = { timeline?: Timeline; registered: Record<string, unknown>[] }
 
-const UPDATE = 'mcp__mission-control__update'
+const UPDATE = 'mcp__binnacle__update'
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 
 // The world beneath the mod, as in capture.test.tsx: a clock, no home folder
@@ -23,10 +23,10 @@ function world(on: On): Box {
     if (e.key === 'timeline') box.timeline = (e.value as { value?: Timeline } | undefined)?.value
     return out
   })
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', (_, e) => {
     box.registered.push(e as unknown as Record<string, unknown>)
-    return { value: { tool: `mcp__mission-control__${e.name}` } }
+    return { value: { tool: `mcp__binnacle__${e.name}` } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   return box
@@ -58,7 +58,7 @@ test('registers the update tool, not deferred', async ($, on) => {
   // Round 1 section 4: the description the model reads at call time names `focus` and `tasks`.
   expect(spec.description).toBe(DESCRIPTION)
   expect(DESCRIPTION).toBe(
-    'Keep the Mission Control panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful.',
+    'Keep the Binnacle panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful.',
   )
   const tasks = (spec.inputSchema.properties as Record<string, { maxItems?: number; items?: { properties: Record<string, { maxLength?: number; enum?: string[] }>; required: string[] } }>).tasks!
   expect(tasks.maxItems).toBe(12)
@@ -165,7 +165,7 @@ test('the guide text is identical whatever tools are offered, and names the task
   ]
   for (const text of texts) expect(text).toBe(GUIDE_TEXT)
   const toolsAt = GUIDE_TEXT.indexOf('create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call')
-  const fieldAt = GUIDE_TEXT.indexOf('if you have neither, send it in the `tasks` field of mcp__mission-control__update')
+  const fieldAt = GUIDE_TEXT.indexOf('if you have neither, send it in the `tasks` field of mcp__binnacle__update')
   expect(toolsAt > 0).toBe(true)
   expect(fieldAt > toolsAt).toBe(true)
   // Round 1's rules stand: threshold, grain, one in progress, closing; and the headline, note and artifact bullets.
@@ -174,7 +174,7 @@ test('the guide text is identical whatever tools are offered, and names the task
     'Leave no task in progress when you give your final answer', 'A request of one or two steps needs no list.',
     'with `focus`: the goal of the whole request as a plain clause of at most 8 words', 'Add `note` when', 'Add `artifact` when',
   ]) expect(GUIDE_TEXT).toContain(words)
-  expect(GUIDE_TEXT.startsWith('# Mission Control\n')).toBe(true)
+  expect(GUIDE_TEXT.startsWith('# Binnacle\n')).toBe(true)
 })
 
 test('the `tasks` field replaces the caller\'s own list, bounded; a subagent\'s list never touches the lead\'s', async ($, on) => {
@@ -245,27 +245,27 @@ test('the tool\'s row draws one dim line on every surface', async ($, on) => {
   world(on)
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({
-      plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_1',
+      plugin: 'binnacle', surface, component: 'ToolUse', requestId: 'toolu_1',
       props: row(UPDATE, { focus: 'Reading the README '.repeat(10) }),
       viewport: { columns: 60, rows: 40 },
     })
     const texts = await ui.findAll({ type: 'Text' })
     expect(texts.length).toBe(1)
     const text = texts[0]?.text ?? ''
-    expect(text.startsWith('◆ Mission Control updated: Reading the README')).toBe(true)
+    expect(text.startsWith('◆ Binnacle updated: Reading the README')).toBe(true)
     expect(text.length <= 60).toBe(true)
     expect(await ui.drawn()).toMatchObject({ type: 'Text', props: { dimColor: true } })
     await ui.unmount()
 
     const noted = await $.ui.mount({
-      plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_2',
+      plugin: 'binnacle', surface, component: 'ToolUse', requestId: 'toolu_2',
       props: row(UPDATE, {}),
     })
-    expect((await noted.find({ type: 'Text' }))?.text).toBe('◆ Mission Control updated: noted')
+    expect((await noted.find({ type: 'Text' }))?.text).toBe('◆ Binnacle updated: noted')
     await noted.unmount()
 
     const result = await $.ui.mount({
-      plugin: 'mission-control', surface, component: 'ToolResult', requestId: 'toolu_1',
+      plugin: 'binnacle', surface, component: 'ToolResult', requestId: 'toolu_1',
       props: { tool_use_id: 'toolu_1', tool: UPDATE, output: 'Noted.', isErrored: false },
     })
     expect(await result.findAll({ type: 'Text' })).toHaveLength(0)
@@ -281,14 +281,14 @@ test("another tool's row is left to the engine", async ($, on) => {
   })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({
-      plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_3',
+      plugin: 'binnacle', surface, component: 'ToolUse', requestId: 'toolu_3',
       props: row('Bash', { command: 'ls' }),
     })
     expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
     await ui.unmount()
 
     const result = await $.ui.mount({
-      plugin: 'mission-control', surface, component: 'ToolResult', requestId: 'toolu_3',
+      plugin: 'binnacle', surface, component: 'ToolResult', requestId: 'toolu_3',
       props: { tool_use_id: 'toolu_3', tool: 'Bash', output: { stdout: 'a' }, isErrored: false },
     })
     expect((await result.find({ type: 'Text' }))?.text).toBe('engine')
@@ -297,7 +297,7 @@ test("another tool's row is left to the engine", async ($, on) => {
 })
 
 const SEEN = { first: 0, last: 2, of: 3 }
-const OTHER_TOOLS = ['Bash', 'Read', 'Edit', 'Agent', 'mcp__github__get_issue', 'mcp__mission-control__other']
+const OTHER_TOOLS = ['Bash', 'Read', 'Edit', 'Agent', 'mcp__github__get_issue', 'mcp__binnacle__other']
 
 test("every other tool's row is the engine's node, unchanged, on screen or not", async ($, on) => {
   world(on)
@@ -315,7 +315,7 @@ test("every other tool's row is the engine's node, unchanged, on screen or not",
       for (const onScreen of [SEEN, null, undefined]) {
         const props = onScreen === undefined ? row(tool, { a: 1 }) : { ...row(tool, { a: 1 }), onScreen }
         const ui = await $.ui.mount({
-          plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_1', props,
+          plugin: 'binnacle', surface, component: 'ToolUse', requestId: 'toolu_1', props,
         })
         expect(await ui.drawn()).toMatchObject({ type: 'Box', props: { key: 'engine-row' } })
         const texts = await ui.findAll({ type: 'Text' })
@@ -336,7 +336,7 @@ test('an expanded update row is the engine\'s too', async ($, on) => {
   })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({
-      plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_9',
+      plugin: 'binnacle', surface, component: 'ToolUse', requestId: 'toolu_9',
       props: { ...row(UPDATE, { focus: 'x' }), isExpanded: true, onScreen: SEEN },
     })
     expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine'])
@@ -353,7 +353,7 @@ test("with guide: false the update tool's row is the engine's and other rows pas
   for (const surface of SURFACES) {
     for (const tool of [UPDATE, 'Bash']) {
       const ui = await $.ui.mount({
-        plugin: 'mission-control', surface, component: 'ToolUse', requestId: 'toolu_8',
+        plugin: 'binnacle', surface, component: 'ToolUse', requestId: 'toolu_8',
         props: { ...row(tool, { focus: 'x' }), onScreen: SEEN },
       })
       expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toEqual(['engine'])
@@ -374,13 +374,13 @@ test('I8: the guide says a tasks-only update is fine the moment a task is done, 
 test('M11: a tasks-only update reads "to-do list updated"; a long focus is cut at a word, never inside one', async ($, on) => {
   world(on)
   const list = await $.ui.mount({
-    plugin: 'mission-control', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_3',
+    plugin: 'binnacle', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_3',
     props: row(UPDATE, { tasks: [{ title: 'Read', state: 'done' }] }),
   })
-  expect((await list.find({ type: 'Text' }))?.text).toBe('◆ Mission Control updated: to-do list updated')
+  expect((await list.find({ type: 'Text' }))?.text).toBe('◆ Binnacle updated: to-do list updated')
   await list.unmount()
   const long = await $.ui.mount({
-    plugin: 'mission-control', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_4',
+    plugin: 'binnacle', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_4',
     props: row(UPDATE, { focus: 'Adding rate limiting to the upload route and the download route' }),
     viewport: { columns: 60, rows: 40 },
   })
@@ -388,7 +388,7 @@ test('M11: a tasks-only update reads "to-do list updated"; a long focus is cut a
   expect(text.length <= 60).toBe(true)
   expect(text.endsWith('…')).toBe(true)
   const words = 'Adding rate limiting to the upload route and the download route'.split(' ')
-  const kept = text.slice('◆ Mission Control updated: '.length, -1).split(' ')
+  const kept = text.slice('◆ Binnacle updated: '.length, -1).split(' ')
   for (const w of kept) expect(words).toContain(w)
   await long.unmount()
 })

@@ -46,7 +46,7 @@ function seed(on: On, t: Timeline, ui?: Partial<UiState>, at = NOW): void {
 
 const BAND = (extra: Record<string, unknown> = {}) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'AbovePrompt',
     props: {
       hasSurvey: false,
@@ -262,7 +262,7 @@ test('desktop: the band is an Svg with /mc as a Button beside it; a press opens 
   const mc = await ui.find({ type: 'Button', key: 'band-mc' })
   expect(mc).toBeDefined()
   await ui.press({ key: 'band-mc' })
-  expect(opened).toEqual([expect.objectContaining({ id: 'mission-control' })])
+  expect(opened).toEqual([expect.objectContaining({ id: 'binnacle' })])
   await ui.unmount()
 })
 

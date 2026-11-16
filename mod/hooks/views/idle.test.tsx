@@ -51,7 +51,7 @@ function world(on: On, u: UiState): World {
     return { value: {} } as never
   })
   on('ui.open', () => ({ value: { isPlaced: true as const } }) as never)
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   return { clock, invalidated: () => invalidated, blits }
@@ -61,11 +61,11 @@ const start = ($: Engine) => $.session.start({ cwd: '/', surface: 'terminal', is
 
 const PANE = (surface: 'terminal' | 'vscode') =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     surface,
-    props: { title: 'Mission Control', isFocused: false, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+    props: { title: 'Binnacle', isFocused: false, bodyColumns: 62, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
   }) as const
 
 // O I-3 / R40: the words are whole minutes, so the clock redraws when the minute changes (it was every 10 s).

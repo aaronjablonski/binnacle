@@ -696,7 +696,7 @@ function measure(t: Timeline, ev: Extract<Ev, { kind: 'measure' }>): Timeline {
   return next
 }
 
-/** What `/mc export` wrote last: its time and path (one line, cut to MAX_REF); a blank path changes nothing. */
+/** What `/binnacle export` wrote last: its time and path (one line, cut to MAX_REF); a blank path changes nothing. */
 function noteExport(t: Timeline, ev: Extract<Ev, { kind: 'export' }>): Timeline {
   if (typeof ev.path !== 'string' || typeof ev.at !== 'number') return t
   const path = cut(oneLine(ev.path), MAX_REF)

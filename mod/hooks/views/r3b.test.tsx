@@ -42,15 +42,15 @@ function world(on: On, t: Timeline, u: UiState = initialUi): Stored {
 type Surface = 'terminal' | 'desktop' | 'vscode' | 'mobile'
 const pane = (columns: number, rows: number, focused = true) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: focused, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {}, isPromptCovered: true as const },
+    requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: focused, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {}, isPromptCovered: true as const },
   }) as Record<string, unknown>
 
 const band = (cols: number, maxRows: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'AbovePrompt',
     props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: cols, scroll: { offset: 0, bodyRows: Math.max(0, maxRows - 1) }, view: {} },
   }) as Record<string, unknown>

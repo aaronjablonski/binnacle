@@ -25,10 +25,10 @@ function world(on: On, t: Timeline, u: UiState = initialUi): void {
 
 const PANE = (columns: number, rows: number, extra: Record<string, unknown> = {}) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
-    props: { title: 'Mission Control', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {}, isPromptCovered: true, ...extra },
+    requestId: 'binnacle',
+    props: { title: 'Binnacle', isFocused: true, bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: rows }, view: {}, isPromptCovered: true, ...extra },
   }) as const
 
 async function pane($: Engine, columns: number, rows = 46, extra: Record<string, unknown> = {}): Promise<string[]> {
@@ -40,7 +40,7 @@ async function pane($: Engine, columns: number, rows = 46, extra: Record<string,
 
 async function band($: Engine, columns: number): Promise<string[]> {
   const ui = await $.ui.mount({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'AbovePrompt',
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: columns, scroll: { offset: 0, bodyRows: 10 }, view: {} },
     surface: 'mobile',
@@ -99,7 +99,7 @@ for (const cols of [80, 72, 64]) {
   test(`F I4: the asked band at ${cols} columns never glues the tool to the command`, async ($, on) => {
     world(on, asked())
     const ui = await $.ui.mount({
-      plugin: 'mission-control',
+      plugin: 'binnacle',
       component: 'AbovePrompt',
       props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: cols, scroll: { offset: 0, bodyRows: 10 }, view: {} },
       surface: 'mobile',

@@ -41,11 +41,11 @@ function world(on: On, t: Timeline, u?: UiState, env: Record<string, string> = {
 
 const PANE = (columns: number, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'binnacle',
     component: 'Pane',
-    requestId: 'mission-control',
+    requestId: 'binnacle',
     props: {
-      title: 'Mission Control',
+      title: 'Binnacle',
       isFocused: false,
       bodyColumns: columns,
       placement,
@@ -414,7 +414,7 @@ async function ticking($: Engine, on: On, t: Timeline, u?: UiState): Promise<{ s
   on('ui.notify', () => ({ value: { isSent: true as const, channel: 'terminal' } }) as never)
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: false as const, reason: 'narrow' } }))
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -508,7 +508,7 @@ function usageWorld(on: On, t: Timeline, reply: () => unknown): { stored: Stored
   on('ui.notify', () => ({ value: { isSent: true as const, channel: 'terminal' } }) as never)
   on('ui.invalidate', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true as const } }) as never)
-  on('command.register', () => ({ value: { command: 'mc' } }))
+  on('command.register', () => ({ value: { command: 'binnacle' } }))
   on('tool.register', () => ({ value: { tool: 'x' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   return { stored, clock, toasts, reads }
@@ -536,33 +536,33 @@ test('session.start with a usage that has no figures seeds nothing', async ($, o
   expect((stored.get('timeline') as Timeline).budget).toBeUndefined()
 })
 
-test('a throwing $.session.usage breaks neither session.start nor /mc', async ($, on) => {
+test('a throwing $.session.usage breaks neither session.start nor /binnacle', async ($, on) => {
   const { stored } = usageWorld(on, empty, () => {
     throw new Error('no usage')
   })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  const got = await $.command.run({ command: 'mc', args: '' } as never)
-  expect(got).toEqual({ text: 'Mission Control opened.' })
+  const got = await $.command.run({ command: 'binnacle', args: '' } as never)
+  expect(got).toEqual({ text: 'Binnacle opened.' })
   expect((stored.get('timeline') as Timeline).budget).toBeUndefined()
 })
 
-test('/mc seeds a budget when none exists', async ($, on) => {
+test('/binnacle seeds a budget when none exists', async ($, on) => {
   const { stored, reads } = usageWorld(on, empty, () => USAGE)
-  const got = await $.command.run({ command: 'mc', args: '' } as never)
-  expect(got).toEqual({ text: 'Mission Control opened.' })
+  const got = await $.command.run({ command: 'binnacle', args: '' } as never)
+  expect(got).toEqual({ text: 'Binnacle opened.' })
   expect(reads.n).toBe(1)
   expect((stored.get('timeline') as Timeline).budget).toMatchObject({ contextPct: 85, at: NOW })
 })
 
-test('/mc does not re-read when the budget is under 60 s old', async ($, on) => {
+test('/binnacle does not re-read when the budget is under 60 s old', async ($, on) => {
   const { reads } = usageWorld(on, withBudget(budget({ at: NOW - 59_000 })), () => USAGE)
-  await $.command.run({ command: 'mc', args: '' } as never)
+  await $.command.run({ command: 'binnacle', args: '' } as never)
   expect(reads.n).toBe(0)
 })
 
-test('/mc re-reads a budget older than 60 s', async ($, on) => {
+test('/binnacle re-reads a budget older than 60 s', async ($, on) => {
   const { stored, reads } = usageWorld(on, withBudget(budget({ at: NOW - 61_000, contextPct: 1 })), () => USAGE)
-  await $.command.run({ command: 'mc', args: '' } as never)
+  await $.command.run({ command: 'binnacle', args: '' } as never)
   expect(reads.n).toBe(1)
   expect((stored.get('timeline') as Timeline).budget?.contextPct).toBe(85)
 })

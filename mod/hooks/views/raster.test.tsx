@@ -15,7 +15,7 @@ import { RING, ring, SPRITE, sprite, encode } from './raster'
 const PROBE = 'raster-probe'
 
 const MOUNT = {
-  plugin: 'mission-control',
+  plugin: 'binnacle',
   component: 'Pane',
   requestId: PROBE,
   surface: 'terminal',

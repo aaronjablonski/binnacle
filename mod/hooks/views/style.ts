@@ -1,6 +1,6 @@
 import type { AgentRow, StepStatus, TaskItem } from '../../types'
 import { accentPalette, BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
-import type { CritterSize, Grid, Ground, Palette, Size, State } from './raster'
+import type { CritterRole, CritterSize, Grid, Ground, Palette, Size, State } from './raster'
 
 /**
  * The accent (R35): the theme key the structural colour draws in. `iris`
@@ -608,12 +608,17 @@ export function motionOn(option: unknown): boolean {
 /**
  * An agent's role for its critter: only `main` is the lead (ember means the
  * lead, R20); every other agent takes `roleOf` of its type, a planning agent
- * (which `roleOf` calls lead) and unknown types drawing the builder hat (R23).
+ * (which `roleOf` calls lead) drawing the builder hat, a type that names
+ * building the hat too, and general-purpose and unknown types the plain
+ * general mascot (R23, amended).
  */
-export function crewRole(agentId: string, agentType: string): Role {
+export function crewRole(agentId: string, agentType: string): CritterRole {
   if (agentId === 'main') return 'lead'
+  const t = agentType.toLowerCase()
   const r = roleOf(agentType)
-  return r === 'lead' ? 'build' : r
+  if (r === 'lead') return 'build'
+  if (r !== 'build') return r
+  return t.includes('build') || t.includes('implement') || t.includes('develop') || t.includes('engineer') ? 'build' : 'general'
 }
 
 const TYPE_NAMES: Record<string, string> = {
@@ -646,7 +651,7 @@ export function typeName(agentType: string): string {
 }
 
 /** The role word a critter's text form writes (R22): the hat it wears. */
-export const ROLE_WORD: Record<Role, string> = { lead: 'lead', scout: 'scout', build: 'build', check: 'check' }
+export const ROLE_WORD: Record<CritterRole, string> = { lead: 'lead', scout: 'scout', build: 'build', check: 'check', general: 'general' }
 
 /**
  * A critter's state glyph and badge as text (R22: one state glyph in the
@@ -694,7 +699,7 @@ export type CritterOpts = {
  * state, size, ground and the blink, so the paint clock re-encodes it only then.
  */
 export type CritterArgs = {
-  role: Role
+  role: CritterRole
   state: PodState
   size: CritterSize
   columns: number
@@ -712,7 +717,7 @@ function phaseOf(id: string): number {
 }
 
 /** A critter for a role and state, without an agent row (the header's lead, a map node). */
-export function critterArgs(role: Role, state: PodState, o: Omit<CritterOpts, 'state'> = {}): CritterArgs {
+export function critterArgs(role: CritterRole, state: PodState, o: Omit<CritterOpts, 'state'> = {}): CritterArgs {
   const size = o.size ?? 'small'
   const box = CRITTER[size]
   const columns = box.columns + 1

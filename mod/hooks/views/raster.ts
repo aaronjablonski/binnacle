@@ -777,14 +777,11 @@ export function sill(width: number, o: SillOptions = {}): Grid {
 
 // ---------- the cockpit: Critters (crew spec family A) ----------
 //
-// Ported from the mock generator `gen-crew.js` (`FAM.A`, `shape`, `tone`,
-// `cellsOf`) for the two cockpit sizes: small, 3 rows x 5 columns (10 x 6
-// quadrant sub-pixels), and micro, 2 x 4 (8 x 4). The hero size is not built
-// (controller ruling: no large character). One grid per role and size; a
-// state only recolours it. The tones differ from the generator only where the
-// rulings sheet says so (R19): the done lamp is off (no mint), failed eyes
-// are shut (red is only the lamp and the badge), and the stalled badge is a
-// mute `z` on rule grey (no amber).
+// The cockpit's critters, for the two sizes: small, 3 rows x 5 columns (10 x 6
+// quadrant sub-pixels), and micro, 2 x 4 (8 x 4). One mascot per role and
+// size: the face shows the state and the tones come from the state. The
+// mini mascot replaced the lamp-bellied family A (rulings sheet, amendment
+// "Mini mascot critters"); the stalled badge is a dim `z` on rule grey.
 
 /** A critter's size: `small` (cards, the header, map nodes) or `micro` (tethers, slim, the band). */
 export type CritterSize = 'small' | 'micro'
@@ -806,6 +803,8 @@ export type CrewPalette = {
   teal: number
   iris: number
   orchid: number
+  /** Raster only, crew art: the general mascot's hue. */
+  sky: number
   amber: number
   red: number
   mint: number
@@ -825,100 +824,151 @@ const CREW_HUES = { ember: 0xe07b53, teal: 0x3fbdb4, iris: 0x8a9bff, orchid: 0xb
 /** Exactly `gen-crew.js` NIGHT and DAY: the hex every critter cell is mixed from. */
 export const CREW_PALETTE: Record<Ground, CrewPalette> = {
   night: {
-    ...CREW_HUES, name: 'night',
+    ...CREW_HUES, name: 'night', sky: 0x6fb6f2,
     mute: 0x5d6679, rest: 0x333b4d, ink: 0xc9cfdb, dim: 0x8b93a6, eye: 0x16181d, ground: 0x16181d, line: 0x3d4459,
     rule: PALETTE.night.rule, badge: 0x16181d,
   },
   day: {
-    ...CREW_HUES, name: 'day', iris: 0x6f82f2, teal: 0x2aa69d, orchid: 0xa078e6,
+    ...CREW_HUES, name: 'day', iris: 0x6f82f2, teal: 0x2aa69d, orchid: 0xa078e6, sky: 0x2f8fd8,
     mute: 0xa3a9b8, rest: 0xd6dae2, ink: 0x2b2f3a, dim: 0x6f7686, eye: 0x22252e, ground: 0xf6f5f1, line: 0xc3c7d0,
     rule: PALETTE.day.rule, badge: 0x16181d,
   },
 }
 
-/** A role's hue in the crew palette (owner ruling 1): lead ember, scout teal, build iris, check orchid. */
-export const ROLE_HUE: Record<Role, 'ember' | 'teal' | 'iris' | 'orchid'> = { lead: 'ember', scout: 'teal', build: 'iris', check: 'orchid' }
+/** A critter's role: the four roles of `Role` and the plain general mascot (general-purpose and unknown agent types). */
+export type CritterRole = Role | 'general'
+export const CRITTER_ROLES: readonly CritterRole[] = ['lead', 'scout', 'build', 'check', 'general']
 
-/** Queued: the body is the role hue moved this far toward the ground (crew spec "States", R20). */
-export const QUEUED_TOWARD_GROUND = 0.62
-/** Stalled: the body moved this far toward the ground. */
-export const STALLED_TOWARD_GROUND = 0.42
-/** Failed: the body moved this far toward the ground. */
-export const FAILED_TOWARD_GROUND = 0.5
-/** Done: grey (`mute`) with this much of the role hue left in it. */
-export const DONE_HUE_TRACE = 0.12
-/** An unlit lamp: the body moved this far toward the ground. */
-export const LAMP_OFF_TOWARD_GROUND = 0.4
-/** Shut eyes: the body moved this far toward the eye colour. */
-export const EYES_SHUT_TOWARD_EYE = 0.38
+// The mini mascot (owner pick; `designs.js` D.mascot). '.' ground  '#' body  'p' 'q' trim in the hue  'e' dot eye  'f' glasses bridge
+// 'd' shut eye  'w' lens. In an overlay '_' keeps what is under.
+export type FaceName = 'open' | 'blink' | 'shut' | 'look' | 'sad'
+type Overlay = Record<number, string>
+type MascotSize = { base: readonly string[]; faces: Record<FaceName, Overlay>; roles: Record<CritterRole, { rows?: Overlay; faces?: Record<FaceName, Overlay> }> }
 
-// '.' ground  '#' body  'e' eye  'o' lamp (the state)  'p' prop (a tint of the role hue)  'w' glass
-const FAM_A_BASE: Record<CritterSize, readonly string[]> = {
-  small: ['..........', '..........', '.########.', '##ee##ee##', '.###oo###.', '.#.#..#.#.'],
-  micro: ['........', '.######.', '##e##e##', '#.####.#'],
+const MASCOT: Record<CritterSize, MascotSize> = {
+  small: {
+    base: ['..........', '.########.', '.########.', '##########', '.########.', '.#.#..#.#.'],
+    faces: {
+      open: { 2: '.##e##e##.' },
+      blink: { 3: '###e##e###' },
+      shut: { 3: '###e##e###' },
+      look: { 2: '.###e##e#.' },
+      sad: { 2: '.##e##e##.', 3: '##e####e##' },
+    },
+    roles: {
+      lead: { rows: { 0: '..p.pp.p..', 1: '.#ppqqpp#.' } },
+      build: { rows: { 0: '..ppqqpp..', 1: 'pppppppppp' } },
+      scout: { rows: { 0: '.......#..', 2: '_________#', 3: '_________.' } },
+      check: {
+        faces: {
+          open: { 2: '.#wwffww#.', 3: '##we##ew##' },
+          blink: { 2: '.#wwffww#.', 3: '##ee##ee##' },
+          shut: { 2: '.#wwffww#.', 3: '##ee##ee##' },
+          look: { 2: '.#weffwe#.', 3: '##ww##ww##' },
+          sad: { 2: '.#weffew#.', 3: '##ew##we##' },
+        },
+      },
+      general: {},
+    },
+  },
+  micro: {
+    base: ['........', '.######.', '.######.', '########'],
+    faces: { open: { 2: '.#e##e#.' }, blink: { 2: '.#d##d#.' }, shut: { 2: '.#d##d#.' }, look: { 2: '.#e##e#.' }, sad: { 2: '.#d##d#.' } },
+    roles: {
+      lead: { rows: { 0: '.p.pp.p.', 1: '.pppppp.' } },
+      build: { rows: { 0: '..pqqp..', 1: 'pppppppp' } },
+      scout: { rows: { 0: '.....#..', 2: '_______#', 3: '_______.' } },
+      check: { faces: { open: { 2: '.#w##w#.' }, look: { 2: '.#w##w#.' }, blink: { 2: '.#d##d#.' }, shut: { 2: '.#d##d#.' }, sad: { 2: '.#d##d#.' } } },
+      general: {},
+    },
+  },
 }
 
-const FAM_A_ROLES: Record<Role, Record<CritterSize, Record<number, string>>> = {
-  lead: { small: { 0: '.p..pp..p.', 1: '.pppppppp.' }, micro: { 0: '.p.pp.p.', 1: '.pppppp.' } },
-  scout: { small: { 0: '......p..p', 1: '.......pp.', 3: '##ww##ww##' }, micro: { 0: '.....#.#', 2: '##w##w##' } },
-  build: { small: { 0: '...pppp...', 1: 'pppppppppp' }, micro: { 0: '..pppp..', 1: 'pppppppp' } },
-  check: { small: { 0: '.........p', 1: '........p.', 2: '.#####ww#.', 3: '##ee##ww##' }, micro: { 0: '.......#', 2: '##e#ww##' } },
+/** Which face a state wears (frame 2 of `working` is the blink). */
+export const FACE_OF: Record<State, FaceName> = { queued: 'open', working: 'open', waiting: 'look', stalled: 'shut', failed: 'sad', done: 'shut' }
+
+function overlay(rows: string[], over: Overlay | undefined): void {
+  if (over === undefined) return
+  for (const k of Object.keys(over)) {
+    const i = Number(k)
+    const src = over[i]!
+    const cur = [...rows[i]!]
+    for (let x = 0; x < src.length; x++) if (src[x] !== '_') cur[x] = src[x]!
+    rows[i] = cur.join('')
+  }
 }
 
-/** A role's grid at a size: the family's base with the role's prop rows laid over it (`gen-crew.js` `shape`). */
-export function critterShape(role: Role, size: CritterSize): string[] {
-  const rows = FAM_A_BASE[size].slice()
-  const over = FAM_A_ROLES[role][size]
-  for (const k of Object.keys(over)) rows[Number(k)] = over[Number(k)]!
+/** A role's mark grid in a state at a size: the base, the state's face, the role's own face and its accessory laid over it. */
+export function critterShape(role: CritterRole, size: CritterSize, state: State = 'working', frame: 1 | 2 = 1): string[] {
+  const m = MASCOT[size]
+  const r = m.roles[role]
+  const rows = m.base.slice()
+  const face: FaceName = state === 'working' && frame === 2 ? 'blink' : FACE_OF[state]
+  overlay(rows, m.faces[face])
+  if (r.faces !== undefined) overlay(rows, r.faces[face])
+  overlay(rows, r.rows)
   return rows
 }
 
 const WHITE = 0xffffff
-const PROP_SHADE_DAY = 0x20222a
+const BLACK = 0x000000
 
-/**
- * The colour of one mark for a role in a state on a ground (`gen-crew.js`
- * `tone`, with R19's changes). `frame` 2 is the working blink: eyes shut and
- * the lamp tinted. Undefined is the ground (a quadrant left empty).
- */
-export function critterTone(mark: string, role: Role, state: State, pal: CrewPalette, frame: 1 | 2 = 1): number | undefined {
+/** The role's hue in the crew palette (owner ruling 1, amended): lead ember, scout teal, build iris, check orchid, general sky. */
+export const ROLE_HUE: Record<CritterRole, 'ember' | 'teal' | 'iris' | 'orchid' | 'sky'> = { lead: 'ember', scout: 'teal', build: 'iris', check: 'orchid', general: 'sky' }
+
+/** Queued: the body is the role hue moved this far toward the ground (R20). */
+export const QUEUED_TOWARD_GROUND = 0.6
+/** Stalled and failed: the body moved this far toward grey (`mute`), not toward the ground. */
+export const STALLED_TOWARD_MUTE = 0.55
+export const FAILED_TOWARD_MUTE = 0.55
+/** Done: grey (`mute`) with this much of the role hue left in it. */
+export const DONE_HUE_TRACE = 0.12
+
+/** The body colour of a role in a state (`designs.js` `bodyOf`). */
+export function critterBody(role: CritterRole, state: State, pal: CrewPalette): number {
+  const hue = pal[ROLE_HUE[role]]
+  if (state === 'queued') return mix(hue, pal.ground, QUEUED_TOWARD_GROUND)
+  if (state === 'stalled') return mix(hue, pal.mute, STALLED_TOWARD_MUTE)
+  if (state === 'failed') return mix(hue, pal.mute, FAILED_TOWARD_MUTE)
+  if (state === 'done') return mix(pal.mute, hue, DONE_HUE_TRACE)
+  return hue
+}
+
+/** The colour of one mark for a role in a state on a ground (`designs.js` `newTone`). Undefined is the ground. */
+export function critterTone(mark: string, role: CritterRole, state: State, pal: CrewPalette): number | undefined {
   const hue = pal[ROLE_HUE[role]]
   const night = pal.name === 'night'
-  const body =
-    state === 'queued'
-      ? mix(hue, pal.ground, QUEUED_TOWARD_GROUND)
-      : state === 'stalled'
-        ? mix(hue, pal.ground, STALLED_TOWARD_GROUND)
-        : state === 'failed'
-          ? mix(hue, pal.ground, FAILED_TOWARD_GROUND)
-          : state === 'done'
-            ? mix(pal.mute, hue, DONE_HUE_TRACE)
-            : hue
+  const body = critterBody(role, state, pal)
   const live = state === 'working' || state === 'waiting'
-  const shut = mix(body, pal.eye, EYES_SHUT_TOWARD_EYE)
-  const off = mix(body, pal.ground, LAMP_OFF_TOWARD_GROUND)
-  const lamp = state === 'working' ? WHITE : state === 'waiting' ? pal.amber : state === 'failed' ? pal.red : off
+  const dark = mix(body, BLACK, night ? 0.78 : 0.72)
   switch (mark) {
     case '#':
       return body
     case 'p':
-      return night ? mix(body, WHITE, 0.45) : mix(body, PROP_SHADE_DAY, 0.32)
-    case 'w':
-      return live ? (night ? mix(hue, WHITE, 0.85) : mix(hue, WHITE, 0.62)) : mix(body, WHITE, 0.4)
+      return night ? mix(body, WHITE, 0.5) : mix(body, 0x20222a, 0.38)
+    case 'q':
+      return night ? mix(body, WHITE, 0.88) : mix(body, WHITE, 0.72)
+    case 'n':
+      return live ? pal.ink : mix(pal.ink, pal.ground, 0.35)
     case 'e':
-      // R19: no red inside a sprite but the failed lamp and badge, so failed eyes are shut.
-      return live && frame !== 2 ? pal.eye : shut
-    case 'o':
-      return frame === 2 && state === 'working' ? mix(hue, WHITE, 0.5) : lamp
+    case 'f':
+    case 'v':
+      return dark
+    case 'd':
+      return mix(body, dark, 0.45)
+    case 'w':
+      return live ? mix(hue, WHITE, night ? 0.9 : 0.94) : mix(body, WHITE, 0.5)
+    case 'k':
+      return live ? mix(body, 0xff8fa3, night ? 0.42 : 0.38) : mix(body, WHITE, 0.14)
     default:
       return undefined
   }
 }
 
-/** The badge a state wears in the cell right of the top row (R19): `?` on amber, `z` mute on rule grey, `!` on red. */
-export const CRITTER_BADGE: Partial<Record<State, { ch: string; fg: 'badge' | 'mute'; bg: 'amber' | 'rule' | 'red' }>> = {
+/** The badge a state wears in the cell right of the top row (R19): `?` on amber, `z` dim on rule grey, `!` on red. */
+export const CRITTER_BADGE: Partial<Record<State, { ch: string; fg: 'badge' | 'dim'; bg: 'amber' | 'rule' | 'red' }>> = {
   waiting: { ch: '?', fg: 'badge', bg: 'amber' },
-  stalled: { ch: 'z', fg: 'mute', bg: 'rule' },
+  stalled: { ch: 'z', fg: 'dim', bg: 'rule' },
   failed: { ch: '!', fg: 'badge', bg: 'red' },
 }
 
@@ -926,17 +976,17 @@ export const CRITTER_BADGE: Partial<Record<State, { ch: string; fg: 'badge' | 'm
 export type CritterOptions = {
   /** The ground the tones are mixed for; night when absent. */
   ground?: Ground
-  /** 2 is the working blink (eyes shut, lamp tinted). */
+  /** 2 is the working blink (the shut face). */
   frame?: 1 | 2
 }
 
 /** Draws a critter's body with its top left at cell `x`, `row`. The badge is not drawn (`drawCritterBadge`). */
-export function drawCritter(g: Grid, x: number, row: number, role: Role, state: State, size: CritterSize, o: CritterOptions = {}): void {
+export function drawCritter(g: Grid, x: number, row: number, role: CritterRole, state: State, size: CritterSize, o: CritterOptions = {}): void {
   const pal = CREW_PALETTE[o.ground ?? 'night']
-  const rows = critterShape(role, size)
+  const rows = critterShape(role, size, state, o.frame ?? 1)
   rows.forEach((line, py) => {
     ;[...line].forEach((mark, px) => {
-      const c = critterTone(mark, role, state, pal, o.frame ?? 1)
+      const c = critterTone(mark, role, state, pal)
       if (c !== undefined) g.sp(x * 2 + px, row * 2 + py, c)
     })
   })
@@ -951,7 +1001,7 @@ export function drawCritterBadge(g: Grid, x: number, row: number, state: State, 
 }
 
 /** A critter's body alone: exactly 5 x 3 cells (small) or 4 x 2 (micro). */
-export function critter(role: Role, state: State, size: CritterSize, o: CritterOptions = {}): Grid {
+export function critter(role: CritterRole, state: State, size: CritterSize, o: CritterOptions = {}): Grid {
   const box = CRITTER[size]
   const g = new Grid(box.columns, box.rows, PALETTE[o.ground ?? 'night'])
   drawCritter(g, 0, 0, role, state, size, o)
@@ -959,7 +1009,7 @@ export function critter(role: Role, state: State, size: CritterSize, o: CritterO
 }
 
 /** A critter in its box: the body and the badge column (6 x 3 small, 5 x 2 micro); the badge drawn when the state has one. */
-export function critterBox(role: Role, state: State, size: CritterSize, o: CritterOptions = {}): Grid {
+export function critterBox(role: CritterRole, state: State, size: CritterSize, o: CritterOptions = {}): Grid {
   const box = CRITTER[size]
   const g = new Grid(box.columns + 1, box.rows, PALETTE[o.ground ?? 'night'])
   drawCritter(g, 0, 0, role, state, size, o)
@@ -976,7 +1026,7 @@ export const BLINK_BEATS = 4
  * `phase` so agents blink apart; every other state, or motion off, is one
  * still frame. Never pass motion for the band or at idle (R24).
  */
-export function critterFrames(role: Role, state: State, size: CritterSize, o: { ground?: Ground; motion?: boolean; phase?: number } = {}): Grid[] {
+export function critterFrames(role: CritterRole, state: State, size: CritterSize, o: { ground?: Ground; motion?: boolean; phase?: number } = {}): Grid[] {
   const ground = o.ground ?? 'night'
   if (state !== 'working' || o.motion !== true) return [critterBox(role, state, size, { ground })]
   const open = critterBox(role, state, size, { ground })

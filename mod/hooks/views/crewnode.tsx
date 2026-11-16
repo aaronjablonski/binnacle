@@ -9,7 +9,7 @@ import { doingView } from './needs'
 import { agentCard, inst, runText } from './parts'
 import type { Run } from './parts'
 import { CREW_PALETTE, ROLE_HUE } from './raster'
-import type { Ground } from './raster'
+import type { CritterRole, Ground } from './raster'
 import type { ViewCtx } from './shell'
 import { CK, COCKPIT, critterGlyph, critterOf, crewRole, edges, typeName } from './style'
 import type { CritterArgs, PodState, Role } from './style'
@@ -103,7 +103,7 @@ export function nodeOf(
 }
 
 /** A role's hue as the hex a pip is drawn in (the map only, R26). */
-export function hueHex(role: Role, ground: Ground = 'night'): string {
+export function hueHex(role: CritterRole, ground: Ground = 'night'): string {
   return `#${CREW_PALETTE[ground][ROLE_HUE[role]].toString(16).padStart(6, '0')}`
 }
 

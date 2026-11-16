@@ -242,7 +242,7 @@ describe('style: ground, theme, columns, roles', () => {
     expect(gaugeStyle(95)).toEqual({ color: 'error' })
   })
 
-  test('role words never lie (R23): friendly types; only main is the lead; unknown builds', () => {
+  test('role words never lie (R23): friendly types; only main is the lead; unknown draws the plain general mascot', () => {
     expect(typeName('general-purpose')).toBe('General')
     expect(typeName('Explore')).toBe('Explorer')
     expect(typeName('code-reviewer')).toBe('Code reviewer')
@@ -252,7 +252,9 @@ describe('style: ground, theme, columns, roles', () => {
     expect(crewRole('a1', 'Plan')).toBe('build')
     expect(crewRole('a1', 'Explore')).toBe('scout')
     expect(crewRole('a1', 'code-reviewer')).toBe('check')
-    expect(crewRole('a1', 'whatever')).toBe('build')
+    expect(crewRole('a1', 'whatever')).toBe('general')
+    expect(crewRole('a1', 'general-purpose')).toBe('general')
+    expect(crewRole('a1', 'implementer')).toBe('build')
   })
 
   // R3-B M8: meaning added, nothing weakened. A role word that fits the cell goes on the glyph's row when there is no badge ("● lead");

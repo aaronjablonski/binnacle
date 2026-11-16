@@ -23,7 +23,8 @@ import type { BandModel } from './bandmodel'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
 import type { Ground, Hue, Palette } from './raster'
 import { CK, crewRole, palette, podStateOf } from './style'
-import type { PodState, Role, Run } from './style'
+import type { PodState, Run } from './style'
+import type { CritterRole } from './raster'
 
 /** The longest `source` an Svg element takes (`SvgProps.source`). */
 export const SVG_MAX = 131072
@@ -34,7 +35,7 @@ export const SVG_MAX = 131072
 export type RingFig = { name: string; pct: number }
 
 /** One crew member as a character, with the words its tooltip says. */
-export type CrewFig = { role: Role; state: PodState; title: string }
+export type CrewFig = { role: CritterRole; state: PodState; title: string }
 
 /**
  * The header's words, as the pane's header has them: `headWords`' pill, tone,

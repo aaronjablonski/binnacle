@@ -20,7 +20,8 @@ import { summary } from '../model/select'
 import { todoBlock } from '../model/todo'
 import { span, toolName, warmWords, wordFit } from './fit'
 import { crewRole } from './style'
-import type { PodState, Role } from './style'
+import type { PodState } from './style'
+import type { CritterRole } from './raster'
 
 /** Which band: two rows or one working, asked, stopped (R8), or one dim idle line. */
 export type BandForm = 'working' | 'asked' | 'stopped' | 'idle'
@@ -45,7 +46,7 @@ export type BandModel = {
   /** True while the session has nothing to say yet (no steps, no list, no focus): the band draws no row unless the strip asks for it. */
   nothing: boolean
   /** The one critter (R25): the lead, or the asker while an ask is up. */
-  critter: { role: Role; state: PodState; id: string }
+  critter: { role: CritterRole; state: PodState; id: string }
   /** The row-1 lead-in: "Working on", "Needs you", "Stopped". */
   kicker: string
   /** The request's goal (working); the reason (stopped); the ask's words are in `ask`. */

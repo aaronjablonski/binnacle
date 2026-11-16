@@ -14,10 +14,10 @@ import { doingView, waitStates } from './needs'
 import { openPage } from './pagenav'
 import { blank, frameFootInst, frameTopInst, inst, page, runText, section } from './parts'
 import type { InstSpec, PageBlock, Run } from './parts'
-import { Grid, PALETTE } from './raster'
+import { Grid } from './raster'
 import type { Ground } from './raster'
 import type { ViewCtx } from './shell'
-import { C, CK, COL, critterGlyph, critterOf, edges, podOf, statusColor, typeName } from './style'
+import { accentName, C, CK, COL, critterGlyph, critterOf, edges, palette, podOf, statusColor, typeName } from './style'
 import { colHeads, flushRight, growBody, hasTime, midEnd, moreRow, nameLimit, stepGlyph } from './tabkit'
 import type { FootHint } from './overview'
 
@@ -68,11 +68,11 @@ const spentMs = (m: TaskMeterRow | undefined): number => (m !== undefined ? m.ms
 
 const FIVE_MIN = 5 * 60_000
 
-/** "about 20 min left at this pace": the average time a done task took this request, times the tasks left, rounded down (whole minutes under 10, 5 minutes above). Nothing before one is done. */
+/** "about 20 min left at this pace": the average time a done task took this request, times the tasks left, rounded to the nearest minute under 10 min and the nearest 5 minutes above (never biased low). Nothing before one is done. */
 function paceRuns(done: number, open: number, since: number | undefined, now: number): Run[] {
   if (open <= 0 || done <= 0 || since === undefined || now <= since) return []
   const left = ((now - since) / done) * open
-  const rounded = left < 10 * 60_000 ? Math.max(60_000, Math.floor(left / 60_000) * 60_000) : Math.floor(left / FIVE_MIN) * FIVE_MIN
+  const rounded = left < 10 * 60_000 ? Math.max(60_000, Math.round(left / 60_000) * 60_000) : Math.round(left / FIVE_MIN) * FIVE_MIN
   return [{ text: 'about ', dim: true }, { text: span(rounded), bold: true }, { text: ' left at this pace', dim: true }]
 }
 
@@ -125,9 +125,9 @@ function effortInst(rows: TaskMeterRow[], width: number, ground: Ground): InstSp
     key: 'effort',
     columns: Math.max(1, used),
     rows: EFFORT_ROWS,
-    sig: `effort:${ground}:${pitch}:${units.map(u => `${u.state[0]}${u.tokens}`).join(',')}`,
+    sig: `effort:${ground}:${accentName()}:${pitch}:${units.map(u => `${u.state[0]}${u.tokens}`).join(',')}`,
     frames: () => {
-      const g = new Grid(Math.max(1, used), EFFORT_ROWS, PALETTE[ground])
+      const g = new Grid(Math.max(1, used), EFFORT_ROWS, palette(ground))
       units.forEach((u, i) => {
         const v = lv[i] ?? 0
         for (let w = 0; w < barW; w++) {

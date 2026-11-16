@@ -339,8 +339,8 @@ test('over 14 tasks the effort bars shrink to two cells then one, and past the w
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "sections run ACTIVE, QUEUED, DONE" and its binding-rule-2 growth: the sections are Doing now, Up next and Done in plain words, and each holds its cap at any height (Up next 5, Done 3), the rest behind `+ n more` (the cockpit keeps spare rows empty).
-// BEHAVIOUR CHANGE back (R37, O I-6): the caps (5 up next, 3 done) are the floor at 46 rows and under; beyond 46 the lists grow with the pane (the test after this one).
-test('sections run Doing now, Up next, Done; each holds its cap up to 46 rows: 5 up next and 3 done, the rest behind a more line', async ($, on) => {
+// MEANING CHANGED (R37, FX3): this test now covers only the panes with no free rows (16 and 24): there the caps (5 up next, 3 done) are the floor behind `+ n more`. It used to run to 46 rows; at 46 the lists grow into every free row (the tests after this one).
+test('sections run Doing now, Up next, Done; where the pane has no free rows each holds its cap: 5 up next and 3 done, the rest behind a more line', async ($, on) => {
   const LONG: Timeline = {
     ...BUSY,
     tasks: [
@@ -351,7 +351,7 @@ test('sections run Doing now, Up next, Done; each holds its cap up to 46 rows: 5
   }
   seed(on, LONG, TASKS_UI)
   for (const surface of SURFACES) {
-    for (const bodyRows of [16, 24, 46]) {
+    for (const bodyRows of [16, 24]) {
       const ui = await mount($, surface, 62, false, bodyRows)
       const rows = await drawnRows(ui)
       await ui.unmount()
@@ -376,8 +376,16 @@ test('sections run Doing now, Up next, Done; each holds its cap up to 46 rows: 5
   }
 })
 
-// R37 (new): the lists grow with the pane's height. Up next first (12 tasks), then Done (13), as the rows beyond the mocks' 46 allow.
-test('Up next and Done grow with the pane beyond 46 rows: Up next first, every row at 80 (R37)', async ($, on) => {
+/** The blank rows between the last row of content and the footer row (the last non-blank row). */
+function slackAboveFooter(rows: string[]): number {
+  const foot = rows.reduce((last, r, i) => (r.trim() !== '' ? i : last), -1)
+  let c = foot - 1
+  while (c >= 0 && rows[c]!.trim() === '') c--
+  return foot - c - 1
+}
+
+// R37 (FX3 ruling): the lists grow into every free row at every height, 46 included. A `+ n more` shows only when the list is longer than the rows left, so it never sits over blank rows: the one blank row above the footer is all that is left under it. Up next is dealt first, then Done.
+test('Up next and Done fill every free row at 46, 50, 60 and 80 rows; a more line never sits over blank rows (R37)', async ($, on) => {
   const LONG: Timeline = {
     ...BUSY,
     tasks: [
@@ -387,23 +395,29 @@ test('Up next and Done grow with the pane beyond 46 rows: Up next first, every r
     ],
   }
   seed(on, LONG, TASKS_UI)
-  const count = async (bodyRows: number): Promise<{ queued: number; done: number; more: string[] }> => {
-    const ui = await mount($, 'desktop', 62, false, bodyRows)
+  const count = async (bodyRows: number): Promise<{ queued: number; done: number; more: string[]; slack: number }> => {
+    const ui = await mount($, 'desktop', 62, true, bodyRows)
     const rows = await drawnRows(ui)
     await ui.unmount()
-    return { queued: rows.filter(r => r.startsWith('  ○')).length, done: rows.filter(r => r.startsWith('  ✓')).length, more: rows.filter(r => r.startsWith('    + ')) }
+    return { queued: rows.filter(r => r.startsWith('  ○')).length, done: rows.filter(r => r.startsWith('  ✓')).length, more: rows.filter(r => r.startsWith('    + ')), slack: slackAboveFooter(rows) }
   }
-  const at46 = await count(46)
-  const at56 = await count(56)
-  const at90 = await count(90)
-  expect(at46.queued).toBe(5)
-  expect(at56.queued).toBeGreaterThan(5)
-  expect(at56.done).toBeGreaterThanOrEqual(at46.done)
-  expect(at90.queued).toBe(12)
-  expect(at90.done).toBeGreaterThan(at46.done)
-  // Up next is dealt first: at 56 rows it is whole before Done grows past its 3.
-  if (at56.queued < 12) expect(at56.done).toBe(at46.done)
-  expect(at90.more.some(r => r.includes('to do'))).toBe(false)
+  const at: Record<number, Awaited<ReturnType<typeof count>>> = {}
+  for (const h of [24, 46, 50, 56, 60, 70, 80, 90]) {
+    at[h] = await count(h)
+    // a more line only with nothing free under it: exactly the one blank row above the footer, the focused footer being drawn (a pane too short for even that, 24, has none)
+    if (at[h]!.more.length > 0 && h >= 46) expect([h, at[h]!.slack]).toEqual([h, 1])
+  }
+  // growth is beyond the caps at 46 (the old reading started at 47) and never shrinks as the pane grows
+  expect(at[46]!.queued).toBeGreaterThan(5)
+  const order = [24, 46, 50, 56, 60, 70, 80, 90]
+  for (let i = 1; i < order.length; i++) {
+    expect(at[order[i]!]!.queued).toBeGreaterThanOrEqual(at[order[i - 1]!]!.queued)
+    expect(at[order[i]!]!.done).toBeGreaterThanOrEqual(at[order[i - 1]!]!.done)
+  }
+  // Up next is dealt first: Done stays at its 3 until Up next is whole.
+  for (const h of order) if (at[h]!.queued < 12) expect(at[h]!.done).toBe(3)
+  expect(at[90]!.queued).toBe(12)
+  expect(at[90]!.more.some(r => r.includes('to do'))).toBe(false)
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "rows put glyph at 2, name at 4, the metric at 38 and the time at 50": figures are flush right, the tokens ending at 49 and the time at 59.
@@ -593,7 +607,13 @@ test('a finished list folds away when a new request starts: Earlier holds it, th
   const old = [1, 2, 3, 4].map(n => task(`d${n}`, `Old task ${n}`, 'completed', { updatedAt: NOW - 600_000 - n * 1000 }))
   seed(on, { ...empty, tasks: old, listFrom: NOW - 300_000 }, TASKS_UI)
   for (const surface of SURFACES) {
-    const ui = await mount($, surface)
+    // MEANING CHANGED (R37, FX3): in a roomy pane (this suite's default, 40 rows) Earlier now shows all four (the pane has the rows); a short pane keeps the cap of 3 and `+ 1 more`.
+    const tall = await mount($, surface)
+    const tallRows = await drawnRows(tall)
+    await tall.unmount()
+    expect(tallRows.slice(tallRows.findIndex(r => r.startsWith('  Earlier ─')) + 1).filter(r => r.startsWith('  ✓')).length).toBe(4)
+    expect(tallRows.some(r => r.startsWith('    + '))).toBe(false)
+    const ui = await mount($, surface, 62, false, 12)
     const rows = await drawnRows(ui)
     const to = rows.findIndex(r => r.startsWith('  To do ─'))
     expect(rows[to + 1]?.trim()).toBe('No to-do list for this request')

@@ -132,6 +132,19 @@ test('fidelity: CockpitTasks at 62 columns matches the mock but for the listed d
     rows[18] = retime(rows[18]!, '2 min')
   })
   b.patch('column heads: tokens ends at 49 like its figures (the mock ends it at 50)', rows => void (rows[27] = head('Done', '9  ·  tokens      time')))
+  b.patch('real data: the pace is 22.8 min (41 min over 9 done is 4.6 min a task, times 5 left), which rounds to 25; the mock says 20', b.sub(4, 'about 20 min', 'about 25 min'))
+  b.patch("R37: owner's binding rule, lists grow with the pane (at 46 rows Done shows all 9, the mock's `+ 6 more` gives way to the six rows; `d all done` is offered only while rows are hidden)", rows => {
+    const done = [
+      '✓ Unit-test the bucket                      120k     8 min',
+      '✓ Add the limiter middleware                 51k     4 min',
+      '✓ Write the token bucket                     90k     7 min',
+      '✓ Choose the limiter algorithm               64k     5 min',
+      '✓ Map every caller of upload()              212k    11 min',
+      '✓ Read the upload handler                    38k     3 min',
+    ]
+    done.forEach((r, i) => void (rows[31 + i] = `  ${r}`))
+    rows[45] = '  ↵ open task   esc prompt'
+  })
   check('CockpitTasks', b, got)
 })
 
@@ -166,6 +179,13 @@ test('fidelity: CockpitSteps at 62 columns matches the mock but for the listed d
     rows[20] = retime(rows[20]!, '4m 00s')
     rows[21] = retime(rows[21]!, '9m 00s')
   })
+  b.patch("R37: owner's binding rule, lists grow with the pane (at 46 rows This turn shows 19 steps of 40 where the mock's 6 leave 16 rows blank; the 20th step carries a kept note, two rows, so it waits; Earlier turns keeps its 3 and `+ 2 more` below)", rows => {
+    const step = (mark: string, glyph: string, name: string): string => flush(`${mark} ${glyph} Read  src/${name}.ts`.padEnd(46) + 'main', '0s')
+    const earlier = rows.slice(25, 30)
+    const grown: string[] = []
+    for (let i = 33; i >= 21; i--) grown.push(step(i >= 30 ? '◂' : ' ', i === 29 ? '×' : '✓', `part${i}`))
+    rows.splice(23, 22, ...grown, '    + 21 more in this turn', '', ...earlier, '', '')
+  })
   check('CockpitSteps', b, got)
 })
 
@@ -190,6 +210,15 @@ test('fidelity: CockpitArtifacts at 62 columns matches the mock but for the list
     rows[27] = fig('  ★ the failing 429 test', 'Bash', '3 min')
     rows[28] = fig('  ★ The limiter runs after bodyLimit', 'Write', '6 min')
     rows[29] = fig('  ★ limiter order matters', 'Read', '9 min')
+  })
+  b.patch("R37: owner's binding rule, lists grow with the pane (at 46 rows Files changed shows all 6 files, the mock's `+ 3 more` gives way to three rows, and Kept moves down three)", rows => {
+    const kept = rows.slice(26, 31)
+    const files = [
+      '  · CHANGELOG.md                    ▪            1',
+      '  · docs/limits.md                  ▪            1',
+      '  · config/limits.ts                ▪            1'.replace('\u25aa', '▪'),
+    ]
+    rows.splice(24, 21, ...files, '', ...kept, ...Array<string>(12).fill(''))
   })
   check('CockpitArtifacts', b, got)
 })

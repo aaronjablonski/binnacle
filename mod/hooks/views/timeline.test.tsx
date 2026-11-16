@@ -551,6 +551,26 @@ test('with a step open and no errors or query the footer reads ↵ full step, q 
   await ui.unmount()
 })
 
+// FX3 I-3: the hidden `q` arm of an opened step's footer. The footer says `q quote` as text; the press is on the armed Button, and it fills the prompt with the quote of the open step, as the visible hint says.
+test('Steps q: the armed hint, the footer q quote, quotes the opened step into the prompt', async ($, on) => {
+  const fills: string[] = []
+  on('prompt.fill', (_, e) => {
+    fills.push(e.text)
+    return { isFilled: true as const }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  const calm = { ...twoTurns(), steps: twoTurns().steps.map(s => ({ ...s, status: 'done' as const })) }
+  world(on, calm, { ...TL_UI, stepOpen: 's3' })
+  const ui = await $.ui.mount({ ...FOCUSED(62), surface: 'terminal' })
+  expect(await ui.find({ key: 'arm-hint-q' })).toBeDefined()
+  expect((await drawnRows(ui)).at(-1)).toContain('q quote')
+  await ui.press({ key: 'arm-hint-q' })
+  await ui.unmount()
+  expect(fills).toHaveLength(1)
+  expect(fills[0]).toMatch(/^> /)
+  expect(fills[0]).toContain('rateLimit.ts')
+})
+
 // ---- the gutter and the tiers --------------------------------------------------
 
 const SEEN = { first: 0, last: 2, of: 3 }
@@ -886,11 +906,19 @@ test('pressing an Earlier turns row opens that turn as a section; pressing its h
   }
 })
 
-// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned a turn to 6 rows at any height; 6 and `+ n more in this turn` are the floor at 46 rows and under, and the turn grows with the pane beyond them (the next test).
-test('a turn shows 6 rows and "+ n more in this turn" up to 46 rows; pressing it shows them all', async ($, on) => {
+/** The blank rows between the last row of content and the footer row (the last non-blank row). */
+function slackAboveFooter(rows: string[]): number {
+  const foot = rows.reduce((last, r, i) => (r.trim() !== '' ? i : last), -1)
+  let c = foot - 1
+  while (c >= 0 && rows[c]!.trim() === '') c--
+  return foot - c - 1
+}
+
+// MEANING CHANGED (R37, FX3): this test covers only the panes with no free rows (10): there a turn keeps its floor of 6 rows and `+ n more in this turn`. It used to run to 46 rows; at 46 the turn grows into every free row (the next test).
+test('a turn shows 6 rows and "+ n more in this turn" where the pane has no free rows; pressing it shows them all', async ($, on) => {
   const stored = world(on, manySteps(30), TL_UI)
   for (const surface of SURFACES) {
-    for (const bodyRows of [10, 24, 46]) {
+    for (const bodyRows of [10]) {
       put(stored, manySteps(30), TL_UI)
       const ui = await mount($, surface, 62, bodyRows)
       const rows = await drawnRows(ui)
@@ -913,25 +941,57 @@ test('a turn shows 6 rows and "+ n more in this turn" up to 46 rows; pressing it
   }
 })
 
-// R37 (new): the turn's rows grow with the pane beyond the mocks' 46 rows.
-test('a turn grows with the pane beyond 46 rows: more rows at 60, every step at 90, no more line (R37)', async ($, on) => {
+// R37 (FX3 ruling): the turn's rows fill every free row at every height, 46 and 50 included; `+ n more in this turn` shows only when the turn is longer than the rows left, never over blank rows.
+test('a turn fills every free row at 46, 50, 60 and 70 rows, every step at 90; a more line never sits over blank rows (R37)', async ($, on) => {
   const stored = world(on, manySteps(30), TL_UI)
-  const count = async (bodyRows: number): Promise<{ n: number; more: string | undefined }> => {
+  const count = async (bodyRows: number): Promise<{ n: number; more: string | undefined; slack: number }> => {
     put(stored, manySteps(30), TL_UI)
     const ui = await mount($, 'vscode', 62, bodyRows)
     const rows = await drawnRows(ui)
     await ui.unmount()
-    return { n: rows.filter(r => r.includes('Edit')).length, more: rows.find(r => r.includes('more in this turn')) }
+    return { n: rows.filter(r => r.includes('Edit')).length, more: rows.find(r => r.includes('more in this turn')), slack: slackAboveFooter(rows) }
   }
-  const at60 = await count(60)
-  expect(at60.n).toBeGreaterThan(6)
-  expect(at60.n).toBeLessThan(30)
-  expect(at60.more).toBe(`    + ${30 - at60.n} more in this turn`)
-  expect(await count(90)).toEqual({ n: 30, more: undefined })
+  let last = 6
+  for (const h of [46, 50, 60, 70]) {
+    const at = await count(h)
+    expect(at.n).toBeGreaterThanOrEqual(last)
+    last = at.n
+    expect(at.more).toBe(at.n < 30 ? `    + ${30 - at.n} more in this turn` : undefined)
+    // never over blank rows: the one blank above the footer is all that is left
+    if (at.more !== undefined) expect([h, at.slack]).toEqual([h, 1])
+  }
+  expect((await count(46)).n).toBeGreaterThan(6)
+  const tall = await count(90)
+  expect([tall.n, tall.more]).toEqual([30, undefined])
 })
 
-// BEHAVIOUR CHANGE back (R37, O I-6): the cockpit pinned Earlier turns to 3 at any height; 3 and `+ n more` are the floor at 46 rows and under, and the list grows beyond them (the next test).
-test('Earlier turns shows 3 rows and "+ n more" up to 46 rows; pressing it lists every turn', async ($, on) => {
+// R37 (FX3, I-1): the grown draw is trimmed until it fits, never dropped. Steps kept-note rows are two-row items, so a pane that fits an odd number of rows grows to the item before the one that would overflow.
+test('growth with kept notes among the steps trims to fit: the list still grows, and the pane is never over its height', async ($, on) => {
+  const noted = (n: number): Timeline => {
+    const base = manySteps(n)
+    return { ...base, steps: base.steps.map((s, i) => (i % 2 === 0 ? { ...s, pin: `note ${i}` } : s)) }
+  }
+  const stored = world(on, noted(40), TL_UI)
+  const shown = async (bodyRows: number): Promise<{ n: number; rows: string[] }> => {
+    put(stored, noted(40), TL_UI)
+    const ui = await mount($, 'vscode', 62, bodyRows)
+    const rows = await drawnRows(ui)
+    await ui.unmount()
+    return { n: rows.filter(r => r.includes('Edit')).length, rows }
+  }
+  let last = 0
+  for (const h of [30, 40, 46, 50, 60]) {
+    const { n, rows } = await shown(h)
+    // the floor shows 6; every taller pane shows at least as many, and the pane is never over its height
+    expect(n).toBeGreaterThanOrEqual(Math.max(6, last))
+    last = n
+    expect(rows.length).toBeLessThanOrEqual(h)
+    if (h >= 46) expect(n).toBeGreaterThan(6)
+  }
+})
+
+// MEANING CHANGED (R37, FX3): Earlier turns keeps its cap of 3 and `+ n more` only where the pane has no free rows (12 here); at 46 and beyond it grows into every free row.
+test('Earlier turns shows 3 rows and "+ n more" where the pane has no free rows; pressing it lists every turn; it fills free rows at 46 and up', async ($, on) => {
   const turns = Array.from({ length: 15 }, (_, i) => turn(`t${i}`, `job ${i}`, NOW - (20 - i) * 60_000))
   const steps = turns.map((x, i) => step(`s${i}`, i + 1, `Read f${i}.ts`, 'done', { turnId: x.id, tool: 'Read' }))
   const stored = world(on, { ...empty, turns, steps }, TL_UI)
@@ -943,10 +1003,17 @@ test('Earlier turns shows 3 rows and "+ n more" up to 46 rows; pressing it lists
     await ui.unmount()
     return { n, more: rows.find(r => r.includes('more') && r.includes('+')) }
   }
-  for (const bodyRows of [12, 30, 46]) expect(await at(bodyRows)).toEqual({ n: 3, more: '    + 11 more' })
+  for (const bodyRows of [12]) expect(await at(bodyRows)).toEqual({ n: 3, more: '    + 11 more' })
   expect(await at(46, { ...TL_UI, openTurns: ['all:earlier'] })).toEqual({ n: 14, more: undefined })
-  // R37: 8 rows beyond the mock's 46 take 8 more turns, the more line stays; 14 beyond take them all.
-  expect(await at(54)).toEqual({ n: 11, more: '    + 3 more' })
+  // R37 (FX3): at 46 every free row is dealt, so it already shows more than 3; the count then only rises, and the more line says what is left.
+  let last = 3
+  for (const h of [46, 54, 60]) {
+    const got = await at(h)
+    expect(got.n).toBeGreaterThanOrEqual(last)
+    last = got.n
+    expect(got.more).toBe(got.n < 14 ? `    + ${14 - got.n} more` : undefined)
+  }
+  expect((await at(46)).n).toBeGreaterThan(3)
   expect(await at(60)).toEqual({ n: 14, more: undefined })
 })
 

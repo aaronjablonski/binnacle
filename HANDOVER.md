@@ -40,9 +40,13 @@ read them before changing words, colours or the alert rules.
 - **Alert model:** `mod/hooks/model/alerts.ts` is the one place that decides
   what needs the person (`needs`), what to watch (`watch`), the header's
   state (`headerState`) and which notifications to raise.
-  <!-- TODO: describe the permission-notification behaviour once the alert
-  model's last round is settled; until then say only that Claude Code itself
-  notifies for dialogs and the mod's `notify` option covers the rest. -->
+  Hooks get no signal that a permission was settled, so a permission is a
+  need only while the pane sees the prompt covered; the clock clears an ask
+  the pane watched uncovered for 20 s. With no pane, the band shows a
+  permission amber for its first minute (20 s "Checking a permission" in auto
+  mode), then dim "asked to run a command · running". Questions, plans and
+  MCP input stay amber while they last. Permission notifications need the
+  pane open; Claude Code notifies for its own dialogs either way.
 - **Band:** one row above the prompt (the lead's or the asker's Critter, the
   goal, the context and week figures, `/mc`), a second row with the to-do bar
   when wide, one dim row when everything is done.
@@ -136,8 +140,6 @@ own files), but these ideas carried over:
 
 ## Open items
 
-- The notify wording in `README.md`, `README.draft.md` and this file waits on
-  the alert model's last round (see the TODO lines).
 - The README images need regenerating for the cockpit.
 - Not built: restyling the transcript, model-written agent summaries, graph
   or waterfall views, cost analytics.

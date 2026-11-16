@@ -140,7 +140,7 @@ Set them from the plugin's config menu, or under `pluginConfigs["mission-control
 | `ground` | `"auto"` | `auto`, `night` or `day`: the background the crew pictures and the desktop Svg are drawn for. |
 | `motion` | `"on"` | `on` or `off`: whether the crew blinks and the finish sweep plays. |
 | `accent` | `"iris"` | `iris`, `sky` or `slate`: the colour of headings and the marker. |
-| `notify` | `"waits"` | Native notifications: `waits`, `done`, `all` or `off`. Claude Code itself notifies for permission dialogs; this option covers the rest. <!-- TODO: notify wording, to match the alert model once it is settled --> |
+| `notify` | `"waits"` | Native notifications: `waits`, `done`, `all` or `off`. With `notify: waits` the mod notifies when Claude has waited on you: after a minute for a question, a plan or an input request; after 20 seconds for an ask to start an agent or workflow; and after a minute for any other permission, but only while the Mission Control pane is open and sees its dialog (in auto mode, only once the dialog is on screen). Claude Code notifies for its own dialogs either way. |
 | `watchNotify` | `false` | Also notify, once, when something has stood under Watch for 10 minutes. |
 | `agentLimitMin` | `60` | Show a subagent still working after this many minutes as a long run under Watch (`0` is off). |
 | `turnLimitMin` | `120` | The same for a main turn. |

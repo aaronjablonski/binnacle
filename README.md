@@ -146,7 +146,7 @@ from the config menu:
 | `ground` | `auto` | The background the crew pictures and the desktop Svg are drawn for: `auto` (day on a light theme, night on the rest), `night` or `day`. |
 | `motion` | `on` | Let the crew blink now and then and play the short sweep when a request finishes cleanly, or keep everything still (`off`). |
 | `accent` | `iris` | The colour of headings, the marker and the filled button: `iris` (violet-blue), `sky` (light blue) or `slate` (grey-blue). |
-| `notify` | `waits` | Native notifications: `waits`, `done` (also when a turn over 60 seconds finishes), `all` (also when a turn fails) or `off`. Claude Code itself notifies for permission dialogs; this option covers the rest of what is waiting on you. <!-- TODO: notify wording, to match the alert model once it is settled --> |
+| `notify` | `waits` | Native notifications: `waits`, `done` (also when a turn over 60 seconds finishes), `all` (also when a turn fails) or `off`. With `notify: waits` the mod notifies when Claude has waited on you: after a minute for a question, a plan or an input request; after 20 seconds for an ask to start an agent or workflow; and after a minute for any other permission, but only while the Mission Control pane is open and sees its dialog (in auto mode, only once the dialog is on screen). Claude Code notifies for its own dialogs either way. |
 | `watchNotify` | `false` | Also notify, once, when something has stood under Watch for 10 minutes. Off by default: Watch asks nothing of you. |
 | `showCost` | `false` | Show the session's dollar cost in the budget view. |
 | `editor` | `code` | The editor `o` opens a file in, run as `<editor> -r -g <path>:<line>`. When it cannot run, the path is copied. |

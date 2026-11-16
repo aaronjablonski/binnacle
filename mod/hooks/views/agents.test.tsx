@@ -529,7 +529,7 @@ test('the footer shows only while focused: ↵ open agent, v transcript with a f
   await ui.unmount()
   ui = await mount($, 'terminal', 62, true)
   const foot = rowWith(await rows(ui), '↵ open')
-  expect(foot).toBe('  ↵ open agent   v transcript   esc prompt')
+  expect(foot).toBe('  ↵ open agent   v transcript   esc prompt         0 options')
   expect(await ui.find({ key: 'hint-next' })).toBeUndefined()
   await ui.unmount()
 })

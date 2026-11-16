@@ -165,6 +165,7 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
   b.patch('R23: General', b.sub(32, 'Builder  wire the limiter middleware      ', 'General  wire the limiter middleware      '))
   b.patch('R27: 2 min', b.sub(29, '     2m 14s', '      2 min'))
   b.patch('R3: the footer offers no "go to prompt"; `n next ask` only with more than one ask', b.sub(45, '↵ go to prompt   n next ask   esc prompt', '↵ open   esc prompt'))
+  b.patch('C6 (brief): the footer carries the Options key', rows => void (rows[45] = put(rows[45]!, 51, '0 options')))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowNeedsYou', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -188,6 +189,7 @@ test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the liste
   })
   b.patch('real data: doing() shows a folder by its name, "vendor"', b.sub(32, 'vendor/ for', 'vendor for'))
   b.patch('R23: General', b.sub(34, 'Builder  write the rate limit tests        ', 'General  write the rate limit tests        '))
+  b.patch('C6 (brief): the footer carries the Options key', rows => void (rows[45] = put(rows[45]!, 51, '0 options')))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowWatch', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -202,6 +204,7 @@ test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed
   b.patch('R29 and the whole-minute words: "cache stays warm about 2 min"; "used" and " of 1M" go to fit the line beside the gauges', b.sub(10, '644k of 1M used · cache warm 2:51  ', '644k · cache stays warm about 2 min'))
   b.patch('real data: no retry is recorded, so the agents fact has no detail', b.sub(23, '     1 was retried after a failure', ''))
   b.patch('footer: `e` is armed here, so it is a hotkeyed Button and the engine draws its colon', b.sub(45, 'e export handoff', 'e: export handoff'))
+  b.patch('C6 (brief): the footer carries the Options key', rows => void (rows[45] = put(rows[45]!, 51, '0 options')))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowIdle', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)

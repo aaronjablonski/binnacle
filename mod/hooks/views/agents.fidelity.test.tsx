@@ -139,6 +139,7 @@ test('fidelity: CockpitAgents (list) at 62 columns matches the mock but for the 
     rows[26] = retime(rows[26]!, '7m 44s', '7 min')
     rows[27] = retime(rows[27]!, '1m 52s', '1 min')
   })
+  b.patch('C6 (brief): the footer carries the Options key', rows => void (rows[45] = put(rows[45]!, 51, '0 options')))
   compare('CockpitAgents', b, got, 62)
 })
 

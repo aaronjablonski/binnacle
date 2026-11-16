@@ -9,13 +9,13 @@ import { agentPage, agentsView } from './agents'
 import { artifactPage, artifactsView } from './artifacts'
 import { budgetView } from './budget'
 import { stepPage } from './detail'
-import { needsSection } from './needs'
+import { needsSlot, needsView } from './needs'
 import { optionsPage } from './options'
 import { overviewView } from './overview'
 import { screen } from './screen.testkit'
 import type { ViewCtx } from './shell'
 import { slimView } from './slim'
-import { richStrip } from './stripband'
+import { stripBandView } from './stripband'
 import { taskPage, tasksView } from './tasks'
 import { timelineView } from './timeline'
 
@@ -90,10 +90,17 @@ type Build = (ctx: ViewCtx, $: EngineInterface) => RenderElement | null | undefi
 /** Every rich deck, view and page, by name. */
 export const BUILDS: Record<string, Build> = {
   now: (c, $) => overviewView(c, $),
-  needs: (c, $) => needsSection(c, $),
+  needs: (c, $) => {
+    const { Box } = $.ui.resolve(c.e)
+    const k = { ...c, isPromptCovered: true }
+    return <Box flexDirection="column">{needsSlot(k, $, needsView(k))}</Box>
+  },
   budget: (c, $) => budgetView(c, $),
   slim: (c, $) => slimView(c, $),
-  strip: (c, $) => richStrip(c, $, { maxRows: 12 }),
+  strip: (c, $) => {
+    const { Text } = $.ui.resolve(c.e)
+    return stripBandView(c, $, { maxRows: 14, line: <Text key="strip-test-line">line</Text>, after: async () => {} })
+  },
   tasks: (c, $) => tasksView(c, $),
   agents: (c, $) => agentsView(c, $),
   crew: (c, $) => agentsView({ ...c, u: { ...c.u, agentsMode: 'tree' } }, $),

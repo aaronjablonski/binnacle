@@ -307,7 +307,7 @@ for (const [cols, cell, labels] of TAB_TIERS) {
 }
 
 for (const cols of [31, 28, 24, 20]) {
-  // LOOK TEST (edited for Rich): the slim head asserted here is the text form's (`┏  IDLE`); the rich slim is tested in rich2.test.tsx.
+  // LOOK TEST (rewritten for the cockpit): the slim head is the compact header (lintel, pill, kicker, headline at column 1); slim.test.tsx has the rest.
   test(`text form: at ${cols} columns there is no tab bar: the slim view draws, within the width`, { options: { look: 'text' } }, async ($, on) => {
     world(on, { ...empty, now: { focus: 'Grouping timeline steps by agent and humanising labels', at: 1 } })
     for (const surface of SURFACES) {
@@ -317,9 +317,10 @@ for (const cols of [31, 28, 24, 20]) {
       }
       expect(await ui.find({ type: 'Box', key: 'tabs' })).toBe(undefined)
       const rows = screen(await ui.drawn())
-      // the Neo slim head: a left bracket holding the state pill, then the focus line
-      expect(rows[0]?.startsWith('┏  IDLE')).toBe(true)
-      expect(rows[1]?.startsWith('┃ Grouping')).toBe(true)
+      // the compact header: the lintel, the IDLE pill, a blank, the kicker, the headline from column 1
+      expect(rows[0]?.startsWith('┏━━')).toBe(true)
+      expect(rows[1]?.startsWith('  IDLE')).toBe(true)
+      expect(rows[4]?.startsWith(' Grouping')).toBe(true)
       for (const r of rows) expect(r.length <= cols).toBe(true)
       await ui.unmount()
     }

@@ -1439,6 +1439,8 @@ export type HeaderSpec = {
   tone?: Tone4
   /** The state pill: ` WORKING `, ` WAITING FOR YOU `, ` ALL DONE `, ` IDLE `, ` STOPPED `. */
   pill: string
+  /** The pill's background as a theme key when it is not the tone's (` IDLE ` in `subtle`). */
+  pillColor?: string
   /** Dim words after the pill: "41 min this turn". Runs keep their style (R7's bold quiet). */
   meta?: string | Run[]
   /** The lead's small critter at column 2 (`critterArgs('lead', state, …)`); none in the compact form. */
@@ -1489,7 +1491,7 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
   const tone = spec.tone ?? 'iris'
   const ground = spec.ground ?? 'night'
   const content = right - left + 1
-  const pill: Run = { text: ` ${spec.pill} `, color: CK.inverse, bg: toneKey(tone), bold: true }
+  const pill: Run = { text: ` ${spec.pill} `, color: CK.inverse, bg: spec.pillColor ?? toneKey(tone), bold: true }
   const meta = runsOf(spec.meta, { dim: true })
   const pad = (n: number): Run => ({ text: ' '.repeat(Math.max(0, n)) })
   const line = (k: string, runs: Run[]): RenderElement => (

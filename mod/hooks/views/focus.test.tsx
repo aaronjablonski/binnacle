@@ -125,7 +125,7 @@ const contentOf = (order: string[]): string[] => order.filter(k => !TAB_KEYS.inc
 
 const STARTS: [string, Timeline, UiState['tab'], string][] = [
   ['Now, something waiting: the first NEEDS YOU item', RICH, 'overview', 'open-asking:s3'],
-  ['Now, nothing waiting: the first deck row', CALM, 'overview', 'deck-crew'],
+  ['Now, nothing waiting: the headline, the first content row', CALM, 'overview', 'now-title'],
   ['Tasks: the first task row', RICH, 'tasks', 'task-main:1'],
   ['Agents: the first row under the deck', RICH, 'agents', 'mode-list'],
   ['Steps: the find hotkey, never the find field', RICH, 'timeline', 'find-f'],

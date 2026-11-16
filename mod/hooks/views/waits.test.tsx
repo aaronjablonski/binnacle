@@ -66,7 +66,9 @@ const HULLS: string[] = Object.values(HULL).flatMap(h => [...h])
  * description is neither.
  */
 const marked = (rows: string[], mark: '?' | '!' | 'z'): boolean =>
-  rows.some(r => r.startsWith(`${mark} `) || HULLS.some(h => r.includes(`${h}${mark}`)))
+  rows.some(r => r.startsWith(`${mark} `) || HULLS.some(h => r.includes(`${h}${mark}`)) || CRITTER_MARK[mark].test(r))
+/** The cockpit critter's text form (R22): its state glyph, then the badge in the box's last column (`●    ?`). */
+const CRITTER_MARK: Record<'?' | '!' | 'z', RegExp> = { '?': /● {3,4}\?/, '!': /× {3,4}!/, z: /● {3,4}z/ }
 const signalled = (rows: string[]): boolean => marked(rows, '?')
 const anyMark = (rows: string[]): boolean => marked(rows, '?')
 /** Any gutter flag on a row: `!`, `?` or `z` at column 0. */
@@ -101,9 +103,10 @@ for (const view of VIEWS) {
     seed(on, T, uiOf(view.tab, []))
     expect(signalled(await view.rows($))).toBe(true)
   })
-  test(`a dismissed ask shows no ? on ${view.name}`, LOOK(view), async ($, on) => {
+  // Now's needs take no dismissal (owner ruling 4: no `x` on a permission): a dismissed ask still shows there.
+  test(`a dismissed ask shows ${view.name === 'Now' ? 'its ? still' : 'no ?'} on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, T, uiOf(view.tab, ['asking:s1']))
-    expect(anyMark(await view.rows($))).toBe(false)
+    expect(anyMark(await view.rows($))).toBe(view.name === 'Now')
   })
   test(`an ask younger than 20 s shows no ? on ${view.name}`, LOOK(view), async ($, on) => {
     seed(on, { ...T, steps: [{ ...asking, asking: NOW - 5_000 }] }, uiOf(view.tab, []))

@@ -1,30 +1,29 @@
 import type { EngineInterface, RenderElement } from 'claude-code'
 
 import type { AgentRow, NotifyMode, Timeline, UiState } from '../../types'
-import { alertNotes, autoFocuses, spanText } from '../model/alerts'
+import { alertNotes, autoFocuses, CHECKING_TEXT, needs, promptHint, spanText } from '../model/alerts'
+import type { Need, NeedsView } from '../model/alerts'
+import { oneLine } from '../model/label'
 import { ASK_MS, NOTIFY_ASK_MS } from '../model/limits'
 import { cacheLine, doneTurn, notifies, runLimits, thisTurn, turnClock } from '../model/meter'
 import type { RunLimits } from '../model/meter'
-import { dismissKey, problems, summary } from '../model/select'
+import { problems, summary } from '../model/select'
 import type { Problem } from '../model/select'
 import { debug, errText, readTimeline, readUi, updateUi } from '../state'
-import { elapsed, growLists, listSplit, nameFit, pillRun, promptTitle, shortPaths, toolCell, wordFit } from './fit'
-import { lintelSpec, sillSpec } from './richkit'
-import { showInChat } from './find'
-import { argOf, laid } from './lay'
-import type { Placed } from './lay'
+import { elapsed, fitRuns, shortPaths, span, toolName, wordFit } from './fit'
 import { openStepInline } from './openstep'
 import { tickCountdown } from './countdown'
-import { inst, viewAgent } from './parts'
+import { allClear, inst, runText, section } from './parts'
+import type { Run } from './parts'
 import type { ViewCtx } from './shell'
-import { C, COL, DECK, podOf, RAIL, spriteOf, tableCols } from './style'
-import type { Pod, PodState } from './style'
+import { C, CK, COCKPIT, critterArgs, critterOf, edges, podOf } from './style'
+import type { CritterArgs, Pod, PodState } from './style'
 
 // The ask delays live in the model now (limits.ts; the rule is alerts.ts's `needs`).
 export { ASK_MS, NOTIFY_ASK_MS }
 /** A subagent's finish and a failed turn are raised only while this fresh, so a restore does not replay old ones. */
 const FRESH_MS = 15_000
-// Where the warm countdown cannot be blitted, the pane is redrawn at most this often.
+// The warm countdown redraws the pane at most this often (nothing to blit: it is words).
 const COUNTDOWN_REDRAW_MS = 10_000
 
 export type { NotifyMode }
@@ -47,13 +46,12 @@ export function configureNeeds(o: { agentLimitMin?: unknown; turnLimitMin?: unkn
 /** The long-run limits in force (minutes; 0 is off). */
 export const needsLimits = (): Required<RunLimits> => runLimits(limits)
 
-const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
-
 /**
- * The problems not dismissed, with an ask shown at once unless it came in auto
- * mode, where it waits ASK_MS (R2; the band and these views pass no
- * `isPromptCovered`). Watch rows are in the list until wave 2 splits it; they
- * never take autoFocus (`focusable`).
+ * The legacy combined list (needs, watch rows, failed turns), for the views
+ * wave 2 has not reached yet (the band, Agents, Tasks, the run board): an ask
+ * shows at once unless it came in auto mode, where it waits ASK_MS (R2; they
+ * have no `isPromptCovered`). Now reads `needsView` and watch.tsx instead.
+ * Watch rows never take autoFocus (`focusable`).
  */
 export function needsYou(t: Timeline, u: UiState, now: number): Problem[] {
   return problems(t, now, u.dismissed, limits, {})
@@ -120,23 +118,6 @@ export function needDetail(p: Problem, now: number): string {
   }
 }
 
-function ageText(p: Problem, now: number): string {
-  const age = elapsed(p.since, now)
-  return p.kind === 'asking' ? `asked ${age} ago` : `${age} ago`
-}
-
-// Pressing a row: the step's detail, else the Timeline filtered to the agent.
-export async function openProblem($: EngineInterface, p: Problem): Promise<void> {
-  if (p.stepId !== undefined) {
-    await openStepInline($, p.stepId)
-    return
-  }
-  await updateUi($, u => {
-    const { detail: _detail, ...rest } = u
-    return { ...rest, tab: 'timeline', filter: p.agent === 'main' ? { kind: 'all' } : { kind: 'agent', id: p.agent } }
-  })
-}
-
 // Which item of NEEDS YOU is opened. Ephemeral pane state like onscreen.ts's:
 // a render hook may not write `$.state`, and a reload starting at the first
 // item loses nothing.
@@ -158,66 +139,6 @@ export function moveNeed($: EngineInterface, delta: 1 | -1, count: number): void
   }
 }
 
-/** The glyph and its colour for a kind: `?` and `▲` wait on the person, a failure is `✖`. */
-export function needGlyph(p: Problem): { glyph: string; color: string } {
-  if (p.kind === 'asking') return { glyph: '?', color: C.wait }
-  if (p.kind === 'stalled' || p.kind === 'long-run') return { glyph: '▲', color: C.wait }
-  return { glyph: '✖', color: C.fail }
-}
-
-/** The `why` column: what is wrong, in a word or two. */
-export function needWhy(p: Problem): string {
-  switch (p.kind) {
-    case 'asking':
-      return 'asking'
-    case 'repeat':
-      return `failed ${p.count ?? 2}×`
-    case 'loop':
-      return `looped ${p.count ?? 3}×`
-    case 'stalled':
-      return 'stalled'
-    case 'long-run':
-      return 'long run'
-    default:
-      return 'failed'
-  }
-}
-
-/** Dismisses a problem: its key goes to `ui.dismissed`. */
-export function dismissNeed($: EngineInterface, p: Problem): Promise<void> {
-  return updateUi($, cur => ({ ...cur, dismissed: [...cur.dismissed, dismissKey(p)] }))
-}
-
-/** `g: chat`: the step's own row, or the agent's transcript; undefined when the problem has neither. */
-export function chatFor($: EngineInterface, p: Problem): (() => Promise<void>) | undefined {
-  if (p.stepId !== undefined) {
-    const id = p.stepId
-    return () => showInChat($, id)
-  }
-  if (p.agent !== 'main') {
-    const id = p.agent
-    return () => viewAgent($, id)
-  }
-  return undefined
-}
-
-/** The tool of a problem's step, when it has one. */
-function stepOf(t: Timeline, p: Problem): { tool: string; label: string } | undefined {
-  const s = p.stepId !== undefined ? t.steps.find(x => x.id === p.stepId) : undefined
-  return s !== undefined ? { tool: s.tool, label: s.label } : undefined
-}
-
-/** What the name column of a problem's row says. */
-export function needName(t: Timeline, p: Problem): string {
-  const s = stepOf(t, p)
-  if (s !== undefined) return argOf(s.tool, s.label) || s.tool
-  if (p.kind === 'failed-turn') return promptTitle(p.label) || problemText(p)
-  return shortPaths(oneLine(p.label))
-}
-
-// Rows the section draws; the rest become one dim line.
-const MAX_LIST = 6
-
 // ---------- the crew: who asks, who stalled ----------
 
 /** The agents the problems point at: an ask is `waiting` (the hull's `?`), a stall `stalled` (`z`). Waiting wins. */
@@ -236,22 +157,6 @@ export function podFor(a: AgentRow, waits: Map<string, PodState>, now: number): 
   return podOf({ id: a.id, type: a.type, status: a.status, ...(state !== undefined ? { state } : {}) }, now)
 }
 
-const LEAD: AgentRow = { id: 'main', parent: 'main', type: 'main', description: '', status: 'running', startedAt: 0, doing: '', stepCount: 0 }
-
-/**
- * The crew of a session: the lead first, then the live agents (oldest
- * first), the failed ones, and the finished ones. Their states come from
- * `needsYou`, so an ask or a stall shows on the hull.
- */
-export function crewPods(ctx: ViewCtx): Pod[] {
-  const { t, u, now } = ctx
-  const waits = waitStates(t, u, now)
-  const subs = Object.values(t.agents).filter(a => a.id !== 'main')
-  const rank = { running: 0, error: 1, done: 2 } as const
-  subs.sort((a, b) => rank[a.status] - rank[b.status] || a.startedAt - b.startedAt)
-  return [podFor(t.agents.main ?? LEAD, waits, now), ...subs.map(a => podFor(a, waits, now))]
-}
-
 /** The state pill's word and colour: waiting on the person, working, all done, or idle. */
 export function paneState(ctx: ViewCtx): { word: string; color: string } {
   const { t, u, now } = ctx
@@ -266,313 +171,190 @@ export function paneState(ctx: ViewCtx): { word: string; color: string } {
   return { word: 'IDLE', color: C.subtle }
 }
 
-// ---------- the warning bracket ----------
+// ---------- the needs slot (cockpit spec "CockpitNowNeedsYou", R1 to R5) ----------
 //
-// `deck` lays out label-and-cell rows only, and the opened item and its action
-// line are free rows, so NEEDS YOU keeps its own small wrapper: each piece is
-// the children of one row drawn from column 2 (`end` is its last column + 1);
-// the bracket puts a rail before it and one on the last column after it.
+// One slot under the header, always at the same row: the all-clear line
+// when nothing blocks the session, a dim "Checking a permission" while an
+// auto-mode ask is being settled (R2), else the Needs you block. Needs come
+// from the alert model's `needs` selector (no dismissals: no `x` on a need).
 
-type Piece = { key: string; els: (RenderElement | string)[]; end: number }
+/** What blocks the session now, with the pane's `isPromptCovered` (R2: covered, an ask shows at once). */
+export function needsView(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'>): NeedsView {
+  return needs(ctx.t, ctx.now, { covered: ctx.isPromptCovered === true })
+}
 
-const endOf = (segs: Placed[]): number => segs.reduce((n, s) => Math.max(n, s.col + s.text.length), 2)
+/** The count and noun a Needs you head sums up to: "1 permission", "2 questions", "3 asks" when the kinds differ. */
+export function needsSum(items: readonly Need[]): { n: number; noun: string } {
+  const n = items.length
+  const kinds = new Set(items.map(x => x.kind))
+  const one = kinds.size === 1 ? [...kinds][0] : undefined
+  const word = one === 'permission' ? 'permission' : one === 'question' ? 'question' : one === 'plan' ? 'plan' : one === 'input' ? 'input request' : 'ask'
+  return { n, noun: n === 1 ? word : `${word}s` }
+}
 
-/** The room a cell at `col` has before the right rail: 10, or less at the edge. */
-const roomAt = (cols: number, col: number): number => Math.min(10, cols - 2 - col)
-
-function textPiece(ctx: ViewCtx, $: EngineInterface, key: string, segs: Placed[]): Piece {
-  const { Text } = $.ui.resolve(ctx.e)
-  const live = segs.filter(s => s.text !== '')
-  return {
-    key,
-    end: endOf(live),
-    els: [
-      <Text key={key} wrap="truncate-end">
-        {laid(live, 2, ctx.e, $, `${key}-`)}
-      </Text>,
-    ],
+/** A need's press: the asking step opened in place, else the Steps tab filtered to the asker. */
+export async function openNeed($: EngineInterface, n: Need): Promise<void> {
+  if (n.stepId !== undefined) {
+    await openStepInline($, n.stepId)
+    return
   }
+  await updateUi($, u => {
+    const { detail: _detail, ...rest } = u
+    return { ...rest, tab: 'timeline', filter: n.agent === 'main' ? { kind: 'all' } : { kind: 'agent', id: n.agent } }
+  })
 }
 
-function blankPiece(ctx: ViewCtx, $: EngineInterface, key: string): Piece {
-  const { Text } = $.ui.resolve(ctx.e)
-  return { key, end: 3, els: [<Text key={key}>{' '}</Text>] }
-}
-
-/** The pieces in twin warning rails: `┏ … ┓`, `┃ … ┃`, `┗ … ┛`, the right rail on the last column. */
-function bracket(ctx: ViewCtx, $: EngineInterface, pieces: Piece[]): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const n = pieces.length
-  return (
-    <Box key="needs" flexDirection="column">
-      {pieces.map((p, i) => {
-        const first = i === 0
-        const last = i === n - 1
-        const left = first ? RAIL.top : last ? RAIL.bottom : RAIL.mid
-        const right = first ? RAIL.topRight : last ? RAIL.bottomRight : RAIL.mid
-        const pad = ' '.repeat(Math.max(0, ctx.cols - 1 - p.end))
-        return (
-          <Box key={`needs-${p.key}`} flexDirection="row">
-            <Text color={C.wait}>{`${left} `}</Text>
-            {p.els}
-            {pad !== '' ? <Text>{pad}</Text> : null}
-            <Text color={C.wait}>{right}</Text>
-          </Box>
-        )
-      })}
-    </Box>
-  )
+/** The asker's critter, waiting (`?`): the lead's, or a subagent's from its row. */
+export function askerCritter(ctx: ViewCtx, n: Need, size: 'small' | 'micro' = 'small'): CritterArgs {
+  const o = { size, ground: ctx.ground ?? 'night' }
+  if (n.agent === 'main') return critterArgs('lead', 'waiting', o)
+  const a = ctx.t.agents[n.agent]
+  return critterOf({ id: n.agent, type: a?.type ?? n.agent, status: a?.status ?? 'running' }, { ...o, state: 'waiting' })
 }
 
 /**
- * NEEDS YOU (spec "Now, waiting"): a `warning` bracket of its own, first on
- * Now. Its head row is the ` NEEDS YOU ` pill, the count, and dim `why` and
- * `waiting` heads on the table columns; then one row per problem. The opened
- * item (the first until `n` or `p` moves it) is bold with an `asks` or `why`
- * line, an `agent` line and `g: chat  x: dismiss  n: next`; the first row
- * takes the pane's focus. Null when nothing waits.
+ * The words in place of a control (R3): no call hands the keys back to the
+ * prompt, so nothing pretends to be a button. While the pane holds the keys,
+ * `esc` in the accent and "back to the prompt" (R28: the key, no colon);
+ * otherwise "answer in the prompt ↓". A permission adds "allow or deny".
  */
-export function needsSection(ctx: ViewCtx, $: EngineInterface, cap = MAX_LIST): RenderElement | null {
-  return ctx.look === 'rich' ? needsFrame(ctx, $, cap) : needsBracket(ctx, $, cap)
+export function promptRuns(n: Pick<Need, 'kind'>, isFocused: boolean): Run[] {
+  const hint = promptHint(isFocused)
+  const at = hint.indexOf(': ')
+  const runs: Run[] = at > 0 ? [{ text: hint.slice(0, at), color: CK.accent }, { text: ` ${hint.slice(at + 2)}`, dim: true }] : [{ text: hint, dim: true }]
+  if (n.kind === 'permission') runs.push({ text: isFocused ? '  then allow or deny' : '  allow or deny', dim: true })
+  return runs
+}
+
+/** What the opened need's second row says: the tool in amber bold and its command bold; the question, plan or message bold. */
+export function askRuns(n: Need): Run[] {
+  const cmd = (n.kind === 'input' ? n.message ?? '' : n.command ?? '').replace(/\s+/g, ' ').trim()
+  if (n.kind === 'permission' && n.tool !== undefined) {
+    return [{ text: toolName(n.tool, 12), color: CK.ask, bold: true }, ...(cmd !== '' ? [{ text: `  ${shortPaths(cmd)}`, bold: true }] : [])]
+  }
+  return cmd !== '' ? [{ text: shortPaths(cmd), bold: true }] : [{ text: n.verb, dim: true }]
+}
+
+/** Rows of the slot for `view`, `cap` other needs listed: 1, or the head, the opened need's 3 and the rest. */
+export function needsSlotHeight(view: NeedsView, cap = 3): number {
+  if (view.items.length === 0) return 1
+  const others = view.items.length - 1
+  const shown = Math.min(others, cap)
+  return 1 + 3 + shown + (others > shown ? 1 : 0)
 }
 
 /**
- * Binding rule 2 for NEEDS YOU: how many things waiting it lists in `room`
- * rows (what the rest of Now leaves it), never fewer than MAX_LIST.
+ * The needs slot (cockpit spec principle 1: the same row with and without an
+ * ask). Nothing waits: `✓ Nothing needs you` and `watchCount` as " · 2 things
+ * to watch". An auto-mode ask still settling: no tick, a dim "Checking a
+ * permission" (R2). Otherwise the Needs you block: the amber head with the
+ * count and noun; the opened need (the first, until `n` moves it) as three
+ * rows behind an amber `▍`: the asker's critter waiting at 2, the sentence
+ * at 9 (the asker bold unless ambiguous, R4) and "asked 40s ago" at the
+ * right, the tool and command, then the words in place of a control (R3);
+ * the other needs one row each (up to `cap`, then `+ n more`). The opened
+ * row is a plain Button that takes the pane's focus (`autoFocus`) and opens
+ * the asking step. The caller adds the blank row after it.
  */
-export function needsCap(ctx: ViewCtx, room: number): number {
-  const count = needsYou(ctx.t, ctx.u, ctx.now).length
-  return Math.max(Math.min(count, MAX_LIST), listSplit(count, growLists(room, [{ key: 'needs', count, least: MAX_LIST }]).get('needs') ?? 0).shown)
-}
-
-/** The rows the rich NEEDS YOU frame takes for `count` things waiting, `cap` listed: lintel, the opened item (4), the others, a `+ n more` row, sill. */
-export function needsFrameRows(count: number, cap = MAX_LIST): number {
-  if (count <= 0) return 0
-  const shown = Math.min(count, cap)
-  return 2 + 4 + (shown - 1) + (count > shown ? 1 : 0)
-}
-
-/** The character a problem is drawn with: the asker, in the state its trouble names. */
-function askerOf(t: Timeline, p: Problem, now: number) {
-  const a = t.agents[p.agent]
-  const state: PodState = p.kind === 'asking' ? 'waiting' : p.kind === 'stalled' ? 'stalled' : p.kind === 'long-run' ? 'working' : 'failed'
-  return spriteOf({ id: p.agent, type: a?.type ?? p.agent, status: a?.status ?? 'running' }, now, state)
-}
-
-/**
- * NEEDS YOU in the rich look (spec "Now, waiting"): an amber frame (lintel
- * with the `NEEDS YOU n` pill and the oldest wait, sill) holding the opened
- * item with its asker's large character (`?` for an ask), its kind, what it
- * asks and `g: chat  x: dismiss  n: next`; the others one row each with the
- * kind (`LONG RUN`, `STALLED`) in the label column. Keys are the text form's.
- */
-function needsFrame(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElement | null {
+export function needsSlot(
+  ctx: ViewCtx,
+  $: EngineInterface,
+  view: NeedsView,
+  o: { watchCount?: number; cap?: number; press?: (f: () => void | Promise<void>) => () => void | Promise<void> } = {},
+): RenderElement[] {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
-  const { t, u, now, cols } = ctx
-  const list = needsYou(t, u, now)
-  if (list.length === 0) return null
-  const shown = list.slice(0, cap)
-  const at = openedNeed(shown.length)
-  const oldest = Math.min(...list.map(p => p.since))
-  const nameEnd = cols >= 50 ? DECK.value - 2 : cols
-  const detailAt = cols >= 50 ? DECK.value : undefined
-  const ageAt = cols >= 62 ? DECK.aside : undefined
-  const first = shown[at]!
-  const els: RenderElement[] = [
-    inst(ctx, $, lintelSpec('needs-lintel', cols, { tone: 'warning', pill: `NEEDS YOU ${list.length}`, right: `oldest ${elapsed(oldest, now)}` })),
+  const { now } = ctx
+  const { left, right } = edges(ctx.cols)
+  const press = o.press ?? ((f: () => void | Promise<void>) => f)
+  const watchCount = o.watchCount ?? 0
+  const extra = watchCount > 0 ? ` · ${watchCount} ${watchCount === 1 ? 'thing' : 'things'} to watch` : ''
+  if (view.items.length === 0) {
+    if (!view.checking) return [allClear(ctx, $, extra)]
+    const runs = fitRuns([{ text: CHECKING_TEXT, dim: true }, ...(extra !== '' ? [{ text: extra, dim: true }] : [])], right - left + 1) as Run[]
+    return [
+      <Text key="all-clear" wrap="truncate-end">
+        {' '.repeat(left)}
+        {runs.filter(r => r.text !== '').map((r, i) => runText(r, ctx.e, $, `checking-${i}`))}
+      </Text>,
+    ]
+  }
+  const items = view.items
+  const at = openedNeed(items.length)
+  const n = items[at]!
+  const sum = needsSum(items)
+  const out: RenderElement[] = [
+    section(ctx, $, 'Needs you', [{ text: String(sum.n), color: CK.ask, bold: true }, { text: ` ${sum.noun}`, color: CK.ask }], { tone: 'ask', key: 'sec-needs' }),
   ]
-
-  const line = (p: Problem, bold: boolean): Placed[] => {
-    const segs: Placed[] = [{ col: DECK.gauge, text: nameFit(needName(t, p), Math.max(1, nameEnd - DECK.gauge)), ...(bold ? { bold: true } : {}) }]
-    const tint = p.kind === 'failed-turn' || p.kind === 'repeat' || p.kind === 'loop' ? { color: C.fail } : { color: C.wait }
-    if (detailAt !== undefined) {
-      const room = (ageAt ?? cols) - detailAt - 1
-      segs.push({ col: detailAt, text: wordFit(bold ? kindWord(p) : needDetail(p, now), room), ...tint })
-    }
-    if (ageAt !== undefined && bold) segs.push({ col: ageAt, text: wordFit(elapsed(p.since, now), cols - ageAt), ...tint })
-    return segs.filter(x => x.text !== '')
-  }
-
-  // The opened item: the character, the line, what it asks, the actions.
-  const asker = askerOf(t, first, now)
-  const chat = chatFor($, first)
-  const actions: { hotkey: string; label: string; key: string; onPress: () => void | Promise<void> }[] = []
-  if (chat !== undefined) actions.push({ hotkey: 'g', label: 'chat', key: `chat-${first.key}`, onPress: chat })
-  actions.push({ hotkey: 'x', label: 'dismiss', key: `dismiss-${first.key}`, onPress: () => dismissNeed($, first) })
-  if (shown.length > 1) actions.push({ hotkey: 'n', label: 'next', key: 'need-next', onPress: () => moveNeed($, 1, shown.length) })
-  const kept: typeof actions = []
-  let used = DECK.gauge
-  for (const a of actions) {
-    const w = (kept.length > 0 ? 3 : 0) + a.hotkey.length + 2 + a.label.length
-    if (used + w > cols) break
-    kept.push(a)
-    used += w
-  }
-  const detail = first.kind === 'asking' ? shortPaths(oneLine(first.label)) : shortPaths(problemText(first))
-  els.push(
+  const textCol = COCKPIT.text
+  const room = Math.max(1, right - textCol + 1)
+  const fit = (runs: Run[]): Run[] => (fitRuns(runs, room) as Run[]).filter(r => r.text !== '')
+  const age: Run[] = [{ text: `asked ${spanText(now - n.since)} ago`, dim: true }]
+  const who: Run = { text: n.who, ...(n.askerAmbiguous ? {} : { bold: true }) }
+  const first = spreadRuns([who, { text: ` ${n.verb}` }], age, room)
+  const key = `open-${n.key}`
+  const marker = (k: string): RenderElement => (
+    <Text key={k} color={CK.ask}>
+      {'▍'}
+    </Text>
+  )
+  out.push(
     <Box key="need-open" flexDirection="row">
-      <Box key="need-who" width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
-        {inst(ctx, $, { key: 'asker', ...asker })}
+      <Box key="need-marks" flexDirection="column" width={left} flexShrink={0}>
+        {marker('need-mark-0')}
+        {marker('need-mark-1')}
+        {marker('need-mark-2')}
       </Box>
-      <Box key="need-lines" flexDirection="column">
-        <Button key={`open-${first.key}`} plain onPress={() => openProblem($, first)} autoFocus={at === 0 && focusable(first) ? true : undefined}>
-          {laid(line(first, true), DECK.gauge, ctx.e, $, `open-${first.key}-`)}
+      <Box key="need-who" width={textCol - left} flexShrink={0}>
+        {inst(ctx, $, { key: 'asker', ...askerCritter(ctx, n) })}
+      </Box>
+      <Box key="need-lines" flexDirection="column" width={room} flexShrink={0}>
+        <Button key={key} plain autoFocus={autoFocuses(n.kind) ? true : undefined} onPress={press(() => openNeed($, n))}>
+          {first.map((r, i) => runText(r, ctx.e, $, `${key}-${i}`))}
         </Button>
-        <Text key="need-detail" wrap="truncate-end">
-          {wordFit(detail, Math.max(1, cols - DECK.gauge))}
+        <Text key="need-ask" wrap="truncate-end">
+          {fit(askRuns(n)).map((r, i) => runText(r, ctx.e, $, `need-ask-${i}`))}
         </Text>
-        <Box key="need-actions" flexDirection="row" columnGap={3}>
-          {kept.map(a => (
-            <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
-              {a.label}
-            </Button>
-          ))}
-        </Box>
+        <Text key="need-prompt" wrap="truncate-end">
+          {fit(promptRuns(n, ctx.isFocused === true)).map((r, i) => runText(r, ctx.e, $, `need-prompt-${i}`))}
+        </Text>
       </Box>
     </Box>,
   )
-  // The rest: one row each, the kind in the label column.
-  shown.forEach((p, i) => {
-    if (i === at) return
-    els.push(
-      <Box key={`need-row-${p.key}`} flexDirection="row">
-        <Box key={`need-kind-${p.key}`} width={DECK.gauge} paddingLeft={DECK.label} flexShrink={0}>
-          <Text key={`kind-${p.key}`} dimColor wrap="truncate-end">
-            {kindLabel(p)}
-          </Text>
-        </Box>
-        <Button key={`open-${p.key}`} plain onPress={() => openProblem($, p)} autoFocus={i === 0 && focusable(p) ? true : undefined}>
-          {laid(line(p, false), DECK.gauge, ctx.e, $, `open-${p.key}-`)}
+  const cap = o.cap ?? 3
+  const others = items.filter((_, i) => i !== at)
+  others.slice(0, cap).forEach(x => {
+    const k = `open-${x.key}`
+    const runs = spreadRuns([{ text: x.sentence, dim: true }], [{ text: spanText(now - x.since), dim: true }], room)
+    out.push(
+      <Box key={`row-${k}`} flexDirection="row">
+        <Text>{' '.repeat(textCol)}</Text>
+        <Button key={k} plain onPress={press(() => openNeed($, x))}>
+          {runs.map((r, i) => runText(r, ctx.e, $, `${k}-${i}`))}
         </Button>
       </Box>,
     )
   })
-  if (list.length > shown.length) {
-    els.push(
+  if (others.length > cap) {
+    out.push(
       <Text key="need-more" dimColor wrap="truncate-end">
-        {`  + ${list.length - shown.length} more`}
+        {`${' '.repeat(textCol)}+ ${others.length - cap} more`}
       </Text>,
     )
   }
-  els.push(inst(ctx, $, sillSpec('needs-sill', cols, { tone: 'warning' })))
-  return (
-    <Box key="needs" flexDirection="column">
-      {els}
-    </Box>
-  )
+  return out
 }
 
-/** The word beside the opened item's name: its kind in lower case (`permission`, `long run`). */
-const kindWord = (p: Problem): string => kindLabel(p).toLowerCase()
-
-function needsBracket(ctx: ViewCtx, $: EngineInterface, cap: number): RenderElement | null {
-  const { Button, Box } = $.ui.resolve(ctx.e)
-  const { t, u, now, cols } = ctx
-  const list = needsYou(t, u, now)
-  if (list.length === 0) return null
-  const shown = list.slice(0, cap)
-  const at = openedNeed(shown.length)
-  const tc = tableCols(cols)
-  const nameEnd = Math.min(tc.nameEnd, cols - 2)
-  const pieces: Piece[] = []
-
-  const heads: Placed[] = [
-    { col: 2, ...pillRun('NEEDS YOU', C.wait) },
-    { col: 14, text: String(list.length), color: C.wait, bold: true },
-  ]
-  if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) heads.push({ col: tc.metric, text: wordFit('why', roomAt(cols, tc.metric)), dim: true })
-  if (tc.time !== undefined && roomAt(cols, tc.time) > 0) heads.push({ col: tc.time, text: wordFit('waiting', roomAt(cols, tc.time)), dim: true })
-  pieces.push(textPiece(ctx, $, 'needs-head', heads))
-
-  shown.forEach((p, i) => {
-    const s = stepOf(t, p)
-    const mark = needGlyph(p)
-    const isOpen = i === at
-    if (isOpen && i > 0) pieces.push(blankPiece(ctx, $, `need-gap-${i}`))
-    const toolCol = COL.name
-    const nameCol = s !== undefined ? toolCol + 6 : toolCol
-    const tint = isOpen && p.kind !== 'failed-turn' && p.kind !== 'repeat' && p.kind !== 'loop' ? { color: C.wait } : { dim: true }
-    const segs: Placed[] = [{ col: COL.glyph, text: mark.glyph, color: mark.color }]
-    if (s !== undefined) segs.push({ col: toolCol, text: toolCell(s.tool, 5), dim: true })
-    segs.push({ col: nameCol, text: nameFit(needName(t, p), Math.max(0, nameEnd - nameCol)), ...(isOpen ? { bold: true } : {}) })
-    if (tc.metric !== undefined && roomAt(cols, tc.metric) > 0) segs.push({ col: tc.metric, text: wordFit(needWhy(p), roomAt(cols, tc.metric)), ...tint })
-    if (tc.time !== undefined && roomAt(cols, tc.time) > 0) segs.push({ col: tc.time, text: wordFit(elapsed(p.since, now), roomAt(cols, tc.time)), ...tint })
-    const live = segs.filter(x => x.text !== '')
-    const key = `open-${p.key}`
-    pieces.push({
-      key,
-      end: endOf(live),
-      els: [
-        <Button key={key} plain onPress={() => openProblem($, p)} autoFocus={i === 0 && focusable(p) ? true : undefined}>
-          {laid(live, 2, ctx.e, $, `${key}-`)}
-        </Button>,
-      ],
-    })
-    if (!isOpen) return
-    const who = p.agent !== 'main' ? t.agents[p.agent]?.type ?? p.agent : 'main'
-    const details: { key: string; value: string }[] =
-      p.kind === 'asking'
-        ? [{ key: 'asks', value: `to run ${shortPaths(oneLine(p.label))}` }]
-        : [{ key: 'why', value: shortPaths(problemText(p)) }]
-    details.push({ key: 'agent', value: who })
-    details.forEach((d, j) => {
-      pieces.push(
-        textPiece(ctx, $, `need-detail-${j}`, [
-          { col: COL.detailKey, text: wordFit(d.key, COL.detailValue - COL.detailKey - 1), dim: true },
-          { col: COL.detailValue, text: wordFit(d.value, Math.max(0, cols - 2 - COL.detailValue)) },
-        ]),
-      )
-    })
-    const chat = chatFor($, p)
-    const actions: { hotkey: string; label: string; key: string; onPress: () => void | Promise<void> }[] = []
-    if (chat !== undefined) actions.push({ hotkey: 'g', label: 'chat', key: `chat-${p.key}`, onPress: chat })
-    actions.push({ hotkey: 'x', label: 'dismiss', key: `dismiss-${p.key}`, onPress: () => dismissNeed($, p) })
-    if (shown.length > 1) actions.push({ hotkey: 'n', label: 'next', key: 'need-next', onPress: () => moveNeed($, 1, shown.length) })
-    const kept: typeof actions = []
-    let used = COL.action
-    for (const a of actions) {
-      const w = (kept.length > 0 ? 3 : 0) + a.hotkey.length + 2 + a.label.length
-      if (used + w > cols - 2) break
-      kept.push(a)
-      used += w
-    }
-    pieces.push({
-      key: 'need-actions',
-      end: used,
-      els: [
-        <Box key="need-actions" flexDirection="row" paddingLeft={COL.action - 2} columnGap={3}>
-          {kept.map(a => (
-            <Button key={a.key} hotkey={a.hotkey} plain onPress={a.onPress}>
-              {a.label}
-            </Button>
-          ))}
-        </Box>,
-      ],
-    })
-    if (i < shown.length - 1) pieces.push(blankPiece(ctx, $, `need-after-${i}`))
-  })
-  if (list.length > shown.length) {
-    pieces.push(
-      textPiece(ctx, $, 'need-more', [
-        { col: COL.glyph, text: '+', dim: true },
-        { col: COL.name, text: wordFit(`${list.length - shown.length} more`, cols - 2 - COL.name), dim: true },
-      ]),
-    )
-  }
-  return bracket(ctx, $, pieces)
+/** `left` cut to leave `right` and two spaces, `right` flush at the end of `cols`. */
+export function spreadRuns(left: Run[], right: Run[], cols: number): Run[] {
+  const rw = right.reduce((n, r) => n + r.text.length, 0)
+  if (rw === 0 || rw + 2 > cols) return (fitRuns(left, cols) as Run[]).filter(r => r.text !== '')
+  const l = (fitRuns(left, cols - rw - 2) as Run[]).filter(r => r.text !== '')
+  const lw = l.reduce((n, r) => n + r.text.length, 0)
+  return [...l, { text: ' '.repeat(cols - lw - rw) }, ...right]
 }
 
 /** A main turn this long or longer, ended normally, raises the done notification. */
 export const DONE_MS = 60_000
-
-/** A span as `45s`, `6m 12s` or `1h 04m`. */
-function span(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  if (total < 60) return `${total}s`
-  const m = Math.floor(total / 60)
-  if (m < 60) return `${m}m ${String(total % 60).padStart(2, '0')}s`
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
-}
 
 /** `Done in 6m 12s: the focus. 3 tasks closed, 1 error.` */
 export function doneText(t: Timeline, ms: number): string {
@@ -581,7 +363,7 @@ export function doneText(t: Timeline, ms: number): string {
   const bits: string[] = []
   if (turn !== undefined && turn.tasksClosed.length > 0) bits.push(`${turn.tasksClosed.length} ${turn.tasksClosed.length === 1 ? 'task' : 'tasks'} closed`)
   if (turn !== undefined && turn.errors > 0) bits.push(`${turn.errors} ${turn.errors === 1 ? 'error' : 'errors'}`)
-  const head = `Done in ${span(ms)}${focus !== undefined ? `: ${wordFit(oneLine(focus), 80)}` : ''}`
+  const head = `Done in ${span(ms, { steps: true })}${focus !== undefined ? `: ${wordFit(oneLine(focus), 80)}` : ''}`
   return bits.length > 0 ? `${head}. ${bits.join(', ')}.` : head
 }
 
@@ -590,11 +372,12 @@ export function doneText(t: Timeline, ms: number): string {
 const countdown: { bucket?: number; cold: boolean } = { cold: true }
 
 /**
- * While the session is idle and the cache is warm, the lintel counts it down
- * (plan constraint 5: idle is still). Where the lintel is a Raster the clock
- * blits it alone (countdown.ts); otherwise, while the pane or the strip is
- * open, the pane is redrawn at most once every 10 s. Once the cache is cold
- * one redraw clears the readout and the countdown stops.
+ * While the session is idle and the cache is warm, Now's budget line counts
+ * it down ("cache stays warm 4:48", R29; plan constraint 5: idle is still).
+ * An instrument registered with countdown.ts is blitted alone (the cockpit
+ * registers none); otherwise, while the pane or the strip is open, the pane
+ * is redrawn at most once every 10 s. Once the cache is cold one redraw
+ * clears the words and the countdown stops.
  */
 async function countdownTick($: EngineInterface, t: Timeline, u: UiState, now: number): Promise<void> {
   const warm = cacheLine(t).warmUntil

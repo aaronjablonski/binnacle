@@ -123,10 +123,11 @@ const focused = (columns: number, placement: 'dock' | 'inline' = 'dock', bodyRow
   props: { ...PANE(columns, placement, bodyRows).props, isFocused: true },
 })
 
-// The budget view is one press away: the CTX label, or `b` from the footer.
+// The budget view is one press away: the header's budget line, or under 40 columns (no budget line) `b` from the footer.
 async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns: number, placement: 'dock' | 'inline' = 'dock', bodyRows = 40) {
   const m = await $.ui.mount({ ...focused(columns, placement, bodyRows), surface })
-  await m.press({ key: 'hint-budget' })
+  const line = await m.find({ type: 'Button', key: 'now-budget' })
+  await m.press({ key: line !== undefined ? 'now-budget' : 'hint-budget' })
   return m
 }
 

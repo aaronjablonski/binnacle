@@ -419,6 +419,27 @@ test('F I1: an auto-mode ask 5 s old: the band says "Checking a permission", nev
   await band.unmount()
 })
 
+// FX3 M-3: the band has no isPromptCovered of its own; it reads what the pane's last drawing saw. An ask the pane shows as Needs you at once (a dialog holds the prompt, R2) is never "Checking a permission" in the band.
+test('M-3: with a dialog holding the prompt the pane shows Needs you and the band agrees, not "Checking a permission"', async ($, on) => {
+  const t: Timeline = { ...asked(5), turns: [{ id: 't1', agent: 'main', prompt: 'go', startedAt: NOW - 90_000 } as TurnRow] }
+  world(on, t)
+  // the pane draws covered: its ask shows at once
+  const pane = await $.ui.mount({ ...PANE(62), props: { ...PANE(62).props, isPromptCovered: true as const }, surface: 'terminal' })
+  expect((await texts(pane)).join(String.fromCharCode(10))).toContain('Needs you')
+  const band = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  const words = (await texts(band)).join(String.fromCharCode(10))
+  expect(words).toContain('Needs you')
+  expect(words).not.toContain('Checking a permission')
+  await band.unmount()
+  // the dialog closes: the pane draws uncovered, and the band is back to the classifier's gap
+  await pane.unmount()
+  const open = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
+  await open.unmount()
+  const again = await $.ui.mount({ ...BAND(104), surface: 'terminal' })
+  expect((await texts(again)).join(String.fromCharCode(10))).toContain('Checking a permission')
+  await again.unmount()
+})
+
 // ---------- O I-3: the band's cache words stay true with the pane closed ----------
 
 test('O I-3: idle with the pane closed, the clock redraws when the warm cache words change their minute', async ($, on) => {
@@ -433,7 +454,7 @@ test('O I-3: idle with the pane closed, the clock redraws when the warm cache wo
     redraws += 1
   })
   expect((stored.get('ui') as UiState | undefined)?.paneOpen ?? false).toBe(false)
-  // Warm for 270 s: the words read "about 4 min" until 240 s are left, 30 s from now.
+  // Warm for 270 s: the words read "4 min" until 240 s are left, 30 s from now.
   await clock.advance(1000)
   const first = redraws
   for (let s = 2; s <= 29; s++) await clock.advance(1000)

@@ -130,6 +130,19 @@ test('the card lists every option with its value and when it applies, and a Neve
   await ui.unmount()
 })
 
+// FX3 M-5: the page drew the raw field names `watchNotify`, `ground` and `motion` (under More); they have friendly labels now, in the sections they belong to.
+test('the card uses plain labels: Notify for Watch, Crew background, Crew motion; no raw field name and no More section', async ($, on) => {
+  world(on, OPTIONS_UI)
+  const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  const rows = screen(await ui.drawn())
+  const text = rows.join(String.fromCharCode(10))
+  for (const name of ['Notify for Watch', 'Crew background', 'Crew motion']) expect(colOf(rows.find(r => r.trimStart().startsWith(name)) ?? '', name)).toBe(4)
+  for (const raw of ['watchNotify', 'agentLimitMin', 'turnLimitMin', 'doneSound', 'showCost', 'autoOpen']) expect(text).not.toContain(raw)
+  expect(rows.some(r => r.trim() === 'More' || r.trimStart().startsWith('More '))).toBe(false)
+  expect(rows.some(r => /^\s{4}(ground|motion)/.test(r))).toBe(false)
+  await ui.unmount()
+})
+
 test('drawing the card writes nothing; Enter on a switch writes it once, on the press', async ($, on) => {
   const { sets, toasts } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })

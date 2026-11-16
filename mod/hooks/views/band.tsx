@@ -5,7 +5,7 @@ import { debug, errText, readTimeline, readUi } from '../state'
 import { bandModel, agentsWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
 import { todoBar, wordFit } from './fit'
-import { needsLimits } from './needs'
+import { needsLimits, paneCovered } from './needs'
 import { inst, runText } from './parts'
 import type { Run } from './parts'
 import { begin } from './paint'
@@ -292,7 +292,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const t = await readTimeline($)
       const u: UiState = await readUi($)
       const now = await $.clock.now()
-      const m = bandModel(t, u, now, needsLimits())
+      const m = bandModel(t, u, now, needsLimits(), paneCovered(now))
       const isStrip = u.strip === true
       if (m.nothing && !isStrip) return next(e)
 

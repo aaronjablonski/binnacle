@@ -189,7 +189,7 @@ export function paneState(ctx: ViewCtx): { word: string; color: string } {
 // only delays a clear until the step ends. Bounded by MAX_COVERED.
 const MAX_COVERED = 50
 // `coveredAt` and `uncoveredAt` hold the drawing's number (`seq`), not the time: two drawings in one millisecond keep their order.
-const cover: { seq: number; coveredAt: Map<string, number>; uncoveredAt?: number; drawnAt?: number } = { seq: 0, coveredAt: new Map() }
+const cover: { seq: number; coveredAt: Map<string, number>; uncoveredAt?: number; drawnAt?: number; covered?: boolean } = { seq: 0, coveredAt: new Map() }
 /** The pane counts as watching the prompt while its last terminal drawing is this fresh (it redraws every second while a step runs). */
 const WATCHING_MS = 5_000
 
@@ -203,6 +203,7 @@ export function observeCover(ctx: Pick<ViewCtx, 't' | 'now' | 'isPromptCovered'>
   const e = ctx.e
   if (e === undefined || e.component !== 'Pane' || e.surface !== 'terminal') return
   cover.drawnAt = ctx.now
+  cover.covered = ctx.isPromptCovered === true
   const seq = ++cover.seq
   if (ctx.isPromptCovered !== true) {
     cover.uncoveredAt = seq
@@ -222,11 +223,21 @@ export function resetCover(): void {
   cover.coveredAt.clear()
   delete cover.uncoveredAt
   delete cover.drawnAt
+  delete cover.covered
 }
 
 /** Whether the terminal pane drew lately, so an answered ask is cleared and permission notifications may be raised (`alertNotes` `watching`). */
 export function paneWatching(now: number): boolean {
   return cover.drawnAt !== undefined && now - cover.drawnAt <= WATCHING_MS
+}
+
+/**
+ * Whether the terminal pane's last drawing, if fresh, had a dialog holding the prompt. The band has no
+ * `isPromptCovered` of its own, so it reads this: an ask the pane shows as Needs you at once (R2: covered)
+ * is never "Checking a permission" in the band (FX3, M-3). Not drawn lately, it is false (R2's delay stands).
+ */
+export function paneCovered(now: number): boolean {
+  return paneWatching(now) && cover.covered === true
 }
 
 /**

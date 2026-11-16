@@ -100,10 +100,11 @@ const files = (n: number): string => `${n} ${n === 1 ? 'file' : 'files'} changed
 
 /**
  * The band's model. `limits` are the run limits in force (Watch's count);
- * absent, the defaults.
+ * absent, the defaults. `covered` is the pane's observed cover (`paneCovered`): a dialog holds the
+ * prompt, so an ask shows at once as the pane shows it, not as "Checking a permission".
  */
-export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: number, limits?: RunLimits): BandModel {
-  const view = needs(t, now)
+export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: number, limits?: RunLimits, covered = false): BandModel {
+  const view = needs(t, now, { covered })
   const hs = headerState(t, now, view)
   const todo = todoBlock(t, view.items.map(n => n.agent))
   const s = summary(t)

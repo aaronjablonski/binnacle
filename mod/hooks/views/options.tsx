@@ -49,7 +49,10 @@ type Field = {
 const FIELDS: readonly Field[] = [
   { field: 'look', label: 'Look', section: 'Look', applies: 'now', kind: 'choice', choices: ['auto', 'rich', 'text'] },
   { field: 'accent', label: 'Accent', section: 'Look', applies: 'now', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
+  { field: 'ground', label: 'Crew background', section: 'Look', applies: 'now', kind: 'choice', choices: ['auto', 'night', 'day'] },
+  { field: 'motion', label: 'Crew motion', section: 'Look', applies: 'now', kind: 'choice', choices: ['on', 'off'] },
   { field: 'notify', label: 'Notify', section: 'Signals', applies: 'now', kind: 'choice', choices: ['off', 'waits', 'done', 'all'] },
+  { field: 'watchNotify', label: 'Notify for Watch', section: 'Signals', applies: 'now', kind: 'boolean' },
   { field: 'doneSound', label: 'Done sound', section: 'Signals', applies: 'now', kind: 'boolean' },
   {
     field: 'agentLimitMin', label: 'Agent time limit', section: 'Signals', applies: 'now',
@@ -108,6 +111,12 @@ function valueOf(field: string): ConfigValue | undefined {
   return written.get(field) ?? given[field]
 }
 
+/** A field name as words for a field the card has no label for: `someOption` reads "Some option". */
+function plainName(field: string): string {
+  const words = field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 /** The fields the manifest declares, each with what the card knows of it. */
 export function fieldsShown(): Field[] {
   const out: Field[] = []
@@ -115,7 +124,7 @@ export function fieldsShown(): Field[] {
   for (const [field, v] of Object.entries(given)) {
     if (FIELDS.some(f => f.field === field)) continue
     const kind: Kind = typeof v === 'boolean' ? 'boolean' : typeof v === 'number' ? 'number' : 'text'
-    out.push({ field, label: field, section: 'More', applies: 'now', kind, step: 1 })
+    out.push({ field, label: plainName(field), section: 'More', applies: 'now', kind, step: 1 })
   }
   return out
 }

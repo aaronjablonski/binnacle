@@ -2,6 +2,7 @@ import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, R
 
 import type { PageKind, Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
+import { cacheLine } from '../model/meter'
 import { agentPage, agentsView } from './agents'
 import { artifactPage, artifactsView } from './artifacts'
 import { stepPage } from './detail'
@@ -9,14 +10,14 @@ import { configureEditor, rememberRoot } from './editor'
 import { exportDigest } from './handoff'
 import { overviewView } from './overview'
 import { leavePage, pageOf } from './pagenav'
-import { begin, forget, startClock } from './paint'
+import { begin, clockRunning, forget, startClock } from './paint'
 import { budgetTick, seedBudget } from './budget'
 import { delightsTick } from './delights'
 import { needsTick, observeCover } from './needs'
 import type { NotifyMode } from './needs'
 import { accentOption, configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, GRID, groundOf, lookAsked, motionOn, setAccent, themeOf, tier } from './style'
+import { C, GRID, groundOf, lookAsked, motionOn, themeOf, tier } from './style'
 import type { Ground, Look } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
@@ -345,7 +346,6 @@ type Drawn = {
 async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: PluginOptions, look?: string): Promise<Drawn> {
   const theme = await themeOf($)
   const accent = accentOption() ?? options.accent
-  setAccent(accent)
   const asked = lookAsked(look, theme)
   return {
     look: lookFor($.ui.resolve(e), e.surface, asked !== undefined ? { look: asked } : {}),
@@ -594,7 +594,26 @@ export async function runMc($: EngineInterface, args: string): Promise<{ text: s
   return { text: 'Unknown. Try /mc, /mc 1-5, keep <note>, export, close, slim, strip or options.' }
 }
 
-async function tick($: EngineInterface, notify: NotifyMode | undefined, motion: boolean): Promise<void> {
+/** How long after its last event the session still counts as live: the toasts, notifications and sweep the tick raises are fresh for 15 s at most. */
+const LIVE_AFTER_MS = 20_000
+
+/**
+ * Whether the clock has anything to do (M10): a step, a subagent or the main
+ * turn runs; something ended, was measured or was asked within LIVE_AFTER_MS;
+ * or the prompt cache is warm (its countdown redraws by the minute). Pure.
+ */
+export function clockLive(t: Timeline, now: number): boolean {
+  if (t.steps.some(s => s.status === 'running')) return true
+  if (Object.values(t.agents).some(a => a.id !== 'main' && (a.status === 'running' || (a.endedAt !== undefined && now - a.endedAt <= LIVE_AFTER_MS)))) return true
+  for (const x of t.turns) if ((x.agent === 'main' && x.endedAt === undefined) || (x.endedAt !== undefined && now - x.endedAt <= LIVE_AFTER_MS)) return true
+  if (t.budget !== undefined && now - t.budget.at <= LIVE_AFTER_MS) return true
+  if ((t.asks ?? []).length > 0) return true
+  const warm = cacheLine(t).warmUntil
+  return warm !== undefined && warm > now
+}
+
+/** The clock's tick; resolves whether the clock should keep running (`clockLive`). */
+async function tick($: EngineInterface, notify: NotifyMode | undefined, motion: boolean): Promise<boolean> {
   await needsTick($, notify)
   await budgetTick($)
   await delightsTick($, { motion })
@@ -604,13 +623,40 @@ async function tick($: EngineInterface, notify: NotifyMode | undefined, motion: 
     const isAgentRunning = Object.values(t.agents).some(a => a.id !== 'main' && a.status === 'running')
     const isStepRunning = t.steps.some(s => s.status === 'running')
     if (isAgentRunning || isStepRunning) $.ui.invalidate('ui.render')
+    return clockLive(t, await $.clock.now())
   } catch (err) {
     debug($, `tick failed: ${errText(err)}`)
+    return true
+  }
+}
+
+/** What the clock's tick reads of the options, set at session start; `wakeClock` needs it to start the clock again. */
+let clockOptions: { notify: NotifyMode | undefined; motion: boolean } | undefined
+
+/**
+ * Starts the 1 s clock again after it stopped for want of anything live
+ * (M10), on the engine of the hook that wrote to the Timeline. No-op while it
+ * runs, or before the session started it. Never throws.
+ */
+export function wakeClock($: EngineInterface): void {
+  const o = clockOptions
+  if (o === undefined || clockRunning()) return
+  try {
+    startClock($, () => tick($, o.notify, o.motion))
+  } catch (err) {
+    debug($, `clock failed: ${errText(err)}`)
   }
 }
 
 /** Session-start work, called from register.tsx's one session.start hook. Never throws. */
 export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode; motion?: unknown }): Promise<void> {
+  // The terminal's cell aspect, for the gauge ring's round dots (FX4): read once here, before the pane can open (M8), never in render.
+  try {
+    const [WT_SESSION, TERM_PROGRAM, TERM] = await Promise.all([$.env.get('WT_SESSION'), $.env.get('TERM_PROGRAM'), $.env.get('TERM')])
+    setCellAspect(aspectFromEnv({ WT_SESSION, TERM_PROGRAM, TERM }))
+  } catch (err) {
+    debug($, `env read failed: ${errText(err)}`)
+  }
   // The strip stands in for the pane: a reload or a resumed session keeps it.
   if (options.autoOpen === true && !(await isStrip($))) {
     try {
@@ -619,13 +665,6 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
     } catch (err) {
       debug($, `autoOpen failed: ${errText(err)}`)
     }
-  }
-  // The terminal's cell aspect, for the gauge ring's round dots (FX4): read once here, never in render.
-  try {
-    const [WT_SESSION, TERM_PROGRAM, TERM] = await Promise.all([$.env.get('WT_SESSION'), $.env.get('TERM_PROGRAM'), $.env.get('TERM')])
-    setCellAspect(aspectFromEnv({ WT_SESSION, TERM_PROGRAM, TERM }))
-  } catch (err) {
-    debug($, `env read failed: ${errText(err)}`)
   }
   // A restored or reloaded session starts with the flag false until the engine says the pane is up.
   await syncPaneOpen($)
@@ -638,6 +677,7 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   // The mod's one 1 s clock lives in paint.ts: each period runs this tick,
   // then the rich instruments' paint pass. A second start cancels the first.
   try {
+    clockOptions = { notify: options.notify, motion: motionOn(options.motion) }
     startClock($, () => tick($, options.notify, motionOn(options.motion)))
   } catch (err) {
     debug($, `clock failed: ${errText(err)}`)

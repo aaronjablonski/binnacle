@@ -10,11 +10,11 @@ import { budgetOf } from '../model/usage'
 import { journalRoot } from '../journal'
 import { apply, debug, errText, leaveDetail, readLedgerRows, readTimeline, readUi, updateUi } from '../state'
 import { openAgentPage } from './agentmeta'
-import { bar, clock, elapsed, growLists, listSplit, pctBar, ruleBar, shortPaths, span, warmWords, wordFit, fitRuns } from './fit'
+import { clock, growLists, listSplit, pctBar, ruleBar, shortPaths, span, warmWords, wordFit, fitRuns } from './fit'
 import { podFor, waitStates } from './needs'
 import { blank, frameFootInst, frameTopInst, heightOf, inst, more, runText, section } from './parts'
-import type { InstSpec, ReadoutCell, Run } from './parts'
-import { drawGaugeRing, GAUGE_RING, gaugeFigure, Grid } from './raster'
+import type { InstSpec, Run } from './parts'
+import { drawGaugeRing, GAUGE_RING, gaugeFigure, getCellAspect, Grid } from './raster'
 import type { Ground } from './raster'
 import { TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
@@ -51,9 +51,9 @@ export function windowName(name: string): string {
   return name.replace(/_/g, ' ')
 }
 
-/** `resets in 2h00`, from the reset time and now (both ms). */
+/** `resets in 2 h 4 min` (R27, M3), from the reset time and now (both ms). */
 export function resetText(at: number, now: number): string {
-  return at <= now ? 'resets now' : `resets in ${elapsed(now, at)}`
+  return at <= now ? 'resets now' : `resets in ${span(at - now)}`
 }
 
 const dollars = (usd: number): string => `$${usd.toFixed(2)}`
@@ -108,21 +108,6 @@ export function resetClock(at: number, now: number): string {
   if (at <= now) return 'now'
   if (at - now < DAY) return clock(at)
   return `${WEEKDAYS[new Date(at).getDay()] ?? ''} ${clock(at)}`
-}
-
-/** The two heaviest models as readout cells: the model and its share of all tokens. */
-export function modelCells(t: Timeline): ReadoutCell[] {
-  const totals = modelTotals(t)
-  const all = totals.reduce((n, x) => n + x.tokens, 0)
-  return totals.slice(0, 2).map((x, i) => {
-    const share = all > 0 ? Math.round((x.tokens / all) * 100) : 0
-    return {
-      label: x.model.toUpperCase(),
-      value: `${share}%`,
-      gfx: bar(share, 100, 10, C.model),
-      drop: 2 - i,
-    }
-  })
 }
 
 const MAX_LIST = 4
@@ -254,7 +239,7 @@ function ringsInst(key: string, wins: readonly Win[], ground: Ground): InstSpec 
     key,
     columns,
     rows: GAUGE_RING.rows,
-    sig: `rings:${ground}:${accentName()}:${shown.map(w => Math.round(w.pct)).join(',')}`,
+    sig: `rings:${ground}:${accentName()}:${getCellAspect()}:${shown.map(w => Math.round(w.pct)).join(',')}`,
     frames: () => {
       const g = new Grid(columns, GAUGE_RING.rows, palette(ground))
       shown.forEach((w, i) => drawGaugeRing(g, i * RING_PITCH, 0, w.pct))
@@ -305,7 +290,7 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const caps = shareCaps(ctx, above, totals.length, reportedCount)
   if (totals.length > 0) {
     const all = totals.reduce((n, x) => n + x.tokens, 0)
-    const items: Share[] = totals.slice(0, caps.models).map(x => ({ key: `model-${x.model}`, name: x.model, tokens: x.tokens, color: C.model }))
+    const items: Share[] = totals.slice(0, caps.models).map(x => ({ key: `model-${x.model}`, name: x.model, tokens: x.tokens, color: CK.accent }))
     out.push(
       blank(ctx, $, 'budget-gap-1'),
       section(ctx, $, 'Models', `${tokenText(all)} tokens`, { key: 'sec-models' }),
@@ -313,7 +298,7 @@ export function budgetView(ctx: ViewCtx, $: EngineInterface): RenderElement {
       ...(totals.length > items.length ? [more(ctx, $, totals.length - items.length, 'more models')] : []),
     )
   }
-  const waits = waitStates(t, ctx.u, now)
+  const waits = waitStates(ctx)
   const reported = Object.values(t.agents)
     .filter(a => a.tokensIn !== undefined || a.tokensOut !== undefined)
     .map(a => ({ a, tokens: (a.tokensIn ?? 0) + (a.tokensOut ?? 0) }))
@@ -371,12 +356,14 @@ function budgetHeader(ctx: ViewCtx, $: EngineInterface, wins: Win[]): RenderElem
   // From 62 columns the rings sit flush right (29, 40 and 51 at 62, as Now's two), the figure in the room on the left; narrower they start at the margin.
   const ringsAt = cols >= 62 ? right + 1 - ringsW : left
   const side = cols >= 62 ? ringsAt - left - 2 : 0
-  const meta: Run = { text: b !== undefined ? 'what this session has used' : 'no reading yet', dim: true }
+  // M6: the words after the pill go when they do not fit inside the body.
+  const metaWords = b !== undefined ? 'what this session has used' : 'no reading yet'
+  const meta: Run = { text: left + BUDGET_PILL.text.length + 2 + metaWords.length <= cols ? metaWords : '', dim: true }
   const pillRow = (
     <Box key="budget-pill-row" flexDirection="row">
       <Text>{' '.repeat(left)}</Text>
       <Button key="budget-back" plain onPress={back}>
-        {[BUDGET_PILL, { text: '  ' }, meta].map((r, i) => runText(r, ctx.e, $, `budget-pill-${i}`))}
+        {[BUDGET_PILL, ...(meta.text !== '' ? [{ text: '  ' }, meta] : [])].map((r, i) => runText(r, ctx.e, $, `budget-pill-${i}`))}
       </Button>
     </Box>
   )
@@ -538,7 +525,7 @@ function costBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
 }
 
 /**
- * Cache: a `━` stack (read in the accent, written in orchid, sent fresh in
+ * Cache: a `━` stack (read in the accent, written in the accent dim, sent fresh in
  * grey), what each is (items drop from the right when the row is short), how
  * long it stays warm (whole minutes, one shared word helper) and what going
  * cold re-sends. Nothing without cache counts.
@@ -552,7 +539,7 @@ function cacheBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const sum: Run[] = [{ text: `${Math.round(cl.readShare * 100)}%`, bold: true }, { text: ' read', dim: true }]
   const items: Run[][] = [
     [{ text: '━', color: CK.accent }, { text: ` read ${tokenText(cl.read)}`, dim: true }],
-    [{ text: '━', color: C.model }, { text: ` written ${tokenText(cl.write)}`, dim: true }],
+    [{ text: '━', color: CK.accent, dim: true }, { text: ` written ${tokenText(cl.write)}`, dim: true }],
     [{ text: '━', color: C.subtle }, { text: ` fresh ${tokenText(cl.fresh)}`, dim: true }],
   ]
   const key: Run[] = []
@@ -564,7 +551,7 @@ function cacheBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
   const rows: RenderElement[] = [
     blank(ctx, $, 'budget-gap-cache'),
     section(ctx, $, 'Cache', sum, { key: 'sec-cache' }),
-    textRow(ctx, $, 'budget-cache-bar', ruleBar(content, [{ count: cl.read, color: CK.accent }, { count: cl.write, color: C.model }, { count: cl.fresh, color: C.subtle }])),
+    textRow(ctx, $, 'budget-cache-bar', ruleBar(content, [{ count: cl.read, color: CK.accent }, { count: cl.write, color: CK.accent, dim: true }, { count: cl.fresh, color: C.subtle }])),
     textRow(ctx, $, 'budget-cache-key', key),
   ]
   if (cl.warmUntil !== undefined) {
@@ -712,7 +699,7 @@ const WEEKDAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 /** A day key (`2026-11-15`) as `sun` to `sat`. */
 const weekdayOf = (day: string): string => WEEKDAY[new Date(`${day}T12:00:00`).getDay()] ?? ''
 
-/** The week's seven days as a Raster of stacked day columns (4 wide, pitch 6): the heaviest model `orchid` under the rest `iris`; an empty day is a rest tick. */
+/** The week's seven days as a Raster of stacked day columns (4 wide, pitch 6): the heaviest model `iris` under the rest `irisSoft` (I-4: no orchid in the pane); an empty day is a rest tick. */
 export function weekSpec(days: LedgerDay[], ground: Ground = 'night'): { spec: InstSpec; primary?: string; second: boolean } {
   const totals = new Map<string, number>()
   for (const d of days) for (const [m, n] of Object.entries(d.tokens)) totals.set(m, (totals.get(m) ?? 0) + n)
@@ -739,9 +726,9 @@ export function weekSpec(days: LedgerDay[], ground: Ground = 'night'): { spec: I
           const pb = Math.max(0, Math.min(8, b - lo))
           if (pb === 0) continue
           for (let x = 0; x < 4; x++) {
-            if (pa >= 8) g.lv(i * 6 + x, 2 - k, 8, 'orchid')
-            else if (pa > 0) g.lv(i * 6 + x, 2 - k, pa, 'orchid', pb >= 8 ? 'iris' : undefined)
-            else g.lv(i * 6 + x, 2 - k, pb, 'iris')
+            if (pa >= 8) g.lv(i * 6 + x, 2 - k, 8, 'iris')
+            else if (pa > 0) g.lv(i * 6 + x, 2 - k, pa, 'iris', pb >= 8 ? 'irisSoft' : undefined)
+            else g.lv(i * 6 + x, 2 - k, pb, 'irisSoft')
           }
         }
       })
@@ -792,12 +779,12 @@ function weekBlock(ctx: ViewCtx, $: EngineInterface): RenderElement[] {
       <Box key="week-row" flexDirection="row">
         <Box key="week-legend" flexDirection="column" width={chartAt} paddingLeft={left} flexShrink={0}>
           {primary !== undefined ? (
-            <Text key="week-primary" color={C.model} wrap="truncate-end">
+            <Text key="week-primary" color={CK.accent} wrap="truncate-end">
               {wordFit(modelName(primary), 9)}
             </Text>
           ) : null}
           {second ? (
-            <Text key="week-rest" color={CK.accent} wrap="truncate-end">
+            <Text key="week-rest" color={CK.accent} dimColor wrap="truncate-end">
               others
             </Text>
           ) : null}

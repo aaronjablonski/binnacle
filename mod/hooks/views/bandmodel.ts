@@ -3,12 +3,16 @@
 // the desktop Svg (svg.ts) draw the same model, so they say the same words.
 //
 // One critter (R25): the lead, or the asker while an ask is up. Amber only
-// while a dialog is up (R9); Watch adds a dim count and nothing else (R2 on
-// the alert model: the band has no `isPromptCovered`, so an ask in auto mode
-// shows after its 20 s). No Button, no blink, no clamp, no pill.
+// while a dialog is up (R9); Watch adds a dim count and nothing else. The
+// band has no `isPromptCovered`: it reads what the pane saw (`covered`,
+// `watching`). With no pane watching nothing can see a permission answered,
+// so it is amber only for its first NOTIFY_ASK_MS, then a dim "asked to run
+// a command · running"; an auto-mode one is "Checking a permission" for
+// ASK_MS, then the same (C-1, I-1, R2 amendment). No Button, no blink, no
+// clamp, no pill.
 
 import type { Timeline, UiState } from '../../types'
-import { CHECKING_TEXT, headerState, needs, watch } from '../model/alerts'
+import { askedVerb, CHECKING_TEXT, headerState, needs, watch } from '../model/alerts'
 import type { Need } from '../model/alerts'
 import type { RunLimits } from '../model/meter'
 import { cacheLine, thisTurn } from '../model/meter'
@@ -58,6 +62,8 @@ export type BandModel = {
   watch: number
   /** An auto-mode permission is still being checked (R2, F I1): the band says so, as the pane does, and never "nothing needs you". */
   checking: boolean
+  /** With no pane watching, the oldest permission past its first minute, in the past tense and dim: "asked to run a command" (I-1). */
+  asked?: string
   context?: number
   week?: number
   /** Idle line: the head ("All 14 done", "Finished"), whether it takes the tick, and the facts after it. */
@@ -66,13 +72,20 @@ export type BandModel = {
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
-/** The request's goal: Claude's focus, else the task, else the step in flight or the newest (as Now's headline). */
-function goalOf(t: Timeline): string {
+/** The headline of Now and of slim: Claude's focus, else the task, else the step in flight or the newest, else idle. */
+export function headline(t: Timeline): { text: string; isIdle: boolean; at?: number } {
   const s = summary(t)
-  if (s.focus !== undefined) return oneLine(s.focus)
+  if (s.focus !== undefined) return { text: s.focus.replace(/\s+/g, ' ').trim(), isIdle: false, ...(s.focusAt !== undefined ? { at: s.focusAt } : {}) }
   const bySeq = [...t.steps].sort((a, b) => b.seq - a.seq)
   const step = bySeq.find(x => x.status === 'running') ?? bySeq[0]
-  return step !== undefined ? shortPaths(oneLine(step.label)) : ''
+  if (step !== undefined) return { text: shortPaths(step.label.replace(/\s+/g, ' ').trim()), isIdle: false }
+  return { text: 'Idle. Nothing running yet.', isIdle: true }
+}
+
+/** The request's goal: Now's headline (R14, M15), '' while idle. */
+function goalOf(t: Timeline): string {
+  const h = headline(t)
+  return h.isIdle ? '' : oneLine(h.text)
 }
 
 /** What an ask is for, in a word: the tool, a question, a plan, the server's name. */
@@ -101,10 +114,12 @@ const files = (n: number): string => `${n} ${n === 1 ? 'file' : 'files'} changed
 /**
  * The band's model. `limits` are the run limits in force (Watch's count);
  * absent, the defaults. `covered` is the pane's observed cover (`paneCovered`): a dialog holds the
- * prompt, so an ask shows at once as the pane shows it, not as "Checking a permission".
+ * prompt, so an ask shows at once as the pane shows it, not as "Checking a permission". `watching`
+ * is whether the pane watches the prompt at all (`paneWatching`; true when covered): without it a
+ * permission is amber only for its first NOTIFY_ASK_MS (`needs`' `watching: false`).
  */
-export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: number, limits?: RunLimits, covered = false): BandModel {
-  const view = needs(t, now, { covered })
+export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: number, limits?: RunLimits, covered = false, watching = covered): BandModel {
+  const view = needs(t, now, { covered, watching: watching || covered })
   const hs = headerState(t, now, view)
   const todo = todoBlock(t, view.items.map(n => n.agent))
   const s = summary(t)
@@ -142,6 +157,8 @@ export function bandModel(t: Timeline, u: Pick<UiState, 'dismissed'>, now: numbe
     watch: watch(t, now, u.dismissed, limits).length,
     checking: view.checking,
   }
+  const asked = view.asked?.[0]
+  if (asked !== undefined && form !== 'asked') model.asked = askedVerb(asked)
   if (form === 'asked') model.ask = askOf(view.items)
   if (t.budget?.contextPct !== undefined) model.context = Math.max(0, Math.min(999, Math.round(t.budget.contextPct)))
   const week = win('seven_day')
@@ -171,11 +188,13 @@ export function agentsWords(m: Pick<BandModel, 'working'>): string {
 
 /**
  * The band's word on needs while nothing is asked: "Checking a permission"
- * while an auto-mode ask is settled (F I1: the pane says the same), else the
- * Watch count, else "nothing needs you".
+ * while an auto-mode ask is settled (F I1: the pane says the same), else a
+ * permission nothing can see answered, dim ("asked to run a command ·
+ * running", I-1), else the Watch count, else "nothing needs you".
  */
-export function needsPiece(m: Pick<BandModel, 'watch' | 'checking'>): string {
+export function needsPiece(m: Pick<BandModel, 'watch' | 'checking'> & Partial<Pick<BandModel, 'asked'>>): string {
   if (m.checking) return CHECKING_TEXT
+  if (m.asked !== undefined) return `${m.asked} · running`
   return m.watch > 0 ? `${m.watch} to watch` : 'nothing needs you'
 }
 

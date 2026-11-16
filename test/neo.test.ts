@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import { bar, buckets, crewRow, meter, pillRun, pips, spark, tether } from '../mod/hooks/views/fit'
-import { ASCII, C, dialOf, GLYPHS, HULL, podOf, podStateOf, RAIL, roleOf, TETHER, UNICODE } from '../mod/hooks/views/style'
+import { ASCII, C, dialOf, GLYPHS, podOf, podStateOf, RAIL, roleOf, TETHER, UNICODE } from '../mod/hooks/views/style'
 import type { Pod, PodState, Role, Run } from '../mod/hooks/views/style'
 
 const text = (runs: Run[]): string => runs.map(r => r.text).join('')
@@ -26,8 +26,8 @@ describe('the glyph sets', () => {
     for (const g of [...ASCII.dial, ...ASCII.pip, ...ASCII.sparks, ASCII.bar.lit, ASCII.bar.rest]) expect(/^[\x21-\x7e]$/.test(g)).toBe(true)
   })
 
-  test('HULL maps each role to its outline, lit and solid glyph (spec "Crew: pods")', () => {
-    expect(HULL).toEqual({
+  test('GLYPHS.hull (M11: the HULL alias is gone) maps each role to its outline, lit and solid glyph (spec "Crew: pods")', () => {
+    expect(GLYPHS.hull).toEqual({
       lead: ['◇', '◈', '◆'],
       scout: ['○', '◉', '●'],
       build: ['□', '▣', '■'],
@@ -72,7 +72,7 @@ describe('podOf', () => {
   const status = (s: PodState) => (s === 'done' ? 'done' : s === 'failed' ? 'error' : 'running') as 'running' | 'done' | 'error'
 
   for (const { role, type, id } of ROLES) {
-    const [outline, lit, solid] = HULL[role]
+    const [outline, lit, solid] = GLYPHS.hull[role]
     const pod = (state: PodState, now = EVEN): Pod => podOf({ id, type, status: status(state), state }, now)
 
     test(`${role}: queued is the outline, dim, with no signal`, () => {
@@ -88,8 +88,9 @@ describe('podOf', () => {
       expect(pod('waiting', EVEN)).toEqual(p)
       expect(pod('waiting', ODD)).toEqual(p)
     })
-    test(`${role}: stalled is the lit core in warning with z`, () => {
-      expect(pod('stalled')).toEqual({ role, state: 'stalled', hull: { text: lit, color: 'warning' }, signal: { text: 'z', color: 'warning' } })
+    // I-4 / R19 (meaning changed): amber is the dialog's colour only; a stalled pod is dim with a subtle z.
+    test(`${role}: stalled is the lit core, dim, with z in subtle (no amber)`, () => {
+      expect(pod('stalled')).toEqual({ role, state: 'stalled', hull: { text: lit, dim: true }, signal: { text: 'z', color: 'subtle' } })
     })
     test(`${role}: failed is the outline in error with a bold !`, () => {
       expect(pod('failed')).toEqual({ role, state: 'failed', hull: { text: outline, color: 'error' }, signal: { text: '!', color: 'error', bold: true } })

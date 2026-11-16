@@ -1,13 +1,12 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import type { LedgerRow, Timeline, UiState } from '../types'
-import { ASK_MS, needsYou } from './views/needs'
+import type { LedgerRow, Timeline } from '../types'
+import { ASK_MS } from './views/needs'
 import { headerState, needs, watch } from './model/alerts'
 
 type Box = { timeline?: Timeline; writes: Timeline[]; clock: ReturnType<typeof mock.clock> }
 
-const UI = { dismissed: [] } as unknown as UiState
 // No hook beneath answers the request: the prompt is the person's.
 const unanswered = (on: On) => on('classic.PermissionRequest', () => ({}))
 const AGENT_INPUT = { subagent_type: 'Explore', description: 'look', prompt: 'p' }
@@ -172,14 +171,15 @@ test("a check that resolves ask marks nothing and raises no need, and the engine
 
   expect(during?.steps.find(s => s.id === 'toolu_ask')?.status).toBe('running')
   expect(box.writes.some(t => t.steps.some(s => s.asking !== undefined))).toBe(false)
-  expect(needsYou(during!, UI, 1000 + 5 * 60_000)).toEqual([])
+  expect(needs(during!, 1000 + 5 * 60_000).items).toEqual([])
 
   const verdict = await $.tool.check({ tool: 'Bash', input: { command: 'npm test' } })
   expect(verdict).toEqual({ decision: 'ask', reason: 'needs a yes' })
 })
 
-// R2: in auto mode an uncovered ask waits ASK_MS (the classifier settles most); outside auto it shows at once (next test).
-test('a permission request in auto mode marks the running step with the same command; its need shows from 20 s and clears when the step ends', async ($, on) => {
+// R2 and C-1: in auto mode an uncovered ask is "Checking a permission" however long it stands (the classifier may
+// have allowed it; the clock settles it from what the pane sees); a covered prompt shows it at once. Outside auto it shows at once (next test).
+test('a permission request in auto mode marks the running step with the same command; uncovered it is only checked, covered a need; it clears when the step ends', async ($, on) => {
   const box = world(on)
   unanswered(on)
   let during: Timeline | undefined
@@ -194,12 +194,14 @@ test('a permission request in auto mode marks the running step with the same com
   const step = during?.steps.find(s => s.id === 'toolu_p')
   expect(step?.status).toBe('running')
   expect(step?.asking).toBe(1000)
-  expect(needsYou(during!, UI, 1000 + ASK_MS - 1)).toEqual([])
-  expect(needsYou(during!, UI, 1000 + ASK_MS).map(p => p.key)).toEqual(['asking:toolu_p'])
+  expect(needs(during!, 1000 + ASK_MS - 1)).toEqual({ items: [], checking: true })
+  expect(needs(during!, 1000 + ASK_MS)).toEqual({ items: [], checking: true })
+  expect(needs(during!, 1000 + 5 * 60_000)).toEqual({ items: [], checking: true })
+  expect(needs(during!, 1000 + ASK_MS, { covered: true }).items.map(n => n.key)).toEqual(['asking:toolu_p'])
   const ended = box.timeline?.steps.find(s => s.id === 'toolu_p')
   expect(ended?.status).toBe('done')
   expect(ended?.asking).toBe(undefined)
-  expect(needsYou(box.timeline!, UI, 1000 + 5 * 60_000)).toEqual([])
+  expect(needs(box.timeline!, 1000 + 5 * 60_000).items).toEqual([])
 })
 
 test('a permission request outside auto mode is one need at once, with its tool, command and asker, and clears when its step ends', async ($, on) => {

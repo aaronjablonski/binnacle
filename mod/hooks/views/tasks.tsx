@@ -9,7 +9,7 @@ import { debug, errText, updateUi } from '../state'
 import { openAgentPage, runningStep } from './agentmeta'
 import { lineOf, stateOf } from './crewnode'
 import type { Seg } from './crewnode'
-import { clock, doing, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
+import { clauseFit, clock, doing, fitRuns, levels, span, todoBar, typeShort, wordFit, wrapFull } from './fit'
 import { doingView, waitStates } from './needs'
 import { openPage } from './pagenav'
 import { blank, frameFootInst, frameTopInst, inst, page, runText, section } from './parts'
@@ -155,7 +155,13 @@ function taskRow(
 ): RenderElement {
   const mid = midEnd(ctx.cols)
   const { right } = edges(ctx.cols)
-  const name = (fitRuns(r.name, Math.max(1, nameLimit(ctx.cols) - COL.name)) as Run[]).filter(x => x.text !== '')
+  // M7: the columns on the right that this row leaves empty go to the name; a lone name is cut at a clause, never on "the".
+  const midShown = r.mid !== undefined && mid !== undefined
+  const timeRuns = r.time !== undefined && hasTime(ctx.cols) ? (Array.isArray(r.time) ? r.time : [r.time]) : undefined
+  const timeW = (timeRuns ?? []).reduce((n, x) => n + x.text.length, 0)
+  const limit = midShown ? nameLimit(ctx.cols) : timeRuns !== undefined ? Math.max(nameLimit(ctx.cols), right - timeW - 1) : right + 1
+  const room = Math.max(1, limit - COL.name)
+  const name = (r.name.length === 1 ? [{ ...r.name[0]!, text: clauseFit(r.name[0]!.text, room) }] : (fitRuns(r.name, room) as Run[])).filter(x => x.text !== '')
   const body: Seg[] = [{ col: 2, ...r.glyph }]
   let col: number = COL.name
   for (const n of name) {
@@ -163,7 +169,7 @@ function taskRow(
     col += n.text.length
   }
   if (r.mid !== undefined && mid !== undefined) body.push(...flushRight([r.mid], mid))
-  if (r.time !== undefined && hasTime(ctx.cols)) body.push(...flushRight(Array.isArray(r.time) ? r.time : [r.time], right))
+  if (timeRuns !== undefined) body.push(...flushRight(timeRuns, right))
   return lineOf(ctx, $, {
     key: r.key,
     ...(r.mark !== undefined ? { pre: [{ col: 0, text: '▍', color: r.mark }] } : {}),
@@ -233,7 +239,7 @@ export function tasksView(ctx: ViewCtx, $: EngineInterface): RenderElement {
     // Effort so far is this request's tasks only: the folded ones of earlier requests are not bars.
     const currentKeys = new Set(current.map(keyOf))
     const chartRows = meter.rows.filter(m => currentKeys.has(keyOf(m.task)))
-    const waits = waitStates(t, u, now)
+    const waits = waitStates(ctx)
     const toPage = (key: string) => (): Promise<void> => openPage($, 'task', key, `task-${key}`)
     const unfolded = u.doneAll === true
     // R37: Up next, Done and Earlier keep the mock's caps at 46 rows and grow with the pane after that.

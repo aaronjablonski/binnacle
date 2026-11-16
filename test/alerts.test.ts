@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { Ev, Timeline } from '../mod/types'
 import {
-  agentName, alertNotes, answeredAsks, autoFocuses, bandLead, CHECKING_TEXT, headerState, needs, promptHint, spanText, watch,
+  agentName, alertNotes, answeredAsks, askedVerb, autoFocuses, CHECKING_TEXT, headerState, needs, settledAsks, spanText, watch,
 } from '../mod/hooks/model/alerts'
-import { ASK_MS, QUIET_MS, WATCH_NOTIFY_MS } from '../mod/hooks/model/limits'
+import { ASK_MS, NOTIFY_ASK_MS, QUIET_MS, WATCH_NOTIFY_MS } from '../mod/hooks/model/limits'
 import { empty, reduce } from '../mod/hooks/model/reduce'
 import { listCounts, NO_LIST_TEXT, todoBlock } from '../mod/hooks/model/todo'
 
@@ -44,16 +44,50 @@ describe('needs', () => {
     expect([n!.asker, n!.askerAmbiguous, n!.who, n!.sentence]).toEqual(['Explorer', true, 'An agent', 'An agent asks to run a command'])
   })
 
-  it('R2: in auto mode an uncovered ask waits 20 s with "Checking a permission"; covered, or outside auto, it shows at once', () => {
+  // C-1 (meaning changed): an uncovered auto-mode ask no longer becomes a need at ASK_MS; it stays "Checking a
+  // permission" (the classifier may have allowed it) until the clock settles it from what the pane saw (settledAsks).
+  it('R2, C-1: in auto mode an uncovered ask is only "Checking a permission", however long; covered, or outside auto, it shows at once', () => {
     const t = fold([start('s1', 'Bash', { command: 'ls' }), ask('s1', true, 1000)])
     expect(t.autoAsk).toBe(true)
     expect(needs(t, 1000 + ASK_MS - 1)).toEqual({ items: [], checking: true })
     expect(CHECKING_TEXT).toBe('Checking a permission')
     expect(needs(t, 1000 + ASK_MS - 1, { covered: true }).items).toHaveLength(1)
-    expect(needs(t, 1000 + ASK_MS).items).toHaveLength(1)
+    expect(needs(t, 1000 + ASK_MS)).toEqual({ items: [], checking: true })
+    expect(needs(t, 1000 + 25_000)).toEqual({ items: [], checking: true })
+    expect(needs(t, 1000 + 5 * MIN, { watching: true })).toEqual({ items: [], checking: true })
     const manual = fold([start('s2', 'Bash', { command: 'ls' }), ask('s2', false, 2000)])
     expect(manual.autoAsk).toBeUndefined()
     expect(needs(manual, 2001).items.map((n) => n.key)).toEqual(['asking:s2'])
+  })
+
+  it('I-1: with no pane watching, a permission is a need for its first minute, then a dim "asked"; auto mode: checked for 20 s, then the same', () => {
+    const manual = fold([start('s1', 'Bash', { command: 'cargo build' }, 'main', 0), ask('s1', false, 0)])
+    expect(needs(manual, NOTIFY_ASK_MS - 1, { watching: false }).items.map((n) => n.key)).toEqual(['asking:s1'])
+    const late = needs(manual, NOTIFY_ASK_MS, { watching: false })
+    expect([late.items, late.checking, late.asked?.map((n) => n.key)]).toEqual([[], false, ['asking:s1']])
+    expect(askedVerb(late.asked![0]!)).toBe('asked to run a command')
+    // The pane watching (or the option left out) changes nothing: the clock clears what it saw answered.
+    expect(needs(manual, 10 * MIN, { watching: true }).items).toHaveLength(1)
+    expect(needs(manual, 10 * MIN).asked).toBeUndefined()
+    const auto = fold([start('s2', 'Bash', { command: 'npm test' }, 'main', 0), ask('s2', true, 0)])
+    expect(needs(auto, ASK_MS - 1, { watching: false })).toEqual({ items: [], checking: true })
+    const after = needs(auto, ASK_MS, { watching: false })
+    expect([after.items, after.checking, after.asked?.map((n) => n.key)]).toEqual([[], false, ['asking:s2']])
+    // Exact asks stay as they are: an Agent ask clears at its spawn, a question or plan with its dialog.
+    const agent = fold([start('s3', 'Agent', { description: 'x' }, 'main', 0), ask('s3', false, 0)])
+    expect(needs(agent, 10 * MIN, { watching: false }).items.map((n) => n.key)).toEqual(['asking:s3'])
+    const q = fold([start('q1', 'AskUserQuestion', { questions: [] }, 'main', 0)])
+    expect(needs(q, 10 * MIN, { watching: false }).items.map((n) => n.kind)).toEqual(['question'])
+  })
+
+  it('C-1: an ask the pane watched uncovered for 20 s, from the ask or from the start of its watch, is settled; a question never', () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm test' }, 'main', 0), ask('s1', true, 1000), start('q1', 'AskUserQuestion', { questions: [] }, 'main', 0), ask('q1', false, 1000)])
+    expect(settledAsks(t, 1000 + ASK_MS - 1, 0)).toEqual([])
+    expect(settledAsks(t, 1000 + ASK_MS, 0)).toEqual(['s1'])
+    // The pane began watching after the ask: 20 s from then.
+    expect(settledAsks(t, 5000 + ASK_MS - 1, 5000)).toEqual([])
+    expect(settledAsks(t, 5000 + ASK_MS, 5000)).toEqual(['s1'])
+    expect(settledAsks(t, 10 * MIN, undefined)).toEqual([])
   })
 
   it('R1: a question, a plan and an MCP input request each have their own sentence', () => {
@@ -77,10 +111,6 @@ describe('needs', () => {
     expect(fold([turnEnd('t1')], t).asks).toBeUndefined()
   })
 
-  it('R3: the control is words, never a button: esc while the pane holds the keys, else point at the dialog', () => {
-    expect(promptHint(true)).toBe('esc: back to the prompt')
-    expect(promptHint(false)).toBe('answer in the prompt ↓')
-  })
 })
 
 describe('watch', () => {
@@ -179,9 +209,10 @@ describe('Watch never leads the band, never autoFocuses, never notifies', () => 
 
   it('the band lead is a need only', () => {
     expect(watch(quiet, now).length > 0).toBe(true)
-    expect(bandLead(needs(quiet, now))).toBeUndefined()
+    // M11: `bandLead` (the first need) is gone; the band leads with `needs(...).items[0]`.
+    expect(needs(quiet, now).items[0]).toBeUndefined()
     const asking = fold([start('s1', 'Bash', { command: 'x' }, 'main', now - 1), ask('s1', false, now - 1)], quiet)
-    expect(bandLead(needs(asking, now))?.key).toBe('asking:s1')
+    expect(needs(asking, now).items[0]?.key).toBe('asking:s1')
   })
 
   it('autoFocus is for needs only', () => {
@@ -208,6 +239,13 @@ describe('Watch never leads the band, never autoFocuses, never notifies', () => 
     expect(on.map((n) => n.text)).toEqual(['Watch: Explorer: no activity for 20 min, may be thinking'])
     expect(alertNotes(quiet, { ...UI, notified: on.map((n) => n.id) }, now, { mode: 'all', watchNotify: true, freshMs: 15_000 })).toEqual([])
     expect(alertNotes(quiet, UI, QUIET_MS + WATCH_NOTIFY_MS - 1000, { mode: 'all', watchNotify: true, freshMs: 15_000 })).toEqual([])
+  })
+
+  it('C-1: an auto-mode ask notifies only once the pane sees its dialog; never while it is only checked', () => {
+    const t = fold([start('s1', 'Bash', { command: 'npm test' }, 'main', 0), ask('s1', true, 0)])
+    expect(alertNotes(t, UI, 10 * MIN, { freshMs: 15_000, watching: true })).toEqual([])
+    expect(alertNotes(t, UI, 59_000, { freshMs: 15_000, watching: true, covered: true })).toEqual([])
+    expect(alertNotes(t, UI, 60_000, { freshMs: 15_000, watching: true, covered: true })).toEqual([{ id: 's1', text: 'Waiting on you: Bash npm test' }])
   })
 
   it('a need notifies after a minute (20 s on Agent), a fresh failed turn with all', () => {
@@ -245,7 +283,7 @@ describe('an answered ask (F C1)', () => {
     const view = needs(answered, at)
     expect(view).toEqual({ items: [], checking: false })
     expect(headerState(answered, at, view).state).toBe('working')
-    expect(bandLead(view)).toBeUndefined()
+    expect(view.items[0]).toBeUndefined()
     expect(alertNotes(answered, UI, at, { mode: 'all', freshMs: 15_000, watching: true })).toEqual([])
   })
 
@@ -261,6 +299,14 @@ describe('an answered ask (F C1)', () => {
 })
 
 describe('headerState', () => {
+  it('I-3: no "quiet" while a step runs, however long; quiet counts from the last step end once none runs', () => {
+    const t = fold([turnStart('t1', 0), start('e2e', 'Bash', { command: 'npm run e2e' }, 'main', 0)])
+    expect(headerState(t, 6 * MIN, needs(t, 6 * MIN))).toMatchObject({ state: 'working', quiet: 'none' })
+    expect(headerState(t, 6 * MIN, needs(t, 6 * MIN)).quietMs).toBeUndefined()
+    const ended = fold([end('e2e', 'done', 7 * MIN)], t)
+    expect(headerState(ended, 7 * MIN + 2 * MIN, needs(ended, 9 * MIN))).toMatchObject({ quiet: 'dim', quietMs: 2 * MIN })
+  })
+
   it('working with the turn time; quiet dim from 2 min, bold from 5', () => {
     const t = fold([turnStart('t1', 0), start('s', 'Read', { file_path: 'a' }, 'main', 0), end('s', 'done', 1000)])
     const h = (now: number) => headerState(t, now, needs(t, now))

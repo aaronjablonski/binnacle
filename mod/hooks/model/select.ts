@@ -11,30 +11,6 @@ const subagents = (t: Timeline): AgentRow[] => Object.values(t.agents).filter((a
 
 export type TaskNode = { task: TaskItem; agents: { agent: AgentRow; tasks: TaskItem[] }[] }
 
-/**
- * Main's tasks, each with the agents spawned while it was in progress and those
- * agents' own tasks. Tasks of agents not linked to a main task follow at the top level.
- */
-export function taskTree(t: Timeline): TaskNode[] {
-  const linked = new Set<string>()
-  const nodes: TaskNode[] = []
-  for (const task of t.tasks) {
-    if (task.owner !== 'main') continue
-    const agents = subagents(t)
-      .filter((a) => a.parent === 'main' && a.taskId === task.id)
-      .sort(byStart)
-      .map((agent) => {
-        linked.add(agent.id)
-        return { agent, tasks: t.tasks.filter((x) => x.owner === agent.id) }
-      })
-    nodes.push({ task, agents })
-  }
-  for (const task of t.tasks) {
-    if (task.owner !== 'main' && !linked.has(task.owner)) nodes.push({ task, agents: [] })
-  }
-  return nodes
-}
-
 const runningFirst = (a: AgentRow, b: AgentRow) =>
   (a.status === 'running' ? 0 : 1) - (b.status === 'running' ? 0 : 1) || a.startedAt - b.startedAt
 
@@ -111,23 +87,6 @@ export function runningOnlyTree(root: TreeNode): TreeNode {
   return keep(root) ?? { ...root, children: [] }
 }
 
-/** Agents under `node` (not itself, never main, runs not counted) and how many of them run. */
-export function branchCounts(node: TreeNode): { agents: number; running: number } {
-  let agents = 0
-  let running = 0
-  const walk = (n: TreeNode) => {
-    for (const c of n.children) {
-      if (c.kind === 'agent' && c.agent && c.agent.id !== 'main') {
-        agents += 1
-        if (c.agent.status === 'running') running += 1
-      }
-      walk(c)
-    }
-  }
-  walk(node)
-  return { agents, running }
-}
-
 /** Whether `node` or anything under it is one of `ids` (agent ids with a problem). */
 export function hasProblemIn(node: TreeNode, ids: Set<string>): boolean {
   if (node.kind === 'agent' && node.agent && ids.has(node.agent.id)) return true
@@ -135,22 +94,6 @@ export function hasProblemIn(node: TreeNode, ids: Set<string>): boolean {
 }
 
 export type TreeLine = { key: string; prefix: string; node: TreeNode; folded: boolean }
-
-/** The tree depth-first, one line per node, skipping the children of folded keys. */
-export function treeLines(root: TreeNode, folded: string[]): TreeLine[] {
-  const out: TreeLine[] = []
-  const walk = (node: TreeNode, prefix: string, indent: string) => {
-    const isFolded = folded.includes(node.key)
-    out.push({ key: node.key, prefix, node, folded: isFolded })
-    if (isFolded) return
-    node.children.forEach((c, i) => {
-      const last = i === node.children.length - 1
-      walk(c, indent + (last ? '└─ ' : '├─ '), indent + (last ? '   ' : '│  '))
-    })
-  }
-  walk(root, '', '')
-  return out
-}
 
 function matches(s: Step, f: StepFilter): boolean {
   switch (f.kind) {

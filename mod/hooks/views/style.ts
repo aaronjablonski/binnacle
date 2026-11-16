@@ -1,6 +1,6 @@
 import type { AgentRow, StepStatus, TaskItem } from '../../types'
 import { accentPalette, BLINK_BEATS, CRITTER, critterFrames, SPRITE, sprite } from './raster'
-import type { CritterSize, Grid, Ground, Hue, Neutral, Palette, Size, State } from './raster'
+import type { CritterSize, Grid, Ground, Palette, Size, State } from './raster'
 
 /**
  * The accent (R35): the theme key the structural colour draws in. `iris`
@@ -19,10 +19,11 @@ export function accentKeyOf(option: unknown): string {
 let accentKey: string = ACCENTS.iris
 
 /**
- * Points `C.accent`, `C.live` and `CK.accent` at the accent option. The shell
- * and the band call it at the top of every draw from the option as it stands
- * (a press applies at once), so every view reads one structural colour with no
- * per-view option read. It is module configuration, not session state.
+ * Points `C.accent`, `C.live` and `CK.accent` at the accent option. Options
+ * call it at register time (`configureOptions`) and on the Accent press, so a
+ * press applies at once and no draw writes it (M9); every view reads one
+ * structural colour with no per-view option read. Module configuration, not
+ * session state.
  */
 export function setAccent(option: unknown): void {
   accentKey = accentKeyOf(option)
@@ -74,12 +75,6 @@ export const C = {
   result: 'success',
   rule: 'subtle',
   subtle: 'subtle',
-  /** @deprecated HUD v1: running is `live` (the accent) in v2. Kept until wave 2 replaces its callers. */
-  running: 'warning',
-  /** @deprecated HUD v1: done is dim in v2. Kept until wave 2 replaces its callers. */
-  done: 'success',
-  /** @deprecated HUD v1: the filled tab. v2 draws the open tab bold in the accent. */
-  tabFg: 'inverseText',
   /** Neo: the lead's hull while it works (`podOf`). */
   lead: 'claude',
   /** Neo (spec `C.spark`): the kept `★`. The sparkline itself stays in the accent. */
@@ -160,9 +155,6 @@ export function tier(cols: number): Tier {
   return 'slim'
 }
 
-/** The width of one tab cell per tier: `1: Now` … in 12, `1: Tsk` in 7, `1: ◆` in 5. Slim draws no tabs. */
-export const TAB_CELL = { wide: 12, mid: 7, icon: 5 } as const
-
 /**
  * Where a table row's columns fall at `cols`:
  * - 5 cells (≥ 62): metric at 38, time at 50, the name ends by 36
@@ -199,26 +191,6 @@ export function statusColor(status: StepStatus | AgentRow['status'] | TaskItem['
     case 'error':
     case 'denied':
       return C.fail
-    default:
-      return undefined
-  }
-}
-
-/**
- * The theme key of a status glyph; undefined means a dim glyph (pending, interrupted).
- * @deprecated HUD v1 colours (running in warning, done in success). Use `statusColor`.
- */
-export function glyphColor(status: StepStatus | AgentRow['status'] | TaskItem['status']): string | undefined {
-  switch (status) {
-    case 'running':
-    case 'in_progress':
-      return C.running
-    case 'done':
-    case 'completed':
-      return C.done
-    case 'error':
-    case 'denied':
-      return C.error
     default:
       return undefined
   }
@@ -299,9 +271,6 @@ export const ASCII: GlyphSet = {
 /** The glyph set every Neo primitive draws with. The one switch for the ASCII fallback. */
 export const GLYPHS: GlyphSet = UNICODE
 
-/** Role to its three hulls: [outline, lit core, solid] (spec "Crew: pods"). */
-export const HULL = GLYPHS.hull
-
 /** A deck's bracket: `┏ ┃ ┗` in column 0, `┓ ┃ ┛` in the last column. */
 export const RAIL = GLYPHS.rail
 
@@ -360,7 +329,7 @@ export function pulseOn(now: number): boolean {
  * - working: lit core in the accent (the lead in `claude`), bold on the even
  *   second and plain on the odd one (`pulseOn(now)`; no timer of its own)
  * - waiting: lit core, bold, in `warning`; signal `?` bold in `warning`
- * - stalled: lit core in `warning`; signal `z` in `warning`
+ * - stalled: lit core, dim; signal `z` in `subtle` (R19: no amber outside a dialog)
  * - failed: outline in `error`; signal `!` bold in `error`
  * - done: solid, dim
  * The role is `roleOf(subagentType ?? type)`; `main` is always the lead.
@@ -386,7 +355,7 @@ export function podOf(agent: PodAgent, now: number): Pod {
     case 'waiting':
       return { role, state, hull: { text: lit, color: C.wait, bold: true }, signal: { text: sig.waiting, color: C.wait, bold: true } }
     case 'stalled':
-      return { role, state, hull: { text: lit, color: C.wait }, signal: { text: sig.stalled, color: C.wait } }
+      return { role, state, hull: { text: lit, dim: true }, signal: { text: sig.stalled, color: C.subtle } }
     case 'failed':
       return { role, state, hull: { text: outline, color: C.fail }, signal: { text: sig.failed, color: C.fail, bold: true } }
     case 'done':
@@ -409,27 +378,6 @@ export function dialOf(pct: number): Run {
 }
 
 // ---------- Neo Rich: the look and the crew as Rasters (rich spec) ----------
-
-/**
- * Raster hues for the theme roles of `C`: the colour a Raster cell takes
- * where a Text would take the theme key beside it. Raster backgrounds are
- * always the terminal default, so only these hues and neutrals are drawn.
- */
-export const RICH = {
-  live: 'iris',
-  accent: 'iris',
-  lead: 'ember',
-  spark: 'ember',
-  wait: 'amber',
-  fail: 'red',
-  error: 'red',
-  result: 'mint',
-  model: 'orchid',
-  doc: 'orchid',
-  subtle: 'rest',
-  rule: 'rest',
-  dim: 'mute',
-} as const satisfies Record<string, Hue | Neutral>
 
 /**
  * How a surface draws (spec "Surfaces and fallbacks"): `rich` with Rasters

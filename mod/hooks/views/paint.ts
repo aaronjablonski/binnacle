@@ -5,9 +5,10 @@
 // redraw while something runs). Rather than add a second clock, that clock
 // moved here: `startClock($, onTick)` is the only place the mod calls
 // `$.clock.every`, and each period runs the shell's tick and then one paint
-// pass. The clock itself keeps running for the shell; the paint pass is what
-// stops when nothing is live: with no instrument of more than one frame it
-// draws, encodes and blits nothing.
+// pass. The clock stops when nothing is live (M10): the tick says nothing
+// runs, nothing is fresh and the cache is cold, and no instrument of more
+// than one frame is drawn. A capture hook's write to the Timeline starts it
+// again (shell.tsx `wakeClock`, called from capture.ts).
 //
 // While drawing, a view calls `begin(requestId)` once for its site and then
 // `track(...)` for each Raster it mounts, getting back the cells to mount for
@@ -137,16 +138,28 @@ export async function paintTick($: EngineInterface): Promise<number> {
 /**
  * Starts the mod's one 1 s clock (a running one is cancelled first). Each
  * period runs `onTick` (the shell's tick) and then, only while something is
- * live, a paint pass. Never throws.
+ * live, a paint pass. When `onTick` resolves `false` (nothing runs, nothing
+ * is fresh) and no instrument moves, the clock stops until the shell's
+ * `wakeClock` starts it again.
+ * Never throws.
  */
-export function startClock($: EngineInterface, onTick: () => void | Promise<void>): void {
+export function startClock($: EngineInterface, onTick: () => boolean | void | Promise<boolean | void>): void {
   stopClock()
-  timer = $.clock.every(1000, () => {
+  const mine = $.clock.every(1000, () => {
     void Promise.resolve()
       .then(onTick)
+      .then(busy => {
+        if (busy === false && !isLive() && timer === mine) stopClock()
+      })
       .catch(() => undefined)
     if (isLive()) void paintTick($).catch(() => 0)
   })
+  timer = mine
+}
+
+/** Whether the 1 s clock runs now (tests). */
+export function clockRunning(): boolean {
+  return timer !== undefined
 }
 
 /**
@@ -182,8 +195,9 @@ export async function repaint($: EngineInterface, requestId: string, key: string
 
 /** Stops the clock; `startClock` starts it again. */
 export function stopClock(): void {
-  timer?.cancel()
+  const t = timer
   timer = undefined
+  t?.cancel()
 }
 
 /** Empties the registry and the beat: for tests, whose module outlives each test. */

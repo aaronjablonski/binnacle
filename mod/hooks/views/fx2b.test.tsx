@@ -66,10 +66,11 @@ for (const w of NARROW) {
   })
 }
 
-test('F I5: the Agents sum shortens ("1 + 1 waiting") before the title is cut, then drops the hairline, then goes', async ($, on) => {
+// M5 (meaning changed): the short form keeps R30's words and drops the working count: "1 waiting".
+test('F I5: the Agents sum shortens ("1 waiting") before the title is cut, then drops the hairline, then goes', async ($, on) => {
   world(on, asked())
   const at32 = await pane($, 32)
-  expect(at32.find(r => r.startsWith('  Agents'))).toBe('  Agents ─────── 1 + 1 waiting')
+  expect(at32.find(r => r.startsWith('  Agents'))).toBe('  Agents ─────────── 1 waiting')
   const at62 = await pane($, 62)
   expect(at62.find(r => r.startsWith('  Agents'))?.endsWith('1 working · 1 waiting')).toBe(true)
 })
@@ -188,3 +189,19 @@ test('F M10: at 140 columns when asked, the asking agent is among the cards and 
 test('tokenText (F M3) drops a trailing .0', () => {
   expect([950, 1500, 4000, 5000, 9999, 41_000, 1_000_000, 1_300_000].map(tokenText)).toEqual(['950', '1.5k', '4k', '5k', '10k', '41k', '1M', '1.3M'])
 })
+
+// M1: trimRuns keeps a run's leading spaces (its separator) apart from the words it cuts; `/^s*/` matched letters `s`, not
+// spaces, so a cut sentence run lost its gap: "Needs youCode reviewer asks…". A long asker and an MCP tool force the cut.
+for (const cols of [80, 84, 88, 90]) {
+  test(`M1: at ${cols} columns the asked band keeps the gap after "Needs you" when the sentence is cut`, async ($, on) => {
+    const t = asked()
+    world(on, {
+      ...t,
+      agents: { ...t.agents, b1: { ...t.agents.b1!, type: 'code-reviewer' } },
+      steps: t.steps.map(s => (s.id === 's-b1' ? { ...s, tool: 'mcp__github__create_or_update_file', label: 'mcp__github__create_or_update_file src/limits/rate-limit-middleware-config.ts' } : s)),
+    })
+    const rows = await band($, cols)
+    expect(rows.join('\n')).toContain('Needs you')
+    expect(rows.join('\n')).not.toMatch(/Needs you\S/)
+  })
+}

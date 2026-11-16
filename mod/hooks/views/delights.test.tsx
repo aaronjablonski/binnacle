@@ -99,7 +99,7 @@ async function lit(ui: Mounted, clock: MockClock, ms: number, step = 100): Promi
 
 const STEPS = [0, 1, 2, 3, 4].map(i => sweepCells(i, 62)[0])
 
-test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it ends and never comes back', { options: { look: 'text' } }, async ($, on) => {
+test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it ends and never comes back', { options: { look: 'text' }, timeoutMs: 30_000 }, async ($, on) => {
   const w = world(on, clean(), OPEN)
   await start($)
   const ui = await $.ui.mount(PANE(62) as never)
@@ -114,9 +114,10 @@ test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it
   expect(seen).toEqual(STEPS)
   expect(SWEEP_FRAMES).toBe(5)
   expect(SWEPT(w)).toBe(true)
-  // It ended: nothing sweeps on later ticks (a new pass would show for 800 ms, longer than the 400 ms step), and the rule is plain.
-  for (const ms of [SWEEP_STEP_MS, 4000, 16_000]) {
-    await w.clock.advance(ms)
+  // It ended: nothing sweeps on later ticks, and the rule is plain. M12: sampled every SWEEP_STEP_MS over 20 s on the
+  // mock clock, so a restarted pass (it shows for SWEEP_FRAMES steps) cannot slip between two samples.
+  for (let ms = 0; ms < 20_000; ms += SWEEP_STEP_MS) {
+    await w.clock.advance(SWEEP_STEP_MS)
     await ui.redraw()
     expect(litFrom(screen(await ui.drawn()))).toBeUndefined()
   }
@@ -216,16 +217,17 @@ test('the band never sweeps: its rows are the same on every frame of a sweep', {
   await band.unmount()
 })
 
+// M5: the toast says what the views say ("All 14 done").
 test('all to-dos done toasts once for the request, at the round number, and never again', async ($, on) => {
   const done = tasksOf(14).map(x => ({ ...x, updatedAt: NOW - 1000 }))
   const w = world(on, { ...clean(), tasks: done }, OPEN)
   await start($)
   await w.clock.advance(1000)
   await w.clock.advance(10_000)
-  expect(w.toasts).toEqual(['All 14 to-dos done'])
+  expect(w.toasts).toEqual(['All 14 done'])
   expect(toasted(w)).toContain('todos-done:t1')
   await w.clock.advance(30_000)
-  expect(w.toasts).toEqual(['All 14 to-dos done'])
+  expect(w.toasts).toEqual(['All 14 done'])
 })
 
 test('no to-do toast for a list still open', async ($, on) => {
@@ -278,7 +280,7 @@ test('a lone agent finish keeps its own words', async ($, on) => {
   const w = world(on, { ...t, agents }, OPEN)
   await start($)
   await w.clock.advance(5000)
-  expect(w.toasts.filter(x => x.includes('finished'))).toEqual(['Explore finished: Grep upload'])
+  expect(w.toasts.filter(x => x.includes('finished'))).toEqual(['Explorer finished: Grep upload'])
 })
 
 test('a finish while another agent still runs waits a moment for the rest, then toasts once', async ($, on) => {

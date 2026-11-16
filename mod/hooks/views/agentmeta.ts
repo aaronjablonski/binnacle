@@ -53,13 +53,13 @@ export function tokensCell(a: AgentRow): string {
 /**
  * A duration for a table's time cell (R27's words), at most 9 wide so it
  * never meets the tokens column at 49: `14 min`, `1 h 5 min`; where hours
- * and minutes do not fit (`1 h 48 min`) the map's short form `1h 48m`.
+ * and minutes do not fit (`1 h 48 min`) the minutes alone, `108 min` (M3:
+ * R27's words, never `1h 48m`).
  */
 export function cellTime(ms: number): string {
   const s = span(ms)
   if (s.length <= 9) return s
-  const m = Math.floor(Math.max(0, ms) / 60_000)
-  return `${Math.floor(m / 60)}h ${m % 60}m`
+  return `${Math.floor(Math.max(0, ms) / 60_000)} min`
 }
 
 /** The time: how long it ran (main: since its first step; '' before it has one). */
@@ -139,7 +139,7 @@ export async function jumpToProblem($: EngineInterface, targets: Jump[], dir: 1 
 export const STATE_WORD: Record<PodState, string> = {
   queued: 'queued',
   working: 'working',
-  waiting: 'asks permission',
+  waiting: 'waiting',
   stalled: 'stalled',
   failed: 'failed',
   done: 'done',

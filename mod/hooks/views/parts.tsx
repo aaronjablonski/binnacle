@@ -5,7 +5,7 @@ import { sweepCells, sweepFrame, sweepShows } from './delights'
 import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
-import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, lintel, lintelRoom, sill } from './raster'
+import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, getCellAspect } from './raster'
 import type { Grid, Ground, Hue } from './raster'
 import type { ViewCtx } from './shell'
 import { accentName, C, cellsFor, CK, COCKPIT, COL, DECK, edges, gaugeStyle, GRID, palette, RAIL, tableCols, toneKey } from './style'
@@ -29,31 +29,6 @@ export function sectionHeader(label: string, meta: string, cols: number, e: Rend
       </Text>
       {p.rule !== '' ? <Text color={C.rule}>{p.rule}</Text> : null}
       {p.meta !== '' ? <Text dimColor>{p.meta}</Text> : null}
-    </Text>
-  )
-}
-
-/**
- * A glyph in its status colour (dim when it has none), a space and the text;
- * the whole fits `ctx.cols`. `indent` is plain spaces before the glyph.
- * @deprecated HUD v1. Use `row`.
- */
-export function glyphLine(
-  ctx: ViewCtx,
-  $: EngineInterface,
-  glyph: string,
-  color: string | undefined,
-  text: string,
-  bold = false,
-  indent = '',
-): RenderElement {
-  const { Text } = $.ui.resolve(ctx.e)
-  const body = wordFit(text, Math.max(0, ctx.cols - indent.length - glyph.length - 1))
-  return (
-    <Text>
-      {indent !== '' ? indent : null}
-      {color !== undefined ? <Text color={color}>{glyph}</Text> : <Text dimColor>{glyph}</Text>}
-      {bold ? <Text bold>{` ${body}`}</Text> : ` ${body}`}
     </Text>
   )
 }
@@ -121,14 +96,14 @@ function laidOut(segs: (Run & { col: number })[], start: number, e: RenderInput,
   return out
 }
 
-/** The gutter flags: `◂` (in view in the chat) in the accent, `!` (a problem here or below) in error, `?` (waiting on the person) and `z` (stalled) in warning. */
+/** The gutter flags: `◂` (in view in the chat) in the accent, `!` (a problem here or below) in error, `?` (waiting on the person) in warning, `z` (stalled) in subtle (R19: amber is the dialog's). */
 export type Flag = 'inView' | 'problem' | 'waiting' | 'stalled'
 
 const FLAG: Record<Flag, Run> = {
   inView: { text: '◂', color: C.live },
   problem: { text: '!', color: C.fail },
   waiting: { text: '?', color: C.wait },
-  stalled: { text: 'z', color: C.wait },
+  stalled: { text: 'z', color: C.subtle },
 }
 
 /** What `row` draws. */
@@ -711,9 +686,6 @@ export function inst(ctx: ViewCtx, $: EngineInterface, s: InstSpec): RenderEleme
   )
 }
 
-/** The frame's colour: iris, amber while something waits (`tone: 'warning'`). */
-export const frameHue = (tone: DeckOpts['tone']): Hue => (tone === 'warning' ? 'amber' : 'iris')
-
 /** What the rich deck's lintel carries: the state pill and one dim readout at the right. */
 export type FrameSpec = {
   /** The state pill hanging from the line (` WORKING `); in the text form a Text pill. */
@@ -729,20 +701,6 @@ export type FrameSpec = {
   right?: string
   /** The readout in amber rather than dim (the cache about to go cold). */
   rightAmber?: boolean
-}
-
-/**
- * The one lintel guard (spec "Frame"): the pill and the readout a lintel of
- * `width` can draw without either touching the other or the clamp. The pill
- * is dropped when it does not fit; the readout is drawn whole in the room
- * `lintelRoom` leaves after the pill, or left out (a readout is never cut).
- * Both forms of `lintelInst` draw exactly what this returns, so a caller
- * passes the whole readout and never guards it itself.
- */
-export function frameFit(width: number, f: FrameSpec): { pill?: string; right?: string } {
-  const room = lintelRoom(width, f)
-  const right = f.right !== undefined && [...f.right].length <= room.right ? f.right : ''
-  return { ...(room.pill && f.pill !== undefined ? { pill: f.pill } : {}), ...(right !== '' ? { right } : {}) }
 }
 
 /** One line of the hero: a Text, or a plain Button (the running step, the BUDGET line). `lines: 2` wraps it by word onto two rows (the focus). */
@@ -1243,7 +1201,7 @@ export function gaugesInst(key: string, gauges: readonly Gauge[], ground: Ground
     key,
     columns: GAUGE_PAIR.columns,
     rows: GAUGE_PAIR.rows,
-    sig: `gauges:${ground}:${accentName()}:${shown.map(g => Math.round(g.pct)).join(',')}`,
+    sig: `gauges:${ground}:${accentName()}:${getCellAspect()}:${shown.map(g => Math.round(g.pct)).join(',')}`,
     frames: () => [gaugePair(shown.map(g => g.pct), palette(ground))],
     fallback: [blank, blank, mid, blank, blank],
   }

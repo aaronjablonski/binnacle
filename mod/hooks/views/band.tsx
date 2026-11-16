@@ -5,15 +5,15 @@ import { debug, errText, readTimeline, readUi } from '../state'
 import { bandModel, agentsWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
 import { todoBar, wordFit } from './fit'
-import { needsLimits, paneCovered } from './needs'
+import { needsLimits, paneCovered, paneWatching } from './needs'
 import { inst, runText } from './parts'
 import type { Run } from './parts'
 import { begin } from './paint'
-import { accentOption, lookOption } from './options'
+import { lookOption } from './options'
 import { leaveStrip } from './shell'
 import { stripBandView } from './stripband'
 import type { ViewCtx } from './shell'
-import { CK, critterArgs, groundOf, lookAsked, setAccent, themeOf } from './style'
+import { CK, critterArgs, groundOf, lookAsked, themeOf } from './style'
 import { bandSvgOf, lookFor } from './svgview'
 
 // The band above the prompt (cockpit spec "CockpitBand", mock CockpitBand;
@@ -88,7 +88,7 @@ function trimRuns(runs: Run[], room: number): Run[] {
       left -= r.text.length
     } else {
       // F I4: a run's leading spaces are its separator, kept apart from the words that are cut.
-      const lead = /^s*/.exec(r.text)![0]
+      const lead = /^\s*/.exec(r.text)![0]
       const cut = wordFit(r.text.slice(lead.length), left - lead.length)
       if (cut !== '') out.push({ ...r, text: lead + cut })
       left = 0
@@ -292,12 +292,11 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const t = await readTimeline($)
       const u: UiState = await readUi($)
       const now = await $.clock.now()
-      const m = bandModel(t, u, now, needsLimits(), paneCovered(now))
+      const m = bandModel(t, u, now, needsLimits(), paneCovered(now), paneWatching(now))
       const isStrip = u.strip === true
       if (m.nothing && !isStrip) return next(e)
 
       const cols = e.props.bodyColumns
-      setAccent(accentOption() ?? options.accent)
       // The Rasters here are all still, so the paint clock never blits the band.
       begin(BAND_SITE)
       const theme = await themeOf($)
@@ -306,7 +305,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE, ground: groundOf(options.ground, theme) }
       if (!isStrip) {
         // `/mc` stays pressable beside the Svg: a press opens the pane, as the command does.
-        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
+        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, ground: ctx.ground ?? 'night', presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
         if (svg !== null) return svg
       }
       const one = line(ctx, $, 'band', oneRow(m, cols))

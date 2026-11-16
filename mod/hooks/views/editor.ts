@@ -22,11 +22,6 @@ export function configureEditor(name: unknown): void {
   editor = typeof name === 'string' && name.trim() !== '' ? name.trim() : DEFAULT_EDITOR
 }
 
-/** The editor `openInEditor` runs. */
-export function editorName(): string {
-  return editor
-}
-
 /** Remembers the session's project root, so a draw can make a relative path absolute without waiting (startShell). */
 export function rememberRoot(root: string | undefined): void {
   knownRoot = root

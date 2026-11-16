@@ -3,7 +3,7 @@ import { expect, test } from 'vitest'
 import { beadCount, compartments, growLists, levels, listSplit, NOW_SECTIONS, rowsUsed, sectionRows, wrapFull } from '../mod/hooks/views/fit'
 import type { SectionCount } from '../mod/hooks/views/fit'
 import { SPRITE } from '../mod/hooks/views/raster'
-import { DECK, lookOf, RICH, spriteOf } from '../mod/hooks/views/style'
+import { DECK, lookOf, spriteOf } from '../mod/hooks/views/style'
 
 // The element tables as `$.ui.resolve(e)` hands them out: every surface's
 // table is completed with every element name, and an element the surface
@@ -35,18 +35,6 @@ test('lookOf: the text look wins on every table; any other look follows the tabl
   expect(lookOf(TABLES.terminal, { look: 'rich' })).toBe('rich')
   expect(lookOf(TABLES.mobile, { look: 'rich' })).toBe('svg')
   expect(lookOf(TABLES.bare, { look: 'rich' })).toBe('text')
-})
-
-test('RICH maps the theme roles to raster hues', () => {
-  expect(RICH.live).toBe('iris')
-  expect(RICH.lead).toBe('ember')
-  expect(RICH.wait).toBe('amber')
-  expect(RICH.fail).toBe('red')
-  expect(RICH.result).toBe('mint')
-  expect(RICH.model).toBe('orchid')
-  expect(RICH.subtle).toBe('rest')
-  expect(RICH.dim).toBe('mute')
-  expect(DECK.ring).toBe(39)
 })
 
 const agent = (id: string, type: string, status: 'running' | 'done' | 'error' = 'running') => ({ id, type, status })

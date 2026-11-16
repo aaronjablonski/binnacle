@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { barSplit, blockBar, elapsed, fit, fitLeft, headerParts, rule, typeShort, wrap } from '../mod/hooks/views/fit'
+import { barSplit, elapsed, fit, fitLeft, headerParts, rule, typeShort, wrap } from '../mod/hooks/views/fit'
 
 test('fit cuts with an ellipsis and never exceeds the columns', () => {
   expect(fit('abcdef', 4)).toBe('abc…')
@@ -34,13 +34,6 @@ test('rule repeats the line glyph and is empty for no room', () => {
   expect(rule(5)).toBe('─────')
   expect(rule(0)).toBe('')
   expect(rule(-2)).toBe('')
-})
-
-test('blockBar fills and rests to the columns', () => {
-  expect(blockBar(2, 6, 12)).toEqual({ filled: '████', rest: '░░░░░░░░' })
-  expect(blockBar(0, 0, 4)).toEqual({ filled: '', rest: '░░░░' })
-  expect(blockBar(6, 6, 3)).toEqual({ filled: '███', rest: '' })
-  expect(blockBar(1, 2, 0)).toEqual({ filled: '', rest: '' })
 })
 
 test('headerParts sum to the columns, dropping the meta first and then the rule', () => {

@@ -133,8 +133,10 @@ export function stateOf(a: AgentRow, states: Map<string, PodState>): PodState {
 function cardDoing(t: Timeline, a: AgentRow, state: PodState, view?: DoingView): (room: number) => string | Run[] {
   return room => {
     if (state === 'waiting') return [{ text: room >= 23 ? 'Waiting for your answer' : 'Waiting for you', color: CK.ask }]
-    if (state === 'stalled') return [{ text: room >= 40 ? 'No activity for a while, may be thinking' : room >= 18 ? 'No activity lately' : 'Quiet', dim: true }]
-    return doing(runningStep(t, a.id), view, room)
+    // I-2: `z` is a Stalled step (it runs: say what, as Now's card does) or a Quiet agent (no step running).
+    const step = runningStep(t, a.id)
+    if (state === 'stalled' && step === undefined) return [{ text: room >= 40 ? 'No activity for a while, may be thinking' : room >= 18 ? 'No activity lately' : 'Quiet', dim: true }]
+    return doing(step, view, room)
   }
 }
 

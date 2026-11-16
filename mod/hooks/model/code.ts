@@ -3,10 +3,6 @@
 // A drawing may hold 100,000 `Code` characters in all; the three sections of a
 // step's detail share a budget well under that.
 
-export const BUDGET_TOTAL = 60_000
-export const BUDGET_INPUT = 10_000
-export const BUDGET_CHANGE = 20_000
-
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
 // C0 controls and DEL, except tab (09) and newline (0A).
 // eslint-disable-next-line no-control-regex
@@ -15,21 +11,6 @@ const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F]/g
 /** CRLF to LF, colour escapes removed, every other control character but tab and newline dropped. */
 export function clean(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(ANSI, '').replace(CONTROL, '')
-}
-
-/** `text` cut to whole lines that fit `max` characters; `cut` is how many lines were left out. */
-export function cutLines(text: string, max: number): { text: string; cut: number } {
-  if (text.length <= max) return { text, cut: 0 }
-  const lines = text.split('\n')
-  const kept: string[] = []
-  let used = 0
-  for (const line of lines) {
-    const cost = line.length + (kept.length > 0 ? 1 : 0)
-    if (used + cost > max) break
-    kept.push(line)
-    used += cost
-  }
-  return { text: kept.join('\n'), cut: lines.length - kept.length }
 }
 
 /** `text` cut to `max` characters; `cut` is how many were left out. */

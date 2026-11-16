@@ -6,6 +6,7 @@ import { LEDGER_EVERY_MS } from './model/limits'
 import { promptedStep } from './model/select'
 import { budgetOf, usageOf } from './model/usage'
 import { apply, debug, errText, readTimeline, saveLedger } from './state'
+import { wakeClock } from './views/shell'
 
 // The capture hooks only observe: each calls `next(e)` exactly once and
 // returns what it resolved to. The mod's own work sits in try/catch and
@@ -15,6 +16,12 @@ import { apply, debug, errText, readTimeline, saveLedger } from './state'
 export const UPDATE_TOOL = 'mcp__mission-control__update'
 const PROMPT_MAX = 200
 const RESERVED = new Set(['tool', 'tool_use_id', 'agentId', 'consent', 'requestMeta'])
+
+/** Applies an event to the Timeline and starts the clock again if it stopped for want of anything live (M10). */
+async function record($: EngineInterface, ev: Ev): Promise<void> {
+  await apply($, ev)
+  wakeClock($)
+}
 
 async function now($: EngineInterface): Promise<number> {
   try {
@@ -77,14 +84,14 @@ export function registerCapture(on: On): void {
       id = e.tool_use_id
       if (typeof id !== 'string' || id === '') id = `mc-${at}-${(await readTimeline($)).seq + 1}`
       input = inputOf(e as unknown as Record<string, unknown>)
-      await apply($, { kind: 'step.start', at, id, agent, tool: String(e.tool), input })
+      await record($, { kind: 'step.start', at, id, agent, tool: String(e.tool), input })
     })
     const ran = await next(e)
     await safely($, 'step.end', async () => {
       if (id === '') return
       const status: Extract<Ev, { kind: 'step.end' }>['status'] =
         ran.deny !== undefined ? 'denied' : ran.isError === true ? 'error' : 'done'
-      await apply($, { kind: 'step.end', at: await now($), id, status, result: ran.result })
+      await record($, { kind: 'step.end', at: await now($), id, status, result: ran.result })
       const stepId = id
       const shown = ran.deny !== undefined ? { text: ran.deny, isError: true } : ran
       later($, 'writeBody', async () => {
@@ -108,14 +115,14 @@ export function registerCapture(on: On): void {
         ev.runId = e.workflow.runId
         ev.agentIndex = e.workflow.agentIndex
       }
-      await apply($, ev)
+      await record($, ev)
       // A spawn happens only once the call was let through, so its ask is
       // settled. Workflow agents carry the Workflow call's id: that clears it too.
-      if (spawnStep !== undefined) await apply($, { kind: 'step.unask', id: spawnStep })
+      if (spawnStep !== undefined) await record($, { kind: 'step.unask', id: spawnStep })
       // The model the subagent runs on: core's resolved id (`claude-sonnet-5-5`
       // in probe-usage), replaced later by each turn's usage.model.
       if (typeof out.model === 'string' && out.model !== '') {
-        await apply($, { kind: 'agent.model', id: out.agentId, model: out.model })
+        await record($, { kind: 'agent.model', id: out.agentId, model: out.model })
       }
     })
     return out
@@ -137,7 +144,7 @@ export function registerCapture(on: On): void {
       const agent = typeof e.agent_id === 'string' && e.agent_id !== '' ? e.agent_id : 'main'
       const step = promptedStep(await readTimeline($), e.tool_name, e.tool_input, agent)
       if (step === undefined) return
-      await apply($, { kind: 'step.ask', at: await now($), id: step.id, auto: e.permission_mode === 'auto' })
+      await record($, { kind: 'step.ask', at: await now($), id: step.id, auto: e.permission_mode === 'auto' })
     })
     return answer
   }).catch(($, e, next) => next(e))
@@ -151,7 +158,7 @@ export function registerCapture(on: On): void {
       if (answer.block !== undefined || answer.preventContinuation !== undefined) return
       const agent = typeof e.agent_id === 'string' && e.agent_id !== '' ? e.agent_id : 'main'
       const id = typeof e.elicitation_id === 'string' ? e.elicitation_id : ''
-      await apply($, { kind: 'input.ask', at: await now($), id, agent, server: String(e.mcp_server_name ?? ''), message: String(e.message ?? '') })
+      await record($, { kind: 'input.ask', at: await now($), id, agent, server: String(e.mcp_server_name ?? ''), message: String(e.message ?? '') })
     })
     return answer
   }).catch(($, e, next) => next(e))
@@ -160,7 +167,7 @@ export function registerCapture(on: On): void {
     await safely($, 'input.done', async () => {
       const ev: Extract<Ev, { kind: 'input.done' }> = { kind: 'input.done', server: String(e.mcp_server_name ?? '') }
       if (typeof e.elicitation_id === 'string' && e.elicitation_id !== '') ev.id = e.elicitation_id
-      await apply($, ev)
+      await record($, ev)
     })
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -169,7 +176,7 @@ export function registerCapture(on: On): void {
   on('classic.StopFailure', async ($, e, next) => {
     await safely($, 'turn.fail', async () => {
       if (typeof e.agent_id === 'string' && e.agent_id !== '') return
-      await apply($, { kind: 'turn.fail', agent: 'main', reason: failureText(e.error, e.error_details) })
+      await record($, { kind: 'turn.fail', agent: 'main', reason: failureText(e.error, e.error_details) })
     })
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -181,7 +188,7 @@ export function registerCapture(on: On): void {
     await safely($, 'measure', async () => {
       if (!Array.isArray(e.changed) || e.changed.length === 0) return
       const at = await now($)
-      await apply($, { kind: 'measure', at, budget: budgetOf(e, at) })
+      await record($, { kind: 'measure', at, budget: budgetOf(e, at) })
       if (at - ledgerAt < LEDGER_EVERY_MS) return
       ledgerAt = at
       later($, 'ledger', async () => saveLedger($, at))
@@ -192,7 +199,7 @@ export function registerCapture(on: On): void {
   on('turn.start', async ($, e, next) => {
     await safely($, 'turn.start', async () => {
       const prompt = typeof e.text === 'string' ? e.text.slice(0, PROMPT_MAX) : ''
-      await apply($, { kind: 'turn.start', at: await now($), turnId: e.turnId, agent: e.agentId ?? 'main', prompt })
+      await record($, { kind: 'turn.start', at: await now($), turnId: e.turnId, agent: e.agentId ?? 'main', prompt })
     })
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -205,14 +212,14 @@ export function registerCapture(on: On): void {
       const at = await now($)
       const end: Extract<Ev, { kind: 'turn.end' }> = { kind: 'turn.end', at, turnId: e.turnId, agent, answer: e.answer, failed, aborted }
       if (e.reason === 'refusal') end.reason = refusalText(e.refusal)
-      await apply($, end)
+      await record($, end)
       // An interrupt reports no usage: its length still counts.
       const used = usageOf(e.usage)
       const ms = typeof e.durationMs === 'number' && Number.isFinite(e.durationMs) && e.durationMs >= 0 ? e.durationMs : undefined
       if (used !== undefined || ms !== undefined) {
         const ev: Extract<Ev, { kind: 'usage' }> = { kind: 'usage', at, agent, ...used, turnId: e.turnId }
         if (ms !== undefined) ev.ms = ms
-        await apply($, ev)
+        await record($, ev)
       }
       if (agent === 'main') {
         later($, 'saveSnapshot', async () => {

@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 
-import { clean, cutChars, cutLines, diffOf } from '../mod/hooks/model/code'
-import { clock, packParts } from '../mod/hooks/views/fit'
+import { clean, cutChars, diffOf } from '../mod/hooks/model/code'
+import { clock } from '../mod/hooks/views/fit'
 
 test('clean turns CRLF into LF and drops the other control characters', () => {
   expect(clean('a\r\nb\rc\u0000d\te\u001bf')).toBe('a\nbcd\tef')
@@ -9,11 +9,6 @@ test('clean turns CRLF into LF and drops the other control characters', () => {
 
 test('clean drops colour escapes whole', () => {
   expect(clean('\u001b[31mred\u001b[0m ok')).toBe('red ok')
-})
-
-test('cutLines keeps whole lines and counts the rest', () => {
-  expect(cutLines('aaa\nbbb\nccc', 8)).toEqual({ text: 'aaa\nbbb', cut: 1 })
-  expect(cutLines('aaa', 8)).toEqual({ text: 'aaa', cut: 0 })
 })
 
 test('cutChars says how many characters it left out', () => {
@@ -52,12 +47,4 @@ test('diffOf of two empty texts is empty', () => {
 test('clock reads hh:mm and hh:mm:ss', () => {
   expect(clock(1_000_000)).toMatch(/^\d\d:\d\d$/)
   expect(clock(1_000_000, true)).toMatch(/^\d\d:\d\d:\d\d$/)
-})
-
-test('packParts packs short parts and breaks before a line would pass the columns', () => {
-  expect(packParts(['main', '14:03:12', '1s', 'done'], 40)).toEqual(['main · 14:03:12 · 1s · done'])
-  const narrow = packParts(['main', '14:03:12', '1s', 'done'], 24)
-  expect(narrow.every(l => l.length <= 24)).toBe(true)
-  expect(narrow.join(' ')).toContain('done')
-  expect(packParts(['averyveryverylongpartindeed'], 10)).toEqual(['averyvery…'])
 })

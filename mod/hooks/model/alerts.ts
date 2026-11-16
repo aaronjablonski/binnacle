@@ -97,11 +97,26 @@ export type Need = {
   sentence: string           // who + verb
   message?: string           // input only: the server's message
 }
-/** What the needs slot shows: the needs, and whether a permission is still being checked (R2: draw no tick, a dim "Checking a permission"). */
-export type NeedsView = { items: Need[]; checking: boolean }
+/**
+ * What the needs slot shows: the needs; whether a permission is still being
+ * checked (R2: draw no tick, a dim "Checking a permission"); and, only with
+ * no pane watching, the permissions past their first NOTIFY_ASK_MS whose
+ * answer nothing can see (`asked`: the band draws them dim, "asked to run a
+ * command · running"; R2 amendment). `asked` is left out when empty.
+ */
+export type NeedsView = { items: Need[]; checking: boolean; asked?: Need[] }
 export type NeedsOptions = {
-  /** The pane's `isPromptCovered`: a dialog may hold the keys, so an ask is real at once. The band has no such prop: leave it out. */
+  /** The pane's `isPromptCovered`: a dialog may hold the keys, so an ask is real at once. The band has no such prop: it passes the pane's observed cover. */
   covered?: boolean
+  /**
+   * Whether the terminal pane watches the prompt (it drew lately), so the
+   * clock settles an ask it saw answered (`answeredAsks`, `settledAsks`).
+   * Only `false` changes anything: the band with no pane watching, where a
+   * permission outside auto mode is a need for its first NOTIFY_ASK_MS and
+   * then `asked`, and an auto-mode one is checked for ASK_MS and then
+   * `asked`. Pane views leave it out (they are the watcher).
+   */
+  watching?: boolean
 }
 
 export const CHECKING_TEXT = 'Checking a permission'
@@ -127,12 +142,20 @@ function stepNeed(t: Timeline, s: Step, kind: NeedKind, since: number): Need {
  *   for AskUserQuestion, a plan for ExitPlanMode, else a permission;
  * - a running AskUserQuestion or ExitPlanMode step: its dialog is open;
  * - an open MCP input request (elicitation).
- * A permission raised in auto mode, with the prompt not covered, waits
- * ASK_MS before it shows (the classifier settles most); meanwhile `checking`.
+ * A permission raised in auto mode is a need only while the prompt is
+ * covered (a dialog holds it): uncovered, the classifier may still be
+ * deciding or may have allowed it, so it is `checking` (C-1). The clock
+ * takes it off once the pane watched it uncovered for ASK_MS (`settledAsks`).
+ * With `watching: false` (no pane can see an answer), a permission becomes
+ * `asked` after NOTIFY_ASK_MS (ASK_MS in auto mode): never amber for longer
+ * than a waiting dialog takes to be noticed. Agent and Workflow asks clear
+ * when their agent spawns, so they stay as they are.
  */
 export function needs(t: Timeline, now: number, o: NeedsOptions = {}): NeedsView {
   const items: Need[] = []
+  const asked: Need[] = []
   let checking = false
+  const blind = o.watching === false && o.covered !== true
   for (const s of t.steps) {
     if (s.status !== 'running') continue
     const dialog = DIALOG_TOOLS[s.tool]
@@ -141,8 +164,14 @@ export function needs(t: Timeline, now: number, o: NeedsOptions = {}): NeedsView
       continue
     }
     if (s.asking === undefined) continue
-    if (t.autoAsk === true && o.covered !== true && now - s.asking < ASK_MS) {
-      checking = true
+    const exact = SPAWNING_TOOLS.has(s.tool)
+    if (t.autoAsk === true && o.covered !== true) {
+      if (blind && !exact && now - s.asking >= ASK_MS) asked.push(stepNeed(t, s, 'permission', s.asking))
+      else checking = true
+      continue
+    }
+    if (blind && !exact && now - s.asking >= NOTIFY_ASK_MS) {
+      asked.push(stepNeed(t, s, 'permission', s.asking))
       continue
     }
     items.push(stepNeed(t, s, 'permission', s.asking))
@@ -153,8 +182,16 @@ export function needs(t: Timeline, now: number, o: NeedsOptions = {}): NeedsView
       who: a.server, verb: 'asks for input', sentence: `${a.server} asks for input`, message: a.message,
     })
   }
-  items.sort((a, b) => a.since - b.since || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-  return { items, checking: checking && items.length === 0 }
+  const order = (a: Need, b: Need) => a.since - b.since || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  items.sort(order)
+  const view: NeedsView = { items, checking: checking && items.length === 0 }
+  if (asked.length > 0) view.asked = asked.sort(order)
+  return view
+}
+
+/** An asked permission's words in the past, for the band's dim line: "asked to run a command". */
+export function askedVerb(n: Pick<Need, 'verb'>): string {
+  return n.verb.replace(/^asks\b/, 'asked')
 }
 
 /**
@@ -178,13 +215,23 @@ export function answeredAsks(t: Timeline, coveredAt: ReadonlyMap<string, number>
 }
 
 /**
- * The control a need draws (R3). No call hands the keys back to the prompt
- * (`$.ui.focus` moves only the plugin's own rings), so nothing pretends to be
- * a button: while the pane holds the keys, the words name the key that leaves
- * it; otherwise they point at the dialog.
+ * The permission asks the pane saw settled without a dialog (C-1, R2
+ * amendment): steps still running and still marked `asking` (not a
+ * question or plan) while the pane has watched the prompt uncovered, in one
+ * unbroken run of drawings since `clearSince`, for ASK_MS from the ask or
+ * from the start of that run, whichever is later. A permission that waits
+ * on the person covers the prompt with its dialog, so an ask the pane saw
+ * uncovered that long was settled by the classifier (auto mode) or answered
+ * before the pane looked. Pure; the clock applies `step.unask`.
  */
-export function promptHint(isFocused: boolean): string {
-  return isFocused ? 'esc: back to the prompt' : 'answer in the prompt ↓'
+export function settledAsks(t: Timeline, now: number, clearSince: number | undefined): string[] {
+  if (clearSince === undefined) return []
+  const out: string[] = []
+  for (const s of t.steps) {
+    if (s.status !== 'running' || s.asking === undefined || DIALOG_TOOLS[s.tool] !== undefined) continue
+    if (now - Math.max(s.asking, clearSince) >= ASK_MS) out.push(s.id)
+  }
+  return out
 }
 
 // ---- Watch (R6) --------------------------------------------------------------------------
@@ -408,7 +455,7 @@ export type HeaderState = {
   state: HeaderKind
   /** The open main turn's time so far; absent when no main turn runs. */
   turnMs?: number
-  /** Time since the session's last activity (a step, a turn, an agent), while working. */
+  /** Time since the session's last activity (a step, a turn, an agent), while working with no step running (R6, R7). */
   quietMs?: number
   /** How the header draws the quiet time (R7): not at all under QUIET_SHOW_MS, dim, then bold past QUIET_BOLD_MS. */
   quiet: 'none' | 'dim' | 'bold'
@@ -436,14 +483,16 @@ export function headerState(t: Timeline, now: number, view: NeedsView): HeaderSt
   const list = todoBlock(t)
   const turn = [...t.turns].reverse().find((x) => x.agent === 'main')
   const base = { open: list.open, quiet: 'none' as const }
+  // R6/R7 (I-3): quiet only while no step runs in any loop; a long build is a Watch row, never "quiet".
+  const stepRunning = t.steps.some((s) => s.status === 'running')
   const working = (turn !== undefined && turn.endedAt === undefined) ||
-    t.steps.some((s) => s.status === 'running') ||
+    stepRunning ||
     Object.values(t.agents).some((a) => a.id !== 'main' && a.status === 'running')
   const timing = (): Pick<HeaderState, 'turnMs' | 'quietMs' | 'quiet'> => {
     const quietMs = Math.max(0, now - lastActivity(t))
-    const out: Pick<HeaderState, 'turnMs' | 'quietMs' | 'quiet'> = {
-      quietMs, quiet: quietMs >= QUIET_BOLD_MS ? 'bold' : quietMs >= QUIET_SHOW_MS ? 'dim' : 'none',
-    }
+    const out: Pick<HeaderState, 'turnMs' | 'quietMs' | 'quiet'> = stepRunning
+      ? { quiet: 'none' }
+      : { quietMs, quiet: quietMs >= QUIET_BOLD_MS ? 'bold' : quietMs >= QUIET_SHOW_MS ? 'dim' : 'none' }
     if (turn !== undefined && turn.endedAt === undefined) out.turnMs = Math.max(0, now - turn.startedAt)
     return out
   }
@@ -458,12 +507,7 @@ export function headerState(t: Timeline, now: number, view: NeedsView): HeaderSt
   return { ...base, state: 'idle' }
 }
 
-// ---- The band's lead and autoFocus ------------------------------------------------------
-
-/** What leads the band: the oldest need, never a watch row (Watch never colours the band). */
-export function bandLead(view: NeedsView): Need | undefined {
-  return view.items[0]
-}
+// ---- autoFocus ------------------------------------------------------
 
 /** Whether a row of this kind may take the pane's focus on its own: needs only, never a watch row. */
 export function autoFocuses(kind: NeedKind | WatchKind | 'failed-turn'): boolean {
@@ -482,11 +526,14 @@ export type AlertOptions = {
    * answered permission from a waiting one.
    */
   watching?: boolean
+  /** The pane's observed cover (`paneCovered`): a dialog holds the prompt, so an auto-mode ask is real (C-1). */
+  covered?: boolean
 }
 
 /**
  * The notifications the clock raises now, each once by id (`u.notified`):
- * - a need (with `waits` or more), once it has waited ASK_MS on Agent or
+ * - a need (with `waits` or more; an auto-mode permission only while the
+ *   pane sees its dialog, `covered`), once it has waited ASK_MS on Agent or
  *   Workflow and NOTIFY_ASK_MS on any other tool or dialog (a real dialog
  *   raises Claude Code's own notification first). A permission on any tool
  *   but Agent and Workflow notifies only while the pane is `watching`: with
@@ -505,7 +552,7 @@ export function alertNotes(t: Timeline, u: Pick<UiState, 'notified' | 'dismissed
   const seen = new Set(u.notified)
   if (notifies(mode, 'wait')) {
     const gone = new Set(u.dismissed)
-    for (const n of needs(t, now).items) {
+    for (const n of needs(t, now, { covered: o.covered === true }).items) {
       const id = n.stepId ?? n.key
       // The views still offer `x` on an ask until wave 2: a dismissed one is not raised.
       if (seen.has(id) || gone.has(n.key)) continue

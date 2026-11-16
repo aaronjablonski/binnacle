@@ -202,6 +202,7 @@ test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed
     .patch(R25, badgeCol(6, 8, 7))
   b.patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', b.sub(10, 'cache warm 2:51  ', 'cache warm 2 min '))
   b.patch('real data: no retry is recorded, so the agents fact has no detail', b.sub(23, '     1 was retried after a failure', ''))
+  b.patch('M5 and R39: one action, one name: the rest footer says "e export digest", as the Artifacts button "e: Export digest" (the mock says "export handoff")', b.sub(45, 'e export handoff   esc', 'e export digest   esc'))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowIdle', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)

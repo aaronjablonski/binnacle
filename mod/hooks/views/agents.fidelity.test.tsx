@@ -259,6 +259,8 @@ function relaid(rows: string[], L: Layout): Board {
   b.patch('R26/R28 amended: the crew mock draws engine colons (`d: unfold done`, `r: running only`); the footer is plain hints in one notation, and r reads "working only"', r => {
     r[r.length - 1] = '  ↵ open   d unfold done   r working only   esc prompt'
   })
+  b.patch('M3 (R27): a time cell past the hour that cannot hold "1 h 48 min" in 9 cells reads "108 min", never "1h 48m"', r =>
+    r.map(x => x.replace(/ 1h 48m$/, '108 min')))
   return b
 }
 

@@ -305,10 +305,11 @@ test('rule 6: the flags are drawn in warning and error', TEXT, async ($, on) => 
   await ui.unmount()
 })
 
-test('a dismissed ask leaves no ? on the map', TEXT, async ($, on) => {
+// I-2 (meaning changed): the map reads Now's needs, which take no dismissal (owner ruling 4: no `x` on a permission), so the ? stays, as on Now.
+test('a dismissed ask still shows its ? on the map, as on Now', TEXT, async ($, on) => {
   world(on, flaggedSession(), { ...MAP_UI, dismissed: ['asking:s-ask'] })
   const ui = await mount($)
-  expect((await rows(ui)).filter(r => r.startsWith('? '))).toEqual([])
+  expect((await rows(ui)).filter(r => r.startsWith('? ')).length).toBe(1)
   await ui.unmount()
 })
 

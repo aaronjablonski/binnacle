@@ -693,13 +693,6 @@ export function drawPill(g: Grid, x: number, row: number, word: string, hue: Ink
   return e + 1
 }
 
-/** A pill in a box of its own: the word's length plus two cells. */
-export function rpill(word: string, hue: Ink, pal?: Palette): Grid {
-  const g = new Grid([...word].length + 2, 1, pal)
-  drawPill(g, 0, 0, word, hue)
-  return g
-}
-
 export type FrameOptions = {
   /** The clamps' colour (iris; amber while waiting). */
   hue?: Ink

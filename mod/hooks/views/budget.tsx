@@ -14,11 +14,11 @@ import { bar, clock, elapsed, growLists, listSplit, pctBar, ruleBar, shortPaths,
 import { podFor, waitStates } from './needs'
 import { blank, frameFootInst, frameTopInst, heightOf, inst, more, runText, section } from './parts'
 import type { InstSpec, ReadoutCell, Run } from './parts'
-import { drawGaugeRing, GAUGE_RING, gaugeFigure, Grid, PALETTE } from './raster'
+import { drawGaugeRing, GAUGE_RING, gaugeFigure, Grid } from './raster'
 import type { Ground } from './raster'
 import { TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
-import { C, CK, edges, gaugeStyle, critterGlyph } from './style'
+import { accentName, C, CK, edges, gaugeStyle, critterGlyph, palette } from './style'
 
 /** A budget older than this is a restored one: it was toasted (or not) when it arrived. */
 const FRESH_MS = 30_000
@@ -254,9 +254,9 @@ function ringsInst(key: string, wins: readonly Win[], ground: Ground): InstSpec 
     key,
     columns,
     rows: GAUGE_RING.rows,
-    sig: `rings:${ground}:${shown.map(w => Math.round(w.pct)).join(',')}`,
+    sig: `rings:${ground}:${accentName()}:${shown.map(w => Math.round(w.pct)).join(',')}`,
     frames: () => {
-      const g = new Grid(columns, GAUGE_RING.rows, PALETTE[ground])
+      const g = new Grid(columns, GAUGE_RING.rows, palette(ground))
       shown.forEach((w, i) => drawGaugeRing(g, i * RING_PITCH, 0, w.pct))
       return [g]
     },

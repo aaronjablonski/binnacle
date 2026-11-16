@@ -16,9 +16,9 @@ import { bodyOfOpen, openStep, openStepInline } from './openstep'
 import type { FootHint } from './overview'
 import { blank, inst, section } from './parts'
 import type { Action, Detail, InstSpec, Run } from './parts'
-import { Grid, PALETTE } from './raster'
+import { Grid } from './raster'
 import type { ViewCtx } from './shell'
-import { C, CK, edges, typeName } from './style'
+import { accentName, C, CK, edges, palette, typeName } from './style'
 import { flushRight, growBody, hasTime, midEnd, moreRow, nameLimit, openedBlock, stepGlyph } from './tabkit'
 
 // The Steps tab (cockpit spec "CockpitSteps"): `f: Find a step` and the
@@ -253,9 +253,9 @@ function mapInst(buckets: MapBucket[], ground: 'night' | 'day'): InstSpec {
     key: 'map',
     columns: n,
     rows: MAP_ROWS,
-    sig: `map:${ground}:${buckets.map(b => `${b.count}${b.error ? 'e' : ''}${b.view ? 'v' : ''}`).join(',')}`,
+    sig: `map:${ground}:${accentName()}:${buckets.map(b => `${b.count}${b.error ? 'e' : ''}${b.view ? 'v' : ''}`).join(',')}`,
     frames: () => {
-      const g = new Grid(n, MAP_ROWS, PALETTE[ground])
+      const g = new Grid(n, MAP_ROWS, palette(ground))
       buckets.forEach((b, i) => {
         const v = lv[i] ?? 0
         const hue = b.error ? 'red' : b.view ? 'iris' : 'irisSoft'

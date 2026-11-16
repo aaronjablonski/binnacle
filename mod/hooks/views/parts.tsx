@@ -5,10 +5,10 @@ import { sweepCells, sweepFrame, sweepShows } from './delights'
 import { at, bar10, DIAGRAM, fit, fitRuns, headerParts, keepCells, line, nameFit, pillRun, placed, spark10, stack10, tether, toolCell, wordFit, wrapWords } from './fit'
 import { closePage } from './pagenav'
 import { track } from './paint'
-import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, lintel, lintelRoom, PALETTE, sill } from './raster'
+import { frameFoot, frameTop, GAUGE_PAIR, GAUGE_RING, gaugeFigure, gaugePair, lintel, lintelRoom, sill } from './raster'
 import type { Grid, Ground, Hue } from './raster'
 import type { ViewCtx } from './shell'
-import { C, cellsFor, CK, COCKPIT, COL, DECK, edges, gaugeStyle, GRID, RAIL, tableCols, toneKey } from './style'
+import { accentName, C, cellsFor, CK, COCKPIT, COL, DECK, edges, gaugeStyle, GRID, palette, RAIL, tableCols, toneKey } from './style'
 import type { CritterArgs, Run, Tone4 } from './style'
 
 const MIN_SPLIT = 8
@@ -1186,9 +1186,9 @@ export function frameTopInst(key: string, width: number, tone: Tone4 = 'iris', g
     key,
     columns: width,
     rows: 1,
-    sig: `frameTop:${width}:${tone}:${ground}${to > from ? `:s${from}` : ''}`,
+    sig: `frameTop:${width}:${tone}:${ground}:${accentName()}${to > from ? `:s${from}` : ''}`,
     frames: () => {
-      const g = frameTop(width, { hue: tone, pal: PALETTE[ground] })
+      const g = frameTop(width, { hue: tone, pal: palette(ground) })
       for (let i = from; i < to; i++) g.ht(i, 0, 'iris')
       return [g]
     },
@@ -1211,8 +1211,8 @@ export function frameFootInst(key: string, width: number, tone: Tone4 = 'iris', 
     key,
     columns: width,
     rows: 1,
-    sig: `frameFoot:${width}:${tone}:${ground}`,
-    frames: () => [frameFoot(width, { hue: tone, pal: PALETTE[ground] })],
+    sig: `frameFoot:${width}:${tone}:${ground}:${accentName()}`,
+    frames: () => [frameFoot(width, { hue: tone, pal: palette(ground) })],
     fallback: [[{ text: '─'.repeat(Math.max(0, width - 3)), color: C.subtle }, { text: '━━┛'.slice(Math.max(0, 3 - width)), color: toneKey(tone) }]],
   }
 }
@@ -1243,8 +1243,8 @@ export function gaugesInst(key: string, gauges: readonly Gauge[], ground: Ground
     key,
     columns: GAUGE_PAIR.columns,
     rows: GAUGE_PAIR.rows,
-    sig: `gauges:${ground}:${shown.map(g => Math.round(g.pct)).join(',')}`,
-    frames: () => [gaugePair(shown.map(g => g.pct), PALETTE[ground])],
+    sig: `gauges:${ground}:${accentName()}:${shown.map(g => Math.round(g.pct)).join(',')}`,
+    frames: () => [gaugePair(shown.map(g => g.pct), palette(ground))],
     fallback: [blank, blank, mid, blank, blank],
   }
 }

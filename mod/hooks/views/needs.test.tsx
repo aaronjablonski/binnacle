@@ -780,3 +780,21 @@ test('M13: finishes fold over 30 s into one toast with no answer text, and the n
   await clock.advance(55_000)
   expect(toasts).toEqual(['2 agents finished', 'Explorer finished: last one'])
 })
+
+// Controller ruling on concern 4: a held agent-finished toast is never dropped; when the clock is about to stop it goes up at once.
+test('M13: a toast held by the once-a-minute limit goes up when the clock is about to stop, never dropped', async ($, on) => {
+  const t: Timeline = { ...empty, agents: { main, x1: sub('x1', { status: 'done', endedAt: NOW, doing: 'first' }) } }
+  const { stored, clock, toasts } = await ticking($, on, t)
+  await clock.advance(2000)
+  expect(toasts).toEqual(['Explorer finished: first'])
+  const t2 = stored.get('timeline') as Timeline
+  stored.set('timeline', { ...t2, agents: { ...t2.agents, x2: sub('x2', { status: 'done', endedAt: NOW + 3000, doing: 'second' }) } })
+  await clock.advance(10_000)
+  // Still inside the minute and the clock still live: held.
+  expect(toasts).toHaveLength(1)
+  // Nothing live 20 s after the last finish: the clock stops, and the held toast goes up first.
+  await clock.advance(20_000)
+  expect(toasts).toEqual(['Explorer finished: first', 'Explorer finished: second'])
+  await clock.advance(60_000)
+  expect(toasts).toHaveLength(2)
+})

@@ -1,4 +1,4 @@
-import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, RenderInput } from 'claude-code'
+import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, RenderInput, RenderNode } from 'claude-code'
 
 import type { PageKind, Tab, Timeline, UiState } from '../../types'
 import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
@@ -15,7 +15,7 @@ import { needsTick } from './needs'
 import type { NotifyMode } from './needs'
 import { configureOptions, lookOption, OPTIONS_HOTKEY, optionsPage, toggleOptions } from './options'
 import { slimView } from './slim'
-import { C, GRID, groundOf, lookAsked, motionOn, TAB_CELL, themeOf, tier } from './style'
+import { C, CK, edges, GRID, groundOf, lookAsked, motionOn, TAB_CELL, themeOf, tier } from './style'
 import type { Ground, Look, Tier } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
@@ -172,15 +172,15 @@ export function registerShell(on: On, options: PluginOptions): void {
       // The look option is read on every draw (a press on the Options card's Look row applies at once).
       const rest = await drawnOf($, e, options, lookOption())
       const width = tier(cols)
-      // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary.
+      // Under 32 columns a hotkeyed tab cannot be drawn: slim is one stacked summary. So is the desktop's `widget` placement (R32): a glance, not the tabs.
       const tree =
-        width === 'slim' ? (
+        width === 'slim' || e.props.placement === 'widget' ? (
           <Box flexDirection="column">{slim($, e, rest)}</Box>
         ) : (
           <Box flexDirection="column">
             {tabBar($, e, rest, width)}
             {tabsGap($, e)}
-            {body($, e, rest)}
+            {withFooterOptions($, e, rest, body($, e, rest))}
           </Box>
         )
       // The ring starts on the first content row: the tab bar is never its start.
@@ -285,6 +285,86 @@ function optionsArm($: EngineInterface, e: RenderInput, u: UiState, cols: number
 function tabsGap($: EngineInterface, e: RenderInput): RenderElement {
   const { Text } = $.ui.resolve(e)
   return <Text key="tabs-gap">{' '}</Text>
+}
+
+/** The key of the footer's visible Options Button (no hotkey: the hidden `tab-options` arms `0`). */
+export const FOOTER_OPTIONS_KEY = 'footer-options'
+/** The footer's Options hint: `0 options`, nine cells. */
+const FOOTER_OPTIONS_WIDTH = 9
+
+type Node = RenderNode | undefined | null | false
+
+const isEl = (n: Node): n is RenderElement => typeof n === 'object' && n !== null
+const propsOf = (el: RenderElement): Record<string, unknown> => ('props' in el && el.props !== undefined ? (el.props as Record<string, unknown>) : {})
+const kidsOf = (el: RenderElement): Node[] => {
+  const c = (el as { children?: Node[] }).children
+  return Array.isArray(c) ? c : []
+}
+/** A node's text, its children's strings joined. */
+function textOfNode(n: Node): string {
+  if (typeof n === 'string') return n
+  if (typeof n === 'number') return String(n)
+  return isEl(n) ? kidsOf(n).map(textOfNode).join('') : ''
+}
+
+/** The columns a node's text takes on one row (a Button's label when it has no children; a plain hotkeyed Button is drawn `k: label`). */
+function widthOfNode(n: Node): number {
+  if (typeof n === 'string') return n.length
+  if (typeof n === 'number') return String(n).length
+  if (!isEl(n)) return 0
+  const kids = kidsOf(n)
+  const own = kids.length === 0 ? (typeof propsOf(n).label === 'string' ? (propsOf(n).label as string).length : 0) : kids.reduce<number>((w, k) => w + widthOfNode(k), 0)
+  const hotkey = n.type === 'Button' ? propsOf(n).hotkey : undefined
+  return typeof hotkey === 'string' ? own + hotkey.length + 2 : own
+}
+
+/**
+ * The Options key drawn where the mocks keep their hints (task C6): the
+ * footer's `0 options`, the key in the accent and the word dim (R28), as a
+ * plain Button with no hotkey (the engine would draw `0:` on a hotkeyed one)
+ * that presses the same toggle as the hidden `tab-options`, which keeps
+ * arming `0`. A footer that already says `0 options` as text (Now) has it
+ * turned into the Button in place; any other footer takes it at its right
+ * end when its hints leave the room (no hint is ever given up for it). Nothing
+ * where there is no footer (the pane has not the keys, a page of its own) or
+ * on the Options page itself.
+ */
+function withFooterOptions($: EngineInterface, e: RenderInput, rest: Drawn, tree: RenderElement): RenderElement {
+  if (pageOf(rest.u)?.kind === 'options') return tree
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const isOpen = false
+  const button = (): RenderElement => (
+    <Button key={FOOTER_OPTIONS_KEY} plain onPress={() => toggleOptions($, isOpen)}>
+      <Text color={CK.accent}>{OPTIONS_HOTKEY}</Text>
+      <Text dimColor>{` ${OPTIONS_LABEL}`}</Text>
+    </Button>
+  )
+  const { left, right } = edges(rest.cols)
+  let done = false
+  const walk = (n: Node): Node => {
+    if (done || !isEl(n)) return n
+    if (propsOf(n).key === 'footer' && n.type === 'Box') {
+      done = true
+      const kids = kidsOf(n).filter((k): k is RenderNode => k !== null && k !== undefined && k !== false)
+      const at = kids.findIndex(k => isEl(k) && k.type === 'Text' && textOfNode(k) === `${OPTIONS_HOTKEY} ${OPTIONS_LABEL}`)
+      if (at >= 0) return { ...n, children: kids.map((k, i) => (i === at ? button() : k)) } as RenderElement
+      const gap = typeof propsOf(n).columnGap === 'number' ? (propsOf(n).columnGap as number) : 3
+      const used = (list: RenderNode[]): number => left + list.reduce((w, k) => w + widthOfNode(k), 0) + gap * Math.max(0, list.length - 1)
+      const start = right - FOOTER_OPTIONS_WIDTH + 1
+      // A footer already full to the right edge keeps its hints and draws no Options key (the hidden `0` still arms): a hint is never given up for it.
+      if (used(kids) + gap > start) return n
+      const room = start - used(kids) - 2 * gap
+      const out: RenderNode[] = [...kids]
+      if (room > 0) out.push(<Box key="footer-options-gap" width={room} flexShrink={0} />)
+      out.push(button())
+      return { ...n, children: out } as RenderElement
+    }
+    const kids = kidsOf(n)
+    if (kids.length === 0) return n
+    const next = kids.map(walk)
+    return next.some((c, i) => c !== kids[i]) ? ({ ...n, children: next } as RenderElement) : n
+  }
+  return walk(tree) as RenderElement
 }
 
 type Drawn = {

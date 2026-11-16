@@ -291,3 +291,51 @@ test('look auto draws text where the surface has no Raster', { options: { look: 
   expect(await ui.find({ type: 'Raster' })).toBe(undefined)
   await ui.unmount()
 })
+
+// C6: the Options key is drawn, in R28 notation (`0 options`, the key in the accent), where the mocks keep their hints.
+for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts'] as const) {
+  test(`the footer on ${tab} draws \`0 options\` as a pressable Button, once; a press opens the Options page`, async ($, on) => {
+    const { stored } = world(on, { ...initialUi, tab })
+    // A session with a step, a task and an agent, so every tab has rows and so a footer.
+    stored.set('timeline', {
+      ...empty,
+      steps: [{ id: 's1', seq: 1, agent: 'main', tool: 'Edit', label: 'Edit a.ts', status: 'done', startedAt: 900_000, endedAt: 901_000 }],
+      tasks: [{ id: '1', subject: 'one', status: 'in_progress', owner: 'main', updatedAt: 900_000 }],
+      agents: { ...empty.agents, a1: { id: 'a1', parent: 'main', type: 'Explore', description: 'look', status: 'running', startedAt: 900_000, doing: '', stepCount: 1 } },
+    })
+    for (const cols of [62, 80]) {
+      const ui = await $.ui.mount({ ...PANE(cols), surface: 'mobile' })
+      const rows = screen(await ui.drawn())
+      expect(rows.filter(r => r.includes('0 options')).length).toBe(1)
+      const foot = rows.find(r => r.includes('0 options'))!
+      // On Now the hint stands where the mock puts it; on the other tabs it ends at the right edge (column cols - 3).
+      if (tab !== 'overview') expect(foot.length).toBe(cols - 2)
+      const button = await ui.find({ type: 'Button', key: 'footer-options' })
+      expect(button).toBeDefined()
+      expect(button?.props).toMatchObject({ plain: true })
+      expect(button?.props.hotkey).toBe(undefined)
+      const [key, word] = (button as unknown as { children: { props: Record<string, unknown>; children: string[] }[] }).children
+      expect([key!.children, key!.props.color]).toEqual([['0'], 'suggestion'])
+      expect([word!.children, word!.props.dimColor]).toEqual([[' options'], true])
+      // The hidden `0` stays the one hotkey.
+      expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0' })
+      await ui.unmount()
+    }
+    const ui = await $.ui.mount({ ...PANE(62), surface: 'mobile' })
+    await ui.press({ key: 'footer-options' })
+    expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: '' })
+    await ui.unmount()
+  })
+}
+
+test('the Options page draws no second `0 options`; an unfocused pane has no footer and so no footer Button', async ($, on) => {
+  const { stored } = world(on, OPTIONS_UI)
+  const page = await $.ui.mount({ ...PANE(62), surface: 'mobile' })
+  expect(await page.find({ type: 'Button', key: 'footer-options' })).toBe(undefined)
+  await page.unmount()
+  stored.set('ui', { ...initialUi, tab: 'tasks' })
+  const quiet = await $.ui.mount({ ...PANE(62), props: { ...PANE(62).props, isFocused: false }, surface: 'mobile' })
+  expect(await quiet.find({ type: 'Button', key: 'footer-options' })).toBe(undefined)
+  expect((await quiet.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0' })
+  await quiet.unmount()
+})

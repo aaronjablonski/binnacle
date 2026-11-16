@@ -4,6 +4,8 @@ import type { AgentRow, Timeline } from '../../types'
 import { agentCols, cellTime, failReason, openAgentPage, runningStep, timeCell, tokensCell, tokensOf, agentActions } from './agentmeta'
 import { tokenText } from './budget'
 import { doing, nameFit, placed, wordFit, wrapWords } from './fit'
+import type { DoingView } from './fit'
+import { doingView } from './needs'
 import { agentCard, inst, runText } from './parts'
 import type { Run } from './parts'
 import { CREW_PALETTE, ROLE_HUE } from './raster'
@@ -128,10 +130,12 @@ export function stateOf(a: AgentRow, states: Map<string, PodState>): PodState {
 // ---------- the list ----------
 
 /** The text a working card shows on its second row, in the state's colour. */
-function cardDoing(t: Timeline, a: AgentRow, state: PodState): string | Run[] {
-  if (state === 'waiting') return [{ text: 'Waiting for your answer', color: CK.ask }]
-  if (state === 'stalled') return [{ text: 'No activity for a while, may be thinking', dim: true }]
-  return doing(runningStep(t, a.id))
+function cardDoing(t: Timeline, a: AgentRow, state: PodState, view?: DoingView): (room: number) => string | Run[] {
+  return room => {
+    if (state === 'waiting') return [{ text: room >= 23 ? 'Waiting for your answer' : 'Waiting for you', color: CK.ask }]
+    if (state === 'stalled') return [{ text: room >= 40 ? 'No activity for a while, may be thinking' : room >= 18 ? 'No activity lately' : 'Quiet', dim: true }]
+    return doing(runningStep(t, a.id), view, room)
+  }
 }
 
 /**
@@ -153,7 +157,7 @@ export function liveCard(
     name: typeName(a.type),
     job: a.description.replace(/\s+/g, ' ').trim(),
     time,
-    doing: cardDoing(ctx.t, a, o.state),
+    doing: cardDoing(ctx.t, a, o.state, doingView(ctx)),
     ...(o.tokens !== false && n !== undefined ? { tokens: `${tokenText(n)} tokens` } : {}),
     onPress: o.onPress,
   })

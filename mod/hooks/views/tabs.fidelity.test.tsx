@@ -103,7 +103,7 @@ const addRow = (r: number, text: string) => (rows: string[]): string[] => {
 const fig = (left: string, mid: string, last: string): string => flush(left.padEnd(50 - mid.length) + mid, last)
 
 /** The row with its last figure replaced by `time` (flush right at 59). */
-const retime = (row: string, time: string): string => flush(row.replace(/ +[0-9]+m$/, '').trimEnd(), time)
+const retime = (row: string, time: string): string => flush(row.replace(/ +[0-9]+m( [0-9]+s)?$/, '').trimEnd(), time)
 
 /** A section head as the engine draws it: the title, a hairline, the sum flush right, one space either side of the hairline. */
 const head = (title: string, sum: string): string => `  ${title} ${'─'.repeat(60 - 2 - title.length - 2 - sum.length)} ${sum}`
@@ -120,12 +120,17 @@ test('fidelity: CockpitTasks at 62 columns matches the mock but for the listed d
   const got = await drawn($, 62, 46)
   const b = new Board('CockpitTasks')
   b.patch('real data: 41 min over 9 done is 4.6 min a task, times 5 left is 23 min, which rounds to 25 (the mock says 20)', b.sub(4, 'about 20 min', 'about 25 min'))
-  b.patch('order and R23 and real data: the agents are in the order they started (Explorer first), R25: the micro critter box is 5 wide, its badge column at 8 (the mock has 4); the type is General (general-purpose), doing() reads Searching src/server for “upload(” and is cut at a word for the room; R27: 2 min and 1 min', rows => {
-    rows[15] = flush('    ¤¤¤¤¤ Explorer  Searching src/server for…', '2 min')
+  b.patch('R25: the micro critter box is 5 wide, its badge column at 8 (the mock has 4), and the gap row under a card is not part of the box', rows => {
+    rows[15] = '    ¤¤¤¤¤ Builder  Editing middleware/index.ts        1m 40s'
     rows[16] = '    ¤¤¤¤¤'
     rows[17] = ''
-    rows[18] = flush('    ¤¤¤¤¤ General  Editing middleware/index.ts', '1 min')
+    rows[18] = '    ¤¤¤¤¤ Explorer  Searching src/server              2m 14s'
     rows[19] = '    ¤¤¤¤¤'
+  })
+  b.patch('R23 and real data: the builder is a general-purpose agent, so its name reads General', b.sub(15, 'Builder', 'General'))
+  b.patch('R27: card times read 1 min and 2 min (seconds only in the first minute)', rows => {
+    rows[15] = retime(rows[15]!, '1 min')
+    rows[18] = retime(rows[18]!, '2 min')
   })
   b.patch('column heads: tokens ends at 49 like its figures (the mock ends it at 50)', rows => void (rows[27] = head('Done', '9  ·  tokens      time')))
   check('CockpitTasks', b, got)

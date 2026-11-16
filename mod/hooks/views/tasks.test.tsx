@@ -259,14 +259,23 @@ test('the pace sentence is left out until a task is done, and when every task is
 })
 
 // LOOK TEST (rewritten for the cockpit): replaces "the TASKS gauge is one pip per task" and "over 22 tasks the TASKS gauge is a 22-cell bar": the bar is one segment a task while each gets two cells, and proportional runs past that (R13).
-test('the to-do bar is one segment a task, and runs proportional to done, current and open past the width (R13)', async ($, on) => {
+test('the to-do bar is one segment a task, one cell a task up to the width, and runs proportional to done, current and open past it (R13, F I3)', async ($, on) => {
   const stored = seed(on, BUSY, TASKS_UI)
   const ui = await mount($, 'desktop')
   const bar = (await drawnRows(ui)).find(r => /^ {2}━/.test(r)) ?? ''
   expect(bar.trim().split(' ').length).toBe(13)
   expect(bar.trim().length).toBe(58)
   await ui.unmount()
-  const many: Timeline = { ...BUSY, tasks: [...BUSY.tasks, ...Array.from({ length: 40 }, (_, i) => task(`z${i}`, `Extra ${i}`, 'pending'))] }
+  // 53 tasks in 58 cells: no segment keeps a cell and a gap, so a task is one cell (F I3: never one solid line while a gap fits).
+  const cells: Timeline = { ...BUSY, tasks: [...BUSY.tasks, ...Array.from({ length: 40 }, (_, i) => task(`y${i}`, `Extra ${i}`, 'pending'))] }
+  stored.set('timeline', cells)
+  const some = await mount($, 'desktop')
+  const dashes = (await drawnRows(some)).find(r => /^ {2}━/.test(r)) ?? ''
+  expect(dashes.trim().length).toBeLessThanOrEqual(58)
+  expect([...dashes.trim()].filter(ch => ch === '━').length).toBe(53)
+  await some.unmount()
+  // Past the width (more tasks than cells) tasks share cells: done, current and open runs with no gaps.
+  const many: Timeline = { ...BUSY, tasks: [...BUSY.tasks, ...Array.from({ length: 80 }, (_, i) => task(`z${i}`, `Extra ${i}`, 'pending'))] }
   stored.set('timeline', many)
   const wide = await mount($, 'desktop')
   const runs = (await drawnRows(wide)).find(r => /^ {2}━/.test(r)) ?? ''

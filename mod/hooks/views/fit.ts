@@ -982,64 +982,88 @@ const ASK_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
  * <where> for “<what>”", Bash "Running <command>", Edit "Editing <file>",
  * Write "Writing <file>", Agent "Delegating: <description>", the task tools
  * "Updating the to-do list", anything else "Using <tool>". Files show their
- * last two segments. The phrase is one line, uncut: the view fits it.
+ * last two segments. The phrase is one line, uncut.
+ *
+ * With `room` (F I7) the phrase shortens by clause instead, and never ends
+ * in `…`: it drops `for “…”`, then the path shrinks (a file to its last
+ * segment, a folder to its first: "Searching src/"), then the verb stands
+ * alone. When not even that fits, the result is ''.
  *
  * @example doing({ tool: 'Edit', label: 'Edit test/rateLimit.test.ts' })                              // 'Editing test/rateLimit.test.ts'
+ * @example doing({ tool: 'Edit', label: 'Edit test/rateLimit.test.ts' }, undefined, 20)                // 'Editing rateLimit.test.ts'
  * @example doing({ tool: 'Grep', label: 'Grep "upload("', pending: { pattern: 'upload(', path: 'src/server' } }) // 'Searching src/server for “upload(”'
  * @example doing(undefined)                                                                             // 'Thinking'
  */
-export function doing(step: DoingStep | undefined, view?: DoingView): string {
-  if (step === undefined) return 'Thinking'
+export function doing(step: DoingStep | undefined, view?: DoingView, room?: number): string {
+  const options = doingOptions(step, view)
+  if (room === undefined) return options[0]!
+  return options.find(o => o.length <= room) ?? ''
+}
+
+/** The phrases `doing` may say, the fullest first, each a clause shorter. */
+function doingOptions(step: DoingStep | undefined, view?: DoingView): string[] {
+  if (step === undefined) return ['Thinking']
   const t = step.tool
   const input = step.pending ?? {}
-  if (ASK_TOOLS.has(t)) return 'Waiting for your answer'
+  if (ASK_TOOLS.has(t)) return ['Waiting for your answer', 'Waiting for you']
   if (step.asking !== undefined) {
     const shown = view === undefined || (step.id !== undefined && view.items.some(n => n.stepId === step.id))
-    return shown ? 'Waiting for your answer' : CHECKING
+    return shown ? ['Waiting for your answer', 'Waiting for you'] : [CHECKING, 'Checking']
   }
   const rest = labelRest(step)
   const verb = FILE_VERB[t]
   if (verb !== undefined) {
     const p = text(input.file_path) ?? text(input.notebook_path)
     const what = p !== undefined ? tail2(p) : rest
-    return what !== '' ? `${verb} ${what}` : verb
+    if (what === '') return [verb]
+    const last = what.split('/').pop() ?? what
+    return unique([`${verb} ${what}`, `${verb} ${last}`, verb])
   }
   if (t === 'Grep' || t === 'Glob') {
     const pattern = text(input.pattern) ?? (rest !== '' ? rest.replace(/^"(.*)"$/, '$1') : undefined)
     const where = text(input.path)
     const what = pattern !== undefined ? (t === 'Grep' ? quoted(pattern) : pattern) : undefined
-    if (what === undefined) return where !== undefined ? `Searching ${tail2(where)}` : 'Searching'
-    return where !== undefined ? `Searching ${tail2(where)} for ${what}` : `Searching for ${what}`
+    const place = where !== undefined ? tail2(where) : undefined
+    // A folder shrinks to its first segment ("src/"), the way a path is cut at its slash.
+    const head = place !== undefined && place.includes('/') ? `${place.slice(0, place.indexOf('/') + 1)}` : undefined
+    const out: string[] = []
+    if (what !== undefined) out.push(place !== undefined ? `Searching ${place} for ${what}` : `Searching for ${what}`)
+    if (place !== undefined) out.push(`Searching ${place}`)
+    if (head !== undefined) out.push(`Searching ${head}`)
+    out.push('Searching')
+    return unique(out)
   }
   if (t === 'Bash' || t === 'PowerShell') {
     const c = text(input.command) ?? rest
-    return c !== '' ? `Running ${c}` : 'Running a command'
+    return c !== '' ? ['Running ' + c, 'Running a command', 'Running'] : ['Running a command', 'Running']
   }
   if (t === 'Agent' || t === 'Task') {
     const d = text(input.description)
-    if (d !== undefined) return `Delegating: ${d}`
+    if (d !== undefined) return [`Delegating: ${d}`, 'Delegating']
     const ty = text(input.subagent_type)
-    if (ty !== undefined) return `Delegating to ${typeName(ty)}`
+    if (ty !== undefined) return [`Delegating to ${typeName(ty)}`, 'Delegating']
     const fromLabel = rest.includes(' · ') ? rest.slice(rest.indexOf(' · ') + 3) : rest
-    return fromLabel !== '' ? `Delegating: ${fromLabel}` : 'Delegating'
+    return fromLabel !== '' ? [`Delegating: ${fromLabel}`, 'Delegating'] : ['Delegating']
   }
   if (t === 'WebFetch') {
     const u = text(input.url) ?? rest
     const host = /^[a-z]+:\/\/([^/\s]+)/i.exec(u)?.[1]
-    return host !== undefined ? `Reading ${host}` : 'Reading a web page'
+    return host !== undefined ? [`Reading ${host}`, 'Reading a web page', 'Reading'] : ['Reading a web page', 'Reading']
   }
   if (t === 'WebSearch') {
     const q = text(input.query) ?? rest
-    return q !== '' ? `Searching the web for ${quoted(q)}` : 'Searching the web'
+    return q !== '' ? [`Searching the web for ${quoted(q)}`, 'Searching the web', 'Searching'] : ['Searching the web', 'Searching']
   }
-  if (LIST_TOOLS.has(t)) return 'Updating the to-do list'
+  if (LIST_TOOLS.has(t)) return ['Updating the to-do list', 'Updating the list', 'Updating']
   if (t === 'Skill') {
     const sk = text(input.skill) ?? rest
-    return sk !== '' ? `Using the ${sk} skill` : 'Using a skill'
+    return sk !== '' ? [`Using the ${sk} skill`, 'Using a skill', 'Using'] : ['Using a skill', 'Using']
   }
-  if (t === 'SubagentHandback') return 'Handing back'
-  return `Using ${mcpPart(t)}`
+  if (t === 'SubagentHandback') return ['Handing back']
+  return [`Using ${mcpPart(t)}`, 'Using']
 }
+
+const unique = (xs: string[]): string[] => [...new Set(xs)]
 
 /** An MCP tool's own part (`mcp__server__tool` is `tool`); any other name as it is. */
 function mcpPart(tool: string): string {
@@ -1181,11 +1205,13 @@ const styleOf = (p: BarPart): Omit<Run, 'text'> => ({ ...(p.color !== undefined 
 /**
  * A stacked bar of `cells` `━` (the spec's `bar(cells, parts)`): each part's
  * share by largest remainder, a non-zero part never under one cell while
- * cells remain; all zero is the rest. Exactly `cells` wide.
+ * cells remain; all zero is the rest. Exactly `cells` wide. With `gaps`, the
+ * last cell of every part but the last lit one is a blank (the mock's Models
+ * bar: a part, a gap, the next part); a part of one cell keeps it.
  *
  * @example ruleBar(28, [{ count: 71, color: 'suggestion' }, { count: 29, dim: true }])
  */
-export function ruleBar(cells: number, parts: readonly BarPart[], rest: Omit<Run, 'text'> = { color: C.subtle }): Run[] {
+export function ruleBar(cells: number, parts: readonly BarPart[], rest: Omit<Run, 'text'> = { color: C.subtle }, gaps = false): Run[] {
   const n = Math.max(0, Math.floor(cells))
   const counts = parts.map(p => Math.max(0, Number.isFinite(p.count) ? p.count : 0))
   const total = counts.reduce((a, b) => a + b, 0)
@@ -1218,7 +1244,12 @@ export function ruleBar(cells: number, parts: readonly BarPart[], rest: Omit<Run
         left--
       }
     })
-  const runs: Run[] = parts.map((p, i) => ({ text: '━'.repeat(got[i]!), ...styleOf(p) }))
+  const lastLit = got.reduce((at, g, i) => (g > 0 ? i : at), -1)
+  const runs: Run[] = parts.flatMap((p, i): Run[] => {
+    const g = got[i]!
+    if (!gaps || i >= lastLit || g < 2) return [{ text: '━'.repeat(g), ...styleOf(p) }]
+    return [{ text: '━'.repeat(g - 1), ...styleOf(p) }, { text: ' ' }]
+  })
   if (left > 0) runs.push({ text: '━'.repeat(left), ...rest })
   return joinRuns(runs)
 }
@@ -1246,9 +1277,10 @@ export type TodoBarOpts = {
  * The to-do bar of `cells` (the spec's `todoBar(total, done, current)`): one
  * `━` segment a task with a one-cell gap (`gen-cockpit.js` `todoBar`), done
  * segments dim in the accent, the current in the accent, the open ones in
- * `subtle`. When a segment would be under two cells (more tasks than the
- * width holds, R13) the bar is proportional instead: one done run, one
- * current run (at least a cell), the open rest, with no gaps. All done, the
+ * `subtle`. When a segment would be under one cell (more tasks than half the
+ * cells) a task is one cell, at floor(i * cells / total), as the mock's slim
+ * bar. With more tasks than cells (R13) the bar is proportional instead: one
+ * done run, one current run (at least a cell), the open rest, with no gaps. All done, the
  * done part is `success` (mint) unless `o.done` says otherwise. Exactly
  * `cells` wide; no tasks is the rest alone.
  *
@@ -1266,14 +1298,21 @@ export function todoBar(cells: number, total: number, done: number, current: num
   const openStyle = { color: C.subtle }
   const at = (i: number) => Math.floor((i * (n + 1)) / t)
   const segments = Array.from({ length: t }, (_, i) => at(i + 1) - at(i) - 1)
-  if (Math.min(...segments) >= 2) {
+  const styleAt = (i: number) => (i < d ? doneStyle : i < d + c ? curStyle : openStyle)
+  if (Math.min(...segments) >= 1) {
     const runs: Run[] = []
     for (let i = 0; i < t; i++) {
-      const style = i < d ? doneStyle : i < d + c ? curStyle : openStyle
-      runs.push({ text: '━'.repeat(segments[i]!), ...style })
+      runs.push({ text: '━'.repeat(segments[i]!), ...styleAt(i) })
       if (i < t - 1) runs.push({ text: ' ' })
     }
     return joinRuns(runs)
+  }
+  if (t <= n) {
+    // Between half the cells and all of them (the slim bar, gen-cockpit.js todoS): a task is the one cell at
+    // floor(i * n / t); a cell no task lands on is a gap.
+    const cells: Run[] = Array.from({ length: n }, () => ({ text: ' ' }))
+    for (let i = 0; i < t; i++) cells[Math.floor((i * n) / t)] = { text: '━', ...styleAt(i) }
+    return joinRuns(cells)
   }
   let nd = d > 0 ? Math.max(1, Math.round((n * d) / t)) : 0
   let nc = c > 0 ? Math.max(1, Math.round((n * c) / t)) : 0

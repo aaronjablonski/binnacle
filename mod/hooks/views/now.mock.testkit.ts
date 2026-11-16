@@ -1,7 +1,7 @@
 // A test helper, not part of the mod: the CockpitNow* and CockpitSlim boards of
 // .superpowers/sdd/2026-11-16-cockpit-critters/ref/gen-cockpit.js, dumped row by row
 // (the generator models every board as terminal cells). Imported by now.fidelity.test.tsx only.
-// Generated from gen-cockpit.js (ref/): each board as terminal rows, ¤ marks a Raster cell.
+// Generated from gen-cockpit.js (ref/): each board as terminal rows, ¤ marks a Raster cell. A bar Raster (the to-do bar, the Models and digest bars, the slim budget bars) is written out cell by cell, ━ or a gap, so the fidelity tests compare it (F I3); ¤ stays for the critters, rings, lintels and charts, whose text forms are checked in their own tests.
 export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row: number; col: number; w: number; h: number }[] }> = {
   CockpitNow: {
     rows: [
@@ -21,7 +21,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "  ✓ Nothing needs you",
       "",
       "  To do ─────────────────────────────────────── 9 of 14 done",
-      "  ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      "  ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━━",
       "",
       "  ✓ Return 429 with Retry-After",
       "  ✓ Cover the middleware with tests",
@@ -75,7 +75,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "▍ ¤¤¤¤¤   ↵ go to prompt    answer it there: allow or deny",
       "",
       "  To do ─────────────────────────────────────── 9 of 14 done",
-      "  ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      "  ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━━",
       "",
       "  ✓ Return 429 with Retry-After",
       "  ✓ Cover the middleware with tests",
@@ -128,7 +128,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "  ↻ Repeat     “npm test upload” failed 3 times in a row",
       "",
       "  To do ─────────────────────────────────────── 9 of 14 done",
-      "  ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      "  ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━━",
       "",
       "  ✓ Cover the middleware with tests",
       "▍ ▸ Wire the limiter into the chain             now · 12 min",
@@ -174,7 +174,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "  ✓ Nothing needs you",
       "",
       "  To do ────────────────────────────────────── 14 of 14 done",
-      "  ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      "  ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━ ━━━━ ━━━ ━━━ ━━━ ━━━━",
       "",
       "  ✓ All 14 done · the last was “Open the pull request”",
       "",
@@ -220,7 +220,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       " ✓ Nothing needs you",
       "",
       " To do  9 of 14         ›",
-      " ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      " ━━ ━ ━━ ━ ━ ━━ ━ ━━ ━ ━ ",
       "",
       " ▸ Wire the limiter into",
       "   the chain",
@@ -236,8 +236,8 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       " ¤¤¤¤  Editing tests",
       "",
       " Budget                 ›",
-      " context  62%   ¤¤¤¤¤¤¤¤¤",
-      " week     34%   ¤¤¤¤¤¤¤¤¤",
+      " context  62%   ━━━━━━━━━",
+      " week     34%   ━━━━━━━━━",
       "",
       " Notes               3  ›",
       " ★ Limiter runs after",
@@ -275,7 +275,7 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       "▍  ↵ go to prompt",
       "",
       " To do  9 of 14         ›",
-      " ¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤",
+      " ━━ ━ ━━ ━ ━ ━━ ━ ━━ ━ ━ ",
       "",
       " ▸ Wire the limiter into",
       "   the chain",
@@ -291,8 +291,8 @@ export const MOCK: Record<string, { rows: string[]; rasters: { key: string; row:
       " ¤¤¤¤  Waiting for you",
       "",
       " Budget                 ›",
-      " context  62%   ¤¤¤¤¤¤¤¤¤",
-      " week     34%   ¤¤¤¤¤¤¤¤¤",
+      " context  62%   ━━━━━━━━━",
+      " week     34%   ━━━━━━━━━",
       "",
       "",
       "",

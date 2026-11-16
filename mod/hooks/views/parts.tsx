@@ -1423,8 +1423,11 @@ export type AgentCardSpec = {
   job?: string
   /** Flush right at 59 on the first row: dim when a string ("2 min"; R27). Runs keep their style (the long runner bold, a waiter amber). */
   time?: string | Run[]
-  /** The second row at 9: what it is doing (`doing(step)`), dim when a string. */
-  doing: string | Run[]
+  /**
+   * The second row at 9: what it is doing (`doing(step)`), dim when a string. A function is given the
+   * columns the phrase may take (F I7) and answers a phrase that fits: `doing(step, view, room)`.
+   */
+  doing: string | Run[] | ((room: number) => string | Run[])
   /** Flush right on the second row, dim: "31k tokens". */
   tokens?: string
   /** The first row becomes one plain Button. */
@@ -1446,9 +1449,24 @@ export function agentCard(ctx: ViewCtx, $: EngineInterface, c: AgentCardSpec): R
   const { left, right } = edges(ctx.cols)
   const textCol = COCKPIT.text
   const room = Math.max(1, right - textCol + 1)
-  const head: Run[] = [{ text: c.name, bold: true }, ...(c.job !== undefined && c.job !== '' ? [{ text: `  ${c.job}` }] : [])]
+  // F M14: the job follows the name only when a word of it fits; a lone "…" after the name is left out.
+  const timeW = width(runsOf(c.time, { dim: true }))
+  const jobRoom = room - timeW - 2 - c.name.length - 2
+  const jobCut = c.job !== undefined && c.job !== '' && jobRoom > 0 ? wordFit(c.job, jobRoom) : ''
+  const job = jobCut.replace(/…$/, '').length >= 4 ? jobCut : ''
+  const head: Run[] = [{ text: c.name, bold: true }, ...(job !== '' ? [{ text: `  ${job}` }] : [])]
   const first = spread(head, runsOf(c.time, { dim: true }), room)
-  const second = spread(runsOf(c.doing, { dim: true }), runsOf(c.tokens, { dim: true }), room)
+  // F I7: the doing line shortens by clause; the word "tokens" goes before any of it is cut.
+  let tokens = c.tokens
+  let doingRuns: Run[]
+  if (typeof c.doing === 'function') {
+    const full = runsOf(c.doing(Infinity), { dim: true })
+    const tw = (tokens ?? '').length
+    if (tokens !== undefined && width(full) + 2 + tw > room) tokens = tokens.replace(/ tokens$/, '')
+    const space = room - (tokens === undefined ? 0 : tokens.length + 2)
+    doingRuns = width(full) <= space ? full : runsOf(c.doing(space), { dim: true })
+  } else doingRuns = runsOf(c.doing, { dim: true })
+  const second = spread(doingRuns, runsOf(tokens, { dim: true }), room)
   const k = c.key
   const firstBody = first.map((r, i) => runText(r, ctx.e, $, `${k}-a${i}`))
   return (

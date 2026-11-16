@@ -314,18 +314,21 @@ function rasters(node: unknown, col = 0, row = 0, out: Box[] = []): { w: number;
   return { w: typeof p.width === 'number' ? p.width : w, h: typeof p.height === 'number' ? p.height : h, out }
 }
 
-test('fidelity: on the terminal the Rasters sit where the mock puts them: lintel, lead, gauges, sill, cards (the to-do bar is Text, R22)', async ($, on) => {
+// MEANING CHANGED (motion sketch 1, task motion): the to-do bar is now a 1-row Raster in the rich look, where the mock put it
+// (16,2 58x1), so a landed task flashes by blits; its text form is still the `━` runs of R22. The test was "the to-do bar is Text, R22".
+test('fidelity: on the terminal the Rasters sit where the mock puts them: lintel, lead, gauges, sill, to-do bar, cards', async ($, on) => {
   world(on, busy())
   const ui = await mount($, 62, 46, false, 'terminal')
   const boxes = rasters(await ui.drawn()).out.map(({ row, col, w, h }) => ({ row, col, w, h }))
   await ui.unmount()
   // The mock: lintel 3,0 62x1; main 6,2 5x3; gauges 5,40 20x5; sill 11,0 62x1; todo 16,2 58x1; ag 27,2 and 30,2 5x3.
-  // Drawn: the critters are 6 wide (R25), the bar is Text (R22), the cards one row higher (R14).
+  // Drawn: the critters are 6 wide (R25), the bar where the mock has it, the cards one row higher (R14).
   expect(boxes).toEqual([
     { row: 3, col: 0, w: 62, h: 1 },
     { row: 6, col: 2, w: 6, h: 3 },
     { row: 5, col: 40, w: 20, h: 5 },
     { row: 11, col: 0, w: 62, h: 1 },
+    { row: 16, col: 2, w: 58, h: 1 },
     { row: 26, col: 2, w: 6, h: 3 },
     { row: 29, col: 2, w: 6, h: 3 },
   ])

@@ -5,6 +5,7 @@ import type { Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { colOf, screen } from './screen.testkit'
+import { isTextTheme, lookAsked } from './style'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
@@ -88,15 +89,15 @@ for (const surface of SURFACES) {
   })
 }
 
-test('0 is armed at every tab width: on the tab row when it fits, else at the end of the row under it', async ($, on) => {
+// BEHAVIOUR CHANGE (task C3b): was "on the tab row when it fits, else at the end of the row under it"; the mocks draw no button for 0, so it is armed and not seen.
+test('0 is armed at every tab width and drawn nowhere: no tab row and no blank row carries it', async ($, on) => {
   world(on)
   for (const cols of [32, 40, 55, 62, 80]) {
     const ui = await $.ui.mount({ ...PANE(cols), surface: 'terminal' })
-    expect(await ui.find({ type: 'Button', key: 'tab-options' })).not.toBe(undefined)
+    expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0', plain: true })
     const rows = screen(await ui.drawn())
-    const where = rows.findIndex(r => r.includes('0: options'))
-    expect(where === 0 || where === 2).toBe(true)
-    expect((rows[where] ?? '').length <= cols).toBe(true)
+    expect(rows.some(r => r.includes('0: options'))).toBe(false)
+    expect(rows[2]).toBe('')
     await ui.unmount()
   }
 })
@@ -213,17 +214,18 @@ test("look: 'text' draws the pane on the terminal with no Raster: Now, a tab and
   }
 })
 
-test('the Look row is a choice of rich and text; text is written on its press and the pane draws text at once', async ($, on) => {
+// BEHAVIOUR CHANGE (task C3b, R21): was "a choice of rich and text", default rich; the choices gain auto, which is the default.
+test('the Look row is a choice of auto, rich and text, auto by default; text is written on its press and the pane draws text at once', async ($, on) => {
   const { stored, sets } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   expect(await ui.find({ type: 'Raster' })).not.toBe(undefined)
   const row = screen(await ui.drawn()).find(r => r.includes('Look'))
-  expect(row).toContain('rich')
+  expect(row).toContain('auto')
   await ui.press({ key: 'opt-look' })
   expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: 'look' })
   await ui.unmount()
   const opened = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  expect(await opened.find({ type: 'Button', key: 'opt-pick-look-rich' })).not.toBe(undefined)
+  for (const pick of ['auto', 'rich', 'text']) expect(await opened.find({ type: 'Button', key: `opt-pick-look-${pick}` })).not.toBe(undefined)
   await opened.press({ key: 'opt-pick-look-text' })
   expect(sets).toEqual([{ key: 'mission-control.look', value: 'text' }])
   await opened.unmount()
@@ -232,4 +234,60 @@ test('the Look row is a choice of rich and text; text is written on its press an
   const after = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   expect(await after.find({ type: 'Raster' })).toBe(undefined)
   await after.unmount()
+})
+
+// ---------- R21: look auto ----------
+
+/** A `/config` list with the one row the mod reads: the theme. */
+const withTheme = (on: On, theme: string): void => {
+  on('config.list', () => ({ value: [{ key: 'theme', label: 'Theme', kind: 'choice', value: theme, provider: { kind: 'engine' } }] }) as never)
+}
+
+test('lookAsked: rich and text are explicit and win; auto and an unset option follow the theme (text on ANSI and daltonized ones)', () => {
+  expect(isTextTheme('dark-ansi')).toBe(true)
+  expect(isTextTheme('light-daltonized')).toBe(true)
+  expect(isTextTheme('dark')).toBe(false)
+  expect(lookAsked('text', 'dark')).toBe('text')
+  expect(lookAsked('rich', 'dark-ansi')).toBe('rich')
+  expect(lookAsked('rich', 'light-daltonized')).toBe('rich')
+  expect(lookAsked('auto', 'dark')).toBe(undefined)
+  expect(lookAsked('auto', undefined)).toBe(undefined)
+  expect(lookAsked('auto', 'dark-ansi')).toBe('text')
+  expect(lookAsked('auto', 'light-daltonized')).toBe('text')
+  expect(lookAsked(undefined, 'dark-ansi')).toBe('text')
+  expect(lookAsked(undefined, 'dark')).toBe(undefined)
+})
+
+test('look auto draws pictures on the terminal under a plain theme', { options: { look: 'auto' } }, async ($, on) => {
+  world(on)
+  withTheme(on, 'dark')
+  const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).not.toBe(undefined)
+  await ui.unmount()
+})
+
+for (const theme of ['dark-ansi', 'light-ansi', 'dark-daltonized']) {
+  test(`look auto draws text on the ${theme} theme`, { options: { look: 'auto' } }, async ($, on) => {
+    world(on)
+    withTheme(on, theme)
+    const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+    expect(await ui.find({ type: 'Raster' })).toBe(undefined)
+    await ui.unmount()
+  })
+}
+
+test('look rich draws pictures on an ANSI theme: the explicit choice wins', { options: { look: 'rich' } }, async ($, on) => {
+  world(on)
+  withTheme(on, 'dark-ansi')
+  const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).not.toBe(undefined)
+  await ui.unmount()
+})
+
+test('look auto draws text where the surface has no Raster', { options: { look: 'auto' } }, async ($, on) => {
+  world(on)
+  withTheme(on, 'dark')
+  const ui = await $.ui.mount({ ...PANE(80), surface: 'vscode' as never })
+  expect(await ui.find({ type: 'Raster' })).toBe(undefined)
+  await ui.unmount()
 })

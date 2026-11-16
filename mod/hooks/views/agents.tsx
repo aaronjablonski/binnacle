@@ -253,7 +253,7 @@ function listBody(ctx: ViewCtx, $: EngineInterface, ids: Set<string>, states: Ma
   const failed = u.runningOnly ? [] : subs.filter(a => a.status === 'error').sort((a, b) => b.startedAt - a.startedAt)
   const done = u.runningOnly ? [] : subs.filter(a => a.status === 'done' && !hold.has(a.id)).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   if (working.length > 0) {
-    const els: RenderElement[] = [section(ctx, $, 'Working', String(working.length), { key: 'sec-working' })]
+    const els: RenderElement[] = [section(ctx, $, 'Working', String(working.filter(a => a.status === 'running').length), { key: 'sec-working' })]
     for (const a of working) {
       const key = `agent-${a.id}`
       if (ids.has(a.id)) targets.push({ key, open: a.id })

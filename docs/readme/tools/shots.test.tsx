@@ -2,7 +2,7 @@
 // `SHOT <name> <json>` line, with the rows the test kit lays it out as. Not part of the mod: make.mjs copies
 // it into a scratch copy of mod/ (as hooks/views/zz_shots.test.tsx) and runs it there with `claude plugin test`.
 import { mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Timeline, UiState } from '../../types'
@@ -14,10 +14,18 @@ import { screen } from './screen.testkit'
 import { artifactsTimeline, stepsTimeline, stepsUi, tasksTimeline } from './tabs.fixtures.testkit'
 
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
+// The one-shot moves (motion sketches) play on a view's first draw (the gauges fill when the pane opens): the
+// clock starts SETTLE_MS early, and a shot is the redraw at NOW, after every move has ended.
+const SETTLE_MS = 2000
+let clock: MockClock | undefined
+async function settle(ui: { redraw: () => Promise<void> }): Promise<void> {
+  await clock?.advance(SETTLE_MS)
+  await ui.redraw()
+}
 function world(on: On, t: Timeline, u: UiState = initialUi): void {
   const stored = new Map<string, unknown>([['timeline', t], ['ui', u]])
   const versions = new Map<string, number>()
-  mock.clock(on, { now: NOW })
+  clock = mock.clock(on, { now: NOW - SETTLE_MS })
   on('ui.log', () => ({ value: undefined }))
   on('state.get', (_, e) => {
     const key = (e as { key: string }).key
@@ -47,11 +55,13 @@ const out = (name: string, tree: unknown): void => console.log('SHOT ' + name + 
 
 async function pane($: Engine, name: string, cols: number, rows: number, o: PO = {}): Promise<void> {
   const ui = await $.ui.mount({ ...PANE(cols, rows, o), surface: o.surface ?? 'terminal' })
+  await settle(ui)
   out(name, await ui.drawn())
   await ui.unmount()
 }
 async function band($: Engine, name: string, cols: number, surface: 'terminal' | 'desktop' = 'terminal', extra: Record<string, unknown> = {}): Promise<void> {
   const ui = await $.ui.mount({ ...BAND(cols, extra), surface })
+  await settle(ui)
   out(name, await ui.drawn())
   await ui.unmount()
 }
@@ -119,6 +129,7 @@ test('options', async ($, on) => {
   await ui.press({ key: 'tab-options' })
   await ui.unmount()
   const again = await $.ui.mount({ ...PANE(62, 46), surface: 'terminal' })
+  await settle(again)
   out('options', await again.drawn())
   await again.press({ key: 'tab-options' })
   await again.unmount()
@@ -131,6 +142,7 @@ test('budget', async ($, on) => {
   await ui.press({ key: 'now-budget' })
   await ui.unmount()
   const again = await $.ui.mount({ ...PANE(62, 46), surface: 'terminal' })
+  await settle(again)
   out('budget', await again.drawn())
   await again.press({ key: 'budget-back' })
   await again.unmount()

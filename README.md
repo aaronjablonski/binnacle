@@ -112,7 +112,7 @@ The name beside a Critter is the agent's real type in friendly case ("General", 
   <img src="docs/readme/critters.png" width="820" alt="The crew sheet: five Critters, each in six states, drawn as the same small mascot with a slab body, arm nubs and four stub legs. Lead (the main conversation) wears a crown and is orange. Explorer (explore and search agents) has an antenna and a raised arm and is teal. Builder (build and plan agents) wears a hard hat and is blue. Reviewer (review, test and verify agents) wears glasses and is violet. General (general-purpose and every other type) is plain and sky blue. The face shows the state: queued is dimmed, working has open eyes and blinks, waiting on you looks aside with a question-mark badge, stalled is greyed with shut eyes and a z badge, failed is greyed and sad with an exclamation badge, done is grey with shut eyes. Smaller sheets show the same crew on the day ground and in the micro size.">
 </p>
 
-**Critters** are the agents: small pixel characters drawn from the terminal's own block characters, three rows tall, or two in the band and the slim pane. The colour and the accessory are the role (a crown, a hard hat, an antenna, glasses, or nothing for a general agent), and the face and the badge are the state, so a glance tells you who is waiting on you and who has failed without reading a word. Only the lead wears the crown. A working Critter blinks about every four seconds; `motion: off` keeps everyone still.
+**Critters** are the agents: small pixel characters drawn from the terminal's own block characters, three rows tall, or two in the band and the slim pane. The colour and the accessory are the role (a crown, a hard hat, an antenna, glasses, or nothing for a general agent), and the face and the badge are the state, so a glance tells you who is waiting on you and who has failed without reading a word. Only the lead wears the crown. A working Critter blinks about every four seconds. A change of state plays one short move, once: a new agent squashes and hops, a finished one nods and greys before its card folds, an agent that asks glances at its badge and hops, a stalled one droops, a failed one flinches. `motion: off` keeps everyone still.
 
 ### Steps and Keep
 
@@ -185,8 +185,9 @@ The band sits above the prompt and is there even when the pane is closed, so the
 - **Accent**: `iris`, `sky` or `slate`. None of them is a state colour, so the accent never reads as a warning.
 - **Ground**: the pictures are mixed for a dark (`night`) or light (`day`) background. `auto` follows your theme.
 - **Look**: `rich` draws Critters, rings and charts where the terminal can. `text` draws letters and lines only, for a terminal whose glyphs render badly, or a screen reader. `auto` picks text on an ANSI or daltonized theme.
-- **A clean finish** gets one short sweep of the accent along the header, under a second, once. Never in the band, never while something needs you, and off with `motion: off`.
-- **Toasts** only when the number means something: "All 14 done", "Context at 80%", and "5 agents finished" as one toast, not five.
+- **A clean finish** gets one short sweep of the accent along the header, under a second, once, and the lead hops and greys with it. Never in the band, never while something needs you, and off with `motion: off`.
+- **Small moves, once each**: a finished task flashes its bar segment and lights the next (the band shows the new count in the accent for a second), a new step marks its row for a beat and grows its column on the step map, the gauges fill when the pane opens on Now or when one jumps, and Needs you comes in at half strength for a frame before full amber. Nothing repeats or loops but the blink, and nothing moves at rest. `motion: off` shows only where each one ends.
+- **Toasts** only when the number means something: "All 14 done", "Context at 80%", and "5 agents finished" as one toast, not five. A finished agent's toast waits about a second and a half, so agents that finish together share one.
 
 <details>
 <summary><b>The text look and the Options page</b></summary>
@@ -293,7 +294,7 @@ Set them on the Options page (`0`), from the plugin's config menu, or under `plu
 | `look` | `auto` | `auto`, `rich` or `text`: pictures where the terminal can draw them, or letters and box lines only. |
 | `ground` | `auto` | `auto`, `night` or `day`: the background the pictures are drawn for. `auto` gives day on a light theme. |
 | `accent` | `iris` | `iris`, `sky` or `slate`: the colour of headings, the marker and the filled button. |
-| `motion` | `on` | `on` or `off`: whether the crew blinks and the finish sweep plays. |
+| `motion` | `on` | `on` or `off`: whether the crew blinks and moves, and the finish sweep and the other one-shot moves play. |
 | `notify` | `waits` | Native notifications: `off`, `waits`, `done` or `all`. See below. |
 | `watchNotify` | `false` | Also notify, once, when something has stood under Watch for 10 minutes. |
 | `agentLimitMin` | `60` | A subagent still working after this many minutes shows once as a long run under Watch. It only reports. `0` turns it off. |

@@ -42,11 +42,11 @@ Mission Control is a mod for [Claude Code](https://claude.com/claude-code). A lo
 | **4 Steps** | Every tool call of the session, grouped by turn, filterable and searchable. A step opens in place. |
 | **5 Artifacts** | What the session produced: published pages, documents, results, links, changed files, kept steps, and the handoff export. |
 | **Band** | One or two rows above the prompt, there even when the pane is closed. |
-| **Slim** | Under 32 columns the pane is one stacked summary with no tab bar. |
+| **Slim** | Under 32 columns the pane is one stacked summary with no tab bar; it keeps a one-line Watch (or "quiet 30 min"). |
 | **Strip** | From 96 columns Now lies on its side; `/mc strip` puts that strip above the prompt instead of the pane. |
-| **Desktop app** | The Now header and the band are drawn as pictures (Svg) in the same words and colours. |
+| **Desktop app** | The Now header and the band are drawn as pictures (Svg), ending at the header, in the same words and colours. |
 
-The tab bar shortens with the pane: full names from 54 columns, then `Now Tasks Crew Steps Files`, and icons under 43.
+The tab bar shortens with the pane: full names from 54 columns, then the short words `Now Tasks Crew Steps Files` down to 38 (as `1:Now` from 38 to 42), and icons only under 38.
 
 ## Features
 
@@ -162,13 +162,13 @@ The band sits above the prompt and is there even when the pane is closed, so the
   <img src="docs/readme/slim.png" width="640" alt="Three slim panes, 28 columns wide. Working: a compact header, 'Nothing needs you', To do 9 of 14 with the current and next task, Agents with two micro Critters, Budget as two bars, Notes. A dialog waiting: the header in amber and a Needs you block with the wrapped command and 'answer in the prompt'. All done: a green header, a full bar and 'All 14 done'.">
 </p>
 
-**Slim.** `/mc slim` asks for a 28-column pane; any pane under 32 columns draws this way. There is no tab bar: each title opens its tab. When rows run short, whole blocks go from the bottom, and Needs you is kept longest.
+**Slim.** `/mc slim` asks for a 28-column pane; any pane under 32 columns draws this way. There is no tab bar: each title opens its tab. A line under Needs you shows how many things to watch and the top one, or "quiet 30 min" when nothing else is up. When rows run short, whole blocks go from the bottom, and Needs you is kept longest.
 
 <p align="center">
   <img src="docs/readme/strip.png" width="900" alt="The strip above the prompt, 110 columns wide: the Now header with the lead Critter, the goal and both gauges on the left; To do (9 of 14 done, the current and next task) and Agents (2 working) on the right; the band's compact row beneath, then the prompt.">
 </p>
 
-**Strip.** `/mc strip` closes the pane and draws Now on its side above the prompt, for when you want the full width for the chat. The pane itself uses the same layout from 96 columns. The strip never takes more than half the terminal's height. A click on a row opens the pane there.
+**Strip.** `/mc strip` closes the pane and draws Now on its side above the prompt, for when you want the full width for the chat. The pane itself uses the same layout from 96 columns. When a dialog waits, the strip puts the ask first, ahead of the header. The strip never takes more than half the terminal's height. A click on a row opens the pane there.
 
 <p align="center">
   <img src="docs/readme/desktop.png" width="820" alt="The desktop app's forms. The Now header as a picture, on the night ground and on the day ground: a rounded WORKING pill, the lead Critter, the goal, '620k of 1M used' and two smooth rings. The band as a picture, working and while a dialog waits ('Needs you', the ask, 'answer below').">
@@ -241,7 +241,7 @@ All of these work in the middle of a turn. They are the only commands.
 | `/mc strip` | Closes the pane and draws the strip above the prompt; run again, it restores the band and reopens the pane. |
 | `/mc options` | Opens the Options page. |
 
-`/mc`, `/mc 1` to `/mc 5`, `/mc slim` and `/mc options` open the pane and so turn the strip off. `/mc close` leaves the strip as it is, and a `/clear` turns it off.
+`/mc`, `/mc 1` to `/mc 5`, `/mc slim` and `/mc options` open the pane and so turn the strip off. `/mc close` leaves the strip as it is, and a `/clear` turns it off and folds the cleared conversation away: its tasks, agents and steps leave the pane.
 
 ## Keys
 
@@ -339,11 +339,11 @@ With `guide` on, the mod registers one tool, `mcp__mission-control__update` (fie
 ```text
 # Mission Control
 The person follows this session in a side panel with a headline, a to-do list and notes. They glance at it instead of reading the transcript, so keep it true.
-- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__mission-control__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time and mark it done the moment it is finished; do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.
+- To-do list: when a request will take 3 or more distinct steps, create the list with your task tools (TaskCreate, or TodoWrite) before any other tool call; if you have neither, send it in the `tasks` field of mcp__mission-control__update alongside your first tool call(s), the whole list each time, each `{ "title", "state" }` with state "todo", "doing" or "done". Write 3 to 10 tasks, in the order you plan to do them. Each is an outcome the person would recognise, under 60 characters ("Cover the middleware with tests"), never a single tool call ("Run grep"). Keep one task in progress at a time. When the state of a task changes, send the list with your next tool call; if there is none, send it alone: an update carrying only `tasks` is fine the moment a task is done. Do not save the updates for the end. If the plan changes, change the list: add what you found, delete what you dropped. If a small request grows past 3 steps, create the list then. Leave no task in progress when you give your final answer. A request of one or two steps needs no list.
 - Headline: with your first tool call(s) on a new request, call mcp__mission-control__update with `focus`: the goal of the whole request as a plain clause of at most 8 words ("Adding rate limiting to the upload route"). Send it again only if the goal itself changes; the to-do list shows the current step.
 - Add `note` when you learn something the person would want to find again: a decision, a root cause, a surprising fact. One line.
 - Add `artifact` when you produce a result or a link worth keeping (review findings, a report, a pull request).
-Send these alongside other tool calls, never as a call of their own just to say nothing changed. Skip all of it for replies that need no tools. Do not mention the panel or these updates in your replies.
+Send these alongside other tool calls where you can, and never send an update that changes nothing. Skip all of it for replies that need no tools. Do not mention the panel or these updates in your replies.
 ```
 
 The tool's description reads: "Keep the Mission Control panel true for the person watching: the headline (`focus`), the to-do list (`tasks`, the whole list each time), notes and artifacts. Cheap; returns nothing useful."
@@ -382,7 +382,7 @@ node docs/readme/tools/make.mjs      # redraw the pictures on this page from the
 
 ## Known limits
 
-- **A permission has no "settled" signal.** Claude Code's hooks do not tell a mod when a permission dialog was answered. So a permission counts as Needs you only while the pane can see a dialog covering the prompt. With the pane closed, the band shows a permission in amber for its first minute, then a dim "asked to run a command · running". In auto mode an ask reads "Checking a permission" until a dialog appears. Questions, plans and MCP input requests do not have this limit: they stay amber for as long as they wait.
+- **A permission has no "settled" signal.** Claude Code's hooks do not tell a mod when a permission dialog was answered. So a permission counts as Needs you only while the pane can see a dialog covering the prompt. With the pane closed, or in the desktop app and VS Code, the band and the pane show a permission in amber for its first minute, then a dim "asked to run a command · running". In auto mode an ask reads "Checking a permission" until a dialog appears. Questions, plans and MCP input requests do not have this limit: they stay amber for as long as they wait.
 - **Permission notifications need the pane open**, for the same reason. Claude Code still raises its own.
 - **Subagents do not see the guide.** Claude Code does not raise the system-prompt event for subagent or workflow-agent prompts, so an agent's "doing" line comes from its steps, not from notes it writes.
 - **Hotkeys do not work in VS Code.** Every action is still a labelled button there.

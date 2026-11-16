@@ -16,11 +16,11 @@ const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 type Stored = Map<string, unknown>
 
-function world(on: On, t: Timeline, u: UiState = initialUi): Stored {
+function world(on: On, t: Timeline, u: UiState = initialUi, env: Record<string, string> = {}): Stored {
   const stored: Stored = new Map<string, unknown>([['timeline', t], ['ui', u]])
   const versions = new Map<string, number>()
   mock.clock(on, { now: NOW })
-  mock.env(on, {})
+  mock.env(on, env)
   LOGS.length = 0
   on('ui.log', keepLog)
   on('state.get', (_, e) => {
@@ -237,6 +237,34 @@ test('n steps to the next ask when two wait; the footer offers it then', async (
   expect(rows[rows.findIndex(r => r.startsWith('  Needs you')) + 1]).toContain('Claude asks to run a command')
   await ui.press({ key: 'arm-hint-next' })
   await ui.unmount()
+})
+
+// FX3 I-3: the hidden `e` arm of Now at rest. The footer says `e export handoff` as text; the press is on the armed Button and reaches the same exportDigest the `/mc export` command runs.
+test('Now at rest e: the armed hint exports the handoff, the same write /mc export makes', async ($, on) => {
+  const stored = world(on, { ...idle(), journal: 'sess1' }, initialUi, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+  const writes: string[] = []
+  on('fs.read', () => {
+    throw new Error('ENOENT')
+  })
+  on('fs.write', (_, e) => {
+    writes.push(e.path.split(String.fromCharCode(92)).join('/'))
+    return { value: undefined }
+  })
+  on('ui.copy', () => ({ value: { isCopied: true as const } }))
+  on('ui.toast', () => ({ value: undefined }))
+  const ui = await mount($, 62, 46)
+  const rows = await rowsOf(ui)
+  expect(rows[rows.length - 1]).toContain('e export handoff')
+  expect(await ui.find({ key: 'arm-hint-export' })).toBeDefined()
+  await ui.press({ key: 'arm-hint-export' })
+  await ui.unmount()
+  expect(writes).toHaveLength(1)
+  expect(writes[0]).toMatch(/export-.*\.md$/)
+  expect((stored.get('timeline') as Timeline).lastExport?.path.split(String.fromCharCode(92)).join('/')).toBe(writes[0])
+  // the command runs the same handler: with the clock held, the same path
+  await $.command.run({ command: 'mc', args: 'export' } as never)
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toBe(writes[0])
 })
 
 test('pressing the need opens its step in place', async ($, on) => {

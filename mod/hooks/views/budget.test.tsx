@@ -15,13 +15,13 @@ const HOUR = 3_600_000
 
 type Stored = Map<string, unknown>
 
-function world(on: On, t: Timeline, u?: UiState): { stored: Stored; clock: MockClock } {
+function world(on: On, t: Timeline, u?: UiState, env: Record<string, string> = {}): { stored: Stored; clock: MockClock } {
   const stored: Stored = new Map()
   stored.set('timeline', t)
   stored.set('ui', u ?? initialUi)
   const versions = new Map<string, number>()
   const clock = mock.clock(on, { now: NOW })
-  mock.env(on, {})
+  mock.env(on, env)
   LOGS.length = 0
   on('ui.log', keepLog)
   on('state.get', (_, e) => {
@@ -130,6 +130,30 @@ async function openBudget($: Engine, surface: (typeof SURFACES)[number], columns
   await m.press({ key: line !== undefined ? 'now-budget' : 'arm-hint-budget' })
   return m
 }
+
+// FX3 I-3: the hidden `e` arm of the budget view. The footer says `e csv` as text; the press is on the armed Button and writes the ledger CSV (exportLedger).
+test('Budget e: the armed hint writes the ledger CSV and toasts its path', async ($, on) => {
+  world(on, withBudget(budget()), undefined, { USERPROFILE: 'C:/Users/x', OS: 'Windows_NT' })
+  const writes: { path: string }[] = []
+  const toasts: string[] = []
+  on('fs.write', (_, e) => {
+    writes.push({ path: e.path.split(String.fromCharCode(92)).join('/') })
+    return { value: undefined }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  const m = await openBudget($, 'terminal', 62)
+  const rows = screen(await m.drawn())
+  expect(rows[rows.length - 1]).toContain('e csv')
+  expect(await m.find({ key: 'arm-hint-csv' })).toBeDefined()
+  await m.press({ key: 'arm-hint-csv' })
+  await m.unmount()
+  expect(writes).toHaveLength(1)
+  expect(writes[0]!.path).toMatch(/ledger-.*\.csv$/)
+  expect(toasts.some(t => t.startsWith('Ledger written: '))).toBe(true)
+})
 
 // LOOK TEST (rewritten for the cockpit, task C3b; the head is plain bold text since a pill is for a state only, O M8): the budget view is the cockpit's: lintel, a Budget head that goes back, the three rings with
 // their words under them at 29, 40 and 51 (62 columns), the sill; no Neo deck, no beads, no bracket.

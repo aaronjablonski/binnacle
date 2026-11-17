@@ -263,31 +263,37 @@ function rowOne(m: BandModel, room: number): Run[] {
 
 /** Row 2: the to-do bar and its words, `/binnacle` at the right. */
 function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number, countCue = false): RenderElement {
-  // R46: the PR chip (`#123 ✓ stack 2/4`) before `/binnacle` while there is room for the to-do words beside it.
-  const chip = prChip(ctx.pr)
-  const withChip = chip.length > 0 && room - widthOf(chip) - 3 - MC.length >= 40
-  const mc: Run[] = withChip ? [...chip, spaces(3), dim(MC)] : [dim(MC)]
-  const mcW = widthOf(mc)
   const cells = Math.max(10, Math.min(BAR_CELLS, room - 34))
   const hasBar = m.total > 0
   const start = hasBar ? cells + BAR_GAP : 0
-  const space = room - start - 1 - mcW
   const count: Run[] = [countCue ? { text: String(m.done), bold: true, color: C.accent } : bold(String(m.done)), dim(` of ${m.total} done`)]
   const agents: Run[] = m.working > 0 ? [dim(agentsWords(m))] : []
   const pieces: Run[][] = []
-  if (m.ask !== undefined && commandBelow(m, room)) {
-    // M9, I5: the ask's tool and its command whole, in place of the to-do words; cut at a word only past the row.
-    const cmd: Run[] = [bold(m.ask.tool), plain('  '), bold(m.ask.command)]
-    const fitted = widthOf(cmd) + 1 + mcW <= room ? cmd : trimRuns(cmd, room - 1 - mcW)
-    return line(ctx, $, 'band-row-2', spread(fitted, mc, room))
-  }
+  // The calm piece ("nothing needs you") may give way to the chip; a Watch count or a waiting ask may not.
+  let calm = false
   if (m.form === 'asked') {
     const waiting: Run = { text: `${m.waiting} waiting`, color: CK.ask }
     pieces.push(...(hasBar ? [count] : []), m.working > 0 ? [dim(`${m.working} ${m.working === 1 ? 'agent' : 'agents'} working, `), waiting] : [waiting])
   } else if (m.form === 'stopped') {
     pieces.push(...(hasBar ? [count] : []))
   } else {
-    pieces.push(...(hasBar ? [count] : []), ...(agents.length > 0 ? [agents] : []), [dim(needsPiece(m))])
+    const needs = needsPiece(m)
+    calm = needs === 'nothing needs you'
+    pieces.push(...(hasBar ? [count] : []), ...(agents.length > 0 ? [agents] : []), [dim(needs)])
+  }
+  // R46, R57: the PR chip (`#123 ✓ stack 2/4`) sits before `/binnacle` only while every word that matters still fits beside it.
+  const chip = prChip(ctx.pr)
+  const kept = calm ? pieces.slice(0, -1) : pieces
+  const chipW = chip.length > 0 ? widthOf(chip) + 3 : 0
+  const withChip = chip.length > 0 && widthOf(joined(kept, 3)) <= room - start - 1 - chipW - MC.length
+  const mc: Run[] = withChip ? [...chip, spaces(3), dim(MC)] : [dim(MC)]
+  const mcW = widthOf(mc)
+  const space = room - start - 1 - mcW
+  if (m.ask !== undefined && commandBelow(m, room)) {
+    // M9, I5: the ask's tool and its command whole, in place of the to-do words; cut at a word only past the row.
+    const cmd: Run[] = [bold(m.ask.tool), plain('  '), bold(m.ask.command)]
+    const fitted = widthOf(cmd) + 1 + mcW <= room ? cmd : trimRuns(cmd, room - 1 - mcW)
+    return line(ctx, $, 'band-row-2', spread(fitted, mc, room))
   }
   let words: Run[] = joined(pieces, 3)
   for (let n = pieces.length; n > 0 && widthOf(words) > space; n--) words = joined(pieces.slice(0, n - 1), 3)
@@ -423,7 +429,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE, ground: groundOf(options.ground, theme), pr }
       if (!isStrip && !m.nothing) {
         // `/binnacle` stays pressable beside the Svg: a press opens the pane, as the command does.
-        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, ground: ctx.ground ?? 'night', presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
+        const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, ground: ctx.ground ?? 'night', pr, presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
         if (svg !== null) return svg
       }
       // R55: while the person tries the Show as styles, their row sits on top of the band or the strip.

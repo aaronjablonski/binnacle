@@ -14,11 +14,12 @@
 // none of the views that have one), so vitest loads it. The header's words
 // come from the pane's own functions in `svgview.tsx` (`deckHead`), handed in.
 
-import type { AgentRow, Timeline, UiState } from '../../types'
+import type { AgentRow, Timeline, UiState, PrState } from '../../types'
 import { needs, watch } from '../model/alerts'
 import type { NeedsOptions } from '../model/alerts'
 import { summary } from '../model/select'
 import { agentsWords, bandModel, bandWords, needsPiece } from './bandmodel'
+import { checksMark, stackIndex } from '../model/pr'
 import type { BandModel } from './bandmodel'
 import { critterBox, DOT_BITS, gaugeHue, PALETTE } from './raster'
 import type { Ground, Hue, Palette } from './raster'
@@ -379,6 +380,22 @@ const bandWidth = (cols: number): number => Math.max(480, Math.min(1400, Math.ro
 /** One piece of a line of mixed styles. */
 type Piece = { t: string; fill?: string; bold?: boolean }
 
+/** The band's PR chip as Svg pieces (R57): `#482 ✓ stack 2/3`, the checks mark in mint or red, the stack words dim. */
+function chipPieces(pr: PrState | undefined): Piece[] {
+  if (pr === undefined || (pr.current === undefined && pr.stack === undefined)) return []
+  const out: Piece[] = []
+  const n = pr.current?.number
+  if (n !== undefined) {
+    out.push({ t: `#${n}`, bold: true })
+    const c = pr.current?.checks
+    const mark = checksMark(c)
+    if (mark !== '') out.push({ t: ` ${mark}`, fill: c === 'pass' ? ink('mint') : c === 'fail' ? ink('red') : DIM() })
+  }
+  const items = pr.stack?.items
+  if (items !== undefined && items.length > 1) out.push({ t: `${out.length > 0 ? ' ' : ''}stack ${stackIndex(pr) + 1}/${items.length}`, fill: DIM() })
+  return out
+}
+
 /** Pieces as the tspans of one `<text>`; `size` is the line's. */
 function tspans(x: number, y: number, pieces: Piece[], o: { size?: number; anchor?: 'end' } = {}): string {
   const anchor = o.anchor !== undefined ? ` text-anchor="${o.anchor}"` : ''
@@ -413,7 +430,7 @@ const figurePiece = (pct: number): Piece => ({ t: `${pct}%`, bold: pct >= 70, fi
  * to-do bar and its words. At idle one dim line. `/binnacle` is the Button beside
  * the Svg, not drawn in it. \`model\` is the band's own when it has read one.
  */
-export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, model?: BandModel, g: Ground = 'night'): string {
+export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, model?: BandModel, g: Ground = 'night', pr?: PrState): string {
   ground = g
   const m = model ?? bandModel(t, u, now)
   const W = bandWidth(cols)
@@ -474,7 +491,13 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
     if (m.working > 0) words.push(...(words.length > 0 ? [sep] : []), { t: agentsWords(m), fill: DIM() })
     words.push(...(words.length > 0 ? [sep] : []), { t: needsPiece(m), fill: DIM() })
   }
+  // R57: the PR chip at the right of row 2, as the terminal band draws it (`#482 ✓ stack 2/3`).
+  const chip = chipPieces(pr)
+  const chipW = chip.reduce((n, p) => n + p.t.length, 0) * 12.5 * 0.52
+  const wordsW = words.reduce((n, p) => n + p.t.length, 0) * 12.5 * 0.52
+  const withChip = chip.length > 0 && wx + wordsW + 24 + chipW <= right
   s += tspans(wx, 43, words, { size: 12.5 })
+  if (withChip) s += tspans(right, 43, chip, { size: 12.5, anchor: 'end' })
   return bounded(`${s}</svg>`, W, dm)
 }
 

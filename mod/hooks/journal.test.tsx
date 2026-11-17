@@ -7,6 +7,7 @@ import { empty } from './model/reduce'
 import { initialUi } from './state'
 import { problems } from './model/select'
 import { todoBlock } from './model/todo'
+import { diskPath } from './fsdisk.testkit'
 
 const HOME = 'C:/home'
 const ROOT = `${HOME}/.claude/binnacle`
@@ -16,7 +17,7 @@ const NOW = 10 * DAY
 
 type File = { text: string; mtimeMs: number }
 
-const norm = (p: string): string => p.replace(/\\/g, '/')
+const norm = diskPath
 
 // An in-memory disk: files in a map (folders implied by their paths), and
 // the removals the platform's own command was asked for.
@@ -267,6 +268,10 @@ test('with no home folder the journal writes nothing', async () => {
 })
 
 // Through the mod itself: the disk answers the engine's fs calls beneath it.
+const NOT_A_REPO = { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository', isStdoutTruncated: false, isStderrTruncated: false }
+/** The platform's own folder removal, as journal.ts runs it: `cmd /d /c rmdir /s /q` on Windows, `rm -rf --` elsewhere. */
+const isRemoval = (argv: readonly string[]): boolean => (argv[0] === 'cmd' && argv[3] === 'rmdir') || argv[0] === 'rm'
+
 // `box.sessionId` is what `$.session.id()` answers; a test may change it.
 // With `ownState`, the world keeps $.state itself (see `stateBeneath`) so a
 // test can reset it as a /clear does.
@@ -287,7 +292,9 @@ function world(on: On, d: Disk, sessionId: string, opts: { failCommand?: boolean
   on('fs.exists', (_, e) => ({ value: d.exists(e.path) }))
   on('fs.list', (_, e) => ({ value: d.list(e.path) }))
   on('fs.stat', (_, e) => ({ value: d.stat(e.path) }))
-  on('process.run', (_, e) => ({ value: d.remove(e.argv) }))
+  // Prune's removal reaches the disk; any other command (the PR fetch's git and gh at session start)
+  // answers as it would outside a repository, so it never counts as a removal.
+  on('process.run', (_, e) => ({ value: isRemoval(e.argv) ? d.remove(e.argv) : NOT_A_REPO }))
   if (opts.ownState === true) {
     box.resetState = stateBeneath(on, box)
     return box

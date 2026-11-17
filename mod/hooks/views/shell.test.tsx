@@ -5,6 +5,7 @@ import type { Timeline, UiState } from '../../types'
 import { empty } from '../model/reduce'
 import { initialUi } from '../state'
 import { colOf, screen } from './screen.testkit'
+import { diskPath } from '../fsdisk.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const SHAPES: Record<string, string> = { timeline: 'timeline-4', ui: 'ui-4' }
@@ -463,6 +464,4 @@ test('/binnacle export with no home answers and writes nothing', async ($, on) =
   expect(got.text).toContain('Could not export')
 })
 
-function slash(path: string): string {
-  return path.split(String.fromCharCode(92)).join('/')
-}
+const slash = diskPath

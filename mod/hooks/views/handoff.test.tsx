@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 import type { Timeline } from '../../types'
 import { empty } from '../model/reduce'
 import { digestParts, KEPT_WORDS } from './handoff'
+import { diskPath } from '../fsdisk.testkit'
 
 // The engine beneath the mod for /binnacle export: a timeline held under the
 // current shape, a home folder, and a disk and clipboard that accept.
@@ -28,7 +29,7 @@ function world(on: On, t: Timeline, env: Record<string, string> = { USERPROFILE:
     return { value: { isSet: true as const, version } }
   })
   on('fs.write', (_, e) => {
-    writes.push(e.path.replace(/\\/g, '/'))
+    writes.push(diskPath(e.path))
     return { value: undefined }
   })
   on('fs.read', () => {
@@ -47,7 +48,7 @@ test('/binnacle export records when and where it wrote', async ($, on) => {
   expect(writes.length).toBe(1)
   const t = stored.get('timeline') as Timeline
   expect(t.lastExport?.at).toBe(1_000_000)
-  expect(t.lastExport?.path.replace(/\\/g, '/')).toBe(writes[0])
+  expect(diskPath(t.lastExport?.path ?? '')).toBe(writes[0])
 })
 
 test('/binnacle export with no home records nothing', async ($, on) => {

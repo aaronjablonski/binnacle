@@ -9,6 +9,7 @@ import { filesOf } from './detail'
 import { decode, PALETTE } from './raster'
 import { backTo, colOf, keepLog, LOGS, screen } from './screen.testkit'
 import { mapBuckets } from './timeline'
+import { diskPath } from '../fsdisk.testkit'
 
 const SURFACES = ['terminal', 'desktop', 'vscode', 'mobile'] as const
 const NOW = 1_000_000
@@ -40,9 +41,9 @@ function world(
   on('ui.log', keepLog)
   on('session.id', () => ({ value: 'sess-1' }))
   on('fs.read', async (_, e) => {
-    reads.push(e.path.replaceAll('\\', '/'))
+    reads.push(diskPath(e.path))
     if (readCostMs > 0 && e.path.includes('steps')) await clock?.advance(readCostMs)
-    const text = files.get(e.path.replace(/\\/g, '/'))
+    const text = files.get(diskPath(e.path))
     if (text === undefined) throw new Error(`ENOENT: ${e.path}`)
     return { value: text }
   })

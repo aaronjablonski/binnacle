@@ -136,13 +136,14 @@ test('text form: /binnacle strip closes the pane, writes ui.strip and the band d
   expect(uiOf(w).paneOpen).toBe(false)
   for (const surface of SURFACES) {
     const rows = await bandRows($, 110, 20, surface)
-    // Now's header (9 rows), a blank and the needs slot in the left 62 columns, To do and Agents beside them, then the band's one compact row.
-    expect(rows.length).toBe(12)
+    // Now's header (9 rows), a blank and the needs slot in the left 62 columns, To do and Agents beside them, a blank (R57), then the band's one compact row.
+    expect(rows.length).toBe(13)
     expect(rows[0]!.startsWith('┏━━')).toBe(true)
     expect(rows[1]!.startsWith('   WORKING')).toBe(true)
     expect(rows.some(r => colOf(r, FOCUS.split(' ')[0]!) === 9)).toBe(true)
     expect(colOf(rows[0], 'To do')).toBe(64)
-    const line = rows[11]!
+    expect(rows[11]!.trim()).toBe('')
+    const line = rows[12]!
     expect(line.startsWith('1 of 3  ·  2 agents')).toBe(true)
     expect(line.length).toBe(110)
   }
@@ -258,8 +259,8 @@ test('from 96 columns the two columns sit side by side: the header in the left 6
   expect(colOf(rows[0], 'To do')).toBe(64)
   expect(rows.some(r => colOf(r, 'Agents') === 64)).toBe(true)
   expect(rows.some(r => colOf(r, 'Explorer') === 71)).toBe(true)
-  // Header 9 rows, a blank, the all-clear line: the right column trimmed to that height, then the compact line.
-  expect(rows.length).toBe(12)
+  // Header 9 rows, a blank, the all-clear line: the right column trimmed to that height, then a blank (R57) and the compact line.
+  expect(rows.length).toBe(13)
   expect(rows[10]).toContain('✓ Nothing needs you')
 })
 

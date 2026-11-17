@@ -8,6 +8,7 @@ import { agent, asked, busy, finished, idle, longList, NOW, step, watching } fro
 import { warmWords } from './fit'
 import { dealRows } from './overview'
 import { backTo, keepLog, LOGS, screen } from './screen.testkit'
+import { diskPath } from '../fsdisk.testkit'
 
 // Now in the cockpit (spec "Screens", its Tests line, and the rulings the
 // screen carries). The mock boards themselves are now.fidelity.test.tsx's.
@@ -251,7 +252,7 @@ test('Now at rest e: the armed hint exports the handoff, the same write /binnacl
     throw new Error('ENOENT')
   })
   on('fs.write', (_, e) => {
-    writes.push(e.path.split(String.fromCharCode(92)).join('/'))
+    writes.push(diskPath(e.path))
     return { value: undefined }
   })
   on('ui.copy', () => ({ value: { isCopied: true as const } }))
@@ -264,7 +265,7 @@ test('Now at rest e: the armed hint exports the handoff, the same write /binnacl
   await ui.unmount()
   expect(writes).toHaveLength(1)
   expect(writes[0]).toMatch(/export-.*\.md$/)
-  expect((stored.get('timeline') as Timeline).lastExport?.path.split(String.fromCharCode(92)).join('/')).toBe(writes[0])
+  expect(diskPath((stored.get('timeline') as Timeline).lastExport?.path ?? '')).toBe(writes[0])
   // the command runs the same handler: with the clock held, the same path
   await $.command.run({ command: 'binnacle', args: 'export' } as never)
   expect(writes).toHaveLength(2)

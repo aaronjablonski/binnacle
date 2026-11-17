@@ -160,8 +160,11 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
   const press: Press = f => andThen(f, opts.after)
   const body = Math.max(0, opts.maxRows - 1)
   const st = nowState(ctx)
-  const compact = (
+  // R57: one blank row between the strip and the band's own line under it, so the stack row and that line never
+  // touch; only where the strip's rows leave a spare row (a blank row never costs content or passes maxRows).
+  const compact = (used: number): RenderElement => (
     <Box key="strip-line" flexDirection="column">
+      {used > 0 && used + 2 <= opts.maxRows ? blank(ctx, $, 'strip-line-gap') : null}
       {opts.line}
     </Box>
   )
@@ -173,7 +176,7 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
     return (
       <Box flexDirection="column">
         {columns(ctx, $, left, right)}
-        {compact}
+        {compact(Math.max(leftH, right.reduce((n, el) => n + heightOf(el), 0)))}
       </Box>
     )
   }
@@ -191,7 +194,7 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
   return (
     <Box flexDirection="column">
       {stacked}
-      {compact}
+      {compact(stacked.reduce((n, el) => n + heightOf(el), 0))}
     </Box>
   )
 }

@@ -226,14 +226,10 @@ test('session.start without autoOpen opens nothing, and registers /binnacle as i
   expect(registered[0]).toMatchObject({ name: 'binnacle', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
 })
 
-test('/mc is registered as a second command with the same hint, and runs the same thing as /binnacle', async ($, on) => {
-  const { registered, opened } = sessionWorld(on, empty)
+test('/mc is no longer registered: /binnacle is the one command', async ($, on) => {
+  const { registered } = sessionWorld(on, empty)
   await start($)
-  expect(registered[1]).toMatchObject({ name: 'mc', immediate: true, argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]' })
-
-  const got = await $.command.run({ command: 'mc', args: '' } as never)
-  expect(got.text).toBe('Binnacle is open and waits for a wider terminal.')
-  expect(opened.length).toBe(1)
+  expect(registered.map(r => r.name)).toEqual(['binnacle'])
 })
 
 // M10 (order changed, meaning kept): the clock stops once nothing is live and only a capture hook's write starts it

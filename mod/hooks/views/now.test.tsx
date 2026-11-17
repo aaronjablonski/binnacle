@@ -87,81 +87,85 @@ test('Now holds no log: no step command, no step count and no error count, on ev
   }
 })
 
-test('the needs slot is at the same row with and without an ask, and while an auto-mode ask is still being checked (R2)', async ($, on) => {
+test('R48: no calm line on Now; an ask, or an auto-mode ask still being checked, takes the row right under the header (R2)', async ($, on) => {
   const stored = world(on, busy())
-  const slotRow = async (covered: boolean): Promise<{ row: number; rows: string[] }> => {
+  const firstAfterHead = async (covered: boolean): Promise<{ row: number; rows: string[] }> => {
     const ui = await mount($, 62, 46, { covered })
     const rows = await rowsOf(ui)
     await ui.unmount()
-    return { row: rows.findIndex(r => r.includes('Nothing needs you') || r.startsWith('  Needs you') || r.includes('Checking a permission')), rows }
+    return { row: rows.findIndex(r => r.startsWith('  To do') || r.startsWith('  Needs you') || r.includes('Checking a permission')), rows }
   }
-  const calm = await slotRow(false)
+  const calm = await firstAfterHead(false)
+  expect(calm.rows.join('\n')).not.toContain('Nothing needs you')
+  expect(calm.rows[calm.row]!.startsWith('  To do')).toBe(true)
   stored.set('timeline', asked())
-  const ask = await slotRow(true)
+  const ask = await firstAfterHead(true)
   expect(ask.row).toBe(calm.row)
   expect(ask.rows[ask.row]!.startsWith('  Needs you')).toBe(true)
-  // Auto mode, the prompt not covered, the ask 5 s old: no tick, a dim "Checking a permission" in the same slot.
+  // Auto mode, the prompt not covered, the ask 5 s old: a dim "Checking a permission" in the same row.
   const a = asked()
-  stored.set('timeline', { ...a, autoAsk: true, steps: a.steps.map(s => (s.asking !== undefined ? { ...s, asking: NOW - 5_000 } : s)) })
-  const checking = await slotRow(false)
+  stored.set('timeline', { ...a, autoAsk: true, steps: a.steps.map(x => (x.asking !== undefined ? { ...x, asking: NOW - 5_000 } : x)) })
+  const checking = await firstAfterHead(false)
   expect(checking.row).toBe(calm.row)
   expect(checking.rows[checking.row]!.trim()).toBe('Checking a permission')
-  expect(checking.rows.join('\n')).not.toContain('✓ Nothing needs you')
-  // The same ask with the prompt covered shows at once.
-  expect((await slotRow(true)).rows[calm.row]!.startsWith('  Needs you')).toBe(true)
 })
 
-test('Watch rows carry no warning colour, and Watch changes nothing in the header or the needs slot', async ($, on) => {
+test('R45: Now draws nothing for Watch: no rows, no hint, no keys, and the header is unchanged', async ($, on) => {
   world(on, watching())
   for (const surface of SURFACES) {
     const ui = await mount($, 62, 46, { surface })
     const all = walk(await ui.drawn())
-    const watchEls = all.filter(n => /^(row-)?(watch-|sec-watch)/.test(keyOf(n)))
-    expect(watchEls.length).toBeGreaterThan(0)
-    for (const w of watchEls) for (const n of walk(w)) expect(n.props?.color).not.toBe('warning')
+    expect(all.filter(n => /^(row-)?(watch-|sec-watch)/.test(keyOf(n))).length).toBe(0)
+    const keys = (await ui.findAll({ type: 'Button' })).map(b => (b.props as { hotkey?: string }).hotkey).filter(Boolean)
+    expect(keys).not.toContain('x')
+    expect(keys).not.toContain('w')
     const rows = await rowsOf(ui)
-    expect(rows.join('\n')).toContain('✓ Nothing needs you · 2 things to watch')
-    // (the desktop app draws its Svg deck in the header's place)
-    if (surface !== 'desktop') expect(rows[4]).toContain('WORKING')
+    expect(rows.join('\n')).not.toMatch(/to watch|Long run|Repeat ·|Loop ·/)
+    if (surface !== 'desktop') expect(rows.join('\n')).toContain('WORKING')
     await ui.unmount()
   }
 })
 
-test('the height rule deals spare rows to To do (3 to 7), then Agents (1 to 3 cards), then Notes (1 to 4)', () => {
+test('the height rule deals spare rows to To do, then Notes, then Artifacts, then agent cards (R47)', () => {
   const todo = { floor: 3, want: 7 }
   const agents = { floor: 1, want: 3 }
   const notes = { floor: 1, want: 4 }
-  expect(dealRows(0, todo, agents, notes)).toEqual({ todo: 3, cards: 1, notes: 1 })
-  expect(dealRows(4, todo, agents, notes)).toEqual({ todo: 7, cards: 1, notes: 1 })
-  expect(dealRows(6, todo, agents, notes)).toEqual({ todo: 7, cards: 1, notes: 3 })
-  expect(dealRows(7, todo, agents, notes)).toEqual({ todo: 7, cards: 2, notes: 1 })
-  expect(dealRows(40, todo, agents, notes)).toEqual({ todo: 7, cards: 3, notes: 4 })
+  expect(dealRows(0, todo, agents, notes)).toEqual({ todo: 3, cards: 1, notes: 1, arts: 0 })
+  expect(dealRows(4, todo, agents, notes)).toEqual({ todo: 7, cards: 1, notes: 1, arts: 0 })
+  expect(dealRows(6, todo, agents, notes)).toEqual({ todo: 7, cards: 1, notes: 3, arts: 0 })
+  expect(dealRows(7, todo, agents, notes)).toEqual({ todo: 7, cards: 1, notes: 4, arts: 0 })
+  expect(dealRows(10, todo, agents, notes)).toEqual({ todo: 7, cards: 2, notes: 4, arts: 0 })
+  expect(dealRows(10, todo, agents, notes, { floor: 1, want: 3 })).toEqual({ todo: 7, cards: 1, notes: 4, arts: 3 })
+  expect(dealRows(40, todo, agents, notes)).toEqual({ todo: 7, cards: 3, notes: 4, arts: 0 })
 })
 
-test('the height rule on a drawn pane: a tall pane gives To do 7 rows, 3 cards and 4 notes; a short one 3, 1 and 1', async ($, on) => {
+test('the height rule on a drawn pane (R47, R50): a tall pane shows 14 task rows, every note and 3 cards, Agents at the foot; a short one 3, 1 and 1', async ($, on) => {
   const t = longList()
   const live = Object.fromEntries(['l1', 'l2', 'l3', 'l4', 'l5'].map((id, i) => [id, agent(id, 'Explore', `job ${i + 1}`, NOW - (i + 1) * 60_000)]))
   const notes = Array.from({ length: 6 }, (_, i) => ({ text: `note ${i + 1}`, agent: 'main', at: NOW - (10 - i) * 60_000 }))
   world(on, { ...t, agents: { main: t.agents.main!, ...finished(), ...live }, notes })
-  const count = async (rows: number): Promise<{ tasks: number; cards: number; notes: number; height: number }> => {
-    const ui = await mount($, 62, rows)
+  const count = async (rows: number): Promise<{ tasks: number; cards: number; notes: number; height: number; agentsAt: number; drawn: string[] }> => {
+    const ui = await mount($, 62, rows, { focused: false })
     const drawn = await rowsOf(ui)
     const keys = walk(await ui.drawn()).map(keyOf)
     await ui.unmount()
     const list = drawn.filter(r => /^(▍ ▸|  ○|  ✓ Follow|    \+ \d+ more to do)/.test(r)).length
-    return { tasks: list, cards: keys.filter(k => /^agent-l\d$/.test(k)).length, notes: drawn.filter(r => /^  [★·] /.test(r)).length, height: drawn.length }
+    return { tasks: list, cards: keys.filter(k => /^agent-l\d$/.test(k)).length, notes: drawn.filter(r => /^  [★·] /.test(r)).length, height: drawn.length, agentsAt: drawn.findIndex(r => r.startsWith('  Agents')), drawn }
   }
   const tall = await count(80)
-  expect(tall.tasks).toBe(7)
+  expect(tall.tasks).toBe(14)
+  // Every note and busy()'s kept step (★): 7 rows, under the cap of 8.
+  expect(tall.notes).toBe(7)
   expect(tall.cards).toBe(3)
-  expect(tall.notes).toBe(4)
+  // Agents sits at the foot: after its last row only the last card's empty third row and the pane's last row.
+  const last = tall.drawn.map(r => r.trim()).lastIndexOf(tall.drawn.map(r => r.trim()).filter(r => r !== '').at(-1)!)
+  expect(tall.agentsAt).toBeGreaterThan(tall.drawn.findIndex(r => r.startsWith('  Notes and decisions')))
+  expect(tall.height - 1 - last).toBeLessThanOrEqual(2)
   const short = await count(30)
   expect(short.tasks).toBe(3)
   expect(short.cards).toBe(1)
   expect(short.notes).toBe(1)
 })
-
-// ---------- the needs block (R1 to R5) ----------
 
 test('Needs you: amber head and count, the asker\'s critter waiting, the sentence, the tool and command, the words in place of a button (R3); the row takes the focus', async ($, on) => {
   world(on, asked())
@@ -211,7 +215,7 @@ test('R4: two running steps with the same tool and input: "An agent asks…", th
   await ui.unmount()
 })
 
-test('R5: the lead asking pauses the current task: "Paused on", the marker and "paused" in amber', async ($, on) => {
+test('R5: the lead asking pauses the current task: "Paused on", the marker and "paused" in amber', { options: { header: 'full' } }, async ($, on) => {
   const t = asked()
   const lead: Step = step('s-lead', 103, 'main', 'Bash', 'Bash git push', 'running', NOW - 30_000, { asking: NOW - 20_000, turnId: 't1' })
   world(on, { ...t, steps: [t.steps[0]!, t.steps[1]!, lead], agents: { ...t.agents, b1: { ...t.agents.b1!, status: 'done', endedAt: NOW - 60_000 } } })
@@ -281,18 +285,16 @@ test('pressing the need opens its step in place', async ($, on) => {
 
 // ---------- Watch ----------
 
-test('Watch: the first row shows v, g and x; x dismisses the row and the count drops', async ($, on) => {
+test('R45: a Watch row is dismissed from slim, and Now stays silent before and after', async ($, on) => {
   const stored = world(on, watching())
-  const ui = await mount($)
-  const keys = (await ui.findAll({ type: 'Button' })).map(b => (b.props as { hotkey?: string }).hotkey).filter(Boolean)
-  expect(keys).toEqual(expect.arrayContaining(['v', 'g', 'x']))
-  await ui.press({ key: 'watch-dismiss-long-run:e1' })
-  expect(uiOf(stored).dismissed).toContain('long-run:e1')
-  await ui.redraw()
-  const rows = await rowsOf(ui)
-  expect(rows.join('\n')).toContain('Nothing needs you · 1 thing to watch')
-  expect(rows.join('\n')).not.toContain('Long run')
-  await ui.unmount()
+  const now = await mount($)
+  expect((await rowsOf(now)).join('\n')).not.toContain('to watch')
+  await now.unmount()
+  const slim = await mount($, 28, 46)
+  expect((await rowsOf(slim)).join('\n')).toContain('to watch')
+  await slim.press({ key: 'slim-watch' })
+  await slim.unmount()
+  expect(uiOf(stored).dismissed.length).toBe(0)
 })
 
 test('Watch: the long runner\'s time on its card is bold, never amber (R6)', async ($, on) => {
@@ -307,7 +309,7 @@ test('Watch: the long runner\'s time on its card is bold, never amber (R6)', asy
 // ---------- the header (R7, R8, R12) ----------
 
 // I-3 (meaning changed): quiet is R6's, no step running; the running steps here ended `ms` ago and the agents run on with nothing in flight.
-test('R7: after 2 min with no activity the header reads "· quiet n min", dim; bold past 5 min', async ($, on) => {
+test('R7: after 2 min with no activity the header reads "· quiet n min", dim; bold past 5 min', { options: { header: 'full' } }, async ($, on) => {
   const t = busy()
   const still = (ms: number): Timeline => ({
     ...t,
@@ -330,7 +332,7 @@ test('R7: after 2 min with no activity the header reads "· quiet n min", dim; b
 })
 
 // BEHAVIOUR CHANGE (task C3b, item 4): was "cache stays warm m:ss" (2:51, jumping 10 s at a time); the countdown is whole minutes now.
-test('R29 and R40: the cache countdown shows at idle only, in whole minutes: "cache warm 2 min"', async ($, on) => {
+test('R29 and R40: the cache countdown shows at idle only, in whole minutes: "cache warm 2 min"', { options: { header: 'full' } }, async ($, on) => {
   const stored = world(on, idle())
   let ui = await mount($)
   const line = (await rowsOf(ui))[10]!
@@ -343,7 +345,7 @@ test('R29 and R40: the cache countdown shows at idle only, in whole minutes: "ca
   await ui.unmount()
 })
 
-test('the warm words are N min while at least a minute is left, and "under 1 min" near the end (R40)', async ($, on) => {
+test('the warm words are N min while at least a minute is left, and "under 1 min" near the end (R40)', { options: { header: 'full' } }, async ($, on) => {
   // 12 s after the last reply of a 5 min cache: 4 min 48 s left.
   const stored = world(on, { ...idle(), cache: { at: NOW - 12_000 } })
   let ui = await mount($)

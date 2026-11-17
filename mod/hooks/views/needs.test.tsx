@@ -530,7 +530,7 @@ test('F M11 / R30: the wait shows in the pill and the block, not on the card, wh
   await ui.unmount()
 })
 
-test('F M12a: a request that ended with tasks open says "stopped 2 min ago" in the header, not "finished"', async ($, on) => {
+test('F M12a: a request that ended with tasks open says "stopped 2 min ago" in the header, not "finished"', { options: { header: 'full' } }, async ($, on) => {
   const tasks = [
     { id: '1', subject: 'one', status: 'completed' as const, owner: 'main', updatedAt: NOW - 200_000 },
     { id: '2', subject: 'two', status: 'pending' as const, owner: 'main', updatedAt: NOW - 200_000 },

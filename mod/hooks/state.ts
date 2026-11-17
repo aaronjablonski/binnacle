@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Ev, LedgerRow, Timeline, UiState } from '../types'
+import type { Ev, LedgerRow, PrState, Timeline, UiState } from '../types'
 import { LEDGER_KEY, ledgerRow, putRow, readLedger, storedLedger } from './model/ledger'
 import { empty, reduce, settle } from './model/reduce'
 import { boundUi } from './model/usage'
@@ -18,6 +18,22 @@ export const initialUi: UiState = {
 }
 
 export const ui = atom({ plugin: 'binnacle', key: 'ui' } as const, initialUi, { shape: 'ui-4' })
+
+/** No PR known: never fetched, or `gh` had nothing (at 0, no branch). */
+export const NO_PR: PrState = { at: 0, branch: '' }
+
+/** The pull request and stack the session works on (pr.ts fetches it). */
+export const prAtom = atom({ plugin: 'binnacle', key: 'pr' } as const, NO_PR, { shape: 'pr-1' })
+
+/** The PR state as it stands; drawing reads it too. */
+export async function readPr($: EngineInterface): Promise<PrState> {
+  return read($, prAtom)
+}
+
+/** Replaces the PR state (from the fetch only). */
+export async function writePr($: EngineInterface, s: PrState): Promise<void> {
+  await update($, prAtom, () => s)
+}
 
 /** Folds one event into the timeline. Never throws: a failure goes to the debug log. */
 export async function apply($: EngineInterface, ev: Ev): Promise<void> {

@@ -1,7 +1,7 @@
 import type { EngineInterface, On, PaneOpenArgs, PluginOptions, RenderElement, RenderInput } from 'claude-code'
 
-import type { PageKind, Tab, Timeline, UiState } from '../../types'
-import { debug, errText, leaveDetail, readTimeline, readUi, updateUi } from '../state'
+import type { PageKind, PrState, Tab, Timeline, UiState } from '../../types'
+import { debug, errText, leaveDetail, readPr, readTimeline, readUi, updateUi } from '../state'
 import { cacheLine } from '../model/meter'
 import { agentPage, agentsView } from './agents'
 import { artifactPage, artifactsView } from './artifacts'
@@ -40,21 +40,68 @@ export const TABS: { tab: Tab; label: string; short: string; icon: string; hotke
   { tab: 'overview', label: 'Now', short: 'Now', icon: '◆', hotkey: '1' },
   { tab: 'tasks', label: 'Tasks', short: 'Tasks', icon: '▣', hotkey: '2' },
   { tab: 'agents', label: 'Agents', short: 'Crew', icon: '◎', hotkey: '3' },
-  { tab: 'timeline', label: 'Steps', short: 'Steps', icon: '≡', hotkey: '4' },
-  { tab: 'artifacts', label: 'Artifacts', short: 'Files', icon: '↗', hotkey: '5' },
+  { tab: 'artifacts', label: 'Artifacts', short: 'Files', icon: '↗', hotkey: '4' },
+  { tab: 'timeline', label: 'Steps', short: 'Steps', icon: '≡', hotkey: '5' },
 ]
 
-/** How the tab bar is laid out at `cols`: which label each tab shows and the width of one tab's cell (the gap included). */
-export type TabPlan = { form: 'label' | 'short' | 'icon'; /** The short words as `n:label`, 38 to 42 columns. */ compact: boolean; cell: (i: number) => number }
+/** How the tab bar is laid out at `cols`: which label each tab shows, the width of one tab's cell (the gap included), and the Options tab's label when it is drawn (R51). */
+export type TabPlan = {
+  form: 'label' | 'short' | 'icon'
+  /** The labels as `n:label` (the hotkeys armed apart): 38 to 42 columns, and where the Options tab needs the room. */
+  compact: boolean
+  cell: (i: number) => number
+  /** The Options tab's word, drawn at the right end of the row; absent, `0` is armed and not drawn. */
+  options?: string
+}
 
-/** The mocks' 12-wide cells from 62 columns; from 54 the full names with two spaces between; from 47 the short words with two, from 43 with one, from 38 as `n:label` with one; icons below. */
-export function tabPlan(cols: number): TabPlan {
+/** The mocks' 12-wide cells from 62 columns (wider for a label that would touch the next); from 54 the full names with two spaces between; from 47 the short words with two, from 43 with one, from 38 as `n:label` with one; icons below. */
+function basePlan(cols: number): TabPlan {
   const form = cols >= 54 ? 'label' : cols >= 38 ? 'short' : 'icon'
   const compact = form === 'short' && cols < 43
-  if (cols >= 62) return { form, compact, cell: () => 12 }
+  // From 62 the mocks' 12-wide cells, widened to keep two spaces after a longer label (R49 moved `4: Artifacts`, 12 wide, off the end).
+  if (cols >= 62) return { form, compact, cell: i => Math.max(12, TABS[i]!.hotkey.length + 2 + TABS[i]!.label.length + 2) }
   if (form === 'icon') return { form, compact, cell: () => 5 }
   const gap = cols >= 47 || form === 'label' ? 2 : 1
   return { form, compact, cell: i => TABS[i]!.hotkey.length + (compact ? 1 : 2) + labelOf(TABS[i]!, form).length + gap }
+}
+
+/** The columns the tab cells take on the tab row, the margin and every cell's gap included. */
+export function tabsWidth(plan: TabPlan): number {
+  return TABS.reduce<number>((w, _, i) => w + plan.cell(i), GRID.margin)
+}
+
+/** The last tab's cell beyond its label: the track draws no gap after the last tab, so the Options track starts this much further left. */
+function lastSlack(plan: TabPlan): number {
+  const i = TABS.length - 1
+  const x = TABS[i]!
+  return plan.cell(i) - (x.hotkey.length + (plan.compact ? 1 : 2) + labelOf(x, plan.form).length)
+}
+
+/** The Options tab's width: `0: Options`, or `0:Options` in the compact form. */
+const optionsWidth = (plan: TabPlan, word: string): number => OPTIONS_HOTKEY.length + (plan.compact ? 1 : 2) + word.length
+
+/**
+ * The tab bar at `cols` (R51): the five tabs, and Options (`0`) at the right
+ * end of the row wherever it fits two spaces clear of the tabs and inside the
+ * right gutter. To make room the tabs first lose the mocks' 12-wide cells
+ * (two spaces between), then the space after the colon (`1:Now`). Under 38
+ * columns (icons) it is armed and not drawn.
+ */
+export function tabPlan(cols: number): TabPlan {
+  const base = basePlan(cols)
+  if (base.form === 'icon') return base
+  const end = cols - GRID.margin
+  const word = base.form === 'label' ? OPTIONS_LABEL : OPTIONS_SHORT
+  const fits = (p: TabPlan): boolean => tabsWidth(p) + optionsWidth(p, word) <= end
+  const tries: TabPlan[] = [base]
+  if (base.form === 'label') {
+    tries.push({ form: 'label', compact: false, cell: i => TABS[i]!.hotkey.length + 2 + TABS[i]!.label.length + 2 })
+    tries.push({ form: 'label', compact: true, cell: i => TABS[i]!.hotkey.length + 1 + TABS[i]!.label.length + 2 })
+  } else if (!base.compact) {
+    tries.push({ form: 'short', compact: true, cell: i => TABS[i]!.hotkey.length + 1 + TABS[i]!.short.length + 1 })
+  }
+  for (const p of tries) if (fits(p)) return { ...p, options: word }
+  return base
 }
 
 /** A tab's label in a form. */
@@ -86,6 +133,8 @@ export type ViewCtx = {
   isFocused?: boolean; bodyRows?: number
   look?: Look; site?: string
   ground?: Ground; motion?: boolean; accent?: string; isPromptCovered?: boolean
+  /** The pull request and stack (pr.ts); absent before the first fetch. */
+  pr?: PrState
   /** A dry draw (the hidden one that finds a tab's first row): no instrument is tracked, no burst starts or stops, nothing is recorded. */
   dry?: boolean
 }
@@ -243,7 +292,7 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement 
         <Text>{' '.repeat(GRID.margin)}</Text>
         {TABS.map((x, i) => {
           const label = plan.compact ? `${x.hotkey}:${labelOf(x, plan.form)}` : labelOf(x, plan.form)
-          const isOpen = x.tab === u.tab
+          const isOpen = x.tab === u.tab && pageOf(u)?.kind !== 'options'
           return (
             <Box key={`tabcell-${x.tab}`} width={plan.cell(i)}>
               <Button
@@ -264,14 +313,15 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement 
             </Box>
           )
         })}
-        {plan.compact ? armKeys($, e, TABS.map(x => ({ id: `tab-${x.tab}`, hotkey: x.hotkey, onPress: () => switchTab($, x.tab, showCost) }))) : null}
-        {optionsArm($, e, u, cols)}
+        {plan.options !== undefined ? optionsTab($, e, u, plan, cols) : null}
+        {plan.compact ? armKeys($, e, [...TABS.map(x => ({ id: `tab-${x.tab}`, hotkey: x.hotkey, onPress: () => switchTab($, x.tab, showCost) })), ...(plan.options !== undefined ? [{ id: 'tab-options-key', hotkey: OPTIONS_HOTKEY, onPress: () => toggleOptions($, pageOf(u)?.kind === 'options') }] : [])]) : null}
+        {plan.options === undefined ? optionsArm($, e, u, cols) : null}
       </Box>
       <Text key="track" wrap="truncate-end">
         {' '.repeat(GRID.margin)}
         {TABS.map((x, i) => {
           const span = x.hotkey.length + (plan.compact ? 1 : 2) + labelOf(x, plan.form).length
-          const isOpen = x.tab === u.tab
+          const isOpen = x.tab === u.tab && pageOf(u)?.kind !== 'options'
           const last = i === TABS.length - 1
           return (
             <Text key={`track-${x.tab}`} color={isOpen ? C.accent : C.subtle}>
@@ -280,13 +330,49 @@ function tabBar($: EngineInterface, e: RenderInput, rest: Drawn): RenderElement 
             </Text>
           )
         })}
+        {plan.options !== undefined ? (
+          <Text key="track-options" color={pageOf(u)?.kind === 'options' ? C.accent : C.subtle}>
+            {' '.repeat(Math.max(0, cols - GRID.margin - optionsWidth(plan, plan.options) - tabsWidth(plan)) + lastSlack(plan))}
+            {(pageOf(u)?.kind === 'options' ? '━' : '─').repeat(optionsWidth(plan, plan.options))}
+          </Text>
+        ) : null}
       </Text>
     </Box>
   )
 }
 
-/** The Options Button's label: `0: options`. */
-const OPTIONS_LABEL = 'options'
+/** The Options tab's word (R51), and its short form beside the short tab words. */
+const OPTIONS_LABEL = 'Options'
+const OPTIONS_SHORT = 'Opts'
+
+/**
+ * The Options tab (R51): `0: Options` at the right end of the tab row, a
+ * plain Button keyed `tab-options` like the hidden arm it replaces; bold in
+ * the accent while the Options page is open, dim otherwise. Its hotkey is
+ * `0` (a Button takes only a digit or a lowercase letter, and `o` already
+ * opens the thing in view on Now, Artifacts and Steps).
+ */
+function optionsTab($: EngineInterface, e: RenderInput, u: UiState, plan: TabPlan, cols: number): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const word = plan.options ?? OPTIONS_LABEL
+  const isOpen = pageOf(u)?.kind === 'options'
+  const label = plan.compact ? `${OPTIONS_HOTKEY}:${word}` : word
+  const lead = Math.max(0, cols - GRID.margin - optionsWidth(plan, word) - tabsWidth(plan))
+  return (
+    <Box key="tabcell-options" flexDirection="row">
+      <Text>{' '.repeat(lead)}</Text>
+      <Button key={OPTIONS_KEY} {...(plan.compact ? {} : { hotkey: OPTIONS_HOTKEY })} plain dimColor={isOpen ? undefined : true} onPress={() => toggleOptions($, isOpen)}>
+        {isOpen ? (
+          <Text color={C.accent} bold>
+            {label}
+          </Text>
+        ) : (
+          label
+        )}
+      </Button>
+    </Box>
+  )
+}
 
 /**
  * The Options Button (`0`): opens the Options page, or closes it when it is
@@ -339,7 +425,7 @@ export function armKeys($: EngineInterface, e: RenderInput, arms: { id: string; 
 type Drawn = {
   t: Timeline; u: UiState; cols: number; now: number; showCost: boolean
   isFocused: boolean; bodyRows: number; look: Look; site: string
-  ground: Ground; motion: boolean; accent: string; isPromptCovered: boolean; dry?: boolean
+  ground: Ground; motion: boolean; accent: string; isPromptCovered: boolean; dry?: boolean; pr: PrState
 }
 
 /**
@@ -367,6 +453,7 @@ async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: Plug
     motion: motionOn(options.motion),
     accent: typeof accent === 'string' ? accent : 'iris',
     isPromptCovered: e.props.isPromptCovered === true,
+    pr: await readPr($),
   }
 }
 
@@ -379,19 +466,31 @@ async function drawnOf($: EngineInterface, e: RenderInput<'Pane'>, options: Plug
  */
 async function switchTab($: EngineInterface, tab: Tab, showCost: boolean): Promise<void> {
   await updateUi($, cur => ({ ...leavePage(leaveDetail(cur)), tab }))
+  await focusStart($, `tab ${tab}`, showCost)
+}
+
+/**
+ * Moves the ring onto the first content row of what the pane draws now (a
+ * tab after a switch, a page after it opens), as `autoFocus` marks it. That
+ * row is found by drawing the body here, from the pane's last render input;
+ * `$.ui.focus` waits for the engine's own drawing. Never throws; a ring that
+ * cannot move stays where it was.
+ */
+export async function focusStart($: EngineInterface, why: string, showCost?: boolean): Promise<void> {
   const e = ring.input
   if (e === undefined) return
   let key: string | undefined
   try {
     // Drawn only to find the first row, never shown: no one-shot move starts here (motion sketches).
-    const rest = { ...(await drawnOf($, e, { ...(ring.options ?? {}), showCost })), look: ring.look ?? 'text', motion: false, dry: true }
+    const opts = { ...(ring.options ?? {}), ...(showCost !== undefined ? { showCost } : {}) }
+    const rest = { ...(await drawnOf($, e, opts)), look: ring.look ?? 'text', motion: false, dry: true }
     if (tier(rest.cols) === 'slim') return
     key = stopsOf(withStart(body($, e, rest), isTabKey), isTabKey).start
     if (key === undefined) return
     const moved = await $.ui.focus({ requestId: PANE, key })
-    if (moved.deny !== undefined) debug($, `tab ${tab}: focus ${key} denied: ${moved.deny}`)
+    if (moved.deny !== undefined) debug($, `${why}: focus ${key} denied: ${moved.deny}`)
   } catch (err) {
-    debug($, `tab ${tab}: focus ${key ?? '(none)'} failed: ${errText(err)}`)
+    debug($, `${why}: focus ${key ?? '(none)'} failed: ${errText(err)}`)
   }
 }
 
@@ -480,6 +579,32 @@ async function isStrip($: EngineInterface): Promise<boolean> {
 }
 
 /**
+ * The `showAs` option applied (R53): `strip` turns the strip on and closes the
+ * pane; `band` closes the pane and the strip, leaving the band's two minimal
+ * rows; `pane` turns the strip off and opens the pane. From a press (the
+ * Options row) or session start only. Never throws.
+ */
+export async function applyShowAs($: EngineInterface, v: unknown, o: { keepPane?: boolean } = {}): Promise<void> {
+  try {
+    // `keepPane` (a press on the Options row): only the strip flag changes, so what sits above the prompt changes
+    // while the pane and its Options page stay; leaving Options closes the pane (options.tsx `leaveOptions`).
+    if (v === 'band' || v === 'strip') {
+      const strip = v === 'strip'
+      await updateUi($, cur => (cur.strip === strip ? cur : { ...cur, strip }))
+      if (o.keepPane !== true) {
+        await $.ui.close({ id: PANE })
+        await setPaneOpen($, false)
+      }
+    } else if (v === 'pane' && (await isStrip($))) {
+      if (o.keepPane === true) await updateUi($, cur => ({ ...cur, strip: false }))
+      else await openPane($)
+    }
+  } catch (err) {
+    debug($, `showAs ${String(v)} failed: ${errText(err)}`)
+  }
+}
+
+/**
  * Turns the strip off and opens the pane the way `/binnacle` does, at the slim
  * width while `ui.slim`. Throws what the open throws.
  */
@@ -509,7 +634,7 @@ export async function leaveStrip($: EngineInterface): Promise<void> {
  * `/binnacle slim` open the pane and so turn the strip off; `/binnacle strip` closes it:
  * whichever ran last wins.
  */
-export async function runMc($: EngineInterface, args: string): Promise<{ text: string }> {
+export async function runCommand($: EngineInterface, args: string): Promise<{ text: string }> {
   const word = args.trim().split(/\s+/)[0] ?? ''
   if (word === '') {
     try {
@@ -656,7 +781,7 @@ export function wakeClock($: EngineInterface): void {
 }
 
 /** Session-start work, called from register.tsx's one session.start hook. Never throws. */
-export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode; motion?: unknown }): Promise<void> {
+export async function startShell($: EngineInterface, options: { autoOpen?: boolean; notify?: NotifyMode; motion?: unknown; showAs?: unknown }): Promise<void> {
   // The terminal's cell aspect, for the gauge ring's round dots (FX4): read once here, before the pane can open (M8), never in render.
   try {
     const [WT_SESSION, TERM_PROGRAM, TERM] = await Promise.all([$.env.get('WT_SESSION'), $.env.get('TERM_PROGRAM'), $.env.get('TERM')])
@@ -664,8 +789,16 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   } catch (err) {
     debug($, `env read failed: ${errText(err)}`)
   }
-  // The strip stands in for the pane: a reload or a resumed session keeps it.
-  if (options.autoOpen === true && !(await isStrip($))) {
+  // R53: `showAs: strip` puts the strip above the prompt in every session (a reload after the option changed applies it too).
+  if (options.showAs === 'strip' && !(await isStrip($))) {
+    try {
+      await updateUi($, cur => ({ ...cur, strip: true }))
+    } catch (err) {
+      debug($, `showAs strip failed: ${errText(err)}`)
+    }
+  }
+  // The strip stands in for the pane: a reload or a resumed session keeps it. `showAs: band` never opens the pane by itself.
+  if (options.autoOpen === true && options.showAs !== 'band' && !(await isStrip($))) {
     try {
       const opened = await $.ui.open(paneArgs(false, await isSlim($)))
       if (!opened.isPlaced) debug($, `pane waits: ${opened.reason}`)

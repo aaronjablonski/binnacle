@@ -190,3 +190,28 @@ export function backTo(): string[] {
     return m !== null && m[1] !== undefined ? [m[1]] : []
   })
 }
+
+// ---------- the mocks' tab bar under R49 ----------
+
+/** The deviation the fidelity tests list for the tab bar at 62 columns. */
+export const R49_TABS = 'R49: Artifacts is tab 4 and Steps tab 5 (the mocks have Steps 4, Artifacts 5); from 62 columns `4: Artifacts` keeps two spaces before `5: Steps`'
+
+/**
+ * A 62-column mock's tab row (row 0) and track (row 1) re-laid in R49's order,
+ * the open tab read from the mock's own track (its `━` run). Throws when the
+ * rows are not the mocks' tab bar, so a patch that misses fails loudly.
+ */
+export function r49Tabs(rows: string[]): void {
+  const MOCK_ORDER = ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']
+  if (rows[0] !== '  1: Now      2: Tasks    3: Agents   4: Steps    5: Artifacts') throw new Error(`patch: row 0 is not the mocks' tab row: ${rows[0]}`)
+  const at = (rows[1] ?? '').indexOf('━')
+  if (at < 2) throw new Error(`patch: row 1 is not the mocks' track: ${rows[1]}`)
+  const open = MOCK_ORDER[Math.floor((at - 2) / 12)]!
+  const tabs = ['Now', 'Tasks', 'Agents', 'Artifacts', 'Steps'].map((x, i) => `${i + 1}: ${x}`)
+  const cells = [12, 12, 12, 14, 12]
+  rows[0] = '  ' + tabs.map((x, i) => (i === tabs.length - 1 ? x : x.padEnd(cells[i]!))).join('')
+  rows[1] = '  ' + tabs.map((x, i) => {
+    const run = (x.endsWith(open) ? '━' : '─').repeat(x.length)
+    return i === tabs.length - 1 ? run : run.padEnd(cells[i]!)
+  }).join('')
+}

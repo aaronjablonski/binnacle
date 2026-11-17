@@ -25,16 +25,26 @@ the specs where they differ are in
 `docs/superpowers/plans/2026-11-16-cockpit-critters-rulings.md` (R1 to R43);
 read them before changing words, colours or the alert rules.
 
-- **Tabs:** Now, Tasks, Agents, Steps, Artifacts (keys `1` to `5`), plus an
-  Options page (`0`, `/binnacle options`).
-- **Now** is the header (a pill, the time this turn and any quiet time, the
-  request's goal, the budget line and two gauges), then Needs you, Watch, To
-  do, This turn, Agents, and Notes and decisions. It holds no step log.
+- **Tabs:** Now, Tasks, Agents, Artifacts, Steps (keys `1` to `5`), plus the
+  Options tab at the right of the bar (`0`, `/binnacle options`, R51). Every
+  page open or close lands the focus ring on the first row (`pagenav.ts`
+  `onFocusFirst`).
+- **Now** (R44 to R52) is the full 9-row header by default (`header: slim`
+  is a 4-row one: the pill, the time and context/week figures, the lead's
+  critter beside the goal and the budget line), Needs you only
+  while something needs you, the Pull request block (with the GitHub stack),
+  then To do, Notes and decisions, Artifacts, This turn and Agents at the
+  foot (R50). No Watch rows on Now. It holds no step log.
+- **PR and stack:** `mod/hooks/pr.ts` runs `git branch --show-current`,
+  `gh stack view --json` and one `gh pr list --json` through `$.process.run`
+  (session start, after a branch-moving Bash command, every 3 min), parsed by
+  `mod/hooks/model/pr.ts` into the `pr` atom; `views/prblock.tsx` draws it.
 - **Needs you** holds only what blocks the session on a dialog: a permission,
   a question, a plan to approve or an MCP input request. It has no dismiss
   key. **Watch** holds what is worth a glance and asks nothing: a stalled
   step, a quiet agent, a long run (limits 60 minutes for an agent and 120 for
-  a turn), a repeat and a loop. `x` dismisses a Watch row.
+  a turn), a repeat and a loop. It is not drawn on Now (R45); slim and the
+  strip show it, `x` dismisses it there.
 - **Colour:** amber is for a dialog only; gauges go bold at 70 % and red at
   90 %; a failed turn is the STOPPED pill with its reason in red.
 - **Alert model:** `mod/hooks/model/alerts.ts` is the one place that decides
@@ -48,7 +58,7 @@ read them before changing words, colours or the alert rules.
   MCP input stay amber while they last. Permission notifications need the
   pane open; Claude Code notifies for its own dialogs either way.
 - **Band:** one row above the prompt (the lead's or the asker's Critter, the
-  goal, the context and week figures, `/mc`), a second row with the to-do bar
+  goal, the context and week figures, `/binnacle`), a second row with the to-do bar
   when wide, one dim row when everything is done.
 - **Surfaces:** the terminal draws Rasters (cell pictures) and text; the
   desktop app draws the Now header and the band as Svg
@@ -59,7 +69,7 @@ read them before changing words, colours or the alert rules.
 - **Widths:** the pane draws the inline strip from 96 columns, the full tabs
   at 62 and the slim pane under 32. `/binnacle strip`
   moves the strip into the band.
-- **Options:** `guide`, `autoOpen`, `look` (`auto`, `rich`, `text`),
+- **Options:** `guide`, `autoOpen`, `showAs` (`pane`, `band`, `strip`, R53), `header` (`full`, `slim`), `look` (`auto`, `rich`, `text`),
   `ground` (`auto`, `night`, `day`), `motion` (`on`, `off`), `accent`
   (`iris`, `sky`, `slate`), `notify`, `watchNotify`, `showCost`, `editor`,
   `doneSound`, `agentLimitMin` (60) and `turnLimitMin` (120).

@@ -119,28 +119,31 @@ test('the alert model sorts a long run, a quiet agent and an ask: Watch rows wit
   void asking
   // A taller pane (60 rows): at 40 the one card that fits is the asker's (F M10: the agent that needs you is kept first), and the long runner's card, which shows its time, needs room.
   const ui = await mount($, 62, 60)
-  // Now draws them as Watch rows (C3): the kind in words, the model's sentence (R6, R27).
+  // R45: Now draws no Watch rows; the long runner's card still shows its time against the clock.
   const got = screen(await ui.drawn()).join(' ')
-  expect(got).toContain('Long run')
-  expect(got).toContain('Quiet')
+  expect(got).not.toContain('Long run')
   expect(got).toContain('1 h 4 min')
   await ui.unmount()
+  // Slim keeps Watch (R45): the count and the top row's sentence.
+  const narrow = await mount($, 28, 60)
+  expect(screen(await narrow.drawn()).join(' ')).toContain('2 to watch')
+  await narrow.unmount()
 })
 
 test('long run uses the options: agentLimitMin 0 turns it off, a larger one waits', { options: { agentLimitMin: 0 } }, async ($, on) => {
   const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 70 * 60_000, lastStepAt: NOW - 5_000 }) } })
   world(on, t)
-  const ui = await mount($)
-  // I9: every spelling of the kind is ruled out (Watch draws 'Long run'), so the option must be applied.
-  expect(/long run/i.test(screen(await ui.drawn()).join(' '))).toBe(false)
+  // R45: Watch shows in slim, not on Now. I9: every spelling of the kind is ruled out, so the option must be applied.
+  const ui = await mount($, 28, 46)
+  expect(/long run|has run|to watch/i.test(screen(await ui.drawn()).join(' '))).toBe(false)
   await ui.unmount()
 })
 
-test('long run is shown on Now with the default limit when no option is given', async ($, on) => {
+test('long run is shown (in slim, R45) with the default limit when no option is given', async ($, on) => {
   const t = busy({ agents: { main, a1: agent('a1', 'Explore', 'slow', 'running', { startedAt: NOW - 70 * 60_000, lastStepAt: NOW - 5_000 }) } })
   world(on, t)
-  const ui = await mount($)
-  expect(/long run/i.test(screen(await ui.drawn()).join(' '))).toBe(true)
+  const ui = await mount($, 28, 46)
+  expect(/to watch/i.test(screen(await ui.drawn()).join(' '))).toBe(true)
   await ui.unmount()
 })
 

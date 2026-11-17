@@ -410,7 +410,7 @@ const figurePiece = (pct: number): Piece => ({ t: `${pct}%`, bold: pct >= 70, fi
  * lead, or the asker while an ask is up) at small size, row 1 what is
  * happening (the goal; amber "Needs you" and the ask while a dialog is up;
  * red when stopped) with the gauges or "answer below" at the right, row 2 the
- * to-do bar and its words. At idle one dim line. `/mc` is the Button beside
+ * to-do bar and its words. At idle one dim line. `/binnacle` is the Button beside
  * the Svg, not drawn in it. \`model\` is the band's own when it has read one.
  */
 export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, model?: BandModel, g: Ground = 'night'): string {

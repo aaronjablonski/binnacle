@@ -6,7 +6,7 @@ import type { Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
 import { artifactsTimeline, NOW, stepsTimeline, stepsUi, tasksTimeline } from './tabs.fixtures.testkit'
 import { MOCK } from './tabs.mock.testkit'
-import { screen } from './screen.testkit'
+import { r49Tabs, R49_TABS, screen } from './screen.testkit'
 
 // The fidelity test (plan "Fidelity bar"): the real Tasks, Steps and Artifacts tabs, drawn with the mock's
 // session data (tabs.fixtures.testkit.ts), against the boards of gen-cockpit.js row by row
@@ -118,7 +118,7 @@ function check(name: string, b: Board, got: string[], width = 62): void {
 test('fidelity: CockpitTasks at 62 columns matches the mock but for the listed deviations', async ($, on) => {
   world(on, tasksTimeline(), { ...initialUi, tab: 'tasks' })
   const got = await drawn($, 62, 46)
-  const b = new Board('CockpitTasks')
+  const b = new Board('CockpitTasks').patch(R49_TABS, r49Tabs)
   b.patch('R25: the micro critter box is 5 wide, its badge column at 8 (the mock has 4), and the gap row under a card is not part of the box', rows => {
     rows[15] = '    ¤¤¤¤¤ Builder  Editing middleware/index.ts        1m 40s'
     rows[16] = '    ¤¤¤¤¤'
@@ -168,7 +168,7 @@ test('fidelity: CockpitSteps at 62 columns matches the mock but for the listed d
   for (const id of ids.view) marks.push(await inView($, id))
   const got = await drawn($, 62, 46)
   for (const m of marks) await m.unmount()
-  const b = new Board('CockpitSteps')
+  const b = new Board('CockpitSteps').patch(R49_TABS, r49Tabs)
   b.patch('R23: the agent is general-purpose, so it reads General (the mock says Builder)', rows => {
     rows[13] = rows[13]!.replace('Builder', 'General')
     rows[14] = rows[14]!.replace('Builder', 'General')
@@ -192,7 +192,7 @@ test('fidelity: CockpitSteps at 62 columns matches the mock but for the listed d
 test('fidelity: CockpitArtifacts at 62 columns matches the mock but for the listed deviations', async ($, on) => {
   world(on, artifactsTimeline(), { ...initialUi, tab: 'artifacts' })
   const got = await drawn($, 62, 46)
-  const b = new Board('CockpitArtifacts')
+  const b = new Board('CockpitArtifacts').patch(R49_TABS, r49Tabs)
   b.patch('R33, R30 and R39: the filled button is drawn as `[ e: Export digest ]` (Button variant primary) and the words are "saved to this session and copied" (the mock: to the journal and the clipboard)', rows => void (rows[6] = '  [ e: Export digest ]  saved to this session and copied'))
   b.patch('R30: "The digest will contain" is longer than "It will hold", so its bar starts at column 27 and is 33 cells (the mock\'s starts at 18 and is 40); real data: the four parts take the digest\'s own weights, not the mock\'s sample ones', rows => void (rows[8] = '  The digest will contain  ━━━━━━━━━━ ━━━━━━━━━ ━━ ━━━━━━━━━'))
   b.patch('R30: the legend starts at column 2, under the label, because the four words need 40 columns and the bar leaves 33', rows => void (rows[9] = '  ■ summary  ■ 9 tasks  ■ 3 kept  ■ 6 files'))

@@ -132,7 +132,7 @@ test('F I12: at 48 columns the current task keeps its title whole and shortens t
   expect(rows[at]).toMatch(/^▍ ▸ Wire the limiter into the chain +now$/)
 })
 
-test('R40 (F I6): the idle budget line at 62 columns is "644k of 1M used · cache warm 2 min", whole minutes, beside the gauges', async ($, on) => {
+test('R40 (F I6): the idle budget line at 62 columns is "644k of 1M used · cache warm 2 min", whole minutes, beside the gauges', { options: { header: 'full' } }, async ($, on) => {
   world(on, idle())
   const rows = await pane($, 62)
   expect(rows.find(r => r.includes('644k'))?.startsWith('  644k of 1M used · cache warm 2 min')).toBe(true)

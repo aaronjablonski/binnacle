@@ -81,6 +81,20 @@
       "options": ["on", "off"],
       "default": "on"
     },
+    "showAs": {
+      "type": "string",
+      "title": "Show as",
+      "description": "Where Binnacle lives in the terminal: pane (the pane beside the chat, with a one-row band above the prompt), band (no pane: two minimal rows above the prompt with the goal, the to-do bar and the gauges) or strip (all of Now laid on its side above the prompt). /binnacle, /binnacle close and /binnacle strip switch for the moment.",
+      "options": ["pane", "band", "strip"],
+      "default": "pane"
+    },
+    "header": {
+      "type": "string",
+      "title": "Header",
+      "description": "The Now tab's header: full (the default) is the 9-row header with the ring gauges; slim is 4 rows (the state, the goal beside the lead's critter, the context and week as figures) and leaves more room for To do and Notes.",
+      "options": ["full", "slim"],
+      "default": "full"
+    },
     "accent": {
       "type": "string",
       "title": "Accent",

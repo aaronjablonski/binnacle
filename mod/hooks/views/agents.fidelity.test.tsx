@@ -6,7 +6,7 @@ import type { Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
 import { NOW, listSession, mapSession } from './agents.fixtures.testkit'
 import { MOCK } from './agents.mock.testkit'
-import { screen } from './screen.testkit'
+import { r49Tabs, R49_TABS, screen } from './screen.testkit'
 
 // The fidelity test (plan "Fidelity bar"): the real Agents list and crew map,
 // drawn with the mocks' session data (agents.fixtures.testkit.ts), against the
@@ -121,7 +121,7 @@ const R25 = 'R25: the critter box holds its badge column (col 7)'
 test('fidelity: CockpitAgents (list) at 62 columns matches the mock but for the listed deviations', async ($, on) => {
   world(on, listSession(), { ...initialUi, tab: 'agents' })
   const got = await drawn($, 62, 46)
-  const b = new Board(MOCK.CockpitAgents!.rows)
+  const b = new Board(MOCK.CockpitAgents!.rows).patch(R49_TABS, r49Tabs)
   b.patch(R25, rows => {
     for (const r of [13, 14, 15, 16, 17, 18]) rows[r] = put(rows[r]!, 7, '¤')
   })
@@ -217,7 +217,7 @@ type Layout = { doneFirst: number; doneLast: number; children: number[]; next: n
 
 /** The mock's rows (folded or unfolded) re-laid per R26, as the named patches the drawing is held to. */
 function relaid(rows: string[], L: Layout): Board {
-  const b = new Board(rows)
+  const b = new Board(rows).patch(R49_TABS, r49Tabs)
   const n = rows.length
   b.patch('R26: the tab bar is the shell\'s; the toggle row is the cockpit\'s (the open one bold between spaces, "Working only"; R3-B M4: the three labels stay at columns 3, 14 and 23 whichever mode is open)', r => void (r[3] = TOGGLES))
   b.patch('R26: the lintel is the cockpit\'s (a ¤ row without a pill or a readout)', r => void (r[5] = '¤'.repeat(62)))

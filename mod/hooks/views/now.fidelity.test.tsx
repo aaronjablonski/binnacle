@@ -6,7 +6,7 @@ import type { Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
 import { asked, busy, endedOpen, idle, longList, noList, NOW, stopped, watching } from './now.fixtures.testkit'
 import { MOCK } from './now.mock.testkit'
-import { screen } from './screen.testkit'
+import { r49Tabs, R49_TABS, screen } from './screen.testkit'
 
 // The fidelity test (plan "Fidelity bar"): the real Now and slim, drawn with
 // the mock's session data (now.fixtures.testkit.ts), against the boards of
@@ -128,10 +128,46 @@ const addRow = (r: number, text: string) => (rows: string[]): string[] => {
   return out
 }
 
-test('fidelity: CockpitNow (busy) at 62 columns matches the mock but for the listed deviations', async ($, on) => {
+/** The section heads (and the calm line) that start a block of Now's body. */
+const HEADS: [string, RegExp][] = [
+  ['calm', /^ {2}✓ Nothing needs you/], ['Needs you', /^ {2}Needs you ─/], ['Watch', /^ {2}Watch ─/], ['To do', /^ {2}To do ─/],
+  ['Notes', /^ {2}Notes and decisions ─/], ['Artifacts', /^ {2}Artifacts ─/], ['This turn', /^ {2}This turn ─/], ['Agents', /^ {2}Agents ─/],
+]
+/**
+ * R45, R47, R48: Now's body under the full header (rows 0 to 11, the sill)
+ * laid out again: an optional hint row right under the sill, then the named
+ * blocks in `order`, one blank row before each, blanks down to the footer.
+ * A block is cut from the mock at its head and ends before the blank rows
+ * that precede the next head; `add` gives blocks the mock does not draw.
+ */
+const relay = (order: string[], o: { hint?: string; add?: Record<string, string[]> } = {}) => (rows: string[]): string[] => {
+  const foot = rows[rows.length - 1]!
+  const body = rows.slice(12, rows.length - 1)
+  const starts = body.flatMap((r, at) => HEADS.filter(([, re]) => re.test(r)).map(([name]) => ({ name, at })))
+  const blocks: Record<string, string[]> = { ...(o.add ?? {}) }
+  starts.forEach((st, k) => {
+    let end = k + 1 < starts.length ? starts[k + 1]!.at : body.length
+    while (end > st.at && body[end - 1]!.trim() === '') end--
+    blocks[st.name] = body.slice(st.at, end)
+  })
+  const out = rows.slice(0, 12)
+  if (o.hint !== undefined) out.push(o.hint)
+  for (const name of order) {
+    const b = blocks[name]
+    if (b === undefined) throw new Error(`patch: no ${name} block in the mock`)
+    out.push('', ...b)
+  }
+  if (out.length > rows.length - 1) throw new Error(`patch: the re-laid body runs past the footer (${out.length} rows)`)
+  while (out.length < rows.length - 1) out.push('')
+  return [...out, foot]
+}
+/** A section head as the pane draws it at 62 columns: the title, a hairline, the sum flush right at 59. */
+const head = (title: string, sum: string): string => `  ${title} ${'─'.repeat(60 - 2 - title.length - 2 - sum.length)} ${sum}`
+
+test('fidelity: CockpitNow (busy) at 62 columns matches the mock but for the listed deviations', { options: { header: 'full' } }, async ($, on) => {
   world(on, busy())
   const got = await drawn($, 62, 46)
-  const b = new Board('CockpitNow')
+  const b = new Board('CockpitNow').patch(R49_TABS, r49Tabs)
     .patch('R29: no cache countdown while working', b0 => void (b0[10] = b0[10]!.replace(' · cache warm 4:48', '                  ')))
     .patch('R14: one done row above the current task', dropRow(18))
     .patch('R14 + height rule: the row the second done row gave back shows the last open task instead of "+ 1 more to do"', rows => void (rows[23] = '  ○ Open the pull request'))
@@ -143,16 +179,17 @@ test('fidelity: CockpitNow (busy) at 62 columns matches the mock but for the lis
     rows[29] = rows[29]!.replace('     1m 40s', '      1 min')
   })
   b.patch('footer: the options key is `0` (a Button hotkey takes a digit or a lowercase letter, so the comma of the mock cannot be armed)', b.sub(45, ', options', '0 options'))
+  b.patch('R48: Now draws no calm line ("✓ Nothing needs you"); R47: Notes and decisions come before Agents', relay(['To do', 'Notes', 'Agents']))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNow', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
   b.rows.forEach((r, i) => expect([i, rowMatches(r, got[i] ?? '')]).toEqual([i, true]))
 })
 
-test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the listed deviations', async ($, on) => {
+test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the listed deviations', { options: { header: 'full' } }, async ($, on) => {
   world(on, asked())
   const got = await drawn($, 62, 46, true)
-  const b = new Board('CockpitNowNeedsYou')
+  const b = new Board('CockpitNowNeedsYou').patch(R49_TABS, r49Tabs)
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
   b.patch('R3-B M8: the header critter text form reads "● lead" on one row, so its box reaches the badge column (col 7), which the mock leaves to the badge', badgeCol(6, 8, 7))
   b.patch('R5: the asker is a subagent and Explorer still runs, so the task is not paused: "Working on"', b.sub(6, 'Paused on', 'Working on'))
@@ -167,16 +204,17 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
   b.patch('R27: 2 min', b.sub(29, '     2m 14s', '      2 min'))
   b.patch("R30 (F M11): the wait shows in the pill and the block only; the asker's card keeps its own time, 1 min", b.sub(32, '            40s', '          1 min'))
   b.patch('R3: the footer offers no "go to prompt"; `n next ask` only with more than one ask', b.sub(45, '↵ go to prompt   n next ask   esc prompt', '↵ open   esc prompt'))
+  b.patch('R47: Notes and decisions come before Agents', relay(['Needs you', 'To do', 'Notes', 'Agents']))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowNeedsYou', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
   b.rows.forEach((r, i) => expect([i, rowMatches(r, got[i] ?? '')]).toEqual([i, true]))
 })
 
-test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the listed deviations', async ($, on) => {
+test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the listed deviations', { options: { header: 'full' } }, async ($, on) => {
   world(on, watching())
   const got = await drawn($, 62, 46)
-  const b = new Board('CockpitNowWatch')
+  const b = new Board('CockpitNowWatch').patch(R49_TABS, r49Tabs)
     .patch('R29: no cache countdown while working', rows => void (rows[10] = rows[10]!.replace(' · cache warm 4:48', '                  ')))
   b.patch('R3-B M8: the header critter text form reads "● lead" on one row, so its box reaches the badge column (col 7), which the mock leaves to the badge', badgeCol(6, 8, 7))
   b.patch('R6 and F M2: the long run reads "Explorer has run 64 min (limit 60)" (no median for its type here); R3-B M5: the minutes read as the card reads them, 1 h 4 min (R27)', b.sub(16, 'Explorer has run 64 min, past the usual 60', 'Explorer has run 1 h 4 min (limit 60)'))
@@ -191,20 +229,25 @@ test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the liste
   })
   b.patch('real data: doing() shows a folder by its name, "vendor"', b.sub(32, 'vendor/ for', 'vendor for'))
   b.patch('R23: General', b.sub(34, 'Builder  write the rate limit tests        ', 'General  write the rate limit tests        '))
+  b.patch('R45 and R48: the Watch block and the calm line leave Now; one dim row under the header names the first thing to watch, "+1" for the second; R47: Notes and decisions come before Agents',
+    relay(['To do', 'Notes', 'Agents'], { hint: '  ◔ Long run · Explorer has run 1 h 4 min (limit 60)  +1' }))
+  b.patch('R45: the footer reads "w watch" (w opens the hint; v and g were the Watch row\'s keys)', b.sub(45, 'v transcript', 'w watch'))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowWatch', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
   b.rows.forEach((r, i) => expect([i, rowMatches(r, got[i] ?? '')]).toEqual([i, true]))
 })
 
-test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed deviations', async ($, on) => {
+test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed deviations', { options: { header: 'full' } }, async ($, on) => {
   world(on, idle())
   const got = await drawn($, 62, 46)
-  const b = new Board('CockpitNowIdle')
+  const b = new Board('CockpitNowIdle').patch(R49_TABS, r49Tabs)
     .patch(R25, badgeCol(6, 8, 7))
   b.patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', b.sub(10, 'cache warm 2:51  ', 'cache warm 2 min '))
   b.patch('real data: no retry is recorded, so the agents fact has no detail', b.sub(23, '     1 was retried after a failure', ''))
   b.patch('M5 and R39: one action, one name: the rest footer says "e export digest", as the Artifacts button "e: Export digest" (the mock says "export handoff")', b.sub(45, 'e export handoff   esc', 'e export digest   esc'))
+  b.patch('R48: no calm line; R47: To do, Notes and decisions, then the new Artifacts block (the newest 3, here the 2 of the fixture), This turn, Agents',
+    relay(['To do', 'Notes', 'Artifacts', 'This turn', 'Agents'], { add: { Artifacts: [head('Artifacts', '2'), '  ↗ the plan · 45 min', '  ↗ Rate limit design · 50 min'] } }))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowIdle', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -316,25 +359,26 @@ function rasters(node: unknown, col = 0, row = 0, out: Box[] = []): { w: number;
 
 // MEANING CHANGED (motion sketch 1, task motion): the to-do bar is now a 1-row Raster in the rich look, where the mock put it
 // (16,2 58x1), so a landed task flashes by blits; its text form is still the `━` runs of R22. The test was "the to-do bar is Text, R22".
-test('fidelity: on the terminal the Rasters sit where the mock puts them: lintel, lead, gauges, sill, to-do bar, cards', async ($, on) => {
+test('fidelity: on the terminal the Rasters sit where the mock puts them: lintel, lead, gauges, sill, to-do bar, cards', { options: { header: 'full' } }, async ($, on) => {
   world(on, busy())
   const ui = await mount($, 62, 46, false, 'terminal')
   const boxes = rasters(await ui.drawn()).out.map(({ row, col, w, h }) => ({ row, col, w, h }))
   await ui.unmount()
   // The mock: lintel 3,0 62x1; main 6,2 5x3; gauges 5,40 20x5; sill 11,0 62x1; todo 16,2 58x1; ag 27,2 and 30,2 5x3.
-  // Drawn: the critters are 6 wide (R25), the bar where the mock has it, the cards one row higher (R14).
+  // Drawn: the critters are 6 wide (R25); with no calm line (R48) the bar is two rows higher than the mock's; the cards come
+  // after Notes and decisions (R47): To do 13 to 21, Notes 23 to 26, Agents from 28.
   expect(boxes).toEqual([
     { row: 3, col: 0, w: 62, h: 1 },
     { row: 6, col: 2, w: 6, h: 3 },
     { row: 5, col: 40, w: 20, h: 5 },
     { row: 11, col: 0, w: 62, h: 1 },
-    { row: 16, col: 2, w: 58, h: 1 },
-    { row: 26, col: 2, w: 6, h: 3 },
+    { row: 14, col: 2, w: 58, h: 1 },
     { row: 29, col: 2, w: 6, h: 3 },
+    { row: 32, col: 2, w: 6, h: 3 },
   ])
 })
 
-test('fidelity: the Needs you asker, the idle crew and slim\'s micro critters sit where the mock puts them', async ($, on) => {
+test('fidelity: the Needs you asker, the idle crew and slim\'s micro critters sit where the mock puts them', { options: { header: 'full' } }, async ($, on) => {
   const held = world(on, asked())
   let ui = await mount($, 62, 46, true, 'terminal')
   let boxes = rasters(await ui.drawn()).out
@@ -345,8 +389,9 @@ test('fidelity: the Needs you asker, the idle crew and slim\'s micro critters si
   ui = await mount($, 62, 46, false, 'terminal')
   boxes = rasters(await ui.drawn()).out
   await ui.unmount()
-  // The mock's resting crew: 26,2 19x2 (four roles); here three roles: 14x2.
-  expect(boxes.find(x => x.row === 26 && x.col === 2)).toEqual(expect.objectContaining({ h: 2 }))
+  // The mock's resting crew: 26,2 19x2 (four roles); here three roles: 14x2. R47 and R48: Agents is last, after Notes,
+  // Artifacts and This turn, with no calm line, so the crew sits at 33.
+  expect(boxes.find(x => x.row === 33 && x.col === 2)).toEqual(expect.objectContaining({ h: 2 }))
   held.t = busy()
   ui = await mount($, 26, 46, false, 'terminal')
   boxes = rasters(await ui.drawn()).out
@@ -362,7 +407,8 @@ test('fidelity: the Needs you asker, the idle crew and slim\'s micro critters si
 
 // ---------- the states the rulings add, and the strip (for the report) ----------
 
-test('renders: R8 stopped, R12 no list and ended with tasks open, R13 a long list, the inline strip (R34)', async ($, on) => {
+// R44: the rows asserted below are the full header's (the kicker on row 6), so this runs with `header: 'full'`.
+test('renders: R8 stopped, R12 no list and ended with tasks open, R13 a long list, the inline strip (R34)', { options: { header: 'full' } }, async ($, on) => {
   const held = world(on, stopped())
   const show = (name: string, rows: string[]): string => `${name}\n${rows.map((r, i) => `${String(i).padStart(2)} | ${r}`).join('\n')}`
   const out: string[] = []

@@ -99,7 +99,7 @@ export type BandSvgArgs = { e: RenderInput; look: Look; t: Timeline; u: UiState;
 
 /**
  * The band as one interactive Svg when the look is `svg`, else null: the
- * band draws its own rows. `/mc` and any press stay outside it, as Buttons
+ * band draws its own rows. `/binnacle` and any press stay outside it, as Buttons
  * beside it (`presses`).
  *
  * @example const svg = bandSvgOf($, { e, look, t, u, now, cols: e.props.bodyColumns }); if (svg !== null) return svg

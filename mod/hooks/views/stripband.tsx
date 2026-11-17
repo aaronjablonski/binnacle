@@ -10,6 +10,7 @@ import { footerRow } from './tabkit'
 import type { ViewCtx } from './shell'
 import { TAB_ROWS } from './shell'
 import { watchBlock } from './watch'
+import { prBlock, prHints } from './prblock'
 import type { Press } from './watch'
 
 // The inline strip (R34; unmocked): Now's header on the left, To do and
@@ -61,7 +62,10 @@ function needsRows(ctx: ViewCtx, $: EngineInterface, st: NowState, press?: Press
 /** The left column: the header, and (when nothing asks) a blank and the all-clear line. An ask is the right column's first block. */
 function leftColumn(ctx: ViewCtx, $: EngineInterface, st: NowState, press?: Press): RenderElement[] {
   const head = nowHeader(ctx, $, st.view, st.hs, st.todo, press !== undefined ? { press } : {})
-  return asks(st) ? [head] : [head, blank(ctx, $, 'strip-left-gap'), ...needsRows(ctx, $, st, press)]
+  // R46: the PR and its stack under the header.
+  const pr = prBlock(ctx, $, press !== undefined ? { press } : {})
+  const prRows = pr.length > 0 ? [blank(ctx, $, 'strip-pr-gap'), ...pr] : []
+  return asks(st) ? [head, ...prRows] : [head, blank(ctx, $, 'strip-left-gap'), ...needsRows(ctx, $, st, press), ...prRows]
 }
 
 /** The right column in `rows`: To do (floor 3 rows of list, up to 7) and Agents (one card, up to 3), dealt by the height rule. */
@@ -127,6 +131,7 @@ export function stripNow(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const leftH = left.reduce((n, el) => n + heightOf(el), 0)
   const bar = footerRow(ctx, $, [
     { key: '↵', label: 'open' },
+    ...prHints($, ctx),
     { key: 'esc', label: 'prompt' },
   ])
   const withBar = bar !== null && rows - leftH >= 2

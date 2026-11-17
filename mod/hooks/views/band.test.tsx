@@ -155,7 +155,7 @@ test('draws no row for an empty session', async ($, on) => {
   })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND(), surface })
-    expect(await ui.find({ type: 'Text', text: /mc/ })).toBe(undefined)
+    expect(await ui.find({ type: 'Text', text: /\/binnacle/ })).toBe(undefined)
     expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
     await ui.unmount()
   }
@@ -249,7 +249,7 @@ test('the band fits 24 columns in every form and on every surface', async ($, on
   }
 })
 
-test('desktop: the band is an Svg with /mc as a Button beside it; a press opens the pane', async ($, on) => {
+test('desktop: the band is an Svg with /binnacle as a Button beside it; a press opens the pane', async ($, on) => {
   seed(on, BUSY)
   const opened: unknown[] = []
   on('ui.open', (_, e) => {
@@ -285,7 +285,7 @@ test('working: two rows at 80 columns and up, pane closed; the goal and the gaug
   expect(rows[0]!.endsWith('context 62%   week 34%')).toBe(true)
   expect(rows[1]).toContain('━')
   expect(rows[1]).toContain('2 of 4 done   ·   2 agents working   ·   nothing needs you')
-  expect(rows[1]!.endsWith('/mc')).toBe(true)
+  expect(rows[1]!.endsWith('/binnacle')).toBe(true)
   expect(rows.every(r => r.length <= 104)).toBe(true)
 })
 
@@ -303,15 +303,16 @@ test('the two rows begin at 80 columns and not before; the pane open is one row 
   await short.unmount()
 })
 
-test('one row at 64 and 40 columns: the count, the agents, the focus cut at a word, the context; /mc at the right', async ($, on) => {
+test('one row at 64 and 40 columns: the count, the agents, the focus cut at a word, the context; /binnacle at the right', async ($, on) => {
   seed(on, { ...BUSY, budget: { contextPct: 62, windows: [], at: NOW } })
   const [r64] = await bandRows($, 64, 'mobile')
-  expect(r64).toBe('2 of 4  ·  2 agents  ·  Grouping timeline  ·  context 62%    /mc')
+  // R49: `/binnacle` is 6 columns wider than `/mc`, so the focus, cut at a word first, keeps one word.
+  expect(r64).toBe('2 of 4  ·  2 agents  ·  Grouping  ·  context 62%       /binnacle')
   expect(r64!.length).toBe(64)
   const [r40] = await bandRows($, 40, 'mobile')
   expect(r40!.length).toBeLessThanOrEqual(40)
   expect(r40).toContain('2 of 4  ·  2 agents')
-  expect(r40!.endsWith('/mc')).toBe(true)
+  expect(r40!.endsWith('/binnacle')).toBe(true)
   expect(r40).not.toContain('Grouping')
 })
 
@@ -339,7 +340,8 @@ test('asked: the amber row names who asks and what, "answer below", and the aske
 test('asked, narrow: one row that still names the tool, down to 24 columns; nothing wider than the band', async ($, on) => {
   seed(on, CHILD_ASK)
   const r40 = (await bandRows($, 40, 'mobile'))[0]!
-  expect(r40).toBe('▲ 1 needs you  ·  Bash  ·  2 of 4    /mc')
+  // R49: with the wider `/binnacle` the count gives way from the end; the tool stays, and the row takes the wider dots again.
+  expect(r40).toBe('▲ 1 needs you   ·   Bash       /binnacle')
   expect(r40.length).toBe(40)
   const r30 = (await bandRows($, 30, 'mobile'))[0]!
   expect(r30).toContain('Bash')
@@ -365,7 +367,7 @@ test('Watch adds "n to watch", dim and uncoloured: the band is not amber and sti
   expect((await bandRows($, 70, 'mobile'))[0]).toContain('2 to watch')
 })
 
-test('idle is one dim line at every width and in either pane state: the tick, the totals, /mc; the facts give way from the right', async ($, on) => {
+test('idle is one dim line at every width and in either pane state: the tick, the totals, /binnacle; the facts give way from the right', async ($, on) => {
   seed(on, idle(), undefined, FX_NOW)
   for (const open of [false, true]) {
     reseed(idle(), open ? { paneOpen: true } : undefined)
@@ -373,7 +375,7 @@ test('idle is one dim line at every width and in either pane state: the tick, th
       const rows = await bandRows($, cols, 'mobile')
       expect([cols, rows.length]).toEqual([cols, 1])
       expect(rows[0]!.startsWith('✓ All 14 done')).toBe(true)
-      expect(rows[0]!.endsWith('/mc')).toBe(true)
+      expect(rows[0]!.endsWith('/binnacle')).toBe(true)
       expect(rows[0]!.length).toBeLessThanOrEqual(cols)
     }
   }

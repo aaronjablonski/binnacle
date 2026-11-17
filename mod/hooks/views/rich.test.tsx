@@ -267,8 +267,8 @@ for (const [p, text] of PAGES) {
       await ui.unmount()
       const again = await $.ui.mount({ ...PANE('binnacle', 62), surface })
       expect(await again.find({ type: 'Button', key: 'page-back' })).toBe(undefined)
-      // Now lists the current task in its To do block by design, so only the other pages' words are gone.
-      if (p.kind !== 'task') expect(screen(await again.drawn()).join(' ').replace(/\s+/g, ' ')).not.toContain(text)
+      // Now lists the current task in its To do block, and (R47) the newest artifacts in its Artifacts block, by design, so only the other pages' words are gone.
+      if (p.kind !== 'task' && p.kind !== 'artifact') expect(screen(await again.drawn()).join(' ').replace(/\s+/g, ' ')).not.toContain(text)
       await again.unmount()
     }
   })

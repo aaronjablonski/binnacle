@@ -10,6 +10,8 @@ import { argOf } from './lay'
 import { askerCritter, needsSlot, openNeed, promptRuns } from './needs'
 import { cardAgents, noRequest, nowHeader, nowState, noteItems } from './overview'
 import { openWatch, watchSentence } from './watch'
+import { prChip } from './prblock'
+import { openLink } from './artifacts'
 import { footerRow } from './tabkit'
 import type { NowState } from './overview'
 import { blank, heightOf, inst, more, row, runText } from './parts'
@@ -306,11 +308,34 @@ function notesBlock(ctx: ViewCtx, $: EngineInterface): Block {
   ]
 }
 
+/** The PR in slim (R46): one row, `#123 ✓ stack 2/4`, a plain Button opening the current PR. */
+function prSlim(ctx: ViewCtx, $: EngineInterface): Block {
+  const runs = prChip(ctx.pr)
+  if (runs.length === 0) return []
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const { left } = edges(ctx.cols)
+  const url = ctx.pr?.current?.url
+  const body = runs.map((r, i) => runText(r, ctx.e, $, `slim-pr-${i}`))
+  return [
+    <Box key="slim-pr-row" flexDirection="row">
+      <Text>{' '.repeat(left)}</Text>
+      {url !== undefined && url !== '' ? (
+        <Button key="slim-pr" plain onPress={() => openLink($, url, ctx.e.surface)}>
+          {body}
+        </Button>
+      ) : (
+        <Text key="slim-pr" wrap="truncate-end">{body}</Text>
+      )}
+    </Box>,
+  ]
+}
+
 /** The stack at a drop level: 0 all; 1 without Notes; 2 also without Budget; 3 also without Watch; 4 one agent; 5 no agents; 6 To do without its tasks. */
 function stackAt(ctx: ViewCtx, $: EngineInterface, st: NowState, level: number): Block {
   const blocks: Block[] = [
     [nowHeader(ctx, $, st.view, st.hs, st.todo, { short: true, svg: false })],
     needsBlock(ctx, $, st),
+    level < 4 ? prSlim(ctx, $) : [],
     level < 3 ? watchSlim(ctx, $, st) : [],
     todoBlock(ctx, $, st, level < 6),
     level < 5 ? agentsBlock(ctx, $, st, level < 4 ? 2 : 1) : [],

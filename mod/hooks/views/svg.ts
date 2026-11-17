@@ -491,12 +491,17 @@ export function bandSvg(t: Timeline, u: UiState, now: number, cols: number, mode
     if (m.working > 0) words.push(...(words.length > 0 ? [sep] : []), { t: agentsWords(m), fill: DIM() })
     words.push(...(words.length > 0 ? [sep] : []), { t: needsPiece(m), fill: DIM() })
   }
+  // R57: as on the terminal, only the calm "nothing needs you" yields to the chip; a Watch count or a waiting ask does not.
+  const calm = m.form === 'working' && needsPiece(m) === 'nothing needs you'
   // R57: the PR chip at the right of row 2, as the terminal band draws it (`#482 ✓ stack 2/3`).
   const chip = chipPieces(pr)
   const chipW = chip.reduce((n, p) => n + p.t.length, 0) * 12.5 * 0.52
-  const wordsW = words.reduce((n, p) => n + p.t.length, 0) * 12.5 * 0.52
-  const withChip = chip.length > 0 && wx + wordsW + 24 + chipW <= right
-  s += tspans(wx, 43, words, { size: 12.5 })
+  const widthOf = (ps: Piece[]): number => ps.reduce((n, p) => n + p.t.length, 0) * 12.5 * 0.52
+  const fits = (ps: Piece[]): boolean => wx + widthOf(ps) + 24 + chipW <= right
+  // Without the calm piece (and its separator) when that is what makes room for the chip.
+  const shown = chip.length > 0 && !fits(words) && calm ? words.slice(0, words.length > 1 ? -2 : -1) : words
+  const withChip = chip.length > 0 && fits(shown)
+  s += tspans(wx, 43, withChip ? shown : words, { size: 12.5 })
   if (withChip) s += tspans(right, 43, chip, { size: 12.5, anchor: 'end' })
   return bounded(`${s}</svg>`, W, dm)
 }
@@ -526,6 +531,8 @@ export function nowDeckAlt(t: Timeline, u: UiState, now: number, head: DeckHead,
 }
 
 /** The band in words. */
-export function bandAlt(t: Timeline, u: UiState, now: number, model?: BandModel): string {
-  return bandWords(model ?? bandModel(t, u, now)).slice(0, MAX_ALT)
+export function bandAlt(t: Timeline, u: UiState, now: number, model?: BandModel, pr?: PrState): string {
+  // R57: the alt says what the picture says, the PR chip included.
+  const chip = chipPieces(pr).map(p => p.t).join('').trim()
+  return `${bandWords(model ?? bandModel(t, u, now))}${chip !== '' ? `. Pull request ${chip}` : ''}`.slice(0, MAX_ALT)
 }

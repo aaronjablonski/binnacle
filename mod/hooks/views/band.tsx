@@ -285,13 +285,14 @@ function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number, co
   const chip = prChip(ctx.pr)
   const kept = calm ? pieces.slice(0, -1) : pieces
   const chipW = chip.length > 0 ? widthOf(chip) + 3 : 0
-  const withChip = chip.length > 0 && widthOf(joined(kept, 3)) <= room - start - 1 - chipW - MC.length
+  // On the command row (M9) the chip must fit beside the whole command, which takes the to-do words' place.
+  const cmd: Run[] | undefined = m.ask !== undefined && commandBelow(m, room) ? [bold(m.ask.tool), plain('  '), bold(m.ask.command)] : undefined
+  const withChip = chip.length > 0 && (cmd !== undefined ? widthOf(cmd) + 1 + chipW + MC.length <= room : widthOf(joined(kept, 3)) <= room - start - 1 - chipW - MC.length)
   const mc: Run[] = withChip ? [...chip, spaces(3), dim(MC)] : [dim(MC)]
   const mcW = widthOf(mc)
   const space = room - start - 1 - mcW
-  if (m.ask !== undefined && commandBelow(m, room)) {
+  if (cmd !== undefined) {
     // M9, I5: the ask's tool and its command whole, in place of the to-do words; cut at a word only past the row.
-    const cmd: Run[] = [bold(m.ask.tool), plain('  '), bold(m.ask.command)]
     const fitted = widthOf(cmd) + 1 + mcW <= room ? cmd : trimRuns(cmd, room - 1 - mcW)
     return line(ctx, $, 'band-row-2', spread(fitted, mc, room))
   }

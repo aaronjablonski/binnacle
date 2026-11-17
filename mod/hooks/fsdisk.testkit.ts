@@ -10,5 +10,6 @@
 
 /** The Windows path the mod asked for, from the path the test kit handed a hook. */
 export function diskPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^.*?(?=[A-Za-z]:\/)/, '')
+  // Greedy: the last drive-like segment, so a working folder holding one (`/tmp/a:/run/C:/...`) is cut whole.
+  return path.replace(/\\/g, '/').replace(/^.*(?=[A-Za-z]:\/)/, '')
 }

@@ -110,7 +110,7 @@ export function bandSvgOf($: EngineInterface, a: BandSvgArgs): RenderElement | n
   const { Box, Svg } = table
   return (
     <Box key="band-svg" flexDirection="row" columnGap={1}>
-      <Svg source={bandSvg(a.t, a.u, a.now, a.cols, a.model, a.ground ?? 'night', a.pr)} alt={bandAlt(a.t, a.u, a.now, a.model)} isInteractive />
+      <Svg source={bandSvg(a.t, a.u, a.now, a.cols, a.model, a.ground ?? 'night', a.pr)} alt={bandAlt(a.t, a.u, a.now, a.model, a.pr)} isInteractive />
       {pressRow($, a.e, 'band-svg-presses', a.presses ?? [])}
     </Box>
   )

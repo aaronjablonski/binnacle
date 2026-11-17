@@ -29,7 +29,7 @@ Binnacle is a mod for [Claude Code](https://claude.com/claude-code). A long sess
 - [Features](#features): [Now](#now-three-questions-always-in-the-same-place) · [Pull request and stack](#pull-request-and-github-stack) · [Needs you and Watch](#needs-you-and-watch) · [To do](#the-to-do-list) · [Agents and Critters](#agents-the-crew-map-and-the-critters) · [Steps](#steps-and-keep) · [Artifacts and handoff](#artifacts-and-the-handoff-digest) · [Budget](#gauges-and-budget) · [Band](#the-band) · [Slim, strip, desktop](#slim-strip-and-the-desktop-app) · [Looks](#looks-and-small-delights)
 - [Install](#install) · [Commands](#commands) · [Keys](#keys) · [Options](#options)
 - [Privacy, and what it adds to Claude](#privacy-and-what-it-adds-to-claude)
-- [Development](#development) · [Known limits](#known-limits) · [Licence](#licence)
+- [Development](#development) · [Known limits](#known-limits) · [Contributing](#contributing) · [Security](#security) · [Licence](#licence)
 
 ## What you see
 
@@ -422,6 +422,14 @@ node docs/readme/tools/make.mjs      # redraw the pictures on this page from the
 - **Live checks are pending.** The screens are covered by drawing tests against the engine, but several behaviours still wait for a check in a live session: how focus and hotkeys feel on each surface, notifications, and the look on themes other than the default dark and light.
 - **Not built:** restyling the transcript, model-written agent summaries, graph or waterfall views, cost analytics.
 - **The name may change.** "Binnacle" is the working name.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it covers setup, the checks a pull request must pass, and how design decisions are recorded. Please open an issue to agree a feature or a change to what the pane shows before writing code. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+Please report vulnerabilities privately, not in an issue. [SECURITY.md](SECURITY.md) says how, and lists what the mod reads, writes and runs.
 
 ## Licence
 

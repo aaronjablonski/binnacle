@@ -52,28 +52,47 @@ export async function fetchPr($: EngineInterface): Promise<boolean> {
   if (!prs.has(branch)) {
     const one = await run($, ['gh', 'pr', 'view', branch, '--json', PR_LIST_FIELDS])
     if (one.ok) prs = new Map([...prs, ...parsePrList(`[${one.out}]`)])
+    // A failed look-up is not an answer: keep this branch's PR as last seen. (`gh pr view` exits 1 for "no PR" too,
+    // so a branch whose PR was known keeps it until a list or a view shows otherwise.)
+    else if (had.branch === branch && had.current !== undefined) prs = new Map([...prs, [branch, had.current]])
   }
   await writePr($, buildPrState(await $.clock.now(), branch, prs, stack))
   return true
 }
 
-/** Fetches now, or once more after the fetch running. Never throws. */
+/**
+ * Fetches now, or once more after the fetch running: every request made while
+ * a fetch runs (startup, the clock, a git or gh command) is drained after it.
+ * A fetch that finds a repository starts the 3-minute clock if it is not
+ * running (a session started before `git init`). Never throws.
+ */
 export async function refreshPr($: EngineInterface): Promise<void> {
   if (running) {
     again = true
     return
   }
   running = true
+  let repo = false
   try {
     do {
       again = false
-      await fetchPr($)
+      repo = (await fetchPr($)) || repo
     } while (again)
   } catch (err) {
     debug($, `pr fetch failed: ${errText(err)}`)
   } finally {
     running = false
   }
+  if (repo && tick === undefined) scheduleTick($)
+}
+
+/** The next periodic fetch in PR_EVERY_MS; it schedules the one after while the folder is a repository. */
+function scheduleTick($: EngineInterface): void {
+  tick?.cancel()
+  tick = $.clock.after(PR_EVERY_MS, () => {
+    tick = undefined
+    void refreshPr($)
+  })
 }
 
 /** A fetch in `ms`, replacing one already asked for. */
@@ -85,39 +104,26 @@ export function refreshSoon($: EngineInterface, ms = PR_DEBOUNCE_MS): void {
   })
 }
 
-/** At session start: a fetch now, then one every 3 min for as long as the folder is a repository. */
+/**
+ * At session start: a fetch now (through `refreshPr`, so requests made during
+ * it are drained), then one every 3 min for as long as the folder is a
+ * repository. A reload within a minute of the last fetch keeps it and only
+ * schedules the next (an option change reloads the mod; it stays quick).
+ */
 export async function startPr($: EngineInterface): Promise<void> {
   tick?.cancel()
-  // A reload (an option change writes the config and reloads the mod) runs this again: a PR fetched in the
-  // last minute is kept, and the next fetch waits for the usual period, so changing options stays quick.
+  tick = undefined
   try {
     const had = await readPr($)
     const now = await $.clock.now()
     if (had.at > 0 && now - had.at < 60_000) {
-      tick = $.clock.after(PR_EVERY_MS, () => void startPr($))
+      scheduleTick($)
       return
     }
   } catch (err) {
     debug($, `pr freshness check failed: ${errText(err)}`)
   }
-  const loop = async (): Promise<void> => {
-    let repo = true
-    try {
-      if (running) again = true
-      else {
-        running = true
-        try {
-          repo = await fetchPr($)
-        } finally {
-          running = false
-        }
-      }
-    } catch (err) {
-      debug($, `pr fetch failed: ${errText(err)}`)
-    }
-    if (repo) tick = $.clock.after(PR_EVERY_MS, () => void loop())
-  }
-  void loop()
+  void refreshPr($)
 }
 
 export function registerPr(on: On): void {

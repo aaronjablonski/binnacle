@@ -10,7 +10,7 @@
 
 import type { Pr, PrChecks, PrState, StackItem } from '../../types'
 
-export const PR_LIST_FIELDS = 'number,title,url,state,isDraft,headRefName,reviewDecision,statusCheckRollup'
+export const PR_LIST_FIELDS = 'number,title,url,state,isDraft,headRefName,isCrossRepository,reviewDecision,statusCheckRollup'
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 const obj = (v: unknown): Record<string, unknown> | undefined =>
@@ -66,7 +66,8 @@ export function parsePrList(text: string): Map<string, Pr> {
   if (!Array.isArray(arr)) return out
   for (const v of arr) {
     const pr = toPr(v)
-    if (pr === undefined || pr.head === '') continue
+    // A fork's PR can share the branch's name (`alice:main`): only PRs from this repository match a local branch.
+    if (pr === undefined || pr.head === '' || obj(v)?.isCrossRepository === true) continue
     const had = out.get(pr.head)
     const better = had === undefined || (had.state !== 'open' && pr.state === 'open') || ((had.state === 'open') === (pr.state === 'open') && pr.number > had.number)
     if (better) out.set(pr.head, pr)
@@ -107,8 +108,11 @@ export function parseStack(text: string): RawStack | undefined {
 export function buildPrState(at: number, branch: string, prs: Map<string, Pr>, stack?: RawStack): PrState {
   const current = prs.get(branch)
   const base: PrState = { at, branch: branch.slice(0, 200), ...(current !== undefined ? { current } : {}) }
-  if (stack === undefined || !stack.branches.some(b => b.name === branch)) return base
-  const items: StackItem[] = stack.branches.slice(0, 30).map(b => {
+  const here = stack?.branches.findIndex(b => b.name === branch) ?? -1
+  if (stack === undefined || here < 0) return base
+  // At most 30 members, in a window that keeps the current branch (so its index and the cursor stay true).
+  const from = Math.max(0, Math.min(here - 15, stack.branches.length - 30))
+  const items: StackItem[] = stack.branches.slice(from, from + 30).map(b => {
     const pr = prs.get(b.name)
     const number = pr?.number ?? b.number
     const url = pr?.url ?? b.url
@@ -132,7 +136,9 @@ export const stackIndex = (s: PrState): number => s.stack?.items.findIndex(i => 
 
 /** Whether a shell command may have moved the branch or a PR, so the PR state is worth fetching again. */
 export function touchesPr(command: string): boolean {
-  return /\bgit\s+(checkout|switch|push|commit|rebase|pull|merge|reset|branch)\b|\bgh\s+(pr|stack)\b/.test(command)
+  // Git's global options may come first (`git -C dir switch x`, `git --no-pager pull`), each with its value where it takes one.
+  const gitOpts = String.raw`(?:\s+(?:-[Cc]\s+\S+|--git-dir(?:=|\s+)\S+|--work-tree(?:=|\s+)\S+|-{1,2}[\w-]+(?:=\S+)?))*`
+  return new RegExp(String.raw`\bgit` + gitOpts + String.raw`\s+(checkout|switch|push|commit|rebase|pull|merge|reset|branch)\b|\bgh\s+(pr|stack)\b`).test(command)
 }
 
 /** The mark for a PR's or stack item's state: merged ✓, closed ✕, queued ◎, draft ◌, open ○. */

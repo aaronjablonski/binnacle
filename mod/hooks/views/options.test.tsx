@@ -225,7 +225,9 @@ test('R52: no frame and no preview; the first option is in the first rows under 
     const ui = await $.ui.mount({ ...PANE(80), surface })
     expect(await ui.find({ type: 'Raster' })).toBe(undefined)
     const rows = screen(await ui.drawn())
-    expect(rows.findIndex(r => /^ {4}Look( |$)/.test(r))).toBeLessThanOrEqual(7)
+    const look = rows.findIndex(r => /^ {4}Look( |$)/.test(r))
+    expect(look).toBeGreaterThanOrEqual(0)
+    expect(look).toBeLessThanOrEqual(7)
     expect(rows.some(r => r.includes('PREVIEW'))).toBe(false)
     await ui.unmount()
   }

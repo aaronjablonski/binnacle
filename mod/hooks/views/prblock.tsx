@@ -177,7 +177,8 @@ export function prBlock(ctx: ViewCtx, $: EngineInterface, o: { press?: Press } =
       const it = items[i]!
       const here = i === at
       const color = it.state === 'merged' ? CK.ok : it.state === 'closed' ? CK.rule : it.checks === 'fail' ? CK.fail : undefined
-      const words = `${here ? '▸' : ''}${itemWords(it)}`
+      // A long branch name (no PR yet) is cut to the row's room, so the selected item never runs past the pane.
+      const words = wordFit(`${here ? '▸' : ''}${itemWords(it)}`, Math.max(4, room - 8))
       const body = here ? <Text bold color={CK.accent}>{words}</Text> : <Text {...(color !== undefined ? { color } : {})} {...(it.branch === pr.branch ? { bold: true } : {})}>{words}</Text>
       const url = it.url
       parts.push(

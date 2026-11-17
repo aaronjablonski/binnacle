@@ -181,6 +181,8 @@ export function stripBandView(ctx: ViewCtx, $: EngineInterface, opts: BandStrip)
     [
       ...(body >= HEADER_ROWS ? [nowHeader(ctx, $, st.view, st.hs, st.todo, { press }), blank(ctx, $, 'strip-left-gap')] : []),
       ...needsSlot(ctx, $, st.view, { watchCount: st.watch.length, cap: 1, press }),
+      // R46: the PR and its stack in the stacked strip too (under 96 columns), counted by upTo like every row.
+      ...(prBlock(ctx, $, { press }).length > 0 ? [blank(ctx, $, 'strip-pr-gap'), ...prBlock(ctx, $, { press })] : []),
       blank(ctx, $, 'strip-mid-gap'),
       ...rightColumn(ctx, $, st, Math.max(0, body), press),
     ],

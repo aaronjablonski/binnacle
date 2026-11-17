@@ -134,13 +134,16 @@ const HEADS: [string, RegExp][] = [
   ['Notes', /^ {2}Notes and decisions ─/], ['Artifacts', /^ {2}Artifacts ─/], ['This turn', /^ {2}This turn ─/], ['Agents', /^ {2}Agents ─/],
 ]
 /**
- * R45, R47, R48: Now's body under the full header (rows 0 to 11, the sill)
- * laid out again: an optional hint row right under the sill, then the named
- * blocks in `order`, one blank row before each, blanks down to the footer.
+ * R45, R47, R48, R50: Now's body under the full header (rows 0 to 11, the
+ * sill) laid out again: the named blocks in `order`, `gap` blank rows before
+ * each (R50: two once To do has every row it wants and rows are left), and
+ * the Agents block pinned to the foot of the pane (its last row right above
+ * the blank row over the footer), the rows left over going above it (R50).
  * A block is cut from the mock at its head and ends before the blank rows
  * that precede the next head; `add` gives blocks the mock does not draw.
+ * There is no hint row: R45 takes Watch off Now entirely.
  */
-const relay = (order: string[], o: { hint?: string; add?: Record<string, string[]> } = {}) => (rows: string[]): string[] => {
+const relay = (order: string[], o: { gap?: number; add?: Record<string, string[]> } = {}) => (rows: string[]): string[] => {
   const foot = rows[rows.length - 1]!
   const body = rows.slice(12, rows.length - 1)
   const starts = body.flatMap((r, at) => HEADS.filter(([, re]) => re.test(r)).map(([name]) => ({ name, at })))
@@ -150,12 +153,20 @@ const relay = (order: string[], o: { hint?: string; add?: Record<string, string[
     while (end > st.at && body[end - 1]!.trim() === '') end--
     blocks[st.name] = body.slice(st.at, end)
   })
+  const gap = o.gap ?? 1
   const out = rows.slice(0, 12)
-  if (o.hint !== undefined) out.push(o.hint)
   for (const name of order) {
     const b = blocks[name]
     if (b === undefined) throw new Error(`patch: no ${name} block in the mock`)
-    out.push('', ...b)
+    for (let k = 0; k < gap; k++) out.push('')
+    if (name === 'Agents') {
+      if (name !== order[order.length - 1]) throw new Error('patch: Agents is the last block (R47)')
+      // R50: Agents at the foot: it ends on the row above the blank row over the footer.
+      const start = rows.length - 2 - b.length
+      if (start < out.length) throw new Error(`patch: Agents cannot start at ${start}, under row ${out.length}`)
+      while (out.length < start) out.push('')
+    }
+    out.push(...b)
   }
   if (out.length > rows.length - 1) throw new Error(`patch: the re-laid body runs past the footer (${out.length} rows)`)
   while (out.length < rows.length - 1) out.push('')
@@ -179,7 +190,7 @@ test('fidelity: CockpitNow (busy) at 62 columns matches the mock but for the lis
     rows[29] = rows[29]!.replace('     1m 40s', '      1 min')
   })
   b.patch('footer: the options key is `0` (a Button hotkey takes a digit or a lowercase letter, so the comma of the mock cannot be armed)', b.sub(45, ', options', '0 options'))
-  b.patch('R48: Now draws no calm line ("✓ Nothing needs you"); R47: Notes and decisions come before Agents', relay(['To do', 'Notes', 'Agents']))
+  b.patch('R48: Now draws no calm line ("✓ Nothing needs you"); R47: Notes and decisions come before Agents; R50: To do has every row it wants, so the blocks stand two blank rows apart and Agents sits at the foot of the pane', relay(['To do', 'Notes', 'Agents'], { gap: 2 }))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNow', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -204,7 +215,16 @@ test('fidelity: CockpitNowNeedsYou at 62 columns matches the mock but for the li
   b.patch('R27: 2 min', b.sub(29, '     2m 14s', '      2 min'))
   b.patch("R30 (F M11): the wait shows in the pill and the block only; the asker's card keeps its own time, 1 min", b.sub(32, '            40s', '          1 min'))
   b.patch('R3: the footer offers no "go to prompt"; `n next ask` only with more than one ask', b.sub(45, '↵ go to prompt   n next ask   esc prompt', '↵ open   esc prompt'))
-  b.patch('R47: Notes and decisions come before Agents', relay(['Needs you', 'To do', 'Notes', 'Agents']))
+  b.patch('R47 and R50: spare rows go to the two-row spacing before agent cards, so Agents keeps one card, the asker\'s (F M10: the agents that need you are kept first), and "+ 1 more working" for Explorer', rows => {
+    const out = [...rows]
+    // After the R14 drop: the head on 28, Explorer's card 29 to 31, the asker's 32 to 34, "31 finished earlier" on 35.
+    if (!out[29]!.includes('Explorer') || !out[32]!.includes('General')) throw new Error('patch: the cards are not where the mock has them')
+    out.splice(29, 3)
+    out.splice(32, 0, '         + 1 more working')
+    out.splice(out.length - 1, 0, '', '')
+    return out
+  })
+  b.patch('R47: Notes and decisions come before Agents; R50: the blocks stand two blank rows apart and Agents sits at the foot of the pane', relay(['Needs you', 'To do', 'Notes', 'Agents'], { gap: 2 }))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowNeedsYou', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -229,9 +249,9 @@ test('fidelity: CockpitNowWatch at 62 columns matches the mock but for the liste
   })
   b.patch('real data: doing() shows a folder by its name, "vendor"', b.sub(32, 'vendor/ for', 'vendor for'))
   b.patch('R23: General', b.sub(34, 'Builder  write the rate limit tests        ', 'General  write the rate limit tests        '))
-  b.patch('R45 and R48: the Watch block and the calm line leave Now; one dim row under the header names the first thing to watch, "+1" for the second; R47: Notes and decisions come before Agents',
-    relay(['To do', 'Notes', 'Agents'], { hint: '  ◔ Long run · Explorer has run 1 h 4 min (limit 60)  +1' }))
-  b.patch('R45: the footer reads "w watch" (w opens the hint; v and g were the Watch row\'s keys)', b.sub(45, 'v transcript', 'w watch'))
+  b.patch('R45 and R48: the Watch block and the calm line leave Now, with no hint row; R47: Notes and decisions come before Agents; R50: the blocks stand two blank rows apart and Agents sits at the foot of the pane',
+    relay(['To do', 'Notes', 'Agents'], { gap: 2 }))
+  b.patch('R45: with no Watch on Now its keys go (v transcript, x dismiss): the footer is the working one, and the options key is `0` (a Button hotkey takes a digit or a lowercase letter)', b.sub(45, 'v transcript   x dismiss', '0 options   esc prompt'))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowWatch', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -246,8 +266,8 @@ test('fidelity: CockpitNowIdle at 62 columns matches the mock but for the listed
   b.patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', b.sub(10, 'cache warm 2:51  ', 'cache warm 2 min '))
   b.patch('real data: no retry is recorded, so the agents fact has no detail', b.sub(23, '     1 was retried after a failure', ''))
   b.patch('M5 and R39: one action, one name: the rest footer says "e export digest", as the Artifacts button "e: Export digest" (the mock says "export handoff")', b.sub(45, 'e export handoff   esc', 'e export digest   esc'))
-  b.patch('R48: no calm line; R47: To do, Notes and decisions, then the new Artifacts block (the newest 3, here the 2 of the fixture), This turn, Agents',
-    relay(['To do', 'Notes', 'Artifacts', 'This turn', 'Agents'], { add: { Artifacts: [head('Artifacts', '2'), '  ↗ the plan · 45 min', '  ↗ Rate limit design · 50 min'] } }))
+  b.patch('R48: no calm line; R47: To do, Notes and decisions, then the new Artifacts block (the newest 3, here the 2 of the fixture), This turn, Agents; R50: the blocks stand two blank rows apart and Agents sits at the foot of the pane',
+    relay(['To do', 'Notes', 'Artifacts', 'This turn', 'Agents'], { gap: 2, add: { Artifacts: [head('Artifacts', '2'), '  ↗ the plan · 45 min', '  ↗ Rate limit design · 50 min'] } }))
   // On a mismatch the received value is both boards side by side.
   expect(b.rows.every((r, i) => rowMatches(r, got[i] ?? '')) ? 'matches' : sideBySide('CockpitNowIdle', b.rows, got, b.names, 62)).toBe('matches')
   expect(got.length).toBe(46)
@@ -365,16 +385,17 @@ test('fidelity: on the terminal the Rasters sit where the mock puts them: lintel
   const boxes = rasters(await ui.drawn()).out.map(({ row, col, w, h }) => ({ row, col, w, h }))
   await ui.unmount()
   // The mock: lintel 3,0 62x1; main 6,2 5x3; gauges 5,40 20x5; sill 11,0 62x1; todo 16,2 58x1; ag 27,2 and 30,2 5x3.
-  // Drawn: the critters are 6 wide (R25); with no calm line (R48) the bar is two rows higher than the mock's; the cards come
-  // after Notes and decisions (R47): To do 13 to 21, Notes 23 to 26, Agents from 28.
+  // Drawn: the critters are 6 wide (R25); with no calm line (R48) and two blank rows between blocks (R50) the bar is one row
+  // higher than the mock's: To do 14 to 22, Notes 25 to 28; the cards come after Notes and decisions (R47) and Agents sits at
+  // the foot of the pane (R50): its head on 36, the cards from 37.
   expect(boxes).toEqual([
     { row: 3, col: 0, w: 62, h: 1 },
     { row: 6, col: 2, w: 6, h: 3 },
     { row: 5, col: 40, w: 20, h: 5 },
     { row: 11, col: 0, w: 62, h: 1 },
-    { row: 14, col: 2, w: 58, h: 1 },
-    { row: 29, col: 2, w: 6, h: 3 },
-    { row: 32, col: 2, w: 6, h: 3 },
+    { row: 15, col: 2, w: 58, h: 1 },
+    { row: 37, col: 2, w: 6, h: 3 },
+    { row: 40, col: 2, w: 6, h: 3 },
   ])
 })
 
@@ -383,15 +404,15 @@ test('fidelity: the Needs you asker, the idle crew and slim\'s micro critters si
   let ui = await mount($, 62, 46, true, 'terminal')
   let boxes = rasters(await ui.drawn()).out
   await ui.unmount()
-  // The mock's asker: 14,2 5x3.
-  expect(boxes.find(x => x.row === 14 && x.col === 2)).toEqual(expect.objectContaining({ w: 6, h: 3 }))
+  // The mock's asker: 14,2 5x3. Here 15: two blank rows under the sill (R50).
+  expect(boxes.find(x => x.row === 15 && x.col === 2)).toEqual(expect.objectContaining({ w: 6, h: 3 }))
   held.t = idle()
   ui = await mount($, 62, 46, false, 'terminal')
   boxes = rasters(await ui.drawn()).out
   await ui.unmount()
   // The mock's resting crew: 26,2 19x2 (four roles); here three roles: 14x2. R47 and R48: Agents is last, after Notes,
-  // Artifacts and This turn, with no calm line, so the crew sits at 33.
-  expect(boxes.find(x => x.row === 33 && x.col === 2)).toEqual(expect.objectContaining({ h: 2 }))
+  // Artifacts and This turn, with no calm line; R50: Agents sits at the foot of the pane, so the crew is on 42.
+  expect(boxes.find(x => x.row === 42 && x.col === 2)).toEqual(expect.objectContaining({ h: 2 }))
   held.t = busy()
   ui = await mount($, 26, 46, false, 'terminal')
   boxes = rasters(await ui.drawn()).out

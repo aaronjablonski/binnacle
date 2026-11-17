@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { watch } from '../model/alerts'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
@@ -488,12 +489,10 @@ test('R41: a 6-minute npm run build with no earlier run is a Long step on Watch,
     agents: { main },
   }
   world(on, t)
-  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
-  const rows = (await texts(ui)).join('\n')
-  expect(rows).toContain('Long step')
-  expect(rows).toContain('npm run build has run 6 min')
-  expect(rows).not.toContain('Stalled')
-  await ui.unmount()
+  // R45: Watch is not drawn on Now; the alert model is where the kind and its sentence are decided.
+  const rows = watch(t, NOW, [])
+  expect(rows.map(w => w.kind)).toEqual(['long-step'])
+  expect(rows[0]!.sentence).toContain('npm run build has run 6 min')
 })
 
 // ---------- Now's agent card and header (F I1, F M11 / R30, F M12a) ----------

@@ -125,3 +125,29 @@ describe('marks and triggers', () => {
       expect(touchesPr(c)).toBe(false)
   })
 })
+
+describe('CodeRabbit review fixes', () => {
+  it('touchesPr sees past git global options', () => {
+    for (const c of ['git -C . switch feature', 'git -C ../other checkout -b x', 'git --no-pager pull', 'git -c core.x=1 commit -m y', 'git --git-dir=.git push'])
+      expect(touchesPr(c)).toBe(true)
+    for (const c of ['git -C . status', 'git --no-pager log', 'legit switch'])
+      expect(touchesPr(c)).toBe(false)
+  })
+
+  it('a fork PR that shares the branch name is not this branch\'s PR', () => {
+    const m = parsePrList(JSON.stringify([pr(50, 'main', { isCrossRepository: true }), pr(7, 'feat', { isCrossRepository: false })]))
+    expect(m.has('main')).toBe(false)
+    expect(m.get('feat')?.number).toBe(7)
+  })
+
+  it('a stack over 30 keeps the current branch in its window, and its index true', () => {
+    const branches = Array.from({ length: 40 }, (_, i) => ({ name: `s${i + 1}` }))
+    const stack = parseStack(JSON.stringify({ trunk: 'main', currentBranch: 's38', branches }))
+    const st = buildPrState(1, 's38', new Map(), stack)
+    expect(st.stack?.items.length).toBe(30)
+    expect(st.stack?.items.some(i => i.branch === 's38')).toBe(true)
+    expect(st.stack?.items[stackIndex(st)]?.branch).toBe('s38')
+    const low = buildPrState(1, 's2', new Map(), parseStack(JSON.stringify({ trunk: 'main', currentBranch: 's2', branches })))
+    expect(low.stack?.items[0]?.branch).toBe('s1')
+  })
+})

@@ -130,20 +130,24 @@ test('I4: the desktop alt says the pane\'s agent words, with no keyboard hint, a
 
 // ---------- I5: wrap before cutting (32 to 47 columns) ----------
 
-test('I5: at 40 columns the Watch count shortens whole ("2 to watch"), never "2 things to…"', async ($, on) => {
+// R45, R48: Now carries no Watch count; slim does, shortened whole ("2 to watch"), never "2 things to…".
+test('I5: slim says the Watch count whole ("2 to watch"), never "2 things to…"; Now says none', async ($, on) => {
   world(on, watching())
-  const rows = await rowsAt($, 40)
-  expect(rows.some(r => r.includes('✓ Nothing needs you · 2 to watch'))).toBe(true)
-  expect(rows.join('\n')).not.toContain('things to…')
+  expect((await rowsAt($, 28)).some(r => r.includes('2 to watch'))).toBe(true)
+  const now = (await rowsAt($, 40)).join('\n')
+  expect(now).not.toContain('to watch')
+  expect(now).not.toContain('things to…')
 })
 
-test('I5: at 32 columns the Watch keys wrap to a second row and keep x: dismiss; the sentences wrap instead of ending in …', async ($, on) => {
+// R45: Watch lives in slim now; its top sentence wraps (up to three rows) instead of ending in …
+test('I5: in slim the top Watch sentence wraps instead of ending in …', async ($, on) => {
   world(on, watching())
-  const rows = await rowsAt($, 32)
-  expect(rows.some(r => r.includes('x: dismiss'))).toBe(true)
-  expect(rows.some(r => r.includes('run 64') || r.includes('1 h 4 min'))).toBe(true)
-  const watchRows = rows.slice(rows.findIndex(r => r.startsWith('  Watch ─')), rows.findIndex(r => r.startsWith('  To do ─')))
-  expect(watchRows.join('\n')).not.toContain('…')
+  const rows = await rowsAt($, 28)
+  const at = rows.findIndex(r => r.includes('to watch'))
+  expect(at).toBeGreaterThan(-1)
+  const sentence = rows.slice(at + 1, at + 4).join('\n')
+  expect(sentence).toMatch(/run|min|failed|quiet/)
+  expect(sentence).not.toContain('…')
 })
 
 test('I5: at 40 columns idle says both resting sentences whole, and the last task and the facts wrap', async ($, on) => {

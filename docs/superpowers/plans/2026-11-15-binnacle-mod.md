@@ -593,8 +593,11 @@ from every hook registered after it.
   committed as written. `tsc -p mod` then passes.
 - **Inline plugins in `claude plugin test`** run as modules of their own:
   each hook must be a function literal using no outside names.
-- **Tooling.** TypeScript is pinned to `~5.9.3` (npm's `latest` is 7.0.2, a
-  different compiler; the type file asks for 5.4+). vitest is `^5.1.0`
+- **Tooling.** TypeScript was pinned to `~5.9.3` (7.0 is the new native
+  compiler; the type file asks for 5.4+). Since 2026-11-17 it is `~7.0.2`:
+  `tsc -p mod` with 7.0.2 checks the mod against Claude Code's type file
+  clean and still catches a planted error in plain code and in the
+  `claude-code` API types. vitest is `^5.1.0`
   because vitest 3 has open critical advisories and `npm install` of vitest
   4.1.12 crashes npm 10.9.9 (`Cannot read properties of null (reading
   'edgesOut')`); vitest 5 needs Node ≥ 22.12, so **CI runs Node 22, not 20**.

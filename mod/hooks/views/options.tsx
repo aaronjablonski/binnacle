@@ -16,7 +16,7 @@ import { debug, errText, updateUi } from '../state'
 import { nameFit, wordFit } from './fit'
 import { closePage, leavePage, openPage } from './pagenav'
 import { heightOf, runText, section } from './parts'
-import { applyShowAs, TAB_ROWS } from './shell'
+import { applyShowAs, openPaneHere, TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
 import { footerSlot } from './tabkit'
 import { C, edges, GRID, setAccent } from './style'
@@ -194,9 +194,6 @@ export async function setOption($: EngineInterface, f: Field, value: ConfigValue
     }
     written.set(f.field, got.value)
     if (f.field === 'accent') setAccent(got.value)
-    // R53: previewed at once above the prompt (the strip on or off; the band's two rows), while the pane and this
-    // page stay open so the person can step through all three. Leaving Options applies the rest (`leaveOptions`).
-    if (f.field === 'showAs') await applyShowAs($, got.value, { keepPane: true })
     $.ui.invalidate('ui.render')
     const when = f.applies === 'now' ? '' : ` (applies ${f.applies})`
     $.ui.toast(`${f.label}: ${shownValue(f, got.value)}${when}`)
@@ -235,6 +232,10 @@ export function nextValue(f: Field, v: ConfigValue | undefined): ConfigValue | u
  * /config.
  */
 async function pressRow($: EngineInterface, f: Field): Promise<void> {
+  if (f.field === 'showAs') {
+    await chooseShowAs($, nextValue(f, showAsOption()) as string)
+    return
+  }
   if (f.kind === 'text') {
     $.ui.toast(`${f.label} takes text: change it in /config.`)
     return
@@ -244,6 +245,38 @@ async function pressRow($: EngineInterface, f: Field): Promise<void> {
   await setOption($, f, next)
   // Not awaited: the row is drawn again only after the press returns (see pagenav.ts `landFirst`).
   void $.ui.focus({ requestId: PANE_ID, key: `opt-${f.field}` }).catch(err => debug($, `options: refocus ${f.field} failed: ${errText(err)}`))
+}
+
+/**
+ * Chooses a Show as style and switches to it at once (R55): the option is
+ * written, then `band` or `strip` closes the pane and the band or the strip
+ * carries the `Show as  1 pane  2 band  3 strip  0 keep` row, pressed by a
+ * bare digit in the empty prompt, so the person keeps trying styles from
+ * where they land; `pane` opens the pane on Options with the ring on the
+ * Show as row, where Enter goes on cycling. From a press only.
+ */
+export async function chooseShowAs($: EngineInterface, v: string): Promise<void> {
+  const f = FIELDS.find(x => x.field === 'showAs')
+  if (f === undefined || !(f.choices ?? []).includes(v)) return
+  await setOption($, f, v)
+  try {
+    if (v === 'pane') {
+      await updateUi($, cur => ({ ...cur, showAsTry: undefined, strip: false, page: { kind: 'options', id: '' } }))
+      await applyShowAs($, 'pane')
+      await openPaneHere($)
+      void $.ui.focus({ requestId: PANE_ID, key: 'opt-showAs' }).catch(err => debug($, `show as: focus failed: ${errText(err)}`))
+    } else {
+      await updateUi($, cur => ({ ...leavePage(cur), showAsTry: true }))
+      await applyShowAs($, v)
+    }
+  } catch (err) {
+    debug($, `show as ${v} failed: ${errText(err)}`)
+  }
+}
+
+/** Ends trying the styles (R55, `0 keep`): the row leaves the band and the strip. From a press only. */
+export async function keepShowAs($: EngineInterface): Promise<void> {
+  await updateUi($, cur => ({ ...cur, showAsTry: undefined }))
 }
 
 /** Opens Options, or closes it when it is open. From a press or a command only. */

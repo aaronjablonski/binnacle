@@ -11,7 +11,7 @@ import { inst, runText } from './parts'
 import type { Run } from './parts'
 import { begin, cue, cueOn, cueStarted } from './paint'
 import { todoBlock } from '../model/todo'
-import { lookOption, showAsOption } from './options'
+import { chooseShowAs, keepShowAs, lookOption, showAsOption } from './options'
 import { leaveStrip } from './shell'
 import { stripBandView } from './stripband'
 import type { ViewCtx } from './shell'
@@ -336,6 +336,40 @@ function countCueOn($: EngineInterface, ctx: ViewCtx, motion: boolean): boolean 
   return cueOn(name)
 }
 
+/**
+ * The Show as row (R55): `Show as   1 pane   2 band   3 strip     0 keep`,
+ * each a Button with its digit, which a bare digit typed in the empty prompt
+ * presses; the style in force bold in the accent. Drawn only while the
+ * person tries the styles (`ui.showAsTry`); `0 keep` ends it.
+ */
+function showAsRow(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cur = showAsOption()
+  const pick = (hotkey: string, v: string) => (
+    <Button key={`band-show-${v}`} hotkey={hotkey} plain onPress={() => chooseShowAs($, v)}>
+      {v === cur ? (
+        <Text color={C.accent} bold>
+          {v}
+        </Text>
+      ) : (
+        v
+      )}
+    </Button>
+  )
+  return (
+    <Box key="band-show-as" flexDirection="row" columnGap={3}>
+      <Text bold>Show as</Text>
+      {pick('1', 'pane')}
+      {pick('2', 'band')}
+      {pick('3', 'strip')}
+      <Button key="band-show-keep" hotkey="0" plain dimColor onPress={() => keepShowAs($)}>
+        keep
+      </Button>
+      <Text dimColor>type the digit in the empty prompt</Text>
+    </Box>
+  )
+}
+
 export function registerBand(on: On, options: { look?: string; ground?: unknown; accent?: unknown; motion?: unknown } = {}): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
@@ -346,7 +380,8 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const now = await $.clock.now()
       const m = bandModel(t, u, now, needsLimits(), paneCovered(now), paneWatching(now))
       const isStrip = u.strip === true
-      if (m.nothing && !isStrip) return next(e)
+      const trying = u.showAsTry === true
+      if (m.nothing && !isStrip && !trying) return next(e)
 
       const cols = e.props.bodyColumns
       // The Rasters here are all still, so the paint clock never blits the band.
@@ -360,11 +395,24 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
         const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, ground: ctx.ground ?? 'night', presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
         if (svg !== null) return svg
       }
+      // R55: while the person tries the Show as styles, their row sits on top of the band or the strip.
+      const tryRow = trying ? showAsRow(ctx, $) : null
+      const withTry = (el: RenderElement): RenderElement => {
+        if (tryRow === null) return el
+        const { Box } = $.ui.resolve(e)
+        return (
+          <Box key="band-with-try" flexDirection="column">
+            {tryRow}
+            {el}
+          </Box>
+        )
+      }
+      const maxRows = e.props.maxRows - (tryRow !== null ? 1 : 0)
+      if (m.nothing && !isStrip && tryRow !== null) return tryRow
       const one = line(ctx, $, 'band', oneRow(m, cols))
-      if (isStrip) return stripBandView(ctx, $, { maxRows: e.props.maxRows, line: one, after: () => leaveStrip($) })
-      // R53: under `showAs: band` the two rows stand even beside the open pane (the Options page previews them).
-      const two = (u.paneOpen !== true || showAsOption() === 'band') && cols >= TWO_ROWS_FROM && e.props.maxRows >= 2 && m.form !== 'idle'
-      return two ? twoRows(ctx, $, m, countCueOn($, ctx, motionOn(options.motion))) : one
+      if (isStrip) return withTry(stripBandView(ctx, $, { maxRows, line: one, after: () => leaveStrip($) }))
+      const two = u.paneOpen !== true && cols >= TWO_ROWS_FROM && maxRows >= 2 && m.form !== 'idle'
+      return withTry(two ? twoRows(ctx, $, m, countCueOn($, ctx, motionOn(options.motion))) : one)
     } catch (err) {
       debug($, `band failed: ${errText(err)}`)
       return next(e)

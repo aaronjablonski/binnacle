@@ -622,6 +622,15 @@ export async function applyShowAs($: EngineInterface, v: unknown, o: { keepPane?
   }
 }
 
+/** Opens the pane with the keys (R55: back to the pane from the band's Show as row). Never throws. */
+export async function openPaneHere($: EngineInterface): Promise<void> {
+  try {
+    await openPane($)
+  } catch (err) {
+    debug($, `open pane failed: ${errText(err)}`)
+  }
+}
+
 /**
  * Turns the strip off and opens the pane the way `/binnacle` does, at the slim
  * width while `ui.slim`. Throws what the open throws.

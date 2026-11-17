@@ -35,7 +35,7 @@ Binnacle is a mod for [Claude Code](https://claude.com/claude-code). A long sess
 
 ### Three ways to show it
 
-Pick one with the **Show as** option (the Options tab, `0`, or `/config`); it holds in every session. On the Options tab, Enter steps through the three and the space above the prompt changes as you go; the pane closes when you leave Options under `band` or `strip`, and `/binnacle options` brings it back. The commands switch for the moment.
+Pick one with the **Show as** option (the Options tab, `0`, or `/config`); it holds in every session. On the Options tab, Enter on Show as switches at once. Under `band` or `strip` the pane closes and a row stays on top, `Show as  1: pane  2: band  3: strip  0: keep`: type the digit into the empty prompt to try the next style, `1` to go back to the pane (on Options), or `0` to keep the style and drop the row. `/binnacle options` also brings the pane back. The commands switch for the moment.
 
 | Show as | What you get | For the moment |
 |---|---|---|

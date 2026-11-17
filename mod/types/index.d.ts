@@ -152,6 +152,7 @@ export type UiState = {
   slim: boolean                                        // `/binnacle slim` asked for the 28-column pane; the layout itself reads only bodyColumns
   paneOpen?: boolean                                   // the pane is open (set by /binnacle open, 1-5, slim and close, and by ui.close for the person's own close); the band is compact while true. Optional so a value an earlier version stored, and test fixtures, still type; readUi always answers a boolean
   strip?: boolean                                      // `/binnacle strip` asked for the strip in the band in place of the pane; set false by /binnacle, /binnacle 1-5, /binnacle slim and a press in the strip. Optional as paneOpen is: readUi always answers a boolean
+  showAsTry?: true                                     // R55: the person is trying the Show as styles: the band and the strip carry the `1 pane 2 band 3 strip 0 keep` row
   prCursor?: string                                    // the stack branch the PR block's cursor is on ([ and ] move it; absent, the current branch)
   page?: { kind: PageKind; id: string; from?: string } // the detail page that replaces the open tab's list (id ≤ 200; a task's is `<owner>:<id>`); `from` is the key of the row it was opened from (≤ 200), which `b` focuses again; cleared by b, a tab switch and /binnacle 1-5. Optional: a value stored before it existed reads as no page
 }

@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in the pane, the band or a command does not work as described.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please check the [Known limits](https://github.com/aaronjablonski/binnacle-claude-mod#known-limits) first: some behaviour (for example permissions with the pane closed) is a limit of the mods API.
+        **Security problems:** do not file them here. See the [security policy](https://github.com/aaronjablonski/binnacle-claude-mod/security/policy).
+        Remove anything private (paths, prompts, code) from what you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start `claude --plugin-dir ./mod` in a terminal 120 columns wide
+        2. Type `/binnacle 2`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: cc-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`.
+      placeholder: 2.1.326 (Claude Code)
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Terminal (CLI)
+        - Desktop app
+        - VS Code extension
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal, OS and width
+      description: Terminal app, operating system, and roughly how many columns wide.
+      placeholder: Ghostty on macOS 15, about 160 columns
+  - type: input
+    id: commit
+    attributes:
+      label: Binnacle version or commit
+      description: "`git rev-parse --short HEAD` in your clone, or the version in `mod/.claude-plugin/plugin.json`."
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Look and options
+      description: Any options you changed from the defaults (look, ground, accent, motion, guide, notify...), and your Claude Code theme.
+      placeholder: "look: text, ground: day, theme: light"
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or log
+      description: A screenshot of the pane or band helps most. For a hook that seems not to run, attach the relevant lines of `claude --debug-file mod-debug.log --plugin-dir ./mod`.

@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest a change to what Binnacle shows or does.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Changes to words, colours, alerts or layout are recorded as rulings, so please agree the idea here before opening a pull request. Check the README's [Known limits](https://github.com/aaronjablonski/binnacle-claude-mod#known-limits): some ideas need something the mods API does not offer yet.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What were you trying to do, and what got in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: What the pane, band or command should do. A sketch or mock-up is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Now
+        - Tasks / to-do list
+        - Agents / Critters
+        - Steps
+        - Artifacts / handoff
+        - Band
+        - Options
+        - Commands or keys
+        - Desktop app / VS Code
+        - Other
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to open a pull request for this once it is agreed.

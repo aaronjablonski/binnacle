@@ -1,7 +1,24 @@
 node_modules/
-CLAUDE.local.md
-.claude/settings.local.json
 mod/.claude-plugin/types/
-mod-debug.log
 .mc-probe/
 .superpowers/
+
+# Local and private files that must never be committed
+CLAUDE.local.md
+*.local.md
+.claude/settings.local.json
+.claude/worktrees/
+.worktrees/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and OS or tool clutter
+mod-debug.log
+*.log
+npm-debug.log*
+coverage/
+.DS_Store
+Thumbs.db

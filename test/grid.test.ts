@@ -225,7 +225,7 @@ describe('words', () => {
 
 describe('paths and titles', () => {
   test('shortPaths shortens each path to …/<last segment>', () => {
-    expect(shortPaths('edit C:\\Users\\aaron\\mod\\hooks\\fit.ts now')).toBe('edit …/fit.ts now')
+    expect(shortPaths('edit C:\\Users\\dev\\mod\\hooks\\fit.ts now')).toBe('edit …/fit.ts now')
     expect(shortPaths('read mod/hooks/views/fit.ts, then /home/a/b.md.')).toBe('read …/fit.ts, then …/b.md.')
     expect(shortPaths('see (views/fit.ts)')).toBe('see (…/fit.ts)')
     expect(shortPaths('the dir mod/hooks/views/')).toBe('the dir …/views/')

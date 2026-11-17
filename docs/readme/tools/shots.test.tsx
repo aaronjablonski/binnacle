@@ -7,6 +7,7 @@ import type { On } from 'claude-code'
 
 import type { PrState, Timeline, UiState } from '../../types'
 import { initialUi } from '../state'
+import { empty } from '../model/reduce'
 import { flaggedSession, listSession, mapSession } from './agents.fixtures.testkit'
 import { asked, busy, endedOpen, idle, NOW, stopped, watching } from './now.fixtures.testkit'
 import { critterBox, encode, CRITTER_ROLES, STATES } from './raster'
@@ -126,6 +127,7 @@ test('band-busy', async ($, on) => { world(on, busy()); await band($, 'band-busy
 test('band-asked', async ($, on) => { world(on, asked()); await band($, 'band-asked', 104) })
 test('band-watch', async ($, on) => { world(on, { ...watching(), budget: busy().budget }); await band($, 'band-watch', 104) })
 test('band-idle', async ($, on) => { world(on, idle()); await band($, 'band-idle', 104) })
+test('band-empty', async ($, on) => { world(on, empty as Timeline, initialUi, undefined); await band($, 'band-empty', 104) })
 test('band-stopped', async ($, on) => { world(on, stopped()); await band($, 'band-stopped', 104) })
 test('band-watch-64', async ($, on) => { world(on, { ...watching(), budget: busy().budget }); await band($, 'band-watch-64', 64) })
 test('band-64', async ($, on) => { world(on, busy()); await band($, 'band-64', 64) })

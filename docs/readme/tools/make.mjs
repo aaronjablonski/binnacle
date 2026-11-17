@@ -457,6 +457,7 @@ png('budget', card(grid('budget', 62)))
     b('A dialog is waiting: who asks and what, in amber', 'band-asked', 104),
     b('Something to watch: the band stays calm', 'band-watch', 104),
     b('After a failed turn', 'band-stopped', 104),
+    b('Before anything happens: the lead peeks up, ready', 'band-empty', 104),
     b('All done: one dim row', 'band-idle', 104),
     row([b('64 columns', 'band-64', 64), b('40 columns', 'band-40', 40)], 24),
   ], 16), { scale: 1.5 })

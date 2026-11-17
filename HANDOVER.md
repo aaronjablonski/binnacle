@@ -57,7 +57,7 @@ read them before changing words, colours or the alert rules.
   mode), then dim "asked to run a command · running". Questions, plans and
   MCP input stay amber while they last. Permission notifications need the
   pane open; Claude Code notifies for its own dialogs either way.
-- **Band:** one row above the prompt (the lead's or the asker's Critter, the
+- **Band:** always there (R56: an empty session shows the lead peeking up beside "Ready when you are"); one row above the prompt (the lead's or the asker's Critter, the
   goal, the context and week figures, `/binnacle`), a second row with the to-do bar
   when wide, one dim row when everything is done.
 - **Surfaces:** the terminal draws Rasters (cell pictures) and text; the

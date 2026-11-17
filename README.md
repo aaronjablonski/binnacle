@@ -57,7 +57,7 @@ Pick one with the **Show as** option (the Options tab, `0`, or `/config`); it ho
 | **3 Agents** | Main and every subagent or workflow agent, as a list of cards or as the Crew map. |
 | **4 Artifacts** | What the session produced: published pages, documents, results, links, changed files, kept steps, and the handoff export. |
 | **5 Steps** | Every tool call of the session, grouped by turn, filterable and searchable. A step opens in place. |
-| **Band** | Above the prompt, there even when the pane is closed: two rows with the pane closed (from 80 columns), one row while the pane is open, one dim row when all is done. |
+| **Band** | Above the prompt, always: two rows with the pane closed (from 80 columns), one row while the pane is open, one dim row when all is done. Before anything happens the lead's Critter peeks up from below beside "Ready when you are", a small companion that never leaves. |
 | **Slim** | Under 32 columns the pane is one stacked summary with no tab bar; it keeps a one-line Watch (or "quiet 30 min"). |
 | **Strip** | From 96 columns Now lies on its side; `/binnacle strip` puts that strip above the prompt instead of the pane. |
 | **Desktop app** | The Now header and the band are drawn as pictures (Svg), ending at the header, in the same words and colours. |
@@ -175,10 +175,10 @@ A toast tells you once when the context reaches 80 %.
 ### The band
 
 <p align="center">
-  <img src="docs/readme/band.png" width="900" alt="The band in seven forms. Working: the lead's Critter, 'Working on' and the goal, 'context 62%  week 34%', and a second row with the to-do bar, '9 of 14 done · 2 agents working', the PR chip '#482 ✓ stack 2/3' and '/binnacle'. A dialog waiting: the asking agent's Critter with a question-mark badge, 'Needs you' in amber, 'General asks to run a command Bash npm run deploy -- --env staging', 'answer below'. Something to watch: unchanged but for '2 to watch'. After a failed turn: 'Stopped' and the reason in red. All done: one dim row, 'All 14 done · 1 h 18 min · 6 files changed · cache warm 2 min'. At 64 columns and at 40 columns: one row that drops the goal before the count.">
+  <img src="docs/readme/band.png" width="900" alt="The band in eight forms. Before anything happens: the lead's Critter peeks up beside 'Ready when you are' and '/binnacle'. Working: the lead's Critter, 'Working on' and the goal, 'context 62%  week 34%', and a second row with the to-do bar, '9 of 14 done · 2 agents working', the PR chip '#482 ✓ stack 2/3' and '/binnacle'. A dialog waiting: the asking agent's Critter with a question-mark badge, 'Needs you' in amber, 'General asks to run a command Bash npm run deploy -- --env staging', 'answer below'. Something to watch: unchanged but for '2 to watch'. After a failed turn: 'Stopped' and the reason in red. All done: one dim row, 'All 14 done · 1 h 18 min · 6 files changed · cache warm 2 min'. At 64 columns and at 40 columns: one row that drops the goal before the count.">
 </p>
 
-The band sits above the prompt and is there even when the pane is closed, so the three answers never leave the screen. It shows one Critter (the lead, or whoever is asking), the goal, the to-do bar and the gauges as words. A dialog turns it amber and names the ask. Watch never colours it. When everything is done it shrinks to one dim row, and while the pane is open it is one compact row. A narrow band drops the gauges first, and cuts the goal only at a word.
+The band sits above the prompt and is there even when the pane is closed, so the three answers never leave the screen. It shows one Critter (the lead, or whoever is asking), the goal, the to-do bar and the gauges as words. A dialog turns it amber and names the ask. Watch never colours it. When everything is done it shrinks to one dim row with the lead peeking up beside it, and while the pane is open it is one compact row. It never disappears: before anything happens the lead's Critter peeks up from below beside "Ready when you are", so a new session already shows where Binnacle lives. It also carries the PR chip (`#482 ✓ stack 2/3`). A narrow band drops the gauges first, and cuts the goal only at a word.
 
 ### Slim, strip and the desktop app
 
@@ -304,7 +304,7 @@ Hotkeys reach the pane only while it has focus. A key acts on the thing in view:
 
 - On Artifacts the keys `o`, `c` and `g` belong to the one opened artifact or, once a file is selected, to that file; never to both.
 - Hotkeys work in the terminal and the desktop app, not in VS Code. Every action is also a button with a label, so nothing depends on a key.
-- The strip has no hotkeys, because a bare digit typed in an empty prompt could press a band button.
+- The strip has no hotkeys, because a bare digit typed in an empty prompt could press a band button. The one exception is the Show as row (`1: pane  2: band  3: strip  0: keep`), drawn only while you try the styles, where that is the point.
 
 </details>
 

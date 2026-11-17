@@ -140,12 +140,22 @@ test('fidelity: CockpitBand with Watch matches the mock but for the listed devia
   new Board('watch').patch(R25, badgeCol).patch(R49, hint(1, 104)).check('CockpitBand watch', got, 104)
 })
 
+/** R56: the companion peeks at the left of the idle row (its head: one row of the 5-wide micro critter), the words from column 6. */
+const R56 = 'R56: the lead peeks up at the left (one row of its 5-wide critter), the words from column 6'
+const peek = (row: number, width: number) => (rows: string[]): void => {
+  const m = rows[row]!.match(/^(.*?)\s*(\/binnacle)$/)
+  if (m === null) throw new Error(`patch: row ${row} has no /binnacle: ${rows[row]}`)
+  const left = '¤¤¤¤¤ ' + m[1]!
+  rows[row] = left + ' '.repeat(Math.max(1, width - left.length - '/binnacle'.length)) + '/binnacle'
+}
+
 test('fidelity: CockpitBand idle matches the mock but for the listed deviations', async ($, on) => {
   world(on, idle())
   const got = await drawn($, 104)
   new Board('idle')
     .patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', sub(0, 'cache warm 2:51', 'cache warm 2 min'))
     .patch(R49, hint(0, 104))
+    .patch(R56, peek(0, 104))
     .check('CockpitBand idle', got, 104)
 })
 

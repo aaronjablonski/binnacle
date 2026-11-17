@@ -296,6 +296,37 @@ function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number, co
   return line(ctx, $, 'band-row-2', spread(left, mc, room))
 }
 
+/** What the companion says in an empty session (R56). */
+export const READY_WORDS = 'Ready when you are'
+
+/**
+ * The companion row (R56): the lead's micro critter peeking up from below,
+ * its head alone above the prompt (a one-row window over its two rows), then
+ * the words. The band is never empty: an empty session reads
+ * `Ready when you are … /binnacle`, and at idle the dim summary sits beside it.
+ */
+function peekRow(ctx: ViewCtx, $: EngineInterface, runs: Run[]): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
+  const room = Math.max(1, ctx.cols - CRITTER_COLUMNS - CRITTER_GAP)
+  const c = critterArgs('lead', 'working', { size: 'micro', ground: ctx.ground ?? 'night', roleWord: false })
+  return (
+    <Box key="band-peek" flexDirection="row">
+      <Box key="band-peek-window" width={CRITTER_COLUMNS} height={1} overflow="hidden" flexShrink={0}>
+        {inst(ctx, $, { key: 'band-peek-critter', ...c })}
+      </Box>
+      <Box key="band-peek-gap" width={CRITTER_GAP} flexShrink={0} />
+      <Box key="band-peek-words" width={room} flexShrink={0}>
+        {line(ctx, $, 'band-peek-line', runs.length > 0 ? fitRow(runs, room) : runs)}
+      </Box>
+    </Box>
+  )
+}
+
+/** The runs fitted to `room`, `/binnacle` kept at the right. */
+function fitRow(runs: Run[], room: number): Run[] {
+  return runs.reduce((n, r) => n + r.text.length, 0) <= room ? runs : trimRuns(runs, room)
+}
+
 /** The two rows: the micro critter at 0, the words from 6. */
 function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel, countCue = false): RenderElement {
   const { Box } = $.ui.resolve(ctx.e)
@@ -381,7 +412,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const m = bandModel(t, u, now, needsLimits(), paneCovered(now), paneWatching(now))
       const isStrip = u.strip === true
       const trying = u.showAsTry === true
-      if (m.nothing && !isStrip && !trying) return next(e)
+      // R56: the band is never empty; an empty session shows the companion (below, once ctx is built).
 
       const cols = e.props.bodyColumns
       // The Rasters here are all still, so the paint clock never blits the band.
@@ -390,7 +421,7 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const chosen = lookAsked(lookOption() ?? options.look, theme)
       const look = lookFor($.ui.resolve(e), e.surface, chosen !== undefined ? { look: chosen } : {})
       const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE, ground: groundOf(options.ground, theme), pr }
-      if (!isStrip) {
+      if (!isStrip && !m.nothing) {
         // `/binnacle` stays pressable beside the Svg: a press opens the pane, as the command does.
         const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, ground: ctx.ground ?? 'night', presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
         if (svg !== null) return svg
@@ -408,7 +439,12 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
         )
       }
       const maxRows = e.props.maxRows - (tryRow !== null ? 1 : 0)
-      if (m.nothing && !isStrip && tryRow !== null) return tryRow
+      if (m.nothing && !isStrip) {
+        const room = Math.max(1, cols - CRITTER_COLUMNS - CRITTER_GAP)
+        return withTry(peekRow(ctx, $, spread([dim(READY_WORDS)], [dim(MC)], room)))
+      }
+      // R56: at idle the companion peeks beside the dim summary.
+      if (m.form === 'idle' && !isStrip) return withTry(peekRow(ctx, $, oneRow(m, Math.max(1, cols - CRITTER_COLUMNS - CRITTER_GAP))))
       const one = line(ctx, $, 'band', oneRow(m, cols))
       if (isStrip) return withTry(stripBandView(ctx, $, { maxRows, line: one, after: () => leaveStrip($) }))
       const two = u.paneOpen !== true && cols >= TWO_ROWS_FROM && maxRows >= 2 && m.form !== 'idle'

@@ -54,8 +54,8 @@ const FORMS: [string, string, string][] = [
   ['1', 'overview', 'Now'],
   ['2', 'tasks', 'Tasks'],
   ['3', 'agents', 'Agents'],
-  ['4', 'timeline', 'Steps'],
-  ['5', 'artifacts', 'Artifacts'],
+  ['4', 'artifacts', 'Artifacts'],
+  ['5', 'timeline', 'Steps'],
 ]
 
 const UNKNOWN = 'Unknown. Try /binnacle, /binnacle 1-5, keep <note>, export, close, slim, strip or options.'
@@ -258,53 +258,70 @@ const PANE = (columns: number) =>
     },
   }) as const
 
-// R42 (Fable I11): the mocks' 12-wide cells from 62 columns; from 54 the full names, two spaces between; from 47 the whole short words
-// (Now Tasks Crew Steps Files), two spaces between, from 43 one; icons only below that. The cell widths are each tab's `n: label` plus the gap.
-const FULL = ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']
-const SHORT = ['Now', 'Tasks', 'Crew', 'Steps', 'Files']
-const ICONS = ['◆', '▣', '◎', '≡', '↗']
-const TAB_TIERS: [number, number[], string[]][] = [
-  [62, [12, 12, 12, 12, 12], FULL],
-  [80, [12, 12, 12, 12, 12], FULL],
-  [61, [8, 10, 11, 10, 12], FULL],
-  [54, [8, 10, 11, 10, 12], FULL],
-  [53, [8, 10, 9, 10, 8], SHORT],
-  [47, [8, 10, 9, 10, 8], SHORT],
-  [46, [7, 9, 8, 9, 8], SHORT],
-  [43, [7, 9, 8, 9, 8], SHORT],
-  [37, [5, 5, 5, 5, 5], ICONS],
-  [34, [5, 5, 5, 5, 5], ICONS],
-  [32, [5, 5, 5, 5, 5], ICONS],
+// R42 (Fable I11), R49, R51: the tab row per width. Options (`0`) is drawn at the right end of the row where it fits; to make room
+// the tabs first give up the mocks' 12-wide cells (two spaces between), then the space after the colon (`1:Now`, hotkeys armed
+// apart). Without room for it, the R42 tiers stand: 12-wide cells from 62, full names from 54, short words from 43, icons below 38.
+const FULL = ['Now', 'Tasks', 'Agents', 'Artifacts', 'Steps']
+const SHORT = ['Now', 'Tasks', 'Crew', 'Files', 'Steps']
+const ICONS = ['◆', '▣', '◎', '↗', '≡']
+type Tier = { cols: number; cells: number[]; labels: string[]; compact: boolean; options?: string }
+const TAB_TIERS: Tier[] = [
+  { cols: 80, cells: [12, 12, 12, 14, 12], labels: FULL, compact: false, options: 'Options' },
+  { cols: 70, cells: [8, 10, 11, 14, 10], labels: FULL, compact: false, options: 'Options' },
+  { cols: 62, cells: [7, 9, 10, 13, 9], labels: FULL, compact: true, options: 'Options' },
+  { cols: 61, cells: [7, 9, 10, 13, 9], labels: FULL, compact: true, options: 'Options' },
+  { cols: 60, cells: [8, 10, 11, 14, 10], labels: FULL, compact: false },
+  { cols: 54, cells: [8, 10, 11, 14, 10], labels: FULL, compact: false },
+  { cols: 53, cells: [6, 8, 7, 8, 8], labels: SHORT, compact: true, options: 'Opts' },
+  { cols: 47, cells: [6, 8, 7, 8, 8], labels: SHORT, compact: true, options: 'Opts' },
+  { cols: 46, cells: [7, 9, 8, 9, 9], labels: SHORT, compact: false },
+  { cols: 43, cells: [7, 9, 8, 9, 9], labels: SHORT, compact: false },
+  { cols: 37, cells: [5, 5, 5, 5, 5], labels: ICONS, compact: false },
+  { cols: 34, cells: [5, 5, 5, 5, 5], labels: ICONS, compact: false },
+  { cols: 32, cells: [5, 5, 5, 5, 5], labels: ICONS, compact: false },
 ]
 
-for (const [cols, cells, labels] of TAB_TIERS) {
-  // BEHAVIOUR CHANGE (task C3b): the track runs under each tab only, as the mocks draw it (it ran on under the closed tabs), and
-  // `0: options` is armed but never drawn: it sat on the blank row under the tabs.
-  test(`at ${cols} columns the tabs are one line of ${cells[0]}-column cells (${labels.join(' ')}) from column 2, a track under each tab only, and a blank row; 0 is armed, not drawn`, async ($, on) => {
+type Found = { find: (q: { type: string; key: string }) => Promise<{ props: Record<string, unknown> } | undefined> }
+/** The hotkey a tab answers to: on its Button, or (compact) on its hidden arm. */
+async function hotkeyOf(ui: Found, key: string): Promise<unknown> {
+  return (await ui.find({ type: 'Button', key }))?.props.hotkey ?? (await ui.find({ type: 'Button', key: `arm-${key}` }))?.props.hotkey ?? (await ui.find({ type: 'Button', key: `arm-${key}-key` }))?.props.hotkey
+}
+
+for (const tier of TAB_TIERS) {
+  const { cols, cells, labels, compact, options } = tier
+  const name = (label: string, n: string): string => (compact ? `${n}:${label}` : `${n}: ${label}`)
+  test(`at ${cols} columns the tabs are ${labels.join(' ')} in ${cells.join('/')}-column cells${compact ? ' as n:label' : ''}${options !== undefined ? `, then ${name(options, '0')} at the right end` : ', 0 armed and not drawn'}; a track under each tab and a blank row`, async ($, on) => {
     world(on, empty, { ...initialUi, tab: 'agents' })
     for (const surface of SURFACES) {
       const ui = await $.ui.mount({ ...PANE(cols), surface })
       const rows = screen(await ui.drawn())
       const [tabs, track, gap] = rows
       labels.forEach((label, i) => {
-        expect(colOf(tabs, `${i + 1}: ${label}`)).toBe(2 + cells.slice(0, i).reduce((n, w) => n + w, 0))
+        expect(colOf(tabs, name(label, String(i + 1)))).toBe(2 + cells.slice(0, i).reduce((n, w) => n + w, 0))
       })
       expect((tabs ?? '').length <= cols).toBe(true)
-      // The track: each tab's own underline as long as its `n: Label`, `━` under the open tab (3: Agents), `─` under the others, spaces between.
-      const want = labels.map((label, i) => (i === 2 ? '━' : '─').repeat(`${i + 1}: ${label}`.length))
-      const expected = '  ' + want.map((w, i) => (i === want.length - 1 ? w : w.padEnd(cells[i]!))).join('')
-      expect(track).toBe(expected)
-      expect(track).toContain(' ')
-      // Nothing is drawn for 0: it is neither on the tab row nor on the row under the track.
+      // The track: each tab's own underline as long as its label, `━` under the open tab (3: Agents), `─` under the others.
+      const want = labels.map((label, i) => (i === 2 ? '━' : '─').repeat(name(label, String(i + 1)).length))
+      const lead = '  ' + want.map((w, i) => (i === want.length - 1 ? w : w.padEnd(cells[i]!))).join('')
+      if (options === undefined) {
+        expect(track).toBe(lead)
+        expect(rows.some(r => r.includes('Options') || r.includes('Opts'))).toBe(false)
+      } else {
+        // Options ends at the right gutter, its own `─` under it.
+        const opt = name(options, '0')
+        expect(tabs!.trimEnd().endsWith(opt)).toBe(true)
+        expect(tabs!.trimEnd().length).toBe(cols - 2)
+        expect(track!.startsWith(lead)).toBe(true)
+        expect(track!.trimEnd().endsWith(' ' + '─'.repeat(opt.length))).toBe(true)
+        expect(track!.trimEnd().length).toBe(cols - 2)
+      }
       expect(gap).toBe('')
-      expect(rows.some(r => r.includes('0: options'))).toBe(false)
-      expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0', plain: true })
+      expect(await hotkeyOf(ui, 'tab-options')).toBe('0')
       const row = await ui.find({ type: 'Box', key: 'tabs' })
       expect(row?.props.flexWrap).toBe(undefined)
       expect((await ui.findAll({ type: 'Text', text: '│' })).length).toBe(0)
-      const agents = await ui.find({ type: 'Button', key: 'tab-agents' })
-      expect(agents?.props).toMatchObject({ hotkey: '3', plain: true })
-      expect((await ui.find({ type: 'Text', text: new RegExp(`^${labels[2]}$`) }))?.props).toMatchObject({ color: 'suggestion', bold: true })
+      expect(await hotkeyOf(ui, 'tab-agents')).toBe('3')
+      expect((await ui.find({ type: 'Text', text: new RegExp(`^${compact ? '3:' : ''}${labels[2]}$`) }))?.props).toMatchObject({ color: 'suggestion', bold: true })
       expect((await ui.find({ type: 'Button', key: 'tab-tasks' }))?.props).toMatchObject({ dimColor: true })
       await ui.unmount()
     }
@@ -320,7 +337,7 @@ for (const cols of [42, 40, 38]) {
       const ui = await $.ui.mount({ ...PANE(cols), surface })
       const rows = screen(await ui.drawn())
       const [tabs, track, gap] = rows
-      expect(tabs).toBe('  1:Now 2:Tasks 3:Crew 4:Steps 5:Files')
+      expect(tabs).toBe('  1:Now 2:Tasks 3:Crew 4:Files 5:Steps')
       expect(track).toBe('  ─────' + ' ' + '───────' + ' ' + '━━━━━━' + ' ' + '───────' + ' ' + '───────')
       expect((tabs ?? '').length <= cols).toBe(true)
       expect(gap).toBe('')

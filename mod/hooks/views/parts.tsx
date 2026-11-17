@@ -1255,8 +1255,13 @@ export type HeaderSpec = {
   gauges?: Gauge[]
   /** The compact form at any width (F M13: a pane under 30 rows): no critter, gauges or budget line. */
   compact?: boolean
+  /** The slim form (option `header: slim`, R44): 4 rows, no frame: the pill and the gauges as words, then the critter beside the headline and the budget line. */
+  slim?: boolean
   ground?: Ground
 }
+
+/** The rows the slim header takes (R44). */
+export const SLIM_HEADER_ROWS = 4
 
 /** Under this many columns the header is compact: no critter, no gauges, no budget line, the headline on up to 3 lines (slim). */
 export const HEADER_COMPACT_UNDER = 40
@@ -1298,6 +1303,55 @@ export function header(ctx: ViewCtx, $: EngineInterface, spec: HeaderSpec): Rend
       {runs.map((r, i) => runText(r, ctx.e, $, `${k}-${i}`))}
     </Text>
   )
+  if (spec.slim === true && cols >= HEADER_COMPACT_UNDER && spec.compact !== true) {
+    const textCol = COCKPIT.text
+    const textRoom = Math.max(1, right - textCol + 1)
+    // Row 0: the pill and its meta, the gauges as words flush right ("context 71%   this week 45%").
+    const gaugeRuns: Run[] = []
+    for (const g of (spec.gauges ?? []).slice(0, 2)) gaugeRuns.push({ text: gaugeRuns.length > 0 ? '   ' : '' }, { text: `${g.label} `, dim: true }, { text: gaugeFigure(g.pct), ...figureStyle(g.pct) })
+    const metaRoom = content - pill.text.length - 2 - (gaugeRuns.length > 0 ? width(gaugeRuns) + 2 : 0)
+    const metaRuns = metaRoom > 0 ? (fitRuns(meta, metaRoom) as Run[]).filter(r => r.text !== '') : []
+    const head: Run[] = [pill, ...(metaRuns.length > 0 ? [pad(2), ...metaRuns] : [])]
+    const pillRow = gaugeRuns.length > 0 && width(head) + 2 + width(gaugeRuns) <= content ? spread(head, gaugeRuns, content) : padTo(head, content)
+    const titleLines = wrapWords(spec.title, textRoom, 2)
+    const titleEls: RenderElement[] = [0, 1].map(i => {
+      const t = titleLines[i] ?? ''
+      if (i === 0 && t !== '' && spec.onTitle !== undefined) {
+        return (
+          <Button key={`${spec.key}-title`} plain onPress={spec.onTitle}>
+            {spec.dimTitle === true ? <Text dimColor>{t}</Text> : <Text bold>{t}</Text>}
+          </Button>
+        )
+      }
+      return (
+        <Text key={`${spec.key}-title-${i}`} {...(spec.dimTitle === true ? { dimColor: true } : { bold: true })}>
+          {t === '' ? ' ' : t}
+        </Text>
+      )
+    })
+    const budget = (fitRuns(runsOf(spec.budget, { dim: true }), textRoom) as Run[]).filter(r => r.text !== '')
+    const budgetBody = budget.map((r, i) => runText(r, ctx.e, $, `${spec.key}-b${i}`))
+    const budgetEl =
+      budget.length === 0 ? <Text key={`${spec.key}-budget`}> </Text>
+      : spec.onBudget !== undefined ? <Button key={`${spec.key}-budget`} plain onPress={spec.onBudget}>{budgetBody}</Button>
+      : <Text key={`${spec.key}-budget`} wrap="truncate-end">{budgetBody}</Text>
+    const critterEl = spec.critter !== undefined ? inst(ctx, $, { key: `${spec.key}-who`, ...spec.critter }) : <Text key={`${spec.key}-who`}> </Text>
+    return (
+      <Box key={spec.key} flexDirection="column">
+        {line(`${spec.key}-pill`, [pad(left), ...pillRow])}
+        <Box key={`${spec.key}-who-row`} flexDirection="row" paddingLeft={left}>
+          <Box key={`${spec.key}-who-box`} width={textCol - left} flexShrink={0}>
+            {critterEl}
+          </Box>
+          <Box key={`${spec.key}-text`} flexDirection="column" width={textRoom} flexShrink={0}>
+            {titleEls}
+            {budgetEl}
+          </Box>
+        </Box>
+      </Box>
+    )
+  }
+
   const top = inst(ctx, $, frameTopInst(`${spec.key}-lintel`, cols, tone, ground, sweepShows(ctx) ? sweepFrame() : undefined))
   const foot = inst(ctx, $, frameFootInst(`${spec.key}-sill`, cols, tone, ground))
 

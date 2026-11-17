@@ -12,20 +12,22 @@
 
 import type { ConfigValue, EngineInterface, PluginOptions, RenderElement } from 'claude-code'
 
-import { debug, errText } from '../state'
+import { debug, errText, updateUi } from '../state'
 import { nameFit, wordFit } from './fit'
-import { closePage, openPage } from './pagenav'
-import { frameFootInst, frameTopInst, heightOf, inst, runText, section } from './parts'
-import { TAB_ROWS } from './shell'
+import { closePage, leavePage, openPage } from './pagenav'
+import { heightOf, runText, section } from './parts'
+import { applyShowAs, openPaneHere, TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
 import { footerSlot } from './tabkit'
-import { C, critterArgs, edges, GRID, setAccent } from './style'
+import { C, edges, GRID, setAccent } from './style'
 import type { Run } from './style'
 
 /** The hotkey that opens and closes Options (the tab bar's Button). */
 export const OPTIONS_HOTKEY = '0'
 
 const PLUGIN = 'binnacle'
+/** The pane's request id (shell.tsx `PANE`; not imported, as shell imports this module). */
+const PANE_ID = 'binnacle'
 
 type Section = 'Look' | 'Signals' | 'Budget' | 'Start' | 'More'
 type Kind = 'boolean' | 'choice' | 'number' | 'text'
@@ -50,6 +52,8 @@ type Field = {
  */
 const FIELDS: readonly Field[] = [
   { field: 'look', label: 'Look', section: 'Look', applies: 'now', kind: 'choice', choices: ['auto', 'rich', 'text'] },
+  { field: 'showAs', label: 'Show as', section: 'Look', applies: 'now', kind: 'choice', choices: ['pane', 'band', 'strip'] },
+  { field: 'header', label: 'Header', section: 'Look', applies: 'now', kind: 'choice', choices: ['full', 'slim'] },
   { field: 'accent', label: 'Accent', section: 'Look', applies: 'now', kind: 'choice', choices: ['iris', 'sky', 'slate'] },
   { field: 'ground', label: 'Crew background', section: 'Look', applies: 'now', kind: 'choice', choices: ['auto', 'night', 'day'] },
   { field: 'motion', label: 'Crew motion', section: 'Look', applies: 'now', kind: 'choice', choices: ['on', 'off'] },
@@ -99,6 +103,12 @@ export function configureOptions(options: PluginOptions): void {
  * wrote, else the module's option. The pane and the band read it on every
  * draw, so a change applies at once, before any reload.
  */
+/** The `showAs` option as it stands now (R53): `pane`, `band` or `strip`; the band reads it on every draw. */
+export function showAsOption(): string {
+  const v = valueOf('showAs')
+  return v === 'band' || v === 'strip' ? v : 'pane'
+}
+
 export function lookOption(): string | undefined {
   const v = valueOf('look')
   return typeof v === 'string' ? v : undefined
@@ -108,6 +118,11 @@ export function lookOption(): string | undefined {
 export function accentOption(): string | undefined {
   const v = valueOf('accent')
   return typeof v === 'string' ? v : undefined
+}
+
+/** Whether Now draws the slim header (`header: slim`, R44 amended) instead of the full one with the ring gauges (the default). */
+export function slimHeader(): boolean {
+  return valueOf('header') === 'slim'
 }
 
 /** The value drawn for `field`: what a press just wrote, else the module's option. */
@@ -143,20 +158,6 @@ export function shownValue(f: Field, v: ConfigValue | undefined): string {
 }
 
 const isOff = (v: ConfigValue | undefined): boolean => v === false || v === 0 || v === 'off'
-
-/** One hotkey for each choice: its first letter or digit not taken (b is back, 0 closes, 1-5 are the tabs). */
-export function choiceKeys(values: readonly string[]): (string | undefined)[] {
-  const used = new Set(['b', OPTIONS_HOTKEY, '1', '2', '3', '4', '5'])
-  return values.map(v => {
-    for (const ch of v.toLowerCase()) {
-      if (/[a-z0-9]/.test(ch) && !used.has(ch)) {
-        used.add(ch)
-        return ch
-      }
-    }
-    return undefined
-  })
-}
 
 // ---------- writing, on a press only ----------
 
@@ -202,23 +203,101 @@ export async function setOption($: EngineInterface, f: Field, value: ConfigValue
   }
 }
 
-/** A row's press: a switch flips, a choice or a number opens (or closes) under its row, text points to /config. */
-async function pressRow($: EngineInterface, f: Field, isOpen: boolean): Promise<void> {
-  if (f.kind === 'boolean') {
-    await setOption($, f, valueOf(f.field) !== true)
+/** The values a time limit steps through on Enter (minutes; 0 is off). */
+const LIMIT_STEPS = [0, 30, 45, 60, 90, 120, 180, 240] as const
+
+/** The value after `v` for a row's press (R52): a switch flips, a choice takes the next one (wrapping), a number its next step. */
+export function nextValue(f: Field, v: ConfigValue | undefined): ConfigValue | undefined {
+  if (f.kind === 'boolean') return v !== true
+  if (f.kind === 'choice') {
+    const cs = f.choices ?? []
+    if (cs.length === 0) return undefined
+    const i = cs.indexOf(typeof v === 'string' ? v : '')
+    return cs[(i + 1) % cs.length]
+  }
+  if (f.kind === 'number') {
+    const n = typeof v === 'number' ? v : 0
+    if (f.offAtZero === true) return LIMIT_STEPS.find(x => x > n) ?? 0
+    const max = f.max ?? Number.MAX_SAFE_INTEGER
+    const up = n + (f.step ?? 1)
+    return up > max ? 0 : up
+  }
+  return undefined
+}
+
+/**
+ * A row's press (R52): the value changes in place, with no rows opening
+ * under it, and the ring is put back on the same row once the write has
+ * landed (a config write may redraw, or reload, the pane). Text points to
+ * /config.
+ */
+async function pressRow($: EngineInterface, f: Field): Promise<void> {
+  if (f.field === 'showAs') {
+    await chooseShowAs($, nextValue(f, showAsOption()) as string)
     return
   }
   if (f.kind === 'text') {
     $.ui.toast(`${f.label} takes text: change it in /config.`)
     return
   }
-  await openPage($, 'options', isOpen ? '' : f.field)
+  const next = nextValue(f, valueOf(f.field))
+  if (next === undefined) return
+  await setOption($, f, next)
+  // Not awaited: the row is drawn again only after the press returns (see pagenav.ts `landFirst`).
+  void $.ui.focus({ requestId: PANE_ID, key: `opt-${f.field}` }).catch(err => debug($, `options: refocus ${f.field} failed: ${errText(err)}`))
+}
+
+/**
+ * Chooses a Show as style and switches to it at once (R55): the option is
+ * written, then `band` or `strip` closes the pane and the band or the strip
+ * carries the `Show as  1 pane  2 band  3 strip  0 keep` row, pressed by a
+ * bare digit in the empty prompt, so the person keeps trying styles from
+ * where they land; `pane` opens the pane on Options with the ring on the
+ * Show as row, where Enter goes on cycling. From a press only.
+ */
+export async function chooseShowAs($: EngineInterface, v: string): Promise<void> {
+  const f = FIELDS.find(x => x.field === 'showAs')
+  if (f === undefined || !(f.choices ?? []).includes(v)) return
+  await setOption($, f, v)
+  try {
+    if (v === 'pane') {
+      await updateUi($, cur => ({ ...cur, showAsTry: undefined, strip: false, page: { kind: 'options', id: '' } }))
+      await applyShowAs($, 'pane')
+      await openPaneHere($)
+      void $.ui.focus({ requestId: PANE_ID, key: 'opt-showAs' }).catch(err => debug($, `show as: focus failed: ${errText(err)}`))
+    } else {
+      await updateUi($, cur => ({ ...leavePage(cur), showAsTry: true }))
+      await applyShowAs($, v)
+    }
+  } catch (err) {
+    debug($, `show as ${v} failed: ${errText(err)}`)
+  }
+}
+
+/** Ends trying the styles (R55, `0 keep`): the row leaves the band and the strip. From a press only. */
+export async function keepShowAs($: EngineInterface): Promise<void> {
+  await updateUi($, cur => ({ ...cur, showAsTry: undefined }))
 }
 
 /** Opens Options, or closes it when it is open. From a press or a command only. */
 export async function toggleOptions($: EngineInterface, isOpen: boolean): Promise<void> {
-  if (isOpen) await closePage($)
+  if (isOpen) await leaveOptions($)
   else await openPage($, 'options', '')
+}
+
+/**
+ * Leaves the Options page (`0`, `b`). Under `showAs: band` or `strip` the
+ * styles are exclusive (R53): the page is left and the pane closes, so only
+ * the band or the strip stays; under `pane` the tab's list comes back.
+ */
+export async function leaveOptions($: EngineInterface): Promise<void> {
+  const v = showAsOption()
+  if (v === 'pane') {
+    await closePage($)
+    return
+  }
+  await updateUi($, cur => leavePage(cur))
+  await applyShowAs($, v)
 }
 
 // ---------- drawing ----------
@@ -229,39 +308,6 @@ function accentName(): string {
   return typeof v === 'string' && v !== '' ? v : 'iris'
 }
 
-/**
- * The preview: the three critters the cockpit draws (the lead, a scout that
- * works and a builder that waits), each five cells wide with its role word,
- * and the accent's name in the accent; under 40 columns the builder and the
- * accent's words are left out (M6). Text form on a surface with no Raster.
- */
-function previewRow(ctx: ViewCtx, $: EngineInterface): RenderElement {
-  const { Box, Text } = $.ui.resolve(ctx.e)
-  const { left } = edges(ctx.cols)
-  const ground = ctx.ground ?? 'night'
-  // M6: under 40 columns the third critter and the accent's words go, so the row stays inside the body.
-  const narrow = ctx.cols < 40
-  const crew = [critterArgs('lead', 'working', { ground }), critterArgs('scout', 'working', { ground }), ...(narrow ? [] : [critterArgs('build', 'waiting', { ground })])]
-  return (
-    <Box key="opt-preview" flexDirection="row" paddingLeft={left}>
-      {crew.map((c, i) => (
-        <Box key={`opt-critter-${i}`} width={9} flexShrink={0}>
-          {inst(ctx, $, { key: `opt-critter-${i}-inst`, ...c })}
-        </Box>
-      ))}
-      {narrow ? null : (
-        <Box key="opt-accent" flexDirection="column" flexShrink={0}>
-          <Text key="opt-accent-name" color={C.accent} bold>
-            {accentName()}
-          </Text>
-          <Text key="opt-accent-note" dimColor>
-            the accent
-          </Text>
-        </Box>
-      )}
-    </Box>
-  )
-}
 
 /** Where a row's parts start at `cols`: the name at 4, the value at 38, when it applies at 50 (from 62 columns). */
 function rowRuns(cols: number, name: Run, value: Run, applies: string): Run[] {
@@ -276,19 +322,22 @@ function rowRuns(cols: number, name: Run, value: Run, applies: string): Run[] {
   return [{ ...name, text: nameFit(name.text, room).padEnd(room + 2) }, value]
 }
 
-function optionRow(ctx: ViewCtx, $: EngineInterface, f: Field, isOpen: boolean): RenderElement {
+function optionRow(ctx: ViewCtx, $: EngineInterface, f: Field): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const v = valueOf(f.field)
+  // R52: the right column says what Enter sets next (`↵ rich`, `↵ 90 min`), or when a change applies when that is not now.
+  const after = nextValue(f, v)
+  const next = f.kind === 'text' ? 'in /config' : f.applies !== 'now' ? f.applies : after !== undefined ? `↵ ${shownValue(f, after)}` : ''
   const runs = rowRuns(
     ctx.cols,
-    { text: f.label, bold: isOpen ? true : undefined },
+    { text: f.label },
     { text: shownValue(f, v), color: isOff(v) ? undefined : C.accent, dim: isOff(v) ? true : undefined },
-    f.applies,
+    next,
   )
   return (
     <Box key={`opt-row-${f.field}`} flexDirection="row">
       <Text>{'    '}</Text>
-      <Button key={`opt-${f.field}`} plain onPress={() => pressRow($, f, isOpen)}>
+      <Button key={`opt-${f.field}`} plain onPress={() => pressRow($, f)}>
         {runs.map((r, i) => runText(r, ctx.e, $, `opt-${f.field}-${i}`))}
       </Button>
     </Box>
@@ -307,81 +356,6 @@ function infoRow(ctx: ViewCtx, $: EngineInterface, key: string, name: string, va
   )
 }
 
-type Pick = { key: string; hotkey?: string; label: string; isOn?: boolean; onPress: () => void | Promise<void> }
-
-/** The opened row's choices: plain hotkeyed Buttons from column 6, three apart, the current one bold. */
-function picks(ctx: ViewCtx, $: EngineInterface, key: string, items: Pick[]): RenderElement {
-  const { Box, Text, Button } = $.ui.resolve(ctx.e)
-  const out: RenderElement[] = [<Text key={`${key}-in`}>{'      '}</Text>]
-  items.forEach((p, i) => {
-    if (i > 0) out.push(<Text key={`${key}-gap-${i}`}>{'   '}</Text>)
-    out.push(
-      <Button key={p.key} hotkey={p.hotkey} plain onPress={p.onPress}>
-        {p.isOn === true ? (
-          <Text color={C.accent} bold>
-            {p.label}
-          </Text>
-        ) : (
-          p.label
-        )}
-      </Button>,
-    )
-  })
-  return (
-    <Box key={key} flexDirection="row" flexWrap="wrap">
-      {out}
-    </Box>
-  )
-}
-
-function choicePicks(ctx: ViewCtx, $: EngineInterface, f: Field): RenderElement {
-  const values = f.choices ?? []
-  const keys = choiceKeys(values)
-  const cur = valueOf(f.field)
-  return picks(
-    ctx,
-    $,
-    `opt-picks-${f.field}`,
-    values.map((v, i) => ({
-      key: `opt-pick-${f.field}-${v}`,
-      hotkey: keys[i],
-      label: v,
-      isOn: v === cur,
-      onPress: () => setOption($, f, v),
-    })),
-  )
-}
-
-/** A number option's value now, read at the press: 0 when it holds no number. */
-function numberOf(field: string): number {
-  const v = valueOf(field)
-  return typeof v === 'number' ? v : 0
-}
-
-function numberPicks(ctx: ViewCtx, $: EngineInterface, f: Field): RenderElement {
-  const step = f.step ?? 1
-  const max = f.max ?? Number.MAX_SAFE_INTEGER
-  const n = numberOf(f.field)
-  const items: Pick[] = [
-    {
-      key: `opt-less-${f.field}`,
-      hotkey: 'l',
-      label: `−${step}`,
-      onPress: () => setOption($, f, Math.max(0, numberOf(f.field) - step)),
-    },
-    {
-      key: `opt-more-${f.field}`,
-      hotkey: 'm',
-      label: `+${step}`,
-      onPress: () => setOption($, f, Math.min(max, numberOf(f.field) + step)),
-    },
-  ]
-  if (f.offAtZero === true) {
-    items.push({ key: `opt-off-${f.field}`, hotkey: 'x', label: 'off', isOn: n === 0, onPress: () => setOption($, f, 0) })
-  }
-  return picks(ctx, $, `opt-picks-${f.field}`, items)
-}
-
 /**
  * The Options page (R38, the cockpit look of the other pages): the frame's
  * top, a bold title with its readout, the preview, the frame's foot; then a
@@ -390,14 +364,14 @@ function numberPicks(ctx: ViewCtx, $: EngineInterface, f: Field): RenderElement 
  * `open` is the field whose choices are opened under its row ('' for none).
  * Nothing here writes: only a press does.
  */
-export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): RenderElement {
+export function optionsPage(ctx: ViewCtx, $: EngineInterface, _open = ''): RenderElement {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const cols = Math.max(24, ctx.cols)
   const { left, right } = edges(cols)
   const ground = ctx.ground ?? 'night'
   const out: RenderElement[] = []
-  out.push(inst(ctx, $, frameTopInst('opt-lintel', cols, 'iris', ground)))
-  const readout = 'changes apply as noted'
+  // R52: no frame or preview; the title and how to change, then the options right away.
+  const readout = '↵ changes the value'
   const room = right - left + 1
   out.push(
     <Text key="opt-title">
@@ -406,8 +380,6 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
       {room >= 'Options'.length + readout.length + 3 ? <Text dimColor>{`${' '.repeat(room - 'Options'.length - readout.length)}${readout}`}</Text> : null}
     </Text>,
   )
-  out.push(previewRow(ctx, $))
-  out.push(inst(ctx, $, frameFootInst('opt-sill', cols, 'iris', ground)))
   const shown = fieldsShown()
   for (const name of SECTIONS) {
     const fields = shown.filter(f => f.section === name)
@@ -417,12 +389,7 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
       if (!('look' in given)) rows.push(infoRow(ctx, $, 'opt-look', 'Look', ctx.look ?? 'text', 'this surface'))
       if (!('accent' in given)) rows.push(infoRow(ctx, $, 'opt-accent', 'Accent', 'iris', 'default'))
     }
-    for (const f of fields) {
-      rows.push(optionRow(ctx, $, f, open === f.field))
-      if (open !== f.field) continue
-      if (f.kind === 'choice') rows.push(choicePicks(ctx, $, f))
-      if (f.kind === 'number') rows.push(numberPicks(ctx, $, f))
-    }
+    for (const f of fields) rows.push(optionRow(ctx, $, f))
     if (rows.length === 0) continue
     out.push(<Text key={`opt-gap-${name}`}>{' '}</Text>)
     out.push(section(ctx, $, name, undefined, { key: `opt-sec-${name}` }))
@@ -443,12 +410,13 @@ export function optionsPage(ctx: ViewCtx, $: EngineInterface, open: string): Ren
     ctx.isFocused === true ? (
       footerSlot(ctx, $, [
         { key: '↵', label: 'change' },
-        { hotkey: 'b', label: 'back', id: 'opt-back', onPress: () => closePage($) },
+        { key: '↑↓', label: 'move' },
+        { hotkey: 'b', label: 'back', id: 'opt-back', onPress: () => leaveOptions($) },
       ])
     ) : (
       <Box key="opt-keys" flexDirection="row">
         <Text>{' '.repeat(left)}</Text>
-        <Button key="opt-back" plain dimColor onPress={() => closePage($)}>
+        <Button key="opt-back" plain dimColor onPress={() => leaveOptions($)}>
           back
         </Button>
       </Box>

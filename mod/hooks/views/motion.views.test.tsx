@@ -440,7 +440,7 @@ function figures(cells: string): string {
   return out.slice(20 * 2, 20 * 3).join('')
 }
 
-test('motion 6: the pane opening on Now fills the arcs from empty (5 x 80 ms blits); the figures are true from the first frame', async ($, on) => {
+test('motion 6: the pane opening on Now fills the arcs from empty (5 x 80 ms blits); the figures are true from the first frame', { options: { header: 'full' } }, async ($, on) => {
   const w = world(on, busy())
   const ui = await $.ui.mount(PANE())
   const first = await cellsOf(ui, 'now-gauges')
@@ -464,7 +464,7 @@ test('motion 6: the pane opening on Now fills the arcs from empty (5 x 80 ms bli
   await ui.unmount()
 })
 
-test('motion 6: a gauge that jumps 10 points or more travels; a smaller move does not', async ($, on) => {
+test('motion 6: a gauge that jumps 10 points or more travels; a smaller move does not', { options: { header: 'full' } }, async ($, on) => {
   const w = world(on, busy())
   const ui = await $.ui.mount(PANE())
   await w.clock.advance(1000)

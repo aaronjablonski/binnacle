@@ -105,3 +105,26 @@ export function landing(s: Stops, at: string | undefined, target: string | undef
   if (fromContent) return at
   return s.start !== undefined && content.includes(s.start) ? s.start : content[0]
 }
+
+/**
+ * Whether a person's scroll of the pane is an arrow key (R54): one row, from
+ * the person, with no pointer (the wheel carries one; a page key moves a
+ * page, Home and End the whole tree).
+ */
+export function isArrowScroll(e: { origin: { kind: string }; pointer?: unknown; by: number }): boolean {
+  return e.origin.kind === 'person' && e.pointer === undefined && Math.abs(e.by) === 1
+}
+
+/**
+ * Where an arrow moves the ring (R54: the arrows always walk rows, never the
+ * window): the next content row down (`by` > 0) or up, held at the first and
+ * the last; from no row, the first row down or the last row up. Undefined
+ * when the drawing has no content row.
+ */
+export function arrowTarget(s: Stops, at: string | undefined, by: number): string | undefined {
+  const content = s.order.filter(k => !s.tabs.includes(k))
+  if (content.length === 0) return undefined
+  const i = at !== undefined ? content.indexOf(at) : -1
+  if (i < 0) return by > 0 ? (s.start !== undefined && content.includes(s.start) ? s.start : content[0]) : content[content.length - 1]
+  return content[Math.max(0, Math.min(content.length - 1, i + (by > 0 ? 1 : -1)))]
+}

@@ -147,28 +147,27 @@ test('the band holds no Button in any form', async ($, on) => {
   }
 })
 
-test('draws no row for an empty session', async ($, on) => {
+// R56 (meaning changed): the band is never empty. An empty session shows the companion: the lead peeking up, "Ready when you are", /binnacle.
+test('R56: an empty session draws the companion row, not nothing', async ($, on) => {
   seed(on, empty)
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>engine</Text>
-  })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...BAND(), surface })
-    expect(await ui.find({ type: 'Text', text: /mc/ })).toBe(undefined)
-    expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
+    const rows = screen(await ui.drawn())
+    // One row: the critter's window is one row high (the kit's screen does not clip a Box's height, so a Raster's second row may show here).
+    expect(rows.length).toBeLessThanOrEqual(2)
+    expect((await ui.find({ type: 'Box', key: 'band-peek-window' }))?.props).toMatchObject({ height: 1, overflow: 'hidden' })
+    expect(rows[0]).toContain('Ready when you are')
+    expect(rows[0]!.trimEnd().endsWith('/binnacle')).toBe(true)
     await ui.unmount()
   }
 })
 
-test('main alone, running forever, is not a running agent', async ($, on) => {
+test('main alone, running forever, is not a running agent: the band stays the companion row (R56)', async ($, on) => {
   seed(on, empty)
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>engine</Text>
-  })
   const ui = await $.ui.mount({ ...BAND(), surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
+  const rows = screen(await ui.drawn())
+  expect(rows.join('\n')).toContain('Ready when you are')
+  expect(rows.join('\n')).not.toMatch(/agents? working/)
   await ui.unmount()
 })
 
@@ -249,7 +248,7 @@ test('the band fits 24 columns in every form and on every surface', async ($, on
   }
 })
 
-test('desktop: the band is an Svg with /mc as a Button beside it; a press opens the pane', async ($, on) => {
+test('desktop: the band is an Svg with /binnacle as a Button beside it; a press opens the pane', async ($, on) => {
   seed(on, BUSY)
   const opened: unknown[] = []
   on('ui.open', (_, e) => {
@@ -285,7 +284,7 @@ test('working: two rows at 80 columns and up, pane closed; the goal and the gaug
   expect(rows[0]!.endsWith('context 62%   week 34%')).toBe(true)
   expect(rows[1]).toContain('━')
   expect(rows[1]).toContain('2 of 4 done   ·   2 agents working   ·   nothing needs you')
-  expect(rows[1]!.endsWith('/mc')).toBe(true)
+  expect(rows[1]!.endsWith('/binnacle')).toBe(true)
   expect(rows.every(r => r.length <= 104)).toBe(true)
 })
 
@@ -303,15 +302,16 @@ test('the two rows begin at 80 columns and not before; the pane open is one row 
   await short.unmount()
 })
 
-test('one row at 64 and 40 columns: the count, the agents, the focus cut at a word, the context; /mc at the right', async ($, on) => {
+test('one row at 64 and 40 columns: the count, the agents, the focus cut at a word, the context; /binnacle at the right', async ($, on) => {
   seed(on, { ...BUSY, budget: { contextPct: 62, windows: [], at: NOW } })
   const [r64] = await bandRows($, 64, 'mobile')
-  expect(r64).toBe('2 of 4  ·  2 agents  ·  Grouping timeline  ·  context 62%    /mc')
+  // R49: `/binnacle` is 6 columns wider than `/mc`, so the focus, cut at a word first, keeps one word.
+  expect(r64).toBe('2 of 4  ·  2 agents  ·  Grouping  ·  context 62%       /binnacle')
   expect(r64!.length).toBe(64)
   const [r40] = await bandRows($, 40, 'mobile')
   expect(r40!.length).toBeLessThanOrEqual(40)
   expect(r40).toContain('2 of 4  ·  2 agents')
-  expect(r40!.endsWith('/mc')).toBe(true)
+  expect(r40!.endsWith('/binnacle')).toBe(true)
   expect(r40).not.toContain('Grouping')
 })
 
@@ -339,7 +339,8 @@ test('asked: the amber row names who asks and what, "answer below", and the aske
 test('asked, narrow: one row that still names the tool, down to 24 columns; nothing wider than the band', async ($, on) => {
   seed(on, CHILD_ASK)
   const r40 = (await bandRows($, 40, 'mobile'))[0]!
-  expect(r40).toBe('▲ 1 needs you  ·  Bash  ·  2 of 4    /mc')
+  // R49: with the wider `/binnacle` the count gives way from the end; the tool stays, and the row takes the wider dots again.
+  expect(r40).toBe('▲ 1 needs you   ·   Bash       /binnacle')
   expect(r40.length).toBe(40)
   const r30 = (await bandRows($, 30, 'mobile'))[0]!
   expect(r30).toContain('Bash')
@@ -365,15 +366,16 @@ test('Watch adds "n to watch", dim and uncoloured: the band is not amber and sti
   expect((await bandRows($, 70, 'mobile'))[0]).toContain('2 to watch')
 })
 
-test('idle is one dim line at every width and in either pane state: the tick, the totals, /mc; the facts give way from the right', async ($, on) => {
+test('idle is one dim line at every width and in either pane state: the tick, the totals, /binnacle; the facts give way from the right', async ($, on) => {
   seed(on, idle(), undefined, FX_NOW)
   for (const open of [false, true]) {
     reseed(idle(), open ? { paneOpen: true } : undefined)
     for (const cols of [140, 104, 64, 40]) {
       const rows = await bandRows($, cols, 'mobile')
       expect([cols, rows.length]).toEqual([cols, 1])
-      expect(rows[0]!.startsWith('✓ All 14 done')).toBe(true)
-      expect(rows[0]!.endsWith('/mc')).toBe(true)
+      // R56: the companion peeks in the first 5 columns, the words from column 6.
+      expect(rows[0]!.slice(6).startsWith('✓ All 14 done')).toBe(true)
+      expect(rows[0]!.endsWith('/binnacle')).toBe(true)
       expect(rows[0]!.length).toBeLessThanOrEqual(cols)
     }
   }
@@ -422,10 +424,12 @@ test('rich: the band draws one micro critter as a still Raster of 5 by 2 cells, 
   expect([p.columns, p.rows]).toEqual([5, 2])
   expect(p.cells).toBe(encode(critterBox('lead', 'working', 'micro')))
   await ui.unmount()
-  // The idle line has no critter.
+  // R56: the idle line has the companion: the same micro critter, one row of it showing in a one-row window.
   reseed(idle())
   const quiet = await $.ui.mount({ ...BAND({ bodyColumns: 104 }), surface: 'terminal' })
-  expect(await quiet.findAll({ type: 'Raster' })).toEqual([])
+  const peek = await quiet.findAll({ type: 'Raster' })
+  expect(peek.map(r => r.key)).toEqual(['band-peek-critter'])
+  expect((await quiet.find({ type: 'Box', key: 'band-peek-window' }))?.props).toMatchObject({ height: 1, overflow: 'hidden' })
   await quiet.unmount()
 })
 

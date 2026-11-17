@@ -235,7 +235,8 @@ test('a huge run falls back to one Button per agent opening its newest step', as
   for (const surface of SURFACES) {
     const ui = await mount($, surface)
     expect(await ui.find({ key: 'block-h3s24' })).toBeUndefined()
-    expect((await ui.findAll({ type: 'Button' })).length < 30).toBe(true)
+    // The board's own Buttons (R51 adds the Options tab and hidden key arms to the shell's; those are not the board's).
+    expect((await ui.findAll({ type: 'Button' })).filter(b => !/^(tab-|arm-)/.test(b.key ?? '')).length < 30).toBe(true)
     await ui.press({ key: 'strip-h3' })
     const opened = stored.get('ui') as UiState
     expect(opened.tab).toBe('timeline')

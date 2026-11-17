@@ -66,6 +66,15 @@ const PANE = (columns: number) =>
     },
   }) as const
 
+
+type Mounted = { find: (q: { type: string; key: string }) => Promise<{ props: Record<string, unknown> } | undefined> }
+/** R51: `0` is armed on the Options tab's Button, or (where the tab row is compact) on its hidden arm. */
+async function zeroArmed(ui: Mounted): Promise<boolean> {
+  const tab = (await ui.find({ type: 'Button', key: 'tab-options' }))?.props as { hotkey?: string } | undefined
+  const arm = (await ui.find({ type: 'Button', key: 'arm-tab-options-key' }))?.props as { hotkey?: string } | undefined
+  return tab?.hotkey === '0' || arm?.hotkey === '0'
+}
+
 const OPTIONS_UI: UiState = { ...initialUi, page: { kind: 'options', id: '' } }
 
 for (const surface of SURFACES) {
@@ -90,14 +99,16 @@ for (const surface of SURFACES) {
   })
 }
 
-// BEHAVIOUR CHANGE (task C3b): was "on the tab row when it fits, else at the end of the row under it"; the mocks draw no button for 0, so it is armed and not seen.
-test('0 is armed at every tab width and drawn nowhere: no tab row and no blank row carries it', async ($, on) => {
+// R51 (meaning changed): Options is a tab now, drawn at the right end of the tab row where it fits; `0` is armed at every width.
+test('R51: 0 is armed at every tab width; Options is drawn on the tab row where it fits, and the row under the tabs stays blank', async ($, on) => {
   world(on)
-  for (const cols of [32, 40, 55, 62, 80]) {
+  for (const [cols, drawn] of [[32, false], [40, false], [55, false], [62, true], [80, true]] as const) {
     const ui = await $.ui.mount({ ...PANE(cols), surface: 'terminal' })
-    expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0', plain: true })
+    expect(await zeroArmed(ui)).toBe(true)
     const rows = screen(await ui.drawn())
-    expect(rows.some(r => r.includes('0: options'))).toBe(false)
+    expect(rows[0]!.includes('Options')).toBe(drawn)
+    if (drawn) expect(rows[0]!.trimEnd().endsWith(cols >= 80 ? '0: Options' : '0:Options')).toBe(true)
+    expect(rows[0]!.length).toBeLessThanOrEqual(cols)
     expect(rows[2]).toBe('')
     await ui.unmount()
   }
@@ -110,7 +121,7 @@ test('/binnacle options opens the pane on the Options page', async ($, on) => {
   expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: '' })
 })
 
-test('the card lists every option with its value and when it applies, and a Never section', async ($, on) => {
+test('the card lists every option with its value and what Enter sets next, and a Never section (R52)', async ($, on) => {
   world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   const rows = screen(await ui.drawn())
@@ -118,11 +129,12 @@ test('the card lists every option with its value and when it applies, and a Neve
   for (const name of ['Notify', 'Agent time limit', 'Turn time limit', 'Show cost', 'Open at start', 'Guide Claude', 'Editor']) {
     expect(colOf(rowOf(name), name)).toBe(4)
   }
-  expect(rowOf('Notify').slice(38)).toMatch(/^waits\s+now$/)
-  expect(rowOf('Show cost').slice(38)).toMatch(/^off\s+now$/)
+  expect(rowOf('Notify').slice(38)).toMatch(/^waits\s+↵ done$/)
+  expect(rowOf('Show cost').slice(38)).toMatch(/^off\s+↵ on$/)
   expect(rowOf('Agent time limit').slice(38, 44)).toBe('60 min')
-  expect(rowOf('Open at start').slice(50)).toBe('next start')
-  expect(rowOf('Accent').slice(50)).toBe('now')
+  expect(rowOf('Open at start').trimEnd().endsWith('next start')).toBe(true)
+  expect(rowOf('Accent').trimEnd().endsWith('↵ sky')).toBe(true)
+  expect(rowOf('Agent time limit').trimEnd().endsWith('↵ 90 min')).toBe(true)
   const never = rows.findIndex(r => r.trimStart().startsWith('Never '))
   expect(never > 0).toBe(true)
   const after = rows.slice(never + 1, never + 5).join('\n')
@@ -130,7 +142,6 @@ test('the card lists every option with its value and when it applies, and a Neve
   await ui.unmount()
 })
 
-// FX3 M-5: the page drew the raw field names `watchNotify`, `ground` and `motion` (under More); they have friendly labels now, in the sections they belong to.
 test('the card uses plain labels: Notify for Watch, Crew background, Crew motion; no raw field name and no More section', async ($, on) => {
   world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
@@ -168,34 +179,29 @@ test('a deny leaves the option as it was and says why in a toast', async ($, on)
   await ui.unmount()
 })
 
-test('a choice opens to its values with hotkeys; a value is written on its press', async ($, on) => {
+test('R52: Enter on a choice writes the next value in place; nothing opens under the row and the page stays put', async ($, on) => {
   const { stored, sets } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
   await ui.press({ key: 'opt-notify' })
-  expect(sets.length).toBe(0)
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: 'notify' })
+  expect(sets).toEqual([{ key: 'binnacle.notify', value: 'done' }])
+  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: '' })
+  await ui.redraw()
+  expect(await ui.find({ type: 'Button', key: 'opt-pick-notify-all' })).toBe(undefined)
+  await ui.press({ key: 'opt-notify' })
+  expect(sets.map(x => x.value)).toEqual(['done', 'all'])
   await ui.unmount()
-  const opened = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  for (const [v, k] of [['off', 'o'], ['waits', 'w'], ['done', 'd'], ['all', 'a']] as const) {
-    expect((await opened.find({ type: 'Button', key: `opt-pick-notify-${v}` }))?.props).toMatchObject({ hotkey: k })
-  }
-  await opened.press({ key: 'opt-pick-notify-all' })
-  expect(sets).toEqual([{ key: 'binnacle.notify', value: 'all' }])
-  await opened.unmount()
 })
 
-test('a number shows − and +, and writes the stepped value', async ($, on) => {
-  const { sets } = world(on, { ...initialUi, page: { kind: 'options', id: 'agentLimitMin' } })
+test('R52: Enter on a time limit steps 60, 90, 120 … 240 and then off', async ($, on) => {
+  const { sets } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  const rows = screen(await ui.drawn())
-  expect(rows.some(r => r.includes('l: −5') && r.includes('m: +5') && r.includes('x: off'))).toBe(true)
-  await ui.press({ key: 'opt-more-agentLimitMin' })
-  await ui.press({ key: 'opt-less-agentLimitMin' })
-  expect(sets.map(s => s.value)).toEqual([65, 60])
+  for (let i = 0; i < 5; i++) await ui.press({ key: 'opt-agentLimitMin' })
+  expect(sets.map(x => x.value)).toEqual([90, 120, 180, 240, 0])
+  await ui.press({ key: 'opt-agentLimitMin' })
+  expect(sets.at(-1)?.value).toBe(30)
   await ui.unmount()
 })
 
-// R3-B M10: meaning changed. `b` is now armed by the footer's hidden Button (`arm-opt-back`, drawn as `b back` in the pane's last row) while the pane holds the keys; it used to press the page's own `opt-back` Button. Unfocused, the plain `opt-back` stays for a click (second test).
 test('b closes the card', async ($, on) => {
   const { stored } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
@@ -213,18 +219,18 @@ test('unfocused, the card keeps a plain back to click', async ($, on) => {
   await ui.unmount()
 })
 
-test('the preview is three critters, Rasters on the terminal and text on the desktop, with the accent named (R38: the cockpit look, no PREVIEW label)', async ($, on) => {
+test('R52: no frame and no preview; the first option is in the first rows under the tab bar, on the terminal and the desktop', async ($, on) => {
   world(on, OPTIONS_UI)
-  const term = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  for (const i of [0, 1, 2]) expect(await term.find({ type: 'Raster', key: `opt-critter-${i}-inst` })).not.toBe(undefined)
-  await term.unmount()
-  const desk = await $.ui.mount({ ...PANE(80), surface: 'desktop' })
-  expect(await desk.find({ type: 'Raster' })).toBe(undefined)
-  const rows = screen(await desk.drawn())
-  expect(rows.some(r => r.includes('iris'))).toBe(true)
-  expect(rows.some(r => r.includes('the accent'))).toBe(true)
-  expect(rows.some(r => r.includes('PREVIEW'))).toBe(false)
-  await desk.unmount()
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE(80), surface })
+    expect(await ui.find({ type: 'Raster' })).toBe(undefined)
+    const rows = screen(await ui.drawn())
+    const look = rows.findIndex(r => /^ {4}Look( |$)/.test(r))
+    expect(look).toBeGreaterThanOrEqual(0)
+    expect(look).toBeLessThanOrEqual(7)
+    expect(rows.some(r => r.includes('PREVIEW'))).toBe(false)
+    await ui.unmount()
+  }
 })
 
 // ---------- the look option (I7: the way out of the rich form) ----------
@@ -240,21 +246,16 @@ test("look: 'text' draws the pane on the terminal with no Raster: Now, a tab and
   }
 })
 
-// BEHAVIOUR CHANGE (task C3b, R21): was "a choice of rich and text", default rich; the choices gain auto, which is the default.
-test('the Look row is a choice of auto, rich and text, auto by default; text is written on its press and the pane draws text at once', async ($, on) => {
+// BEHAVIOUR CHANGE (task C3b, R21; R52): a choice of auto, rich and text, auto by default; Enter steps through them in place.
+test('the Look row steps auto, rich, text on Enter; text is written and the pane draws text at once', async ($, on) => {
   const { stored, sets } = world(on, OPTIONS_UI)
   const ui = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  expect(await ui.find({ type: 'Raster' })).not.toBe(undefined)
   const row = screen(await ui.drawn()).find(r => /^ {4}Look( |$)/.test(r))
   expect(row).toContain('auto')
   await ui.press({ key: 'opt-look' })
-  expect((stored.get('ui') as UiState).page).toEqual({ kind: 'options', id: 'look' })
+  await ui.press({ key: 'opt-look' })
+  expect(sets).toEqual([{ key: 'binnacle.look', value: 'rich' }, { key: 'binnacle.look', value: 'text' }])
   await ui.unmount()
-  const opened = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
-  for (const pick of ['auto', 'rich', 'text']) expect(await opened.find({ type: 'Button', key: `opt-pick-look-${pick}` })).not.toBe(undefined)
-  await opened.press({ key: 'opt-pick-look-text' })
-  expect(sets).toEqual([{ key: 'binnacle.look', value: 'text' }])
-  await opened.unmount()
   // Applied now: the next draw, without a reload, has no Raster.
   stored.set('ui', initialUi)
   const after = await $.ui.mount({ ...PANE(80), surface: 'terminal' })
@@ -340,8 +341,8 @@ for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts'] as co
         const hints = await ui.findAll({ type: 'Text', text: /^0$/ })
         expect(hints.some(h => h.props.color === 'suggestion')).toBe(true)
       }
-      // The hidden 0 is the one hotkey, in a Box of no size.
-      expect((await ui.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0' })
+      // R51: 0 is armed, on the Options tab or its hidden arm.
+      expect(await zeroArmed(ui)).toBe(true)
       await ui.unmount()
     }
     const ui = await $.ui.mount({ ...PANE(62), surface: 'mobile' })
@@ -351,7 +352,7 @@ for (const tab of ['overview', 'tasks', 'agents', 'timeline', 'artifacts'] as co
   })
 }
 
-test('the Options page draws no `0 options` hint; an unfocused pane has no footer text and keeps the hidden 0', async ($, on) => {
+test('the Options page draws no `0 options` hint; an unfocused pane has no footer text and keeps 0 armed', async ($, on) => {
   const { stored } = world(on, OPTIONS_UI)
   const page = await $.ui.mount({ ...PANE(62), surface: 'mobile' })
   expect(screen(await page.drawn()).some(r => r.includes('0 options'))).toBe(false)
@@ -359,6 +360,6 @@ test('the Options page draws no `0 options` hint; an unfocused pane has no foote
   stored.set('ui', { ...initialUi, tab: 'tasks' })
   const quiet = await $.ui.mount({ ...PANE(62), props: { ...PANE(62).props, isFocused: false }, surface: 'mobile' })
   expect(screen(await quiet.drawn()).some(r => r.includes('0 options'))).toBe(false)
-  expect((await quiet.find({ type: 'Button', key: 'tab-options' }))?.props).toMatchObject({ hotkey: '0' })
+  expect(await zeroArmed(quiet)).toBe(true)
   await quiet.unmount()
 })

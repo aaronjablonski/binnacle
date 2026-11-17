@@ -1,7 +1,8 @@
 import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-code'
 
 import type { UiState } from '../../types'
-import { debug, errText, readTimeline, readUi } from '../state'
+import { debug, errText, readPr, readTimeline, readUi } from '../state'
+import { prChip } from './prblock'
 import { bandModel, agentsWords, needsPiece } from './bandmodel'
 import type { BandModel } from './bandmodel'
 import { todoBar, wordFit } from './fit'
@@ -10,7 +11,7 @@ import { inst, runText } from './parts'
 import type { Run } from './parts'
 import { begin, cue, cueOn, cueStarted } from './paint'
 import { todoBlock } from '../model/todo'
-import { lookOption } from './options'
+import { chooseShowAs, keepShowAs, lookOption, showAsOption } from './options'
 import { leaveStrip } from './shell'
 import { stripBandView } from './stripband'
 import type { ViewCtx } from './shell'
@@ -22,7 +23,7 @@ import { bandSvgOf, lookFor } from './svgview'
 // the band is wide: row 1 says what is happening, row 2 how far along and
 // whether anything needs you, the one critter (the lead, or the asker while an
 // ask is up) beside them. One row when narrow or while the pane is open; one
-// dim line at idle. No Button (`/mc` is dim text; nothing lives only here), no
+// dim line at idle. No Button (`/binnacle` is dim text; nothing lives only here), no
 // clamp, no pill, no beads, no hotkey, and the critter never blinks (R24).
 // Only an ask colours it (amber, R9). Watch adds a dim count.
 
@@ -36,7 +37,7 @@ const BAR_CELLS = 28
 const BAR_GAP = 2
 /** The least room a cut focus is worth: under it the focus is dropped. */
 const MIN_FOCUS = 8
-const MC = '/mc'
+const MC = '/binnacle'
 const BAND_SITE = 'binnacle-band'
 /** Motion sketch 1: the band's one change cue, the new done count in the accent for one beat. */
 export const COUNT_CUE_MS = 1000
@@ -147,7 +148,7 @@ const needsWords = (m: BandModel): string => {
 
 /**
  * The one row. Each form is a list of pieces that give way from the end, then
- * the focus is cut at a word (the mock's 64 columns), then `/mc` itself. The
+ * the focus is cut at a word (the mock's 64 columns), then `/binnacle` itself. The
  * first fit is drawn whole; a row that fits nothing is cut by the terminal.
  */
 function oneRow(m: BandModel, cols: number): Run[] {
@@ -260,20 +261,24 @@ function rowOne(m: BandModel, room: number): Run[] {
   return trimRuns([...head, style(m.focus)], room)
 }
 
-/** Row 2: the to-do bar and its words, `/mc` at the right. */
+/** Row 2: the to-do bar and its words, `/binnacle` at the right. */
 function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number, countCue = false): RenderElement {
-  const mc = [dim(MC)]
+  // R46: the PR chip (`#123 ✓ stack 2/4`) before `/binnacle` while there is room for the to-do words beside it.
+  const chip = prChip(ctx.pr)
+  const withChip = chip.length > 0 && room - widthOf(chip) - 3 - MC.length >= 40
+  const mc: Run[] = withChip ? [...chip, spaces(3), dim(MC)] : [dim(MC)]
+  const mcW = widthOf(mc)
   const cells = Math.max(10, Math.min(BAR_CELLS, room - 34))
   const hasBar = m.total > 0
   const start = hasBar ? cells + BAR_GAP : 0
-  const space = room - start - 1 - MC.length
+  const space = room - start - 1 - mcW
   const count: Run[] = [countCue ? { text: String(m.done), bold: true, color: C.accent } : bold(String(m.done)), dim(` of ${m.total} done`)]
   const agents: Run[] = m.working > 0 ? [dim(agentsWords(m))] : []
   const pieces: Run[][] = []
   if (m.ask !== undefined && commandBelow(m, room)) {
     // M9, I5: the ask's tool and its command whole, in place of the to-do words; cut at a word only past the row.
     const cmd: Run[] = [bold(m.ask.tool), plain('  '), bold(m.ask.command)]
-    const fitted = widthOf(cmd) + 1 + MC.length <= room ? cmd : trimRuns(cmd, room - 1 - MC.length)
+    const fitted = widthOf(cmd) + 1 + mcW <= room ? cmd : trimRuns(cmd, room - 1 - mcW)
     return line(ctx, $, 'band-row-2', spread(fitted, mc, room))
   }
   if (m.form === 'asked') {
@@ -289,6 +294,37 @@ function rowTwo(ctx: ViewCtx, $: EngineInterface, m: BandModel, room: number, co
   const bar: Run[] = hasBar ? todoBar(cells, m.total, m.done, m.current) : []
   const left = [...bar, ...(hasBar ? [spaces(BAR_GAP)] : []), ...words]
   return line(ctx, $, 'band-row-2', spread(left, mc, room))
+}
+
+/** What the companion says in an empty session (R56). */
+export const READY_WORDS = 'Ready when you are'
+
+/**
+ * The companion row (R56): the lead's micro critter peeking up from below,
+ * its head alone above the prompt (a one-row window over its two rows), then
+ * the words. The band is never empty: an empty session reads
+ * `Ready when you are … /binnacle`, and at idle the dim summary sits beside it.
+ */
+function peekRow(ctx: ViewCtx, $: EngineInterface, runs: Run[]): RenderElement {
+  const { Box } = $.ui.resolve(ctx.e)
+  const room = Math.max(1, ctx.cols - CRITTER_COLUMNS - CRITTER_GAP)
+  const c = critterArgs('lead', 'working', { size: 'micro', ground: ctx.ground ?? 'night', roleWord: false })
+  return (
+    <Box key="band-peek" flexDirection="row">
+      <Box key="band-peek-window" width={CRITTER_COLUMNS} height={1} overflow="hidden" flexShrink={0}>
+        {inst(ctx, $, { key: 'band-peek-critter', ...c })}
+      </Box>
+      <Box key="band-peek-gap" width={CRITTER_GAP} flexShrink={0} />
+      <Box key="band-peek-words" width={room} flexShrink={0}>
+        {line(ctx, $, 'band-peek-line', runs.length > 0 ? fitRow(runs, room) : runs)}
+      </Box>
+    </Box>
+  )
+}
+
+/** The runs fitted to `room`, `/binnacle` kept at the right. */
+function fitRow(runs: Run[], room: number): Run[] {
+  return runs.reduce((n, r) => n + r.text.length, 0) <= room ? runs : trimRuns(runs, room)
 }
 
 /** The two rows: the micro critter at 0, the words from 6. */
@@ -313,7 +349,7 @@ function twoRows(ctx: ViewCtx, $: EngineInterface, m: BandModel, countCue = fals
  * has `TWO_ROWS_FROM` columns; one row otherwise (the pane open, narrow, or
  * `maxRows` of 1); at idle one dim line. Nothing for an empty session. While
  * `ui.strip` (`/binnacle strip`) the strip draws over the one row, and a press in
- * it opens the pane. The desktop app draws the band as one Svg with `/mc`
+ * it opens the pane. The desktop app draws the band as one Svg with `/binnacle`
  * beside it as a Button.
  */
 /**
@@ -331,16 +367,52 @@ function countCueOn($: EngineInterface, ctx: ViewCtx, motion: boolean): boolean 
   return cueOn(name)
 }
 
+/**
+ * The Show as row (R55): `Show as   1 pane   2 band   3 strip     0 keep`,
+ * each a Button with its digit, which a bare digit typed in the empty prompt
+ * presses; the style in force bold in the accent. Drawn only while the
+ * person tries the styles (`ui.showAsTry`); `0 keep` ends it.
+ */
+function showAsRow(ctx: ViewCtx, $: EngineInterface): RenderElement {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const cur = showAsOption()
+  const pick = (hotkey: string, v: string) => (
+    <Button key={`band-show-${v}`} hotkey={hotkey} plain onPress={() => chooseShowAs($, v)}>
+      {v === cur ? (
+        <Text color={C.accent} bold>
+          {v}
+        </Text>
+      ) : (
+        v
+      )}
+    </Button>
+  )
+  return (
+    <Box key="band-show-as" flexDirection="row" columnGap={3}>
+      <Text bold>Show as</Text>
+      {pick('1', 'pane')}
+      {pick('2', 'band')}
+      {pick('3', 'strip')}
+      <Button key="band-show-keep" hotkey="0" plain dimColor onPress={() => keepShowAs($)}>
+        keep
+      </Button>
+      <Text dimColor>type the digit in the empty prompt</Text>
+    </Box>
+  )
+}
+
 export function registerBand(on: On, options: { look?: string; ground?: unknown; accent?: unknown; motion?: unknown } = {}): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     try {
       const t = await readTimeline($)
       const u: UiState = await readUi($)
+      const pr = await readPr($)
       const now = await $.clock.now()
       const m = bandModel(t, u, now, needsLimits(), paneCovered(now), paneWatching(now))
       const isStrip = u.strip === true
-      if (m.nothing && !isStrip) return next(e)
+      const trying = u.showAsTry === true
+      // R56: the band is never empty; an empty session shows the companion (below, once ctx is built).
 
       const cols = e.props.bodyColumns
       // The Rasters here are all still, so the paint clock never blits the band.
@@ -348,16 +420,35 @@ export function registerBand(on: On, options: { look?: string; ground?: unknown;
       const theme = await themeOf($)
       const chosen = lookAsked(lookOption() ?? options.look, theme)
       const look = lookFor($.ui.resolve(e), e.surface, chosen !== undefined ? { look: chosen } : {})
-      const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE, ground: groundOf(options.ground, theme) }
-      if (!isStrip) {
-        // `/mc` stays pressable beside the Svg: a press opens the pane, as the command does.
+      const ctx: ViewCtx = { e: e as RenderInput, t, u, cols, now, look, site: BAND_SITE, ground: groundOf(options.ground, theme), pr }
+      if (!isStrip && !m.nothing) {
+        // `/binnacle` stays pressable beside the Svg: a press opens the pane, as the command does.
         const svg = bandSvgOf($, { e: e as RenderInput, look, t, u, now, cols, model: m, ground: ctx.ground ?? 'night', presses: [{ key: 'band-mc', label: MC, onPress: () => leaveStrip($) }] })
         if (svg !== null) return svg
       }
+      // R55: while the person tries the Show as styles, their row sits on top of the band or the strip.
+      const tryRow = trying ? showAsRow(ctx, $) : null
+      const withTry = (el: RenderElement): RenderElement => {
+        if (tryRow === null) return el
+        const { Box } = $.ui.resolve(e)
+        return (
+          <Box key="band-with-try" flexDirection="column">
+            {tryRow}
+            {el}
+          </Box>
+        )
+      }
+      const maxRows = e.props.maxRows - (tryRow !== null ? 1 : 0)
+      if (m.nothing && !isStrip) {
+        const room = Math.max(1, cols - CRITTER_COLUMNS - CRITTER_GAP)
+        return withTry(peekRow(ctx, $, spread([dim(READY_WORDS)], [dim(MC)], room)))
+      }
+      // R56: at idle the companion peeks beside the dim summary.
+      if (m.form === 'idle' && !isStrip) return withTry(peekRow(ctx, $, oneRow(m, Math.max(1, cols - CRITTER_COLUMNS - CRITTER_GAP))))
       const one = line(ctx, $, 'band', oneRow(m, cols))
-      if (isStrip) return stripBandView(ctx, $, { maxRows: e.props.maxRows, line: one, after: () => leaveStrip($) })
-      const two = u.paneOpen !== true && cols >= TWO_ROWS_FROM && e.props.maxRows >= 2 && m.form !== 'idle'
-      return two ? twoRows(ctx, $, m, countCueOn($, ctx, motionOn(options.motion))) : one
+      if (isStrip) return withTry(stripBandView(ctx, $, { maxRows, line: one, after: () => leaveStrip($) }))
+      const two = u.paneOpen !== true && cols >= TWO_ROWS_FROM && maxRows >= 2 && m.form !== 'idle'
+      return withTry(two ? twoRows(ctx, $, m, countCueOn($, ctx, motionOn(options.motion))) : one)
     } catch (err) {
       debug($, `band failed: ${errText(err)}`)
       return next(e)

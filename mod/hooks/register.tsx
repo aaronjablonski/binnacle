@@ -1,13 +1,14 @@
 import type { Register } from 'claude-code'
 
 import { registerCapture } from './capture'
+import { registerPr, startPr } from './pr'
 import { registerGuide, startGuide } from './guide'
 import { END_RESERVE_MS, restore, restoreAfterClear, saveForClear } from './journal'
 import { apply, debug, errText, hasTimeline, saveLedger } from './state'
 import { registerBand } from './views/band'
 import { seedBudget } from './views/budget'
 import { configureNeeds } from './views/needs'
-import { registerShell, runMc, startShell, syncPaneOpen } from './views/shell'
+import { registerShell, runCommand, startShell, syncPaneOpen } from './views/shell'
 
 export const register: Register = (on, options) => {
   registerCapture(on)
@@ -16,24 +17,22 @@ export const register: Register = (on, options) => {
   registerGuide(on, options)
   registerShell(on, options)
   registerBand(on, options)
+  registerPr(on)
 
   // The module's one session.start hook: every task's session-start work is
   // a helper called from here (validate refuses a second unmatched hook).
   // Each step has its own try, so one failing cannot skip the next (M2).
   on('session.start', async ($, e, next) => {
-    // `/binnacle` is the command; `/mc` is a second registration of the same
-    // run (CommandSpec has no alias field), kept short for the fingers.
-    for (const name of ['binnacle', 'mc']) {
-      try {
-        await $.command.register({
-          name,
-          description: name === 'mc' ? 'Short for /binnacle' : 'Open Binnacle',
-          argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]',
-          immediate: true,
-        })
-      } catch (err) {
-        debug($, `command.register ${name} failed: ${errText(err)}`)
-      }
+    // `/binnacle` is the one command (the old `/mc` alias is gone with the old name).
+    try {
+      await $.command.register({
+        name: 'binnacle',
+        description: 'Open Binnacle',
+        argumentHint: '[1-5 | keep <note> | export | close | slim | strip | options]',
+        immediate: true,
+      })
+    } catch (err) {
+      debug($, `command.register binnacle failed: ${errText(err)}`)
     }
     try {
       await restore($, await $.session.id())
@@ -45,6 +44,8 @@ export const register: Register = (on, options) => {
     await startShell($, options)
     // The budget line waits for session.measure otherwise; take a first reading.
     await seedBudget($)
+    // The PR and stack: fetched in the background (gh can take seconds), then every 3 min.
+    await startPr($)
     return next(e)
   })
 
@@ -91,9 +92,7 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  for (const command of ['binnacle', 'mc']) {
-    on('command.run', { command }, async ($, e) => {
-      return runMc($, e.args)
-    })
-  }
+  on('command.run', { command: 'binnacle' }, async ($, e) => {
+    return runCommand($, e.args)
+  })
 }

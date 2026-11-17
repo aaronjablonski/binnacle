@@ -190,3 +190,36 @@ export function backTo(): string[] {
     return m !== null && m[1] !== undefined ? [m[1]] : []
   })
 }
+
+// ---------- the mocks' tab bar under R49 and R51 ----------
+
+/** The deviation the fidelity tests list for the tab bar at 62 columns. */
+export const R49_TABS = 'R49: Artifacts is tab 4 and Steps tab 5 (the mocks have Steps 4, Artifacts 5); R51: Options is a tab, `0:Options` at the right end of the row, so at 62 columns the tabs give up the 12-wide cells and the space after the colon (`1:Now  2:Tasks`, two spaces apart), and Options has its own track'
+
+/** The tab row the pane draws at 62 columns (R49, R51): five compact tabs and Options, ending at column 59. */
+const TAB_ROW_62 = '  1:Now  2:Tasks  3:Agents  4:Artifacts  5:Steps   0:Options'
+
+/** The track under that row, by the open tab: its run is `━`, the others (and Options, closed) `─`. */
+const TRACK_62: Record<string, string> = {
+  Now: '  ━━━━━  ───────  ────────  ───────────  ───────   ─────────',
+  Tasks: '  ─────  ━━━━━━━  ────────  ───────────  ───────   ─────────',
+  Agents: '  ─────  ───────  ━━━━━━━━  ───────────  ───────   ─────────',
+  Artifacts: '  ─────  ───────  ────────  ━━━━━━━━━━━  ───────   ─────────',
+  Steps: '  ─────  ───────  ────────  ───────────  ━━━━━━━   ─────────',
+}
+
+/**
+ * A 62-column mock's tab row (row 0) and track (row 1) re-laid as R49 and R51
+ * draw them, the open tab read from the mock's own track (its `━` run).
+ * Throws when the rows are not the mocks' tab bar, so a patch that misses
+ * fails loudly.
+ */
+export function r49Tabs(rows: string[]): void {
+  const MOCK_ORDER = ['Now', 'Tasks', 'Agents', 'Steps', 'Artifacts']
+  if (rows[0] !== '  1: Now      2: Tasks    3: Agents   4: Steps    5: Artifacts') throw new Error(`patch: row 0 is not the mocks' tab row: ${rows[0]}`)
+  const at = (rows[1] ?? '').indexOf('━')
+  if (at < 2) throw new Error(`patch: row 1 is not the mocks' track: ${rows[1]}`)
+  const open = MOCK_ORDER[Math.floor((at - 2) / 12)]!
+  rows[0] = TAB_ROW_62
+  rows[1] = TRACK_62[open]!
+}

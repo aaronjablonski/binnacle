@@ -121,3 +121,38 @@ The owner approved motion sketches 1 to 10. Sketches 11 (a warm light at rest) a
 - 7 (the tab track slides) is not built: the tab tests read the track row as `━` and `─` text on the terminal, which a Raster track would not draw.
 - R22 narrowed: in the rich look Now's to-do bar is a 1-row Raster of the same `━` cells (where the mock put it), so 1 is a blit; its text form is still `━` runs in `Text`.
 - `motion: off` and the text look show only the end states, except the text cues of 1 (the band count), 4 (one dim-amber frame) and 5 (the row mark). The desktop Svg stays still (R32). Amber stays the dialog colour (R9).
+
+
+## The developer pass (2026-11-17)
+
+Asked for by Aaron: Now spends its rows on what a developer reads all day.
+
+R44. **Slim header by default.** Now's header is 4 rows with no lintel or sill: the pill, its meta and the gauges as figures (`context 71%   this week 45%`, bold at 70 %, red at 90 %) on row 1; the lead's critter beside the goal (2 lines) and the budget line. Option `header: full` brings back the 9-row header. The compact form (under 30 rows or 40 columns) and the desktop Svg deck are unchanged.
+
+R45. **Watch leaves Now.** Now draws nothing for Watch: no block, no hint row (Aaron, after trying a one-line hint: "the loop line can go"). The alert model, `watchNotify`, slim's Watch line and the strip's Watch row are unchanged; the Steps tab still shows the steps.
+
+R46. **Pull request and stack.** When the branch has a PR, Now shows a Pull request block after Needs you: the head (`#123 open · ✓ checks · approved`), the title, and on a GitHub stack (gh-stack) a row of every member from the trunk up, the cursor `▸` on the current branch. A press or `o` opens the PR in the browser; `h` and `l` move the cursor (a Button hotkey takes only a digit or a lowercase letter, so not `[` and `]`). The band's second row carries a chip (`#123 ✓ stack 3/4`) when 40 columns stay for the to-do words; slim and the strip show it too. No PR, no `gh`, offline: nothing is drawn.
+
+R47. **Lists before the crew.** Now's order is header, Needs you, Pull request, To do, Notes and decisions, Artifacts (the newest 3, one row each, a press opens the artifact), This turn, Agents. The blocks are measured as drawn, not estimated. Spare rows go to To do first (every task, up to 14 rows), then to spacing (R50), then Notes (up to 8), Artifacts (up to 3) and agent cards.
+
+R48. **No calm line.** "✓ Nothing needs you" is not drawn on Now; its slot is empty until something needs the person. Stopped, idle with tasks open and an unanswered permission keep their line. Slim and the strip keep the calm line.
+
+R49. **Tab order and the command.** Artifacts is tab 4 and Steps tab 5 (`/binnacle 4` opens Artifacts). The band's hint reads `/binnacle`; the `/mc` alias is gone with the old name.
+
+R50. **Relaxed spacing, Agents at the foot.** When To do has every row it wants and rows are left, the blocks stand two blank rows apart instead of one. Whatever is still left goes above Agents, so the Agents block sits at the foot of the pane.
+
+R51. **Options is a tab, and the ring always lands.** The tab bar draws `0: Options` at the right end of its row wherever it fits (the tabs give up the 12-wide cells, then the space after the colon, `1:Now`, to make room; under 38 columns it stays armed and unseen). Its hotkey is `0` only: a Button takes a digit or a lowercase letter, and `o` already opens the thing in view on Now, Artifacts and Steps. Opening or closing any page (Options, a task, an agent, a step, an artifact) moves the focus ring onto the first row of what is now drawn, as a tab switch does, so the arrows walk rows instead of scrolling the pane.
+
+R52. **Options change in place.** An option is one row; Enter changes its value right there (a switch flips, a choice steps to the next value and wraps, a time limit steps through 30, 45, 60, 90, 120, 180, 240 min and off), and the ring is put back on that row after the write. No choices open under a row, so the ring never jumps. The page has no frame or critter preview: the title, then the options from the first rows, so they fit the pane without scrolling. The row's right column says what Enter sets next (`↵ rich`, `↵ 90 min`), or when the change applies when that is not now (`next start`, `new thread`).
+
+R44 amended (same day). **The full header is the default again.** Aaron tried both and prefers the 9-row header with the ring gauges; `header: slim` keeps the 4-row form for those who want the room.
+
+R53. **Show as.** A new option, `showAs`: `pane` (the default: the pane and a one-row band), `band` (no pane; the band's two minimal rows above the prompt, the to-do bar and the PR chip) or `strip` (Now on its side above the prompt, what `/binnacle strip` draws). It holds in every session; choosing it on the Options tab previews it at once above the prompt (the strip on or off; under `band` the two rows stand even beside the open pane) while the pane and the Options page stay open, so the person can step through all three; leaving Options (`0`, `b`) under `band` or `strip` closes the pane, and `/binnacle options` opens it on Options again. `/binnacle`, `/binnacle close` and `/binnacle strip` still switch for the moment. `autoOpen` never opens the pane under `band` or `strip`.
+
+R54. **The arrows always walk rows.** In the pane, Up and Down move the focus ring one row and never scroll the window: the engine turns an arrow into a one-row scroll while it has rows to scroll, and the pane answers that scroll by moving the ring to the next or previous content row (held at the ends) and bringing it into view. Page Up, Page Down, Home, End and the wheel still scroll.
+
+R53 amended. **The styles are exclusive.** `pane`, `band` and `strip` are three viewing styles, one at a time: the pane with its one-row band; no pane and the band's two rows; no pane and the strip. Under `band` or `strip` the pane opens only for Options (`/binnacle options`), where Enter previews each style; leaving Options under `band` or `strip` closes the pane. Focus moves after a press are never awaited (an element is drawn only after the press returns, so the wait held the press, about 10 s).
+
+R55. **Try the styles where they land.** Enter on Show as switches at once: the option is written, and `band` or `strip` closes the pane and leaves Options. The band or the strip then carries one row on top, `Show as  1: pane  2: band  3: strip  0: keep`, its Buttons pressed by a bare digit typed in the empty prompt (the engine's rule for band hotkeys; the band cannot take the keys itself), so the person goes on trying styles from where they landed. `1` opens the pane on Options with the ring on Show as, where Enter goes on cycling; `0` keeps the style and the row goes. The row is drawn only while trying (`ui.showAsTry`), the one exception to the strip having no hotkeys.
+
+R56. **The band is never empty: a companion.** An empty session no longer hides the band: one row shows the lead's micro critter peeking up from below (a one-row window over its two rows, so only its head shows above the prompt), "Ready when you are" and `/binnacle`. At idle the same peeking critter sits beside the dim summary row. While working the band is unchanged. The desktop app keeps its Svg band for a session with something in it.

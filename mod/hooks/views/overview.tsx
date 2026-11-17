@@ -12,7 +12,7 @@ import { budgetView, budgetWords, exportLedger, isBudgetOpen, nowGauges, setBudg
 import { doing, fitRuns, sinceWords, span, todoBar, wordFit, wrapWords } from './fit'
 import { argOf, headline } from './lay'
 import { exportDigest } from './handoff'
-import { moveNeed, needsSlot, needsSlotHeight, needsView, spreadRuns } from './needs'
+import { moveNeed, needsSlot, needsView, spreadRuns } from './needs'
 import { openAgentPage } from './agentmeta'
 import { openPage } from './pagenav'
 import { openStep } from './openstep'
@@ -29,7 +29,10 @@ import { deckSvg } from './svgview'
 import { accentName, C, CK, COCKPIT, critterArgs, critterOf, crewRole, edges, palette, typeName } from './style'
 import type { PodState, Tone4 } from './style'
 import { stripNow } from './stripband'
-import { watchBlock, watchHeight, watchRows } from './watch'
+import { openRef } from './artifacts'
+import { prBlock, prHints } from './prblock'
+import { slimHeader } from './options'
+import { watchRows } from './watch'
 import type { Press } from './watch'
 
 // Now (cockpit spec "Screens": CockpitNow, CockpitNowNeedsYou, CockpitNowWatch,
@@ -131,7 +134,7 @@ export const HEADER_ROWS = 9
  * budget line the budget view. On the desktop app the Svg deck stands in for
  * it (C6 restyles that Svg).
  */
-export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs: HeaderState, todo: TodoBlock, o: { key?: string; press?: Press; short?: boolean; svg?: boolean; compact?: boolean } = {}): RenderElement {
+export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs: HeaderState, todo: TodoBlock, o: { key?: string; press?: Press; short?: boolean; svg?: boolean; compact?: boolean; slim?: boolean } = {}): RenderElement {
   const press = o.press ?? asIs
   // I4: the Svg ends at the header; no button row repeats the tab bar and the sections below.
   const svg = o.press === undefined && o.svg !== false ? deckSvg(ctx, $) : null
@@ -159,6 +162,7 @@ export function nowHeader(ctx: ViewCtx, $: EngineInterface, view: NeedsView, hs:
     gauges: nowGauges(ctx.t),
     ground,
     ...(o.compact === true ? { compact: true } : {}),
+    ...(o.slim === true ? { slim: true } : {}),
   })
 }
 
@@ -281,8 +285,11 @@ export function todoWrapRows(todo: TodoBlock, cols: number): number {
 export function todoWants(todo: TodoBlock): { floor: number; want: number } {
   if (todo.empty) return { floor: 1, want: 1 }
   const want = planRows(todoPlan(todo, 99), false)
-  return { floor: Math.min(3, want), want: Math.min(7, want) }
+  return { floor: Math.min(3, want), want: Math.min(TODO_MAX, want) }
 }
+
+/** The most list rows To do takes on Now (R47 amended). */
+export const TODO_MAX = 14
 
 /**
  * The To do block: the head ("9 of 14 done", the title opens Tasks), the bar
@@ -769,6 +776,47 @@ export function notesSection(ctx: ViewCtx, $: EngineInterface, n: number, o: { p
   return out
 }
 
+// ---------- Artifacts (R47) ----------
+
+/** The most notes and artifacts Now lists. */
+export const NOTES_MAX = 8
+export const ARTS_MAX = 3
+
+/**
+ * Artifacts on Now: the head (the count; the title opens the Artifacts tab),
+ * then the newest `n`, one row each (`↗ title · 4 min ago`); a press opens it
+ * as the tab's `o` does (a link in the browser, a path in the editor), or its
+ * page when it has no ref.
+ */
+export function artsSection(ctx: ViewCtx, $: EngineInterface, n: number, o: { press?: Press } = {}): RenderElement[] {
+  const { Box, Text, Button } = $.ui.resolve(ctx.e)
+  const press = o.press ?? asIs
+  const items = [...ctx.t.artifacts].sort((a, b) => b.updatedAt - a.updatedAt)
+  if (items.length === 0 || n <= 0) return []
+  const { left, right } = edges(ctx.cols)
+  const out: RenderElement[] = [section(ctx, $, 'Artifacts', String(items.length), { key: 'sec-arts', onPress: press(() => openTab($, 'artifacts')) })]
+  for (const a of items.slice(0, n)) {
+    const age = ctx.now >= a.updatedAt ? ` · ${span(ctx.now - a.updatedAt)}` : ''
+    const room = Math.max(1, right - left + 1 - 2 - age.length)
+    const ref = a.ref
+    const open = press(async () => {
+      if (ref !== undefined && ref !== '') await openRef($, a, ctx.e.surface)
+      else await openPage($, 'artifact', a.id, `art-now-${a.id}`)
+    })
+    out.push(
+      <Box key={`art-now-row-${a.id}`} flexDirection="row">
+        <Text>{' '.repeat(left)}</Text>
+        <Button key={`art-now-${a.id}`} plain onPress={open}>
+          <Text color={CK.accent}>{'↗ '}</Text>
+          <Text>{wordFit(oneLine(a.title), room)}</Text>
+          <Text dimColor>{age}</Text>
+        </Button>
+      </Box>,
+    )
+  }
+  return out
+}
+
 // ---------- the footer ----------
 
 // The footer's hint type and row live in tabkit.tsx (R28 amended); re-exported for the views that import them from here.
@@ -777,7 +825,7 @@ import type { FootHint } from './tabkit'
 export type { FootHint }
 
 /** Now's footer for its state: a need, a Watch row, rest, or busy (the mocks' footers). */
-function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: HeaderState, cols: number, compact = false, exportable = true): FootHint[] {
+function nowHints($: EngineInterface, view: NeedsView, hs: HeaderState, cols: number, compact = false, exportable = true): FootHint[] {
   // Under 40 columns, or under 30 rows (F M13), the compact header has no budget line: `b` opens the budget view from here.
   if (cols < 40 || compact) return [{ hotkey: 'b', label: 'budget', id: 'hint-budget', onPress: () => setBudgetOpen($, true) }, { key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
   if (view.items.length > 0) {
@@ -788,7 +836,6 @@ function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: Heade
       { key: 'esc', label: 'prompt' },
     ]
   }
-  if (watch.length > 0) return [{ key: '↵', label: 'open' }, ...(watch[0]!.agent !== 'main' ? [{ key: 'v', label: 'transcript' }] : []), { key: 'x', label: 'dismiss' }]
   if (isRest(hs) && !exportable) return [{ key: '↵', label: 'open' }, { key: 'esc', label: 'prompt' }]
   if (isRest(hs)) return [{ key: '↵', label: 'open' }, { hotkey: 'e', label: 'export digest', id: 'hint-export', onPress: async () => { await exportDigest($) } }, { key: 'esc', label: 'prompt' }]
   return [{ key: '↵', label: 'open' }, { key: '0', label: 'options' }, { key: 'esc', label: 'prompt' }]
@@ -796,8 +843,15 @@ function nowHints($: EngineInterface, view: NeedsView, watch: Watch[], hs: Heade
 
 // ---------- the height rule ----------
 
-/** The rows each list gets: To do floor 3 up to 7, Agents 1 card up to 3, Notes 1 up to 4; spare rows to To do, then Agents, then Notes. */
-export function dealRows(spare: number, todo: { floor: number; want: number }, agents: { floor: number; want: number }, notes: { floor: number; want: number }): { todo: number; cards: number; notes: number } {
+/** A list's rows: at least `floor`, up to `want`. */
+export type Want = { floor: number; want: number }
+
+/**
+ * The rows each list gets (R47): every list its floor first, then spare rows
+ * to To do, then Notes, then Artifacts, then Agents (a card is 3 rows). The
+ * lists the person reads (To do, Notes) grow before the crew's cards.
+ */
+export function dealRows(spare: number, todo: Want, agents: Want, notes: Want, arts: Want = { floor: 0, want: 0 }): { todo: number; cards: number; notes: number; arts: number } {
   let left = spare
   const give = (floor: number, want: number, per: number): number => {
     let n = floor
@@ -808,9 +862,10 @@ export function dealRows(spare: number, todo: { floor: number; want: number }, a
     return n
   }
   const td = give(todo.floor, todo.want, 1)
-  const cards = give(agents.floor, agents.want, 3)
   const ns = give(notes.floor, notes.want, 1)
-  return { todo: td, cards, notes: ns }
+  const as = give(arts.floor, arts.want, 1)
+  const cards = give(agents.floor, agents.want, 3)
+  return { todo: td, cards, notes: ns, arts: as }
 }
 
 /** What Now draws, shared with the strip and slim: the alert state, the list and the rows. */
@@ -855,44 +910,70 @@ export function overviewView(ctx: ViewCtx, $: EngineInterface): RenderElement {
   const rows = (ctx.bodyRows ?? 46) - TAB_ROWS
   // F M13: under 30 rows the header is the compact one (no critter block or gauges), so To do and an agent stay in view.
   const compact = (ctx.bodyRows ?? 46) < 30
-  const bar = footerSlot(ctx, $, nowHints($, view, watch, hs, ctx.cols, compact, hasExport(ctx.t)))
+  // R44 amended: the full header by default; `header: slim` is the 4-row one. The desktop app keeps its Svg deck.
+  const slimHead = !compact && slimHeader() && ctx.look !== 'svg'
+  const bar = footerSlot(ctx, $, [...nowHints($, view, hs, ctx.cols, compact, hasExport(ctx.t)), ...prHints($, ctx)])
   const footRows = bar !== null ? 2 : 0
 
-  const headEl = nowHeader(ctx, $, view, hs, todo, compact ? { compact: true } : {})
+  const headEl = nowHeader(ctx, $, view, hs, todo, compact ? { compact: true } : slimHead ? { slim: true } : {})
+  // R45 amended: Watch has no row on Now at all (the alert model, notifications, slim and the strip keep it).
+  // R48: the calm "Nothing needs you" line is gone from Now.
+  const needs = needsSlot(ctx, $, view, { quiet: true })
+  const prEls = prBlock(ctx, $)
   const turn = rest ? turnSection(ctx, $) : []
   const tw = todoWants(todo)
   const hold = settlingIds(ctx)
   const cards = cardAgents(ctx.t, hold).length
   const ag = rest || cards === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(3, cards) }
   const nn = noteItems(ctx.t).length
-  const nw = nn === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(4, nn) }
-  const headH = ctx.look === 'svg' ? 9 : compact ? heightOf(headEl) : HEADER_ROWS
-  const fixed =
-    headH + 1 +
-    needsSlotHeight(view, 3, { cols: ctx.cols, now: ctx.now }) + 1 +
-    (watch.length > 0 ? watchHeight(ctx, watch, WATCH_CAP) + 1 : 0) +
-    (todo.empty ? (noRequest(ctx.t) ? 0 : 1) : 3) + todoWrapRows(todo, ctx.cols) + (todo.empty && noRequest(ctx.t) ? 0 : 1) +
-    (turn.length > 0 ? turn.length + 1 : 0) +
-    agentsHeight(ctx.t, rest, ag.floor, hold) - 3 * ag.floor + 1 +
-    (nn > 0 ? 1 : 0)
-  const deal = dealRows(rows - footRows - fixed - tw.floor - 3 * ag.floor - nw.floor, tw, ag, nw)
+  const nw = nn === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(NOTES_MAX, nn) }
+  const na = ctx.t.artifacts.length
+  const aw = na === 0 ? { floor: 0, want: 0 } : { floor: 1, want: Math.min(ARTS_MAX, na) }
 
-  const blocks: RenderElement[][] = [
+  // The blocks at given sizes. Measured, not estimated: a dry draw at the floors says what is fixed.
+  const AGENTS = 7
+  const build = (c: ViewCtx, d: { todo: number; notes: number; arts: number; cards: number }): RenderElement[][] => [
     [headEl],
-    needsSlot(ctx, $, view, { watchCount: watch.length }),
-    watchBlock(ctx, $, watch, WATCH_CAP),
-    todoSection(ctx, $, todo, deal.todo, { ended: rest }),
+    needs,
+    prEls,
+    todoSection(c, $, todo, d.todo, { ended: rest }),
+    notesSection(c, $, Math.max(1, d.notes)),
+    artsSection(c, $, Math.max(1, d.arts)),
     turn,
-    agentsSection(ctx, $, Math.max(1, deal.cards), { view, watch, rest }),
-    notesSection(ctx, $, Math.max(1, deal.notes)),
+    agentsSection(c, $, Math.max(1, d.cards), { view, watch, rest }),
   ]
-  // A card's third row is empty: when the Agents block ends on one, it is the gap.
-  const endsOnCard = agentsEndOnCard(ctx.t, rest, Math.max(1, deal.cards), hold)
+  const tall = (bs: RenderElement[][]): { rows: number; gaps: number } => {
+    const shown = bs.filter(x => x.length > 0)
+    return { rows: shown.reduce((n, x) => n + heightOf(x), 0), gaps: Math.max(0, shown.length - 1) }
+  }
+  const floors = { todo: tw.floor, notes: nw.floor, arts: aw.floor, cards: ag.floor }
+  const atFloor = tall(build({ ...ctx, dry: true }, floors))
+  const room = rows - footRows
+  let spare = room - atFloor.rows - atFloor.gaps
+  // R47 amended: To do takes spare rows first (every task it can show, up to TODO_MAX)...
+  const td = Math.max(tw.floor, Math.min(tw.want, tw.floor + Math.max(0, spare)))
+  spare -= td - tw.floor
+  // ...then the spacing relaxes: a second blank row between blocks (R50)...
+  const wide = spare >= atFloor.gaps
+  if (wide) spare -= atFloor.gaps
+  // ...then Notes, Artifacts and agent cards.
+  const deal = dealRows(Math.max(0, spare), { floor: td, want: td }, ag, nw, aw)
+  const blocks = build(ctx, { todo: td, notes: deal.notes, arts: deal.arts, cards: deal.cards })
+
   const out: RenderElement[] = []
   let prev = -1
   blocks.forEach((b, i) => {
     if (b.length === 0) return
-    if (prev >= 0 && !(prev === 5 && endsOnCard)) out.push(blank(ctx, $, `gap-${i}`))
+    if (prev >= 0) {
+      out.push(blank(ctx, $, `gap-${i}`))
+      if (wide) out.push(blank(ctx, $, `gap2-${i}`))
+    }
+    // R50: the Agents block sits at the foot of the pane; what is left over goes above it.
+    if (i === AGENTS && prev >= 0) {
+      const used = out.reduce((n, el) => n + heightOf(el), 0)
+      const left = room - used - heightOf(b)
+      for (let k = 0; k < left; k++) out.push(blank(ctx, $, `lift-${k}`))
+    }
     out.push(...b)
     prev = i
   })

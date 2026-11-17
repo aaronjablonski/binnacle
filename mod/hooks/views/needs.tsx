@@ -429,7 +429,7 @@ export function needsSlot(
   ctx: ViewCtx,
   $: EngineInterface,
   view: NeedsView,
-  o: { watchCount?: number; cap?: number; press?: (f: () => void | Promise<void>) => () => void | Promise<void> } = {},
+  o: { watchCount?: number; cap?: number; press?: (f: () => void | Promise<void>) => () => void | Promise<void>; /** R48: Now draws nothing when all is clear. */ quiet?: boolean } = {},
 ): RenderElement[] {
   const { Box, Text, Button } = $.ui.resolve(ctx.e)
   const { now } = ctx
@@ -448,7 +448,7 @@ export function needsSlot(
       : hs?.state === 'stopped' ? { text: STOPPED_TEXT }
       : hs?.state === 'idle-open' ? { text: `${hs.open} to do still open`, dim: true }
       : undefined
-    if (words === undefined) return [allClear(ctx, $, extra)]
+    if (words === undefined) return o.quiet === true ? [] : [allClear(ctx, $, extra)]
     const runs = fitRuns([words, ...(extra !== '' ? [{ text: extra, dim: true }] : [])], right - left + 1) as Run[]
     return [
       <Text key="all-clear" wrap="truncate-end">

@@ -277,8 +277,10 @@ test('the hook never throws: odd inputs and a pane never drawn pass through', as
 test('hotkey 3 switches to Agents and moves the ring to its first row', async ($, on) => {
   const w = world(on, RICH, { ...initialUi, tab: 'overview' })
   const ui = await mount($)
+  // R51: at 62 columns the tab row is compact (`3:Agents`), so `3` is armed on a hidden Button beside the tab.
   const tab = await ui.find({ type: 'Button', key: 'tab-agents' })
-  expect(tab?.props.hotkey).toBe('3')
+  const arm = await ui.find({ type: 'Button', key: 'arm-tab-agents' })
+  expect(tab?.props.hotkey ?? arm?.props.hotkey).toBe('3')
   await ui.press({ key: 'tab-agents' })
   expect((w.stored.get('ui') as UiState).tab).toBe('agents')
   await ui.redraw()

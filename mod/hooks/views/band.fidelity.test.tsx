@@ -104,10 +104,22 @@ const badgeCol = (rows: string[]): void => {
   }
 }
 
+/** R49: the band's hint reads `/binnacle`, 6 columns wider than the mock's `/mc`; it stays flush right at `width`. */
+const R49 = 'R49: the hint reads /binnacle (the mock\'s /mc), flush right, 6 columns wider'
+const hint = (row: number, width: number) => (rows: string[]): void => {
+  const left = rows[row]!.replace(/\s*\/mc$/, '')
+  if (left === rows[row]) throw new Error(`patch: row ${row} has no /mc: ${rows[row]}`)
+  rows[row] = left + ' '.repeat(Math.max(1, width - left.length - '/binnacle'.length)) + '/binnacle'
+}
+
 test('fidelity: CockpitBand working (104 columns) matches the mock but for the listed deviations', async ($, on) => {
   world(on, busy())
   const got = await drawn($, 104)
-  new Board('work').patch(R25, badgeCol).check('CockpitBand work', got, 104)
+  new Board('work')
+    .patch(R25, badgeCol)
+    .patch('R49: with the wider hint the to-do words give way from the end, so "nothing needs you" leaves row 2', sub(1, '   ·   nothing needs you', ''))
+    .patch(R49, hint(1, 104))
+    .check('CockpitBand work', got, 104)
 })
 
 test('fidelity: CockpitBand asked matches the mock but for the listed deviations', async ($, on) => {
@@ -117,6 +129,7 @@ test('fidelity: CockpitBand asked matches the mock but for the listed deviations
     .patch(R25, badgeCol)
     .patch('R1: the sentence reads "asks to run a command", then the tool and the command', sub(0, 'Builder asks to run  Bash', 'Builder asks to run a command  Bash'))
     .patch('R23 and real data: the asker is general-purpose, so its name reads General', sub(0, 'Builder asks', 'General asks'))
+    .patch(R49, hint(1, 104))
     .check('CockpitBand ask', got, 104)
 })
 
@@ -124,21 +137,35 @@ test('fidelity: CockpitBand with Watch matches the mock but for the listed devia
   // The mock's band keeps the work board's 62 % and 34 %; the Watch fixture of Now has 85 %, so its budget is the busy one.
   world(on, { ...watching(), budget: busy().budget })
   const got = await drawn($, 104)
-  new Board('watch').patch(R25, badgeCol).check('CockpitBand watch', got, 104)
+  new Board('watch').patch(R25, badgeCol).patch(R49, hint(1, 104)).check('CockpitBand watch', got, 104)
 })
+
+/** R56: the companion peeks at the left of the idle row (its head: one row of the 5-wide micro critter), the words from column 6. */
+const R56 = 'R56: the lead peeks up at the left (one row of its 5-wide critter), the words from column 6'
+const peek = (row: number, width: number) => (rows: string[]): void => {
+  const m = rows[row]!.match(/^(.*?)\s*(\/binnacle)$/)
+  if (m === null) throw new Error(`patch: row ${row} has no /binnacle: ${rows[row]}`)
+  const left = '¤¤¤¤¤ ' + m[1]!
+  rows[row] = left + ' '.repeat(Math.max(1, width - left.length - '/binnacle'.length)) + '/binnacle'
+}
 
 test('fidelity: CockpitBand idle matches the mock but for the listed deviations', async ($, on) => {
   world(on, idle())
   const got = await drawn($, 104)
   new Board('idle')
     .patch('R40: the countdown is in whole minutes (the mock ticks m:ss), so "cache warm 2 min"', sub(0, 'cache warm 2:51', 'cache warm 2 min'))
+    .patch(R49, hint(0, 104))
+    .patch(R56, peek(0, 104))
     .check('CockpitBand idle', got, 104)
 })
 
-test('fidelity: CockpitBand at 64 columns matches the mock', async ($, on) => {
+test('fidelity: CockpitBand at 64 columns matches the mock but for the listed deviations', async ($, on) => {
   world(on, busy())
   const got = await drawn($, 64)
-  new Board('c64').check('CockpitBand 64', got, 64)
+  new Board('c64')
+    .patch('R49: with the wider hint the focus cut at a word is "Wiring" alone ("the" dangles), under 8 columns, so the focus gives way first', sub(0, '  ·  Wiring the limiter', ''))
+    .patch(R49, hint(0, 64))
+    .check('CockpitBand 64', got, 64)
 })
 
 test('fidelity: CockpitBand asked at 40 columns matches the mock but for the listed deviations', async ($, on) => {
@@ -146,6 +173,8 @@ test('fidelity: CockpitBand asked at 40 columns matches the mock but for the lis
   const got = await drawn($, 40)
   new Board('c40')
     .patch('brief: at 40 columns the ask still names its tool, so the row gains "Bash" after the count of asks, and the separators close to two spaces to make room', sub(0, '1 needs you   ·   9 of 14', `1 needs you  ·  ${toolName('Bash', 12)}  ·  9 of 14`))
+    .patch('R49: the wider hint leaves no room for the count beside the tool, so "9 of 14" gives way and the separators open to three spaces again', sub(0, `1 needs you  ·  ${toolName('Bash', 12)}  ·  9 of 14`, `1 needs you   ·   ${toolName('Bash', 12)}`))
+    .patch(R49, hint(0, 40))
     .check('CockpitBand 40', got, 40)
 })
 

@@ -67,7 +67,7 @@ function urlOf(a: Pick<ArtifactRow, 'kind' | 'ref'>): string | undefined {
  * and only for a link no shell could read as more. Where nothing opens it the
  * ref is copied and a toast says why. Never throws.
  */
-async function openRef($: EngineInterface, a: ArtifactRow, surface: Surface): Promise<void> {
+export async function openRef($: EngineInterface, a: ArtifactRow, surface: Surface): Promise<void> {
   const ref = a.ref ?? ''
   if (ref === '') return
   const url = urlOf(a)
@@ -75,6 +75,15 @@ async function openRef($: EngineInterface, a: ArtifactRow, surface: Surface): Pr
     await openInEditor($, ref, undefined, surface)
     return
   }
+  await openLink($, url, surface)
+}
+
+/**
+ * Opens an http(s) URL in the system's browser (`start`, `open` or
+ * `xdg-open`, tried in turn, only for a URL no shell could read as more);
+ * where nothing opens it the URL is copied and a toast says so. Never throws.
+ */
+export async function openLink($: EngineInterface, url: string, surface: Surface): Promise<void> {
   if (SAFE_URL.test(url)) {
     const tries = [['cmd', '/d', '/c', 'start', '', url], ['open', url], ['xdg-open', url]]
     for (const argv of tries) {

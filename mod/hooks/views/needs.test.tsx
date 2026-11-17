@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { watch } from '../model/alerts'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
@@ -488,12 +489,10 @@ test('R41: a 6-minute npm run build with no earlier run is a Long step on Watch,
     agents: { main },
   }
   world(on, t)
-  const ui = await $.ui.mount({ ...PANE(62), surface: 'terminal' })
-  const rows = (await texts(ui)).join('\n')
-  expect(rows).toContain('Long step')
-  expect(rows).toContain('npm run build has run 6 min')
-  expect(rows).not.toContain('Stalled')
-  await ui.unmount()
+  // R45: Watch is not drawn on Now; the alert model is where the kind and its sentence are decided.
+  const rows = watch(t, NOW, [])
+  expect(rows.map(w => w.kind)).toEqual(['long-step'])
+  expect(rows[0]!.sentence).toContain('npm run build has run 6 min')
 })
 
 // ---------- Now's agent card and header (F I1, F M11 / R30, F M12a) ----------
@@ -530,7 +529,7 @@ test('F M11 / R30: the wait shows in the pill and the block, not on the card, wh
   await ui.unmount()
 })
 
-test('F M12a: a request that ended with tasks open says "stopped 2 min ago" in the header, not "finished"', async ($, on) => {
+test('F M12a: a request that ended with tasks open says "stopped 2 min ago" in the header, not "finished"', { options: { header: 'full' } }, async ($, on) => {
   const tasks = [
     { id: '1', subject: 'one', status: 'completed' as const, owner: 'main', updatedAt: NOW - 200_000 },
     { id: '2', subject: 'two', status: 'pending' as const, owner: 'main', updatedAt: NOW - 200_000 },

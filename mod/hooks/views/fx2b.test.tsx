@@ -132,7 +132,7 @@ test('F I12: at 48 columns the current task keeps its title whole and shortens t
   expect(rows[at]).toMatch(/^▍ ▸ Wire the limiter into the chain +now$/)
 })
 
-test('R40 (F I6): the idle budget line at 62 columns is "644k of 1M used · cache warm 2 min", whole minutes, beside the gauges', async ($, on) => {
+test('R40 (F I6): the idle budget line at 62 columns is "644k of 1M used · cache warm 2 min", whole minutes, beside the gauges', { options: { header: 'full' } }, async ($, on) => {
   world(on, idle())
   const rows = await pane($, 62)
   expect(rows.find(r => r.includes('644k'))?.startsWith('  644k of 1M used · cache warm 2 min')).toBe(true)
@@ -158,14 +158,16 @@ for (const [cols, edge] of [[62, 59], [80, 77], [90, 87]] as const) {
   })
 }
 
-test('F M1: the Watch row keys draw dim', async ($, on) => {
+// R45 (meaning changed): Now draws no Watch rows, so no Watch keys at all; slim's one Watch line stays a dim plain Button.
+test('F M1 / R45: Now has no Watch keys; slim\'s Watch line is dim', async ($, on) => {
   world(on, watching())
   const ui = await $.ui.mount({ ...PANE(62, 46), surface: 'terminal' } as never)
   const buttons = await ui.findAll({ type: 'Button' })
-  const keys = buttons.filter(b => /^watch-(transcript|chat|dismiss)/.test(b.key ?? ''))
-  expect(keys.length).toBeGreaterThan(0)
-  for (const b of keys) expect(b.props as { dimColor?: boolean }).toMatchObject({ dimColor: true })
+  expect(buttons.filter(b => /^watch-/.test(b.key ?? '')).length).toBe(0)
   await ui.unmount()
+  const slim = await $.ui.mount({ ...PANE(28, 46), surface: 'terminal' } as never)
+  expect((await slim.find({ type: 'Button', key: 'slim-watch' }))?.props).toMatchObject({ dimColor: true })
+  await slim.unmount()
 })
 
 test('F M10: the idle strip wraps "the last was …" to a second row before it cuts it', async ($, on) => {

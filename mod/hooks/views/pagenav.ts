@@ -7,12 +7,23 @@ import type { EngineInterface } from 'claude-code'
 import type { PageKind, UiState } from '../../types'
 import { debug, errText, updateUi } from '../state'
 import { openStep } from './openstep'
+import { focusStart } from './shell'
 
 /** The pane's request id (shell.tsx `PANE`; not imported, as shell imports this module). */
 const PANE_ID = 'binnacle'
 
 /** The kinds of page: the four detail pages, and Options. */
 export const PAGE_KINDS: readonly PageKind[] = ['task', 'agent', 'step', 'artifact', 'options']
+
+/**
+ * After a page opens or closes with no row to go back to, the ring lands on the
+ * first row (R51; shell.tsx `focusStart`). Not awaited: the row is drawn only
+ * after the press returns, and `$.ui.focus` waits for it, so awaiting here held
+ * the press (and every write after it) until that wait ran out.
+ */
+function landFirst($: EngineInterface, why: string): void {
+  void focusStart($, why).catch(err => debug($, `${why}: focus failed: ${errText(err)}`))
+}
 
 /** The longest page id kept. */
 const MAX_PAGE_ID = 200
@@ -45,12 +56,18 @@ export function pageFor(kind: PageKind, id: string, from?: string): NonNullable<
  * whichever row opened it. From a press handler only. Never throws.
  */
 export async function openPage($: EngineInterface, kind: PageKind, id: string, from?: string): Promise<void> {
-  if (kind === 'step') return openStep($, id, from)
+  if (kind === 'step') {
+    await openStep($, id, from)
+    landFirst($, `page ${kind}`)
+    return
+  }
   try {
     await updateUi($, cur => ({ ...cur, page: pageFor(kind, id, from) }))
   } catch (err) {
     debug($, `open page ${kind} ${id} failed: ${errText(err)}`)
+    return
   }
+  landFirst($, `page ${kind}`)
 }
 
 /**
@@ -70,7 +87,10 @@ export async function closePage($: EngineInterface): Promise<void> {
     debug($, `close page failed: ${errText(err)}`)
     return
   }
-  if (from === undefined) return
+  if (from === undefined) {
+    landFirst($, 'back')
+    return
+  }
   try {
     const moved = await $.ui.focus({ requestId: PANE_ID, key: from })
     if (moved.deny !== undefined) debug($, `back: focus ${from} denied: ${moved.deny}`)

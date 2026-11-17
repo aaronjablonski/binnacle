@@ -100,7 +100,7 @@ async function lit(ui: Mounted, clock: MockClock, ms: number, step = 100): Promi
 
 const STEPS = [0, 1, 2, 3, 4].map(i => sweepCells(i, 62)[0])
 
-test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it ends and never comes back', { options: { look: 'text' }, timeoutMs: 30_000 }, async ($, on) => {
+test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it ends and never comes back', { options: { look: 'text', header: 'full' }, timeoutMs: 30_000 }, async ($, on) => {
   const w = world(on, clean(), OPEN)
   await start($)
   const ui = await $.ui.mount(PANE(62) as never)
@@ -125,7 +125,7 @@ test('a clean finish sweeps the pane once: SWEEP_FRAMES frames in order, then it
   await ui.unmount()
 })
 
-test('the sweep lights a 6-cell window of the 62-column header rule, and the whole pass is under a second', { options: { look: 'text' } }, async ($, on) => {
+test('the sweep lights a 6-cell window of the 62-column header rule, and the whole pass is under a second', { options: { look: 'text', header: 'full' } }, async ($, on) => {
   const w = world(on, clean(), OPEN)
   await start($)
   const ui = await $.ui.mount(PANE(62) as never)
@@ -392,7 +392,7 @@ async function drawnRasters($: Engine, on: On, t: Timeline): Promise<Map<string,
 /** The Rasters that hold a critter (`now-who`, `agent-<id>-who`, the rest row); the others are structural. */
 const isCritter = (key: string): boolean => /-who$|^rest$|^tether/.test(key)
 
-test('rich: the default accent draws the palette iris in the structural Rasters', async ($, on) => {
+test('rich: the default accent draws the palette iris in the structural Rasters', { options: { header: 'full' } }, async ($, on) => {
   const drawn = await drawnRasters($, on, busy())
   rasterBase.drawn = drawn
   const structural = [...drawn].filter(([k]) => !isCritter(k))
@@ -404,7 +404,7 @@ test('rich: the default accent draws the palette iris in the structural Rasters'
 })
 
 for (const name of ['sky', 'slate'] as const) {
-  test(`rich: accent ${name} draws no iris hex in the lintel, sill and gauges, and the critter cells are unchanged`, { options: { accent: name } }, async ($, on) => {
+  test(`rich: accent ${name} draws no iris hex in the lintel, sill and gauges, and the critter cells are unchanged`, { options: { accent: name, header: 'full' } }, async ($, on) => {
     // The default drawing is the previous test's (a draw reads the accent from the register options, so one engine cannot draw both); a run of this test alone reads none and fails loudly, naming it.
     const base = rasterBase.drawn
     if (base === undefined) throw new Error('needs the default-accent drawing from "rich: the default accent draws the palette iris in the structural Rasters", which runs before it')
@@ -465,17 +465,17 @@ async function gaugeRatio($: Engine, on: On, env: Record<string, string>, a: num
   return ((Math.max(...xs) - Math.min(...xs) + 1) * 0.5) / ((Math.max(...ys) - Math.min(...ys) + 1) * 0.25 * a)
 }
 
-test('FX4: in Windows Terminal (WT_SESSION) the header gauge is round within 5 % at aspect 2.35', async ($, on) => {
+test('FX4: in Windows Terminal (WT_SESSION) the header gauge is round within 5 % at aspect 2.35', { options: { header: 'full' } }, async ($, on) => {
   const r = await gaugeRatio($, on, { WT_SESSION: 'x' }, 2.35)
   expect(Math.abs(r - 1)).toBeLessThan(0.05)
 })
 
-test('FX4: in VS Code (TERM_PROGRAM=vscode) the header gauge is round within 5 % at aspect 2.4', async ($, on) => {
+test('FX4: in VS Code (TERM_PROGRAM=vscode) the header gauge is round within 5 % at aspect 2.4', { options: { header: 'full' } }, async ($, on) => {
   const r = await gaugeRatio($, on, { TERM_PROGRAM: 'vscode' }, 2.4)
   expect(Math.abs(r - 1)).toBeLessThan(0.05)
 })
 
-test('FX4: with no terminal named the header gauge is round within 5 % at aspect 2.2', async ($, on) => {
+test('FX4: with no terminal named the header gauge is round within 5 % at aspect 2.2', { options: { header: 'full' } }, async ($, on) => {
   const r = await gaugeRatio($, on, {}, 2.2)
   expect(Math.abs(r - 1)).toBeLessThan(0.05)
 })

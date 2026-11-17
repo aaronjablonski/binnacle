@@ -270,7 +270,7 @@ All of these work in the middle of a turn. They are the only commands.
 
 ## Keys
 
-<kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>Tab</kbd> focuses the pane (remap it with the `abovePrompt:focus` action in `~/.claude/keybindings.json`). <kbd>Tab</kbd> moves between rows, <kbd>Enter</kbd> opens one, <kbd>Esc</kbd> returns to the prompt, and <kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>X</kbd> closes the pane. The footer shows the hints that apply to the screen you are on.
+<kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>Tab</kbd> focuses the pane (remap it with the `abovePrompt:focus` action in `~/.claude/keybindings.json`). <kbd>↑</kbd> <kbd>↓</kbd> and <kbd>Tab</kbd> always move between rows and never just scroll; <kbd>Page Up</kbd> <kbd>Page Down</kbd> (and the wheel) scroll a pane taller than the window, <kbd>Enter</kbd> opens one, <kbd>Esc</kbd> returns to the prompt, and <kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>X</kbd> closes the pane. The footer shows the hints that apply to the screen you are on.
 
 <details>
 <summary><b>Every hotkey</b></summary>

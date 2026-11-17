@@ -12,9 +12,9 @@
 
 import type { ConfigValue, EngineInterface, PluginOptions, RenderElement } from 'claude-code'
 
-import { debug, errText } from '../state'
+import { debug, errText, updateUi } from '../state'
 import { nameFit, wordFit } from './fit'
-import { closePage, openPage } from './pagenav'
+import { closePage, leavePage, openPage } from './pagenav'
 import { heightOf, runText, section } from './parts'
 import { applyShowAs, TAB_ROWS } from './shell'
 import type { ViewCtx } from './shell'
@@ -242,11 +242,8 @@ async function pressRow($: EngineInterface, f: Field): Promise<void> {
   const next = nextValue(f, valueOf(f.field))
   if (next === undefined) return
   await setOption($, f, next)
-  try {
-    await $.ui.focus({ requestId: PANE_ID, key: `opt-${f.field}` })
-  } catch (err) {
-    debug($, `options: refocus ${f.field} failed: ${errText(err)}`)
-  }
+  // Not awaited: the row is drawn again only after the press returns (see pagenav.ts `landFirst`).
+  void $.ui.focus({ requestId: PANE_ID, key: `opt-${f.field}` }).catch(err => debug($, `options: refocus ${f.field} failed: ${errText(err)}`))
 }
 
 /** Opens Options, or closes it when it is open. From a press or a command only. */
@@ -255,11 +252,19 @@ export async function toggleOptions($: EngineInterface, isOpen: boolean): Promis
   else await openPage($, 'options', '')
 }
 
-/** Leaves the Options page (`0`, `b`): under `showAs: band` or `strip` the pane then closes (R53). */
+/**
+ * Leaves the Options page (`0`, `b`). Under `showAs: band` or `strip` the
+ * styles are exclusive (R53): the page is left and the pane closes, so only
+ * the band or the strip stays; under `pane` the tab's list comes back.
+ */
 export async function leaveOptions($: EngineInterface): Promise<void> {
-  await closePage($)
   const v = showAsOption()
-  if (v !== 'pane') await applyShowAs($, v)
+  if (v === 'pane') {
+    await closePage($)
+    return
+  }
+  await updateUi($, cur => leavePage(cur))
+  await applyShowAs($, v)
 }
 
 // ---------- drawing ----------

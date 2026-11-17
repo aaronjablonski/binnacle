@@ -22,7 +22,7 @@ import type { Ground, Look } from './style'
 import { lookFor } from './svgview'
 import { taskPage, tasksView } from './tasks'
 import { pinNewest, timelineView } from './timeline'
-import { landing, stopsOf, withStart } from './ring'
+import { arrowTarget, isArrowScroll, landing, stopsOf, withStart } from './ring'
 import type { Stops } from './ring'
 import { aspectFromEnv, setCellAspect } from './raster'
 
@@ -234,6 +234,24 @@ export function registerShell(on: On, options: PluginOptions): void {
     const settled = await next(sent)
     if (settled.deny === undefined) ring.at = sent.element
     return settled
+  }).catch(($, e, next) => next(e))
+
+  // R54: the arrows always walk rows, never the window. The engine turns an arrow into a one-row scroll while it
+  // has rows to scroll; that move is answered here by moving the ring one row instead and bringing that row into
+  // view. The wheel, the page keys and Home and End still scroll. Answers without next for an arrow.
+  on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    if (e.requestId !== PANE || !isArrowScroll(e)) return next(e)
+    const key = arrowTarget(ring.stops, ring.at, e.by)
+    if (key === undefined) return {}
+    try {
+      const moved = await $.ui.focus({ requestId: PANE, key })
+      if (moved.deny !== undefined) debug($, `arrow: focus ${key} denied: ${moved.deny}`)
+      else ring.at = key
+      await $.ui.scroll({ in: PANE, to: { key } })
+    } catch (err) {
+      debug($, `arrow: focus ${key} failed: ${errText(err)}`)
+    }
+    return {}
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
@@ -789,12 +807,16 @@ export async function startShell($: EngineInterface, options: { autoOpen?: boole
   } catch (err) {
     debug($, `env read failed: ${errText(err)}`)
   }
-  // R53: `showAs: strip` puts the strip above the prompt in every session (a reload after the option changed applies it too).
-  if (options.showAs === 'strip' && !(await isStrip($))) {
+  // R53 amended: the styles are exclusive. At every session start and reload (an option change reloads the mod),
+  // `band` and `strip` close a pane left open and set the strip; only while the person is on the Options page is the
+  // pane kept, so stepping through Show as there never closes the page under them (leaving Options applies it).
+  if (options.showAs === 'band' || options.showAs === 'strip') {
     try {
-      await updateUi($, cur => ({ ...cur, strip: true }))
+      const onOptions = pageOf(await readUi($))?.kind === 'options'
+      if (!onOptions) await applyShowAs($, options.showAs)
+      else await updateUi($, cur => ({ ...cur, strip: options.showAs === 'strip' }))
     } catch (err) {
-      debug($, `showAs strip failed: ${errText(err)}`)
+      debug($, `showAs ${String(options.showAs)} at start failed: ${errText(err)}`)
     }
   }
   // The strip stands in for the pane: a reload or a resumed session keeps it. `showAs: band` never opens the pane by itself.

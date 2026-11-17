@@ -132,9 +132,13 @@ test('the Artifacts tab keeps the tab row', async ($, on) => {
 test('the tab names are whole from 54 columns, whole short words from 43 and icons below that (R42)', async ($, on) => {
   seed(on, empty)
   for (const surface of SURFACES) {
-    const wide = await mount($, surface, 62)
+    // R51: at 62 the row makes room for `0:Options` by closing up to `2:Tasks`; from 80 the names stand alone.
+    const wide = await mount($, surface, 80)
     expect((await wide.find({ key: 'tab-tasks' }))?.text).toBe('Tasks')
     await wide.unmount()
+    const closed = await mount($, surface, 62)
+    expect((await closed.find({ key: 'tab-tasks' }))?.text).toBe('2:Tasks')
+    await closed.unmount()
     const full = await mount($, surface, 54)
     expect((await full.find({ key: 'tab-agents' }))?.text).toBe('Agents')
     expect((await full.find({ key: 'tab-artifacts' }))?.text).toBe('Artifacts')
@@ -275,12 +279,12 @@ test('the tab bar has no separators and draws the open tab bold in the accent, t
     dismissed: [], query: '', runningOnly: false, notified: [], toasted: [], slim: false,
   })
   for (const surface of SURFACES) {
-    for (const columns of [62, 32]) {
+    for (const columns of [80, 32]) {
       const ui = await mount($, surface, columns)
       const found = await ui.findAll({ type: 'Text' })
       expect(found.filter(f => f.text === '│').length).toBe(0)
       expect(found.filter(f => propsOf(f).backgroundColor !== undefined).length).toBe(0)
-      const open = found.filter(f => f.text === (columns === 62 ? 'Tasks' : '▣') && propsOf(f).color === 'suggestion')
+      const open = found.filter(f => f.text === (columns === 80 ? 'Tasks' : '▣') && propsOf(f).color === 'suggestion')
       expect(open.length).toBe(1)
       const tab = await ui.find({ key: 'tab-tasks' })
       expect(tab?.props).toMatchObject({ hotkey: '2', plain: true })

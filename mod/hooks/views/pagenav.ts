@@ -15,13 +15,14 @@ const PANE_ID = 'binnacle'
 /** The kinds of page: the four detail pages, and Options. */
 export const PAGE_KINDS: readonly PageKind[] = ['task', 'agent', 'step', 'artifact', 'options']
 
-/** After a page opens or closes with no row to go back to, the ring lands on the first row (R51; shell.tsx `focusStart`). */
-async function landFirst($: EngineInterface, why: string): Promise<void> {
-  try {
-    await focusStart($, why)
-  } catch (err) {
-    debug($, `${why}: focus failed: ${errText(err)}`)
-  }
+/**
+ * After a page opens or closes with no row to go back to, the ring lands on the
+ * first row (R51; shell.tsx `focusStart`). Not awaited: the row is drawn only
+ * after the press returns, and `$.ui.focus` waits for it, so awaiting here held
+ * the press (and every write after it) until that wait ran out.
+ */
+function landFirst($: EngineInterface, why: string): void {
+  void focusStart($, why).catch(err => debug($, `${why}: focus failed: ${errText(err)}`))
 }
 
 /** The longest page id kept. */
@@ -57,7 +58,7 @@ export function pageFor(kind: PageKind, id: string, from?: string): NonNullable<
 export async function openPage($: EngineInterface, kind: PageKind, id: string, from?: string): Promise<void> {
   if (kind === 'step') {
     await openStep($, id, from)
-    await landFirst($, `page ${kind}`)
+    landFirst($, `page ${kind}`)
     return
   }
   try {
@@ -66,7 +67,7 @@ export async function openPage($: EngineInterface, kind: PageKind, id: string, f
     debug($, `open page ${kind} ${id} failed: ${errText(err)}`)
     return
   }
-  await landFirst($, `page ${kind}`)
+  landFirst($, `page ${kind}`)
 }
 
 /**
@@ -87,7 +88,7 @@ export async function closePage($: EngineInterface): Promise<void> {
     return
   }
   if (from === undefined) {
-    await landFirst($, 'back')
+    landFirst($, 'back')
     return
   }
   try {

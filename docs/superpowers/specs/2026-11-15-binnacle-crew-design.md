@@ -2,7 +2,7 @@
 
 Mock only. Nothing in `mod/`, `test/` or `docs/` changed.
 
-- Generator: `C:/Users/aaron/AppData/Local/Temp/claude/ae34955231230200/dc336d21-c66b-404c-8800-2405731faabe/scratchpad/gen-crew.js` (`node gen-crew.js`)
+- Generator: a scratch script, `gen-crew.js` (`node gen-crew.js`), not kept in the repository
 - Boards: `scratchpad/mcstyles/project/Crew*.dc.html`
 - Plain previews and check sheets (PNG): `scratchpad/crew-preview/`
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/aaronjablonski/binnacle-claude-mod/security/advisories/new
+    about: Please report security problems privately, not in a public issue.
+  - name: Claude Code itself
+    url: https://github.com/anthropics/claude-code/issues
+    about: Problems with Claude Code or the mods API rather than with Binnacle.

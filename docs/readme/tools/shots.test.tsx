@@ -28,6 +28,21 @@ const PR: PrState = {
     ],
   },
 }
+// A longer stack for the Pull request picture: every mark once (merged, queued, current, failing, draft).
+const STACK: PrState = {
+  at: NOW, branch: 'feat/limiter-chain',
+  current: { ...PR.current!, review: 'approved' },
+  stack: {
+    trunk: 'main',
+    items: [
+      { branch: 'feat/limiter-core', number: 480, url: 'https://github.com/acme/api/pull/480', title: 'Token bucket limiter', state: 'merged', checks: 'pass' },
+      { branch: 'feat/limiter-config', number: 481, url: 'https://github.com/acme/api/pull/481', title: 'Config for the limits', state: 'open', queued: true, checks: 'pass' },
+      { branch: 'feat/limiter-chain', number: 482, url: 'https://github.com/acme/api/pull/482', title: 'Wire the rate limiter into the middleware chain', state: 'open', checks: 'pass' },
+      { branch: 'feat/limiter-errors', number: 483, url: 'https://github.com/acme/api/pull/483', title: 'Return 429 with Retry-After', state: 'open', checks: 'fail' },
+      { branch: 'feat/limiter-docs', number: 484, url: 'https://github.com/acme/api/pull/484', title: 'Document the limits', state: 'open', draft: true, checks: 'pending' },
+    ],
+  },
+}
 // The one-shot moves (motion sketches) play on a view's first draw (the gauges fill when the pane opens): the
 // clock starts SETTLE_MS early, and a shot is the redraw at NOW, after every move has ended.
 const SETTLE_MS = 2000
@@ -125,13 +140,16 @@ test('narrow-40', async ($, on) => { world(on, busy()); await pane($, 'narrow-40
 
 test('band-busy', async ($, on) => { world(on, busy()); await band($, 'band-busy', 104) })
 test('band-asked', async ($, on) => { world(on, asked()); await band($, 'band-asked', 104) })
-test('band-watch', async ($, on) => { world(on, { ...watching(), budget: busy().budget }); await band($, 'band-watch', 104) })
 test('band-idle', async ($, on) => { world(on, idle()); await band($, 'band-idle', 104) })
 test('band-empty', async ($, on) => { world(on, empty as Timeline, initialUi, undefined); await band($, 'band-empty', 104) })
 test('band-stopped', async ($, on) => { world(on, stopped()); await band($, 'band-stopped', 104) })
 test('band-watch-64', async ($, on) => { world(on, { ...watching(), budget: busy().budget }); await band($, 'band-watch-64', 64) })
 test('band-64', async ($, on) => { world(on, busy()); await band($, 'band-64', 64) })
 test('band-40', async ($, on) => { world(on, busy()); await band($, 'band-40', 40) })
+test('now-stack', async ($, on) => { world(on, busy(), initialUi, STACK); await pane($, 'now-stack', 62, 46) })
+test('band-stack', async ($, on) => { world(on, busy(), initialUi, STACK); await band($, 'band-stack', 104) })
+// R55: trying the Show as styles from the band; the row sits on top until `0: keep`.
+test('band-try', { options: { showAs: 'band' } }, async ($, on) => { world(on, busy(), { ...initialUi, showAsTry: true }); await band($, 'band-try', 104) })
 test('band-strip', async ($, on) => { world(on, busy(), { ...initialUi, strip: true }); await band($, 'band-strip', 110, 'terminal', { maxRows: 20, scroll: { offset: 0, bodyRows: 20 } }) })
 
 test('desktop-now', async ($, on) => { world(on, busy()); await pane($, 'desktop-now', 62, 46, { surface: 'desktop' }) })

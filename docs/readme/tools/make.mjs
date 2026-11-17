@@ -441,6 +441,16 @@ png('budget', card(grid('budget', 62)))
   png('needs-watch', row([titled('Needs you: a dialog is waiting on you', card(cut(n))), titled('Watch: the band counts it, nothing turns amber', card(grid('band-watch-64', 64), 'night', { py: 8 }))], 24), { scale: 1.5 })
 }
 
+// The Pull request block and its stack (R46): the block from Now, and the band's chip for the same PR.
+{
+  const g = grid('now-stack', ...PANE)
+  const block = crop(g, rowAt(g, 'Pull request'), rowAt(g, 'Pull request') + 3)
+  png('pr', col([
+    titled('On Now, under the header: the PR, its title, and the stack from the trunk up', card(block)),
+    titled('In the band: the same PR as a chip, with its place in the stack', card(grid('band-stack', 104), 'night', { py: 8 })),
+  ], 16), { scale: 1.5 })
+}
+
 // The header's five states.
 {
   const head = name => { const g = grid(name, 62); /* the tab row, its track, the blank (R51: it may read `1:Now`) */ const top = 2; return crop(g, top + 1, top + 10) }
@@ -455,11 +465,10 @@ png('budget', card(grid('budget', 62)))
   png('band', col([
     b('Working: the goal, the to-do bar, the gauges as words', 'band-busy', 104),
     b('A dialog is waiting: who asks and what, in amber', 'band-asked', 104),
-    b('Something to watch: the band stays calm', 'band-watch', 104),
     b('After a failed turn', 'band-stopped', 104),
     b('Before anything happens: the lead peeks up, ready', 'band-empty', 104),
     b('All done: one dim row', 'band-idle', 104),
-    row([b('64 columns', 'band-64', 64), b('40 columns', 'band-40', 40)], 24),
+    row([b('One row (pane open, or under 80 columns): 64 columns', 'band-64', 64), b('40 columns', 'band-40', 40)], 24),
   ], 16), { scale: 1.5 })
 }
 
@@ -470,6 +479,7 @@ png('budget', card(grid('budget', 62)))
     titled('pane (default): the pane beside the chat, every tab; one band row above the prompt', card(pane)),
     titled('band: no pane, two minimal rows above the prompt', col([card(grid('band-busy', 104), 'night', { py: 8 }), prompt(107)], 6)),
     titled('strip: no pane, all of Now on its side above the prompt', col([card(grid('band-strip', 110)), prompt(113)], 6)),
+    titled('Trying the styles: the Show as row on top; type 1, 2 or 3 in the empty prompt, 0 to keep', col([card(grid('band-try', 104), 'night', { py: 8 }), prompt(107)], 6)),
   ], 18), { scale: 1.5 })
 }
 
